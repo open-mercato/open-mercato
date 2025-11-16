@@ -137,21 +137,16 @@ Stored in `packages/core/src/modules/catalog/commands/priceKinds.ts`.
 | `catalog.priceKinds.update` | Adjust labels, display mode, currency, or promotion flags | `priceKindUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:271`) |
 | `catalog.priceKinds.delete` | Soft delete a price kind after ensuring no prices reference it | n/a |
 
-## Attribute schema commands — `catalog.attributeSchemas.*`
+## Custom field fieldsets
 
-Reusable attribute schema templates live in `packages/core/src/modules/catalog/commands/attributeSchemas.ts` and back the `/api/catalog/attribute-schemas` REST endpoint.
+Catalog products and variants no longer ship their own “attribute schema” concept. Instead they rely on the shared custom-fields engine and the `CustomFieldEntityConfig` fieldset metadata that is edited from **Entities → System entities → catalog.catalog_product** (and `catalog.catalog_product_variant`). Compose as many fieldsets as you need—e.g. `fashion`, `equipment`, `services`—and assign custom fields plus per-field groups within each set. The generated UI automatically scopes the editors, CRUD forms, and filters to the currently selected fieldset.
 
-| Command id | Purpose | Schema |
-| --- | --- | --- |
-| `catalog.attributeSchemas.create` | Persist a reusable schema template scoped to an organization/tenant | `attributeSchemaTemplateCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:146`) |
-| `catalog.attributeSchemas.update` | Patch template metadata or definitions | `attributeSchemaTemplateUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:154`) |
-| `catalog.attributeSchemas.delete` | Soft delete a template (requires products to detach first) | n/a |
+Key details:
 
-Highlights:
-
-- Templates store the same `attributeSchema` payload you would normally attach to a product, but as JSON on `catalog_product_attribute_schemas`.
-- Products reference templates via `attributeSchemaId`. If no per-product override is present, the shared definition is used verbatim; otherwise `attributeSchema` overrides only that product.
-- Deleting a template is blocked while products still point at it, so detach or migrate those products before cleanup. Undo logs capture before/after snapshots for safe rollbacks.
+- Fieldset metadata lives in `custom_field_entity_configs` and is exposed through `/api/entities/definitions?entityId=…`. The request accepts `?fieldset=<code>` to filter definitions server-side; the admin UI calls this automatically when the user switches fieldsets.
+- Products (`catalog_products`) and variants (`catalog_product_variants`) persist the chosen fieldset in the `custom_fieldset_code` column. Awilix commands and CRUD handlers already accept a `customFieldsetCode` property so you can capture that selection from bespoke flows.
+- Listing APIs allow a `customFieldset=<code>` query parameter so filters and the query engine interpret `cf_*` filters using the right definition set. The backend uses `buildCustomFieldFiltersFromQuery(..., { fieldset })` to scope validation and coercion.
+- Because we now reuse custom fields, all of the generic helpers (`collectCustomFieldValues`, `crud.create/update` payloads, entity definitions UI) apply without a bespoke schema layer. Old attribute schema endpoints/tests have been removed; the existing migrations (up to `Migration20251116183727`) take care of dropping the template tables and extra JSON columns.
 
 ## Customising price selection
 

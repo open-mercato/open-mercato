@@ -99,12 +99,29 @@ export function extractAllCustomFieldEntries(item: Record<string, unknown>): Rec
   return out
 }
 
+function normalizeFieldsetFilter(input?: string | string[] | null): Set<string | null> | null {
+  if (input == null) return null
+  const values = Array.isArray(input) ? input : [input]
+  const normalized = new Set<string | null>()
+  for (const raw of values) {
+    if (raw == null) continue
+    const trimmed = String(raw).trim()
+    if (!trimmed) {
+      normalized.add(null)
+    } else {
+      normalized.add(trimmed)
+    }
+  }
+  return normalized.size ? normalized : null
+}
+
 export async function buildCustomFieldFiltersFromQuery(opts: {
   entityId?: EntityId
   entityIds?: EntityId[]
   query: Record<string, unknown>
   em: EntityManager
   tenantId: string | null | undefined
+  fieldset?: string | string[] | null
 }): Promise<Record<string, WhereValue>> {
   const out: Record<string, WhereValue> = {}
   const entries = Object.entries(opts.query).filter(([k]) => k.startsWith('cf_'))
@@ -125,10 +142,16 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
       { $or: [ { tenantId: opts.tenantId as any }, { tenantId: null } ] },
     ],
   })
+  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
   const order = new Map<string, number>()
   entityIdList.map(String).forEach((id, index) => order.set(id, index))
   const byKey: Record<string, { kind: string; multi?: boolean; entityId: string }> = {}
   for (const d of defs) {
+    if (fieldsetFilter) {
+      const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
+      const normalizedFieldset = rawFieldset.length ? rawFieldset : null
+      if (!fieldsetFilter.has(normalizedFieldset)) continue
+    }
     const key = d.key
     const entityId = String(d.entityId)
     const current = byKey[key]

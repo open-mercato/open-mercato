@@ -169,45 +169,6 @@
           "currencyLoadError": "Unable to load currencies.",
           "unitLoadError": "Unable to load units."
         },
-        "attributeSchema": {
-          "loadError": "Nie udało się załadować schematów atrybutów",
-          "custom": "Własny schemat",
-          "new": "Nowy schemat",
-          "label": "Schemat atrybutów",
-          "select": "Wybierz schemat",
-          "customize": "Dostosuj",
-          "newButton": "Nowy schemat",
-          "reset": "Resetuj",
-          "nameLabel": "Schema name",
-          "namePlaceholder": "e.g., Fashion base attributes",
-          "dialogTitle": "Customize attribute schema",
-          "errors": {
-            "key": "Klucz jest wymagany",
-            "kind": "Typ jest wymagany"
-          },
-          "dialogDescription": "Zdefiniuj pola atrybutów, które mają być zbierane dla tego produktu.",
-          "empty": "Brak pól. Dodaj pierwszy atrybut.",
-          "fieldKey": "Klucz",
-          "fieldLabel": "Etykieta",
-          "kind": "Kind",
-          "scope": "Zakres",
-          "scope.product": "Produkt",
-          "scope.variant": "Wariant",
-          "scope.shared": "Wspólny",
-          "required": "Wymagane",
-          "removeField": "Usuń",
-          "addField": "Dodaj pole",
-          "options": "Opcje",
-          "noOptions": "Brak opcji.",
-          "optionValue": "Wartość",
-          "optionLabel": "Etykieta",
-          "remove": "Usuń",
-          "addOption": "Dodaj opcję"
-        },
-        "attributeValues": {
-          "title": "Wartości atrybutów",
-          "empty": "Wybierz lub zdefiniuj schemat, aby wprowadzać atrybuty."
-        },
         "variants": {
           "add": "Dodaj wariant",
           "generate": "Generuj na podstawie atrybutów",

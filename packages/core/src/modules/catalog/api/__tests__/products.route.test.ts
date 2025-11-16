@@ -51,6 +51,7 @@ describe('catalog products route helpers', () => {
         isActive: 'true',
         configurable: 'false',
         channelIds: '11111111-1111-4111-8111-111111111111',
+        customFieldset: ' fashion ',
       } as any,
       { container, auth: { tenantId: 'tenant-1' } } as any,
     )
@@ -61,6 +62,7 @@ describe('catalog products route helpers', () => {
       query: expect.any(Object),
       em,
       tenantId: 'tenant-1',
+      fieldset: 'fashion',
     })
     expect(filters.$or).toBeDefined()
     expect(filters.status_entry_id).toEqual({ $eq: 'status' })

@@ -130,6 +130,7 @@ export type DataTableProps<T> = {
   exporter?: DataTableExportConfig | false
   perspective?: DataTablePerspectiveConfig
   embedded?: boolean
+  onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -489,6 +490,7 @@ export function DataTable<T>({
   exporter,
   perspective,
   embedded = false,
+  onCustomFieldFilterFieldsetChange,
 }: DataTableProps<T>) {
   const router = useRouter()
   React.useEffect(() => {
@@ -1198,6 +1200,7 @@ export function DataTable<T>({
         if (cancelled) return
         const fieldsets = payload.fieldsetsByEntity ?? {}
         setCfFilterFieldsetsByEntity(fieldsets)
+        const selectionChanges: Array<[string, string | null]> = []
         setCfFilterFieldsetSelection((prev) => {
           const next: Record<string, string | null> = {}
           let changed = false
@@ -1212,10 +1215,19 @@ export function DataTable<T>({
             const isValidExisting = existing ? list.some((entry) => entry.code === existing) : false
             const value = isValidExisting ? existing : fallback ?? null
             next[entityId] = value
-            if (value !== existing) changed = true
+            if (value !== existing) {
+              changed = true
+              selectionChanges.push([entityId, value])
+            }
           })
           if (Object.keys(prev).length !== Object.keys(next).length) changed = true
-          return changed ? next : prev
+          if (changed) {
+            if (selectionChanges.length && onCustomFieldFilterFieldsetChange) {
+              selectionChanges.forEach(([entityId, value]) => onCustomFieldFilterFieldsetChange(value, entityId))
+            }
+            return next
+          }
+          return prev
         })
       } catch {
         if (!cancelled) {
@@ -1228,7 +1240,7 @@ export function DataTable<T>({
     return () => {
       cancelled = true
     }
-  }, [entityKey, resolvedEntityIds])
+  }, [entityKey, onCustomFieldFilterFieldsetChange, resolvedEntityIds])
 
   const supportsCustomFieldFilterFieldsets =
     resolvedEntityIds.length === 1 &&
@@ -1241,13 +1253,16 @@ export function DataTable<T>({
     (value: string) => {
       if (!supportsCustomFieldFilterFieldsets) return
       const entityId = resolvedEntityIds[0]
+      const nextValue = value || null
       setCfFilterFieldsetSelection((prev) => {
-        const nextValue = value || null
         if (prev[entityId] === nextValue) return prev
         return { ...prev, [entityId]: nextValue }
       })
+      if (onCustomFieldFilterFieldsetChange) {
+        onCustomFieldFilterFieldsetChange(nextValue, entityId)
+      }
     },
-    [supportsCustomFieldFilterFieldsets, resolvedEntityIds],
+    [onCustomFieldFilterFieldsetChange, resolvedEntityIds, supportsCustomFieldFilterFieldsets],
   )
 
   const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], {

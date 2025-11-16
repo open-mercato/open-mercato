@@ -27,6 +27,7 @@ import {
   type PriceRow,
 } from '../../lib/pricing'
 import type { CatalogPricingService } from '../../services/catalogPricingService'
+import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -52,6 +53,7 @@ const listSchema = z
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     withDeleted: z.coerce.boolean().optional(),
+    customFieldset: z.string().regex(fieldsetCodeRegex).optional(),
   })
   .passthrough()
 
@@ -130,6 +132,10 @@ export async function buildProductFilters(
       filters.id = { $in: productIds }
     }
   }
+  const customFieldset =
+    typeof query.customFieldset === 'string' && query.customFieldset.trim().length
+      ? query.customFieldset.trim()
+      : null
   const tenantId = ctx.auth?.tenantId ?? null
   try {
     const em = ctx.container.resolve('em') as EntityManager
@@ -138,6 +144,7 @@ export async function buildProductFilters(
       query,
       em,
       tenantId,
+      fieldset: customFieldset ?? undefined,
     })
     Object.assign(filters, cfFilters)
   } catch {

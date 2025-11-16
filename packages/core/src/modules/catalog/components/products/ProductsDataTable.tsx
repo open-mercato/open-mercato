@@ -134,6 +134,7 @@ export default function ProductsDataTable() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [customFieldsetFilter, setCustomFieldsetFilter] = React.useState<string | null>(null)
   const { data: customFieldDefs = [] } = useCustomFieldDefs(ENTITY_ID, {
     keyExtras: [scopeVersion, reloadToken],
   })
@@ -280,6 +281,24 @@ export default function ProductsDataTable() {
     setPage(1)
   }, [])
 
+  const handleCustomFieldsetFilterChange = React.useCallback(
+    (value: string | null) => {
+      if (value === customFieldsetFilter) return
+      setCustomFieldsetFilter(value)
+      setFilterValues((prev) => {
+        const entries = Object.entries(prev)
+        if (!entries.some(([key]) => key.startsWith('cf_'))) return prev
+        const next: FilterValues = {}
+        entries.forEach(([key, val]) => {
+          if (!key.startsWith('cf_')) next[key] = val
+        })
+        return next
+      })
+      setPage(1)
+    },
+    [customFieldsetFilter],
+  )
+
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
@@ -318,12 +337,23 @@ export default function ProductsDataTable() {
           .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry || '').trim()))
           .filter((entry) => entry.length > 0)
         if (entries.length) params.set(key, entries.join(','))
+      } else if (typeof value === 'object' && value !== null && ('from' in (value as Record<string, unknown>) || 'to' in (value as Record<string, unknown>))) {
+        const range = value as { from?: string; to?: string }
+        if (typeof range.from === 'string' && range.from.trim().length) {
+          params.set(`${key}:from`, range.from.trim())
+        }
+        if (typeof range.to === 'string' && range.to.trim().length) {
+          params.set(`${key}:to`, range.to.trim())
+        }
       } else if (typeof value === 'string' && value.trim()) {
         params.set(key, value.trim())
       }
     })
+    if (typeof customFieldsetFilter === 'string' && customFieldsetFilter.trim().length > 0) {
+      params.set('customFieldset', customFieldsetFilter.trim())
+    }
     return params.toString()
-  }, [filterValues, page, search, sorting])
+  }, [customFieldsetFilter, filterValues, page, search, sorting])
 
   React.useEffect(() => {
     let cancelled = false
@@ -420,6 +450,7 @@ export default function ProductsDataTable() {
       filterValues={filterValues}
       onFiltersApply={handleFiltersApply}
       onFiltersClear={handleFiltersClear}
+      onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
       sorting={sorting}
       onSortingChange={setSorting}
       pagination={{
