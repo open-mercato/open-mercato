@@ -98,7 +98,6 @@ export const productCreateSchema = scoped.extend({
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
-  attributeSchemaId: uuid().nullable().optional(),
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
 })
 

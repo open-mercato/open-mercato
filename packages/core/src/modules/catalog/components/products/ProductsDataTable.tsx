@@ -63,11 +63,7 @@ export type ProductRow = {
   is_configurable?: boolean
   is_active?: boolean
   metadata?: Record<string, unknown> | null
-  attribute_schema_id?: string | null
-  attribute_schema?: Record<string, unknown> | null
-  attribute_schema_override?: Record<string, unknown> | null
-  attribute_schema_source?: { id: string; name?: string | null; code?: string | null; description?: string | null } | null
-  attribute_values?: Record<string, unknown> | null
+  custom_fieldset_code?: string | null
   created_at?: string
   updated_at?: string
   offers?: OfferInfo[]
@@ -403,6 +399,7 @@ export default function ProductsDataTable() {
   return (
     <DataTable<ProductRow>
       title={t('catalog.products.page.title', 'Products & services')}
+      entityId={ENTITY_ID}
       refreshButton={{
         label: t('catalog.products.actions.refresh', 'Refresh'),
         onRefresh: handleRefresh,

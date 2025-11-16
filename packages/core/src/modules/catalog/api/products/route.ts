@@ -9,10 +9,9 @@ import {
   CatalogProduct,
   CatalogProductPrice,
   CatalogProductVariant,
-  CatalogAttributeSchemaTemplate,
 } from '../../data/entities'
 import { CATALOG_PRODUCT_TYPES } from '../../data/types'
-import type { CatalogAttributeSchema, CatalogProductType } from '../../data/types'
+import type { CatalogProductType } from '../../data/types'
 import { productCreateSchema, productUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -28,7 +27,6 @@ import {
   type PriceRow,
 } from '../../lib/pricing'
 import type { CatalogPricingService } from '../../services/catalogPricingService'
-import { normalizeAttributeSchema, resolveAttributeSchema } from '../../lib/attributeSchemas'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -173,15 +171,7 @@ type ProductListItem = Record<string, unknown> & {
   sku?: string | null
   handle?: string | null
   product_type?: CatalogProductType | null
-  attribute_schema?: CatalogAttributeSchema | null
-  attribute_schema_override?: CatalogAttributeSchema | null
-  attribute_schema_source?: {
-    id: string
-    name: string | null
-    code: string | null
-    description: string | null
-  } | null
-  attribute_schema_id?: string | null
+  custom_fieldset_code?: string | null
   option_schema_id?: string | null
 }
 
@@ -196,38 +186,6 @@ async function decorateProductsAfterList(
     .filter((id): id is string => !!id)
   if (!productIds.length) return
   const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const schemaIds = Array.from(
-    new Set(
-      items
-        .map((item) =>
-          typeof item.attribute_schema_id === 'string' ? item.attribute_schema_id : null
-        )
-        .filter((id): id is string => !!id)
-    )
-  )
-
-  const schemaMap = new Map<
-    string,
-    Pick<CatalogAttributeSchemaTemplate, 'id' | 'name' | 'code' | 'description' | 'schema'>
-  >()
-  if (schemaIds.length) {
-    const schemas = await em.find(
-      CatalogAttributeSchemaTemplate,
-      { id: { $in: schemaIds } },
-      { fields: ['id', 'name', 'code', 'description', 'schema'] }
-    )
-    for (const schema of schemas) {
-      const normalizedSchema = normalizeAttributeSchema(schema.schema) ?? schema.schema
-      schemaMap.set(schema.id, {
-        id: schema.id,
-        name: schema.name,
-        code: schema.code,
-        description: schema.description ?? null,
-        schema: normalizedSchema,
-      })
-    }
-  }
-
   const offers = await em.find(
     CatalogOffer,
     { product: { $in: productIds }, deletedAt: null },
@@ -248,27 +206,6 @@ async function decorateProductsAfterList(
       localizedContent: offer.localizedContent ?? null,
     })
     offersByProduct.set(productId, entry)
-  }
-
-  for (const item of items) {
-    const override =
-      item.attribute_schema && typeof item.attribute_schema === 'object'
-        ? (item.attribute_schema as CatalogAttributeSchema)
-        : null
-    const schemaId =
-      typeof item.attribute_schema_id === 'string' ? item.attribute_schema_id : null
-    const baseSchema = schemaId ? schemaMap.get(schemaId) : null
-    const resolved = resolveAttributeSchema(baseSchema?.schema ?? null, override)
-    item.attribute_schema_override = override
-    item.attribute_schema = resolved
-    item.attribute_schema_source = baseSchema
-      ? {
-          id: baseSchema.id,
-          name: baseSchema.name,
-          code: baseSchema.code,
-          description: baseSchema.description ?? null,
-        }
-      : null
   }
 
   const variants = await em.find(
@@ -376,10 +313,8 @@ const crud = makeCrudRoute({
       F.is_configurable,
       F.is_active,
       F.metadata,
-      'attribute_schema_id',
+      'custom_fieldset_code',
       'option_schema_id',
-      F.attribute_schema,
-      F.attribute_values,
       F.created_at,
       F.updated_at,
     ],

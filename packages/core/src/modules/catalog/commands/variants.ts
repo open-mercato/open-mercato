@@ -257,10 +257,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
-      attributeSchema: parsed.attributeSchema
-        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
-        : null,
-      attributeValues: parsed.attributeValues ? cloneJson(parsed.attributeValues) : null,
+      customFieldsetCode: parsed.customFieldsetCode ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -366,13 +363,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
-    if (parsed.attributeSchema !== undefined) {
-      record.attributeSchema = parsed.attributeSchema
-        ? (cloneJson(parsed.attributeSchema) as CatalogAttributeSchema)
-        : null
-    }
-    if (parsed.attributeValues !== undefined) {
-      record.attributeValues = parsed.attributeValues ? cloneJson(parsed.attributeValues) : null
+    if (parsed.customFieldsetCode !== undefined) {
+      record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
 
     if (parsed.optionConfiguration !== undefined) {
@@ -447,8 +439,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
-        attributeSchema: before.attributeSchema ? cloneJson(before.attributeSchema) : null,
-        attributeValues: before.attributeValues ? cloneJson(before.attributeValues) : null,
+        customFieldsetCode: before.customFieldsetCode ?? null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })
@@ -568,6 +559,7 @@ const deleteVariantCommand: CommandHandler<
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        customFieldsetCode: before.customFieldsetCode ?? null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })

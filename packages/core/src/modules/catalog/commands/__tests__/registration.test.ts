@@ -39,10 +39,6 @@ describe('catalog command registration', () => {
       path: '../priceKinds',
       expected: ['catalog.priceKinds.create', 'catalog.priceKinds.update', 'catalog.priceKinds.delete'],
     },
-    {
-      path: '../attributeSchemas',
-      expected: ['catalog.attributeSchemas.create', 'catalog.attributeSchemas.update', 'catalog.attributeSchemas.delete'],
-    },
   ]
 
   beforeEach(() => {

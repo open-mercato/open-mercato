@@ -9,6 +9,7 @@ import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -1181,7 +1182,78 @@ export function DataTable<T>({
   }, [entityId, entityIds])
   const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
 
-  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], { enabled: !!entityKey })
+  const [cfFilterFieldsetsByEntity, setCfFilterFieldsetsByEntity] = React.useState<Record<string, CustomFieldsetDto[]>>({})
+  const [cfFilterFieldsetSelection, setCfFilterFieldsetSelection] = React.useState<Record<string, string | null>>({})
+
+  React.useEffect(() => {
+    if (!entityKey) {
+      setCfFilterFieldsetsByEntity({})
+      setCfFilterFieldsetSelection({})
+      return
+    }
+    let cancelled = false
+    const loadFieldsets = async () => {
+      try {
+        const payload = await fetchCustomFieldDefinitionsPayload(resolvedEntityIds)
+        if (cancelled) return
+        const fieldsets = payload.fieldsetsByEntity ?? {}
+        setCfFilterFieldsetsByEntity(fieldsets)
+        setCfFilterFieldsetSelection((prev) => {
+          const next: Record<string, string | null> = {}
+          let changed = false
+          resolvedEntityIds.forEach((entityId) => {
+            const list = fieldsets[entityId] ?? []
+            if (!list.length) {
+              if (prev[entityId] !== undefined) changed = true
+              return
+            }
+            const existing = prev[entityId]
+            const fallback = list[0]?.code ?? null
+            const isValidExisting = existing ? list.some((entry) => entry.code === existing) : false
+            const value = isValidExisting ? existing : fallback ?? null
+            next[entityId] = value
+            if (value !== existing) changed = true
+          })
+          if (Object.keys(prev).length !== Object.keys(next).length) changed = true
+          return changed ? next : prev
+        })
+      } catch {
+        if (!cancelled) {
+          setCfFilterFieldsetsByEntity({})
+          setCfFilterFieldsetSelection({})
+        }
+      }
+    }
+    loadFieldsets()
+    return () => {
+      cancelled = true
+    }
+  }, [entityKey, resolvedEntityIds])
+
+  const supportsCustomFieldFilterFieldsets =
+    resolvedEntityIds.length === 1 &&
+    (cfFilterFieldsetsByEntity[resolvedEntityIds[0]]?.length ?? 0) > 0
+  const activeCustomFieldFilterFieldset = supportsCustomFieldFilterFieldsets
+    ? cfFilterFieldsetSelection[resolvedEntityIds[0]] ?? cfFilterFieldsetsByEntity[resolvedEntityIds[0]]?.[0]?.code ?? null
+    : null
+
+  const handleCustomFieldFilterFieldsetChange = React.useCallback(
+    (value: string) => {
+      if (!supportsCustomFieldFilterFieldsets) return
+      const entityId = resolvedEntityIds[0]
+      setCfFilterFieldsetSelection((prev) => {
+        const nextValue = value || null
+        if (prev[entityId] === nextValue) return prev
+        return { ...prev, [entityId]: nextValue }
+      })
+    },
+    [supportsCustomFieldFilterFieldsets, resolvedEntityIds],
+  )
+
+  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], {
+    enabled: !!entityKey,
+    fieldset: supportsCustomFieldFilterFieldsets ? activeCustomFieldFilterFieldset ?? undefined : undefined,
+  })
 
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
@@ -1199,6 +1271,32 @@ export function DataTable<T>({
         Perspectives
       </Button>
     ) : null
+    const fieldsetSelector =
+      supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
+        ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fieldset</span>
+            <select
+              className="h-9 rounded border bg-background px-2 text-sm"
+              value={activeCustomFieldFilterFieldset ?? ''}
+              onChange={(event) => handleCustomFieldFilterFieldsetChange(event.target.value)}
+            >
+              {(cfFilterFieldsetsByEntity[resolvedEntityIds[0]] ?? []).map((fieldset) => (
+                <option key={fieldset.code} value={fieldset.code}>
+                  {fieldset.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )
+        : null
+    const leadingItems =
+      perspectiveButton || fieldsetSelector ? (
+        <div className="flex items-center gap-2">
+          {perspectiveButton}
+          {fieldsetSelector}
+        </div>
+      ) : null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -1209,12 +1307,30 @@ export function DataTable<T>({
         values={filterValues}
         onApply={onFiltersApply}
         onClear={onFiltersClear}
-        leadingItems={perspectiveButton}
+        leadingItems={leadingItems}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
     )
-  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, canUsePerspectives, embedded])
+  }, [
+    toolbar,
+    searchValue,
+    onSearchChange,
+    searchPlaceholder,
+    searchAlign,
+    baseFilters,
+    cfFilters,
+    filterValues,
+    onFiltersApply,
+    onFiltersClear,
+    canUsePerspectives,
+    embedded,
+    supportsCustomFieldFilterFieldsets,
+    resolvedEntityIds,
+    activeCustomFieldFilterFieldset,
+    handleCustomFieldFilterFieldsetChange,
+    cfFilterFieldsetsByEntity,
+  ])
 
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false
