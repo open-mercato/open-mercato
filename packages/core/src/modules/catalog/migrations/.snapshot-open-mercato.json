@@ -1698,7 +1698,16 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "child_product_id": {
+          "name": "child_product_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -1801,6 +1810,18 @@
       "schema": "public",
       "indexes": [
         {
+          "keyName": "catalog_product_variant_relations_child_product_idx",
+          "columnNames": [
+            "child_product_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
           "keyName": "catalog_product_variant_relations_child_idx",
           "columnNames": [
             "child_variant_id",
@@ -1823,18 +1844,6 @@
           "constraint": false,
           "primary": false,
           "unique": false
-        },
-        {
-          "keyName": "catalog_product_variant_relations_unique",
-          "columnNames": [
-            "parent_variant_id",
-            "child_variant_id",
-            "relation_type"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
         },
         {
           "keyName": "catalog_product_variant_relations_pkey",
@@ -1873,6 +1882,20 @@
             "id"
           ],
           "referencedTableName": "public.catalog_product_variants",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "cascade",
+          "updateRule": "cascade"
+        },
+        "catalog_product_variant_relations_child_product_id_foreign": {
+          "constraintName": "catalog_product_variant_relations_child_product_id_foreign",
+          "columnNames": [
+            "child_product_id"
+          ],
+          "localTableName": "public.catalog_product_variant_relations",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.catalog_products",
           "createForeignKeyConstraint": true,
           "deleteRule": "cascade",
           "updateRule": "cascade"

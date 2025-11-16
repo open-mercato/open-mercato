@@ -279,6 +279,7 @@ export class CatalogProductVariant {
 
   @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.childVariant)
   parentRelations = new Collection<CatalogProductVariantRelation>(this)
+
 }
 
 @Entity({ tableName: 'catalog_product_variant_relations' })
@@ -290,9 +291,9 @@ export class CatalogProductVariant {
   name: 'catalog_product_variant_relations_child_idx',
   properties: ['childVariant', 'organizationId', 'tenantId'],
 })
-@Unique({
-  name: 'catalog_product_variant_relations_unique',
-  properties: ['parentVariant', 'childVariant', 'relationType'],
+@Index({
+  name: 'catalog_product_variant_relations_child_product_idx',
+  properties: ['childProduct', 'organizationId', 'tenantId'],
 })
 export class CatalogProductVariantRelation {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
@@ -309,8 +310,16 @@ export class CatalogProductVariantRelation {
   @ManyToOne(() => CatalogProductVariant, {
     fieldName: 'child_variant_id',
     deleteRule: 'cascade',
+    nullable: true,
   })
-  childVariant!: CatalogProductVariant
+  childVariant?: CatalogProductVariant | null
+
+  @ManyToOne(() => CatalogProduct, {
+    fieldName: 'child_product_id',
+    nullable: true,
+    deleteRule: 'cascade',
+  })
+  childProduct?: CatalogProduct | null
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
