@@ -5,7 +5,6 @@ import {
   CatalogProductOption,
   CatalogProductOptionValue,
   CatalogProductVariant,
-  CatalogAttributeSchemaTemplate,
   CatalogOptionSchemaTemplate,
   CatalogPriceKind,
 } from '../data/entities'
@@ -134,16 +133,6 @@ export async function requirePriceKind(
   const priceKind = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
   if (!priceKind) throw new CrudHttpError(404, { error: message })
   return priceKind
-}
-
-export async function requireAttributeSchemaTemplate(
-  em: EntityManager,
-  id: string,
-  message = 'Attribute schema not found'
-): Promise<CatalogAttributeSchemaTemplate> {
-  const schema = await em.findOne(CatalogAttributeSchemaTemplate, { id, deletedAt: null })
-  if (!schema) throw new CrudHttpError(404, { error: message })
-  return schema
 }
 
 export async function requireOptionSchemaTemplate(
