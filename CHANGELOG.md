@@ -12,7 +12,7 @@
 - Expanded documentation for the framework API, query index, and module guides.
 - Introduced profiling flags, coverage metrics, and engine optimizations for faster indexing.
 - Enhanced validation, custom field handling, and locale support across UI surfaces.
-- Added reusable catalog attribute schema templates with shared CRUD APIs plus per-product overrides so categories can share definitions.
+- Shifted catalog product attributes onto custom-field fieldsets so vertical-specific definitions travel through CRUD forms, filters, and APIs without bespoke schema code.
 
 ## Fixes
 - Resolved dictionary filtering, customer coverage, ACL feature flags, and access log retention issues.
