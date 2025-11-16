@@ -4,6 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { loadEntityFieldsetConfigs } from '../lib/fieldsets'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },

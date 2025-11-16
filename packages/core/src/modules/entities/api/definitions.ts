@@ -4,7 +4,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
-import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
+import { upsertCustomFieldDefSchema, fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import {
   createDefinitionsCacheKey,
   createDefinitionsCacheTags,
@@ -14,6 +14,7 @@ import {
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { loadEntityFieldsetConfigs } from '../lib/fieldsets'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -56,12 +57,25 @@ async function resolveEntityDefaultEditor(em: any, entityId: string, tenantId: s
   return undefined
 }
 
+function normalizeFieldGroup(raw: unknown): { code: string; title?: string; hint?: string } | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entry = raw as Record<string, unknown>
+  const code = typeof entry.code === 'string' ? entry.code.trim() : ''
+  if (!code) return undefined
+  const group: { code: string; title?: string; hint?: string } = { code }
+  if (typeof entry.title === 'string' && entry.title.trim()) group.title = entry.title.trim()
+  if (typeof entry.hint === 'string' && entry.hint.trim()) group.hint = entry.hint.trim()
+  return group
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const requestedEntityIds = parseEntityIds(url)
   if (!requestedEntityIds.length) {
     return NextResponse.json({ error: 'entityId is required' }, { status: 400 })
   }
+  const requestedFieldset = url.searchParams.get('fieldset')
+  const fieldsetFilter = requestedFieldset && requestedFieldset.trim().length ? requestedFieldset.trim() : null
 
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -86,7 +100,7 @@ export async function GET(req: Request) {
   } catch {}
 
   let cacheKey: string | null = null
-  if (cache) {
+  if (cache && !fieldsetFilter) {
     cacheKey = createDefinitionsCacheKey({
       tenantId,
       organizationId,
@@ -101,6 +115,13 @@ export async function GET(req: Request) {
       console.warn('[entities.definitions.cache] Failed to read cache', err)
     }
   }
+
+  const fieldsetConfigs = await loadEntityFieldsetConfigs(em, {
+    entityIds,
+    tenantId,
+    organizationId,
+    mode: 'public',
+  })
 
   // Tenant-only scoping: allow global (null) or exact tenant match; do not scope by organization here
   const whereActive = {
@@ -168,6 +189,10 @@ export async function GET(req: Request) {
     winning.sort((a: any, b: any) => ((a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0)))
 
     for (const d of winning) {
+      const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
+      const normalizedFieldset = rawFieldset.length > 0 ? rawFieldset : undefined
+      if (fieldsetFilter && normalizedFieldset !== fieldsetFilter) continue
+      const groupInfo = normalizeFieldGroup(d.configJson?.group)
       const keyLower = String(d.key).toLowerCase()
       const candidateBase = {
         key: d.key,
@@ -198,6 +223,8 @@ export async function GET(req: Request) {
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
         entityId,
+        fieldset: normalizedFieldset,
+        group: groupInfo,
       } as any
       const metrics = computeDefinitionScore(d, candidateBase, entityOrder.get(entityId) ?? Number.MAX_SAFE_INTEGER)
       const candidate = { ...candidateBase, __score: metrics }
@@ -225,9 +252,17 @@ export async function GET(req: Request) {
   })
   sanitized.sort((a: any, b: any) => ((a.priority ?? 0) - (b.priority ?? 0)))
 
-  const responseBody = { items: sanitized }
+  const fieldsetsByEntity: Record<string, unknown[]> = {}
+  const entitySettings: Record<string, { singleFieldsetPerRecord: boolean }> = {}
+  for (const entityId of entityIds) {
+    const cfg = fieldsetConfigs.get(entityId) ?? { fieldsets: [], singleFieldsetPerRecord: true }
+    fieldsetsByEntity[entityId] = cfg.fieldsets
+    entitySettings[entityId] = { singleFieldsetPerRecord: cfg.singleFieldsetPerRecord }
+  }
 
-  if (cache && cacheKey) {
+  const responseBody = { items: sanitized, fieldsetsByEntity, entitySettings }
+
+  if (cache && cacheKey && !fieldsetFilter) {
     const tags = createDefinitionsCacheTags({
       tenantId,
       organizationId,
@@ -341,6 +376,7 @@ const definitionsQuerySchema = z
   .object({
     entityId: z.union([z.string(), z.array(z.string())]).optional(),
     entityIds: z.string().optional(),
+    fieldset: z.string().regex(fieldsetCodeRegex).optional(),
   })
   .refine(
     (value) => {
@@ -373,10 +409,40 @@ const customFieldDefinitionSchema = z.object({
   maxAttachmentSizeMb: z.number().optional(),
   acceptExtensions: z.array(z.any()).optional(),
   entityId: z.string(),
+  fieldset: z.string().optional(),
+  group: z
+    .object({
+      code: z.string(),
+      title: z.string().optional(),
+      hint: z.string().optional(),
+    })
+    .optional(),
+})
+
+const customFieldsetGroupResponseSchema = z.object({
+  code: z.string(),
+  title: z.string().optional(),
+  hint: z.string().optional(),
+})
+
+const entityFieldsetResponseSchema = z.object({
+  code: z.string(),
+  label: z.string(),
+  icon: z.string().optional(),
+  description: z.string().optional(),
+  groups: z.array(customFieldsetGroupResponseSchema).optional(),
 })
 
 const definitionsResponseSchema = z.object({
   items: z.array(customFieldDefinitionSchema),
+  fieldsetsByEntity: z.record(z.array(entityFieldsetResponseSchema)).optional(),
+  entitySettings: z
+    .record(
+      z.object({
+        singleFieldsetPerRecord: z.boolean().optional(),
+      })
+    )
+    .optional(),
 })
 
 const upsertDefinitionResponseSchema = z.object({
