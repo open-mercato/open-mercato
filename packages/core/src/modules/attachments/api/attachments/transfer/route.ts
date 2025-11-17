@@ -1,5 +1,3 @@
-"use server"
-
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
@@ -31,7 +29,7 @@ export async function POST(req: Request) {
   const em = resolve('em') as any
   let AttachmentEntity: any
   try {
-    const mod = await import('../../../../data/entities')
+    const mod = await import('@open-mercato/core/modules/attachments/data/entities')
     AttachmentEntity = mod.Attachment
   } catch {
     return NextResponse.json({ error: 'Attachment model missing' }, { status: 500 })

@@ -17,8 +17,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { buildAttachmentImageUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { Image as ImageIcon } from 'lucide-react'
+import { ProductImageCell } from './ProductImageCell'
 
 type PricingScope = {
   variant_id?: string | null
@@ -209,25 +208,13 @@ export default function ProductsDataTable() {
         id: 'media',
         header: '',
         size: 80,
-        cell: ({ row }) => {
-          const attachmentId = row.original.default_media_id
-          const storedUrl = row.original.default_media_url
-          if (!attachmentId && !storedUrl) {
-            return (
-              <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed text-muted-foreground">
-                <ImageIcon className="h-4 w-4" />
-              </div>
-            )
-          }
-          const previewUrl =
-            storedUrl ||
-            (attachmentId ? buildAttachmentImageUrl(attachmentId, { width: 96, height: 96 }) : null)
-          return (
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border">
-              <img src={previewUrl} alt={row.original.title ?? ''} className="h-full w-full object-cover" />
-            </div>
-          )
-        },
+        cell: ({ row }) => (
+          <ProductImageCell
+            mediaId={row.original.default_media_id}
+            mediaUrl={row.original.default_media_url}
+            title={row.original.title}
+          />
+        ),
         meta: { sticky: true },
       },
       {
