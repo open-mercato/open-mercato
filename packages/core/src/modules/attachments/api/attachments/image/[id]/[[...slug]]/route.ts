@@ -25,10 +25,10 @@ export const metadata = {
 
 export async function GET(
   req: Request,
-  context: { params: { id: string; slug?: string[] | undefined } }
+  context: { params: Promise<{ id: string; slug?: string[] | undefined }> }
 ) {
   const auth = await getAuthFromRequest(req)
-  const id = context.params.id
+  const { id } = await context.params
   if (!id) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
