@@ -1573,11 +1573,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "catalog_product_prices",
+      "name": "catalog_product_variant_prices",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "catalog_product_prices_product_scope_idx",
+          "keyName": "catalog_product_variant_prices_product_scope_idx",
           "columnNames": [
             "product_id",
             "organization_id",
@@ -1589,7 +1589,7 @@
           "unique": false
         },
         {
-          "keyName": "catalog_product_prices_variant_scope_idx",
+          "keyName": "catalog_product_variant_prices_variant_scope_idx",
           "columnNames": [
             "variant_id",
             "organization_id",
@@ -1601,7 +1601,7 @@
           "unique": false
         },
         {
-          "keyName": "catalog_product_prices_pkey",
+          "keyName": "catalog_product_variant_prices_pkey",
           "columnNames": [
             "id"
           ],
@@ -1613,12 +1613,12 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "catalog_product_prices_variant_id_foreign": {
-          "constraintName": "catalog_product_prices_variant_id_foreign",
+        "catalog_product_variant_prices_variant_id_foreign": {
+          "constraintName": "catalog_product_variant_prices_variant_id_foreign",
           "columnNames": [
             "variant_id"
           ],
-          "localTableName": "public.catalog_product_prices",
+          "localTableName": "public.catalog_product_variant_prices",
           "referencedColumnNames": [
             "id"
           ],
@@ -1627,12 +1627,12 @@
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
-        "catalog_product_prices_product_id_foreign": {
-          "constraintName": "catalog_product_prices_product_id_foreign",
+        "catalog_product_variant_prices_product_id_foreign": {
+          "constraintName": "catalog_product_variant_prices_product_id_foreign",
           "columnNames": [
             "product_id"
           ],
-          "localTableName": "public.catalog_product_prices",
+          "localTableName": "public.catalog_product_variant_prices",
           "referencedColumnNames": [
             "id"
           ],
@@ -1641,12 +1641,12 @@
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
-        "catalog_product_prices_offer_id_foreign": {
-          "constraintName": "catalog_product_prices_offer_id_foreign",
+        "catalog_product_variant_prices_offer_id_foreign": {
+          "constraintName": "catalog_product_variant_prices_offer_id_foreign",
           "columnNames": [
             "offer_id"
           ],
-          "localTableName": "public.catalog_product_prices",
+          "localTableName": "public.catalog_product_variant_prices",
           "referencedColumnNames": [
             "id"
           ],
@@ -1655,12 +1655,12 @@
           "deleteRule": "set null",
           "updateRule": "cascade"
         },
-        "catalog_product_prices_price_kind_id_foreign": {
-          "constraintName": "catalog_product_prices_price_kind_id_foreign",
+        "catalog_product_variant_prices_price_kind_id_foreign": {
+          "constraintName": "catalog_product_variant_prices_price_kind_id_foreign",
           "columnNames": [
             "price_kind_id"
           ],
-          "localTableName": "public.catalog_product_prices",
+          "localTableName": "public.catalog_product_variant_prices",
           "referencedColumnNames": [
             "id"
           ],
@@ -1981,11 +1981,11 @@
           "mappedType": "datetime"
         }
       },
-      "name": "catalog_variant_option_values",
+      "name": "catalog_product_variant_option_values",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "catalog_variant_option_values_unique",
+          "keyName": "catalog_product_variant_option_values_unique",
           "columnNames": [
             "variant_id",
             "option_value_id"
@@ -1996,7 +1996,7 @@
           "unique": true
         },
         {
-          "keyName": "catalog_variant_option_values_pkey",
+          "keyName": "catalog_product_variant_option_values_pkey",
           "columnNames": [
             "id"
           ],
@@ -2008,12 +2008,12 @@
       ],
       "checks": [],
       "foreignKeys": {
-        "catalog_variant_option_values_variant_id_foreign": {
-          "constraintName": "catalog_variant_option_values_variant_id_foreign",
+        "catalog_product_variant_option_values_variant_id_foreign": {
+          "constraintName": "catalog_product_variant_option_values_variant_id_foreign",
           "columnNames": [
             "variant_id"
           ],
-          "localTableName": "public.catalog_variant_option_values",
+          "localTableName": "public.catalog_product_variant_option_values",
           "referencedColumnNames": [
             "id"
           ],
@@ -2021,12 +2021,12 @@
           "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
-        "catalog_variant_option_values_option_value_id_foreign": {
-          "constraintName": "catalog_variant_option_values_option_value_id_foreign",
+        "catalog_product_variant_option_values_option_value_id_foreign": {
+          "constraintName": "catalog_product_variant_option_values_option_value_id_foreign",
           "columnNames": [
             "option_value_id"
           ],
-          "localTableName": "public.catalog_variant_option_values",
+          "localTableName": "public.catalog_product_variant_option_values",
           "referencedColumnNames": [
             "id"
           ],

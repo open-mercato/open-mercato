@@ -452,9 +452,9 @@ export class CatalogProductOptionValue {
   variantLinks = new Collection<CatalogVariantOptionValue>(this)
 }
 
-@Entity({ tableName: 'catalog_variant_option_values' })
+@Entity({ tableName: 'catalog_product_variant_option_values' })
 @Unique({
-  name: 'catalog_variant_option_values_unique',
+  name: 'catalog_product_variant_option_values_unique',
   properties: ['variant', 'optionValue'],
 })
 export class CatalogVariantOptionValue {
@@ -537,9 +537,15 @@ export class CatalogPriceKind {
   prices = new Collection<CatalogProductPrice>(this)
 }
 
-@Entity({ tableName: 'catalog_product_prices' })
-@Index({ name: 'catalog_product_prices_variant_scope_idx', properties: ['variant', 'organizationId', 'tenantId'] })
-@Index({ name: 'catalog_product_prices_product_scope_idx', properties: ['product', 'organizationId', 'tenantId'] })
+@Entity({ tableName: 'catalog_product_variant_prices' })
+@Index({
+  name: 'catalog_product_variant_prices_variant_scope_idx',
+  properties: ['variant', 'organizationId', 'tenantId'],
+})
+@Index({
+  name: 'catalog_product_variant_prices_product_scope_idx',
+  properties: ['product', 'organizationId', 'tenantId'],
+})
 export class CatalogProductPrice {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 

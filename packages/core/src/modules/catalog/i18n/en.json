@@ -245,6 +245,7 @@
           "add": "Add option",
           "placeholder": "e.g., Color",
           "values": "Values",
+          "valuePlaceholder": "Type a value and press Enter",
           "empty": "No options yet. Add your first option to generate variants."
         },
         "variantsBuilder": {

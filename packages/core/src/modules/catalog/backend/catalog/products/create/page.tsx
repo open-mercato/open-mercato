@@ -12,6 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus, Trash2, FileText, AlignLeft, Upload, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -107,18 +108,22 @@ const productFormSchema = z.object({
   variants: z.any().optional(),
 })
 
-const DEFAULT_VARIANT: VariantDraft = {
+const createVariantDraft = (
+  productTaxRateId: string | null,
+  overrides: Partial<VariantDraft> = {},
+): VariantDraft => ({
   id: createLocalId(),
   title: 'Default variant',
   sku: '',
-  isDefault: true,
-  taxRateId: null,
+  isDefault: false,
+  taxRateId: productTaxRateId ?? null,
   manageInventory: false,
   allowBackorder: false,
   hasInventoryKit: false,
   optionValues: {},
   prices: {},
-}
+  ...overrides,
+})
 
 const INITIAL_VALUES: ProductFormValues = {
   title: '',
@@ -131,18 +136,10 @@ const INITIAL_VALUES: ProductFormValues = {
   taxRateId: null,
   hasVariants: false,
   options: [],
-  variants: [DEFAULT_VARIANT],
+  variants: [createVariantDraft(null, { isDefault: true })],
 }
 
 const steps = ['general', 'organize', 'variants'] as const
-
-const sanitizePriceAmount = (value: string): string => {
-  if (typeof value !== 'string') return ''
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  const normalized = trimmed.replace(/^[+-]+/, '').trimStart()
-  return normalized
-}
 
 export default function CreateCatalogProductPage() {
   const t = useT()
@@ -284,7 +281,7 @@ export default function CreateCatalogProductPage() {
 
             const variantDrafts = Array.isArray(formValues.variants) && formValues.variants.length
               ? formValues.variants
-              : [DEFAULT_VARIANT]
+              : [createVariantDraft(formValues.taxRateId ?? null, { isDefault: true })]
             const variantIdMap: Record<string, string> = {}
             for (const variant of variantDrafts) {
               const variantPayload: Record<string, unknown> = {
@@ -417,7 +414,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     const optionDefinitions = Array.isArray(values.options) ? values.options : []
     if (!values.hasVariants || !optionDefinitions.length) {
       if (!values.variants || !values.variants.length) {
-        setValue('variants', [DEFAULT_VARIANT])
+        setValue('variants', [createVariantDraft(values.taxRateId ?? null, { isDefault: true })])
       }
       return
     }
@@ -432,18 +429,10 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
         if (existingMatch.isDefault) hasDefault = true
         return { ...existingMatch, optionValues: combo }
       }
-      return {
-        id: createLocalId(),
+      return createVariantDraft(values.taxRateId ?? null, {
         title: Object.values(combo).join(' / '),
-        sku: '',
-        isDefault: false,
-        taxRateId: null,
-        manageInventory: false,
-        allowBackorder: false,
-        hasInventoryKit: false,
         optionValues: combo,
-        prices: {},
-      }
+      })
     })
     if (nextVariants.length) {
       if (!hasDefault) {
@@ -456,6 +445,21 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   React.useEffect(() => {
     ensureVariants()
   }, [ensureVariants])
+
+  React.useEffect(() => {
+    if (!values.taxRateId) return
+    const variants = Array.isArray(values.variants) ? values.variants : []
+    if (!variants.length) return
+    let changed = false
+    const nextVariants = variants.map((variant) => {
+      if (variant.taxRateId) return variant
+      changed = true
+      return { ...variant, taxRateId: values.taxRateId }
+    })
+    if (changed) {
+      setValue('variants', nextVariants)
+    }
+  }, [values.taxRateId, values.variants, setValue])
 
   const handleAttachmentChange = React.useCallback((files: FileList | null) => {
     if (!files) return
@@ -482,14 +486,14 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
 
   const setVariantPrice = React.useCallback(
     (variantId: string, priceKindId: string, amount: string) => {
-      const sanitized = sanitizePriceAmount(amount)
+      if (amount.trim().startsWith('-')) return
       const next = (Array.isArray(values.variants) ? values.variants : []).map((variant) => {
         if (variant.id !== variantId) return variant
         const nextPrices = { ...(variant.prices ?? {}) }
-        if (sanitized) {
-          nextPrices[priceKindId] = { amount: sanitized }
-        } else {
+        if (amount === '') {
           delete nextPrices[priceKindId]
+        } else {
+          nextPrices[priceKindId] = { amount }
         }
         return {
           ...variant,
@@ -517,24 +521,18 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     setValue('options', next)
   }, [values.options, setValue])
 
-  const addOptionValue = React.useCallback((optionId: string, label: string) => {
-    if (!label.trim()) return
+  const setOptionValues = React.useCallback((optionId: string, labels: string[]) => {
+    const normalized = labels
+      .map((label) => label.trim())
+      .filter((label) => label.length)
+    const unique = Array.from(new Set(normalized))
     const next = (Array.isArray(values.options) ? values.options : []).map((option) => {
       if (option.id !== optionId) return option
+      const existingByLabel = new Map(option.values.map((value) => [value.label, value]))
+      const nextValues = unique.map((label) => existingByLabel.get(label) ?? { id: createLocalId(), label })
       return {
         ...option,
-        values: [...option.values, { id: createLocalId(), label: label.trim() }],
-      }
-    })
-    setValue('options', next)
-  }, [values.options, setValue])
-
-  const removeOptionValue = React.useCallback((optionId: string, valueId: string) => {
-    const next = (Array.isArray(values.options) ? values.options : []).map((option) => {
-      if (option.id !== optionId) return option
-      return {
-        ...option,
-        values: option.values.filter((value) => value.id !== valueId),
+        values: nextValues,
       }
     })
     setValue('options', next)
@@ -707,15 +705,11 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                     <Label className="text-xs uppercase text-muted-foreground">
                       {t('catalog.products.create.optionsBuilder.values', 'Values')}
                     </Label>
-                    <div className="flex flex-wrap gap-2">
-                      {option.values.map((value) => (
-                        <span key={value.id} className="inline-flex items-center rounded-full border px-3 py-1 text-xs">
-                          {value.label}
-                          <button type="button" className="ml-2 text-muted-foreground hover:text-foreground" onClick={() => removeOptionValue(option.id, value.id)}>×</button>
-                        </span>
-                      ))}
-                      <AddOptionValue onAdd={(label) => addOptionValue(option.id, label)} />
-                    </div>
+                    <TagsInput
+                      value={option.values.map((value) => value.label)}
+                      onChange={(labels) => setOptionValues(option.id, labels)}
+                      placeholder={t('catalog.products.create.optionsBuilder.valuePlaceholder', 'Type a value and press Enter')}
+                    />
                   </div>
                 </div>
               ))}
@@ -727,134 +721,139 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             </div>
           ) : null}
 
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
-              <thead className="bg-muted/40">
-                <tr>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.defaultOption', 'Default option')}</th>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.form.variants', 'Variant title')}</th>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.sku', 'SKU')}</th>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.vatColumn', 'Tax class')}</th>
-                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.manageInventory', 'Managed inventory')}</th>
-                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.allowBackorder', 'Allow backorder')}</th>
-                  <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.inventoryKit', 'Has inventory kit')}</th>
-                  {priceKinds.map((kind) => (
-                    <th key={kind.id} className="px-3 py-2 text-left">
-                      <div className="flex items-center gap-1">
-                        <span>{t('catalog.products.create.variantsBuilder.priceColumn', 'Price {{title}}').replace('{{title}}', kind.title)}</span>
-                        <small title={kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')} className="text-xs text-muted-foreground">
-                          {kind.displayMode === 'including-tax' ? 'Ⓣ' : 'Ⓝ'}
-                        </small>
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(Array.isArray(values.variants) ? values.variants : [DEFAULT_VARIANT]).map((variant) => (
-                  <tr key={variant.id} className="border-t">
-                    <td className="px-3 py-2">
-                      <label className="inline-flex items-center gap-1 text-xs">
-                        <input
-                          type="radio"
-                          name="defaultVariant"
-                          checked={variant.isDefault}
-                          onChange={() => markDefaultVariant(variant.id)}
-                        />
-                        {variant.isDefault
-                          ? t('catalog.products.create.variantsBuilder.defaultLabel', 'Default option value')
-                          : t('catalog.products.create.variantsBuilder.makeDefault', 'Set as default')}
-                      </label>
-                      {values.hasVariants && variant.optionValues
-                        ? (
-                          <p className="text-xs text-muted-foreground">{Object.values(variant.optionValues).join(' / ')}</p>
-                        )
-                        : null}
-                    </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        value={variant.title}
-                        onChange={(event) => setVariantField(variant.id, 'title', event.target.value)}
-                        placeholder={t('catalog.products.create.variantsBuilder.titlePlaceholder', 'Variant title')}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <Input
-                        value={variant.sku}
-                        onChange={(event) => setVariantField(variant.id, 'sku', event.target.value)}
-                        placeholder={t('catalog.products.create.variantsBuilder.skuPlaceholder', 'e.g., SKU-001')}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-                        value={variant.taxRateId ?? ''}
-                        onChange={(event) => setVariantField(variant.id, 'taxRateId', event.target.value || null)}
-                        disabled={!taxRates.length}
-                      >
-                        <option value="">
-                          {defaultTaxRateLabel
-                            ? t('catalog.products.create.variantsBuilder.vatOptionDefault', 'Use product tax class ({{label}})').replace('{{label}}', defaultTaxRateLabel)
-                            : t('catalog.products.create.variantsBuilder.vatOptionNone', 'No tax class')}
-                        </option>
-                        {taxRates.map((rate) => (
-                          <option key={rate.id} value={rate.id}>
-                            {formatTaxRateLabel(rate)}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
-                        checked={variant.manageInventory}
-                        onChange={(event) => setVariantField(variant.id, 'manageInventory', event.target.checked)}
-                        disabled
-                        title={inventoryDisabledHint}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
-                        checked={variant.allowBackorder}
-                        onChange={(event) => setVariantField(variant.id, 'allowBackorder', event.target.checked)}
-                        disabled
-                        title={inventoryDisabledHint}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
-                        checked={variant.hasInventoryKit}
-                        onChange={(event) => setVariantField(variant.id, 'hasInventoryKit', event.target.checked)}
-                        disabled
-                        title={inventoryDisabledHint}
-                      />
-                    </td>
+          <div className="rounded-lg border">
+            <div className="max-w-full overflow-x-auto">
+              <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
+                <thead className="bg-muted/40">
+                  <tr>
+                    <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.defaultOption', 'Default option')}</th>
+                    <th className="px-3 py-2 text-left">{t('catalog.products.form.variants', 'Variant title')}</th>
+                    <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.sku', 'SKU')}</th>
+                    <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.vatColumn', 'Tax class')}</th>
                     {priceKinds.map((kind) => (
-                      <td key={kind.id} className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
-                            {kind.currencyCode ?? values.primaryCurrencyCode ?? '—'}
-                          </span>
-                      <input
-                        type="number"
-                        className="w-full rounded-md border px-2 py-1"
-                        value={variant.prices?.[kind.id]?.amount ?? ''}
-                        onChange={(event) => setVariantPrice(variant.id, kind.id, event.target.value)}
-                        placeholder="0.00"
-                        min={0}
-                      />
+                      <th key={kind.id} className="px-3 py-2 text-left">
+                        <div className="flex items-center gap-1">
+                          <span>{t('catalog.products.create.variantsBuilder.priceColumn', 'Price {{title}}').replace('{{title}}', kind.title)}</span>
+                          <small title={kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')} className="text-xs text-muted-foreground">
+                            {kind.displayMode === 'including-tax' ? 'Ⓣ' : 'Ⓝ'}
+                          </small>
                         </div>
-                      </td>
+                      </th>
                     ))}
+                    <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.manageInventory', 'Managed inventory')}</th>
+                    <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.allowBackorder', 'Allow backorder')}</th>
+                    <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.inventoryKit', 'Has inventory kit')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {(Array.isArray(values.variants) && values.variants.length
+                    ? values.variants
+                    : [createVariantDraft(values.taxRateId ?? null, { isDefault: true })]
+                  ).map((variant) => (
+                    <tr key={variant.id} className="border-t">
+                      <td className="px-3 py-2">
+                        <label className="inline-flex items-center gap-1 text-xs">
+                          <input
+                            type="radio"
+                            name="defaultVariant"
+                            checked={variant.isDefault}
+                            onChange={() => markDefaultVariant(variant.id)}
+                          />
+                          {variant.isDefault
+                            ? t('catalog.products.create.variantsBuilder.defaultLabel', 'Default option value')
+                            : t('catalog.products.create.variantsBuilder.makeDefault', 'Set as default')}
+                        </label>
+                        {values.hasVariants && variant.optionValues
+                          ? (
+                            <p className="text-xs text-muted-foreground">{Object.values(variant.optionValues).join(' / ')}</p>
+                          )
+                          : null}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          value={variant.title}
+                          onChange={(event) => setVariantField(variant.id, 'title', event.target.value)}
+                          placeholder={t('catalog.products.create.variantsBuilder.titlePlaceholder', 'Variant title')}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          value={variant.sku}
+                          onChange={(event) => setVariantField(variant.id, 'sku', event.target.value)}
+                          placeholder={t('catalog.products.create.variantsBuilder.skuPlaceholder', 'e.g., SKU-001')}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <select
+                          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          value={variant.taxRateId ?? ''}
+                          onChange={(event) => setVariantField(variant.id, 'taxRateId', event.target.value || null)}
+                          disabled={!taxRates.length}
+                        >
+                          <option value="">
+                            {defaultTaxRateLabel
+                              ? t('catalog.products.create.variantsBuilder.vatOptionDefault', 'Use product tax class ({{label}})').replace('{{label}}', defaultTaxRateLabel)
+                              : t('catalog.products.create.variantsBuilder.vatOptionNone', 'No tax class')}
+                          </option>
+                          {taxRates.map((rate) => (
+                            <option key={rate.id} value={rate.id}>
+                              {formatTaxRateLabel(rate)}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      {priceKinds.map((kind) => (
+                        <td key={kind.id} className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {kind.currencyCode ?? values.primaryCurrencyCode ?? '—'}
+                            </span>
+                            <input
+                              type="number"
+                              className="w-full rounded-md border px-2 py-1"
+                              value={variant.prices?.[kind.id]?.amount ?? ''}
+                              onChange={(event) => setVariantPrice(variant.id, kind.id, event.target.value)}
+                              placeholder="0.00"
+                              min={0}
+                            />
+                          </div>
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
+                          checked={variant.manageInventory}
+                          onChange={(event) => setVariantField(variant.id, 'manageInventory', event.target.checked)}
+                          disabled
+                          title={inventoryDisabledHint}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
+                          checked={variant.allowBackorder}
+                          onChange={(event) => setVariantField(variant.id, 'allowBackorder', event.target.checked)}
+                          disabled
+                          title={inventoryDisabledHint}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
+                          checked={variant.hasInventoryKit}
+                          onChange={(event) => setVariantField(variant.id, 'hasInventoryKit', event.target.checked)}
+                          disabled
+                          title={inventoryDisabledHint}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             {!priceKinds.length ? (
               <div className="flex items-center gap-2 border-t px-4 py-3 text-sm text-muted-foreground">
                 <AlertCircle className="h-4 w-4" />
@@ -1010,29 +1009,6 @@ function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader, t
         </p>
       </div>
     </div>
-  )
-}
-
-function AddOptionValue({ onAdd }: { onAdd: (value: string) => void }) {
-  const [value, setValue] = React.useState('')
-  return (
-    <form
-      className="flex items-center gap-2"
-      onSubmit={(event) => {
-        event.preventDefault()
-        onAdd(value)
-        setValue('')
-      }}
-    >
-      <Input
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        placeholder="e.g., Blue"
-      />
-      <Button type="submit" variant="outline" size="icon">
-        <Plus className="h-4 w-4" />
-      </Button>
-    </form>
   )
 }
 
