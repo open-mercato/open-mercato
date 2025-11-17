@@ -156,7 +156,7 @@ const haveSameOptionValues = (
   return true
 }
 
-const INITIAL_VALUES: ProductFormValues = {
+const BASE_INITIAL_VALUES: ProductFormValues = {
   title: '',
   subtitle: '',
   handle: '',
@@ -277,7 +277,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          initialValues={INITIAL_VALUES}
+          initialValues={initialValues}
           schema={productFormSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
           cancelHref="/backend/catalog/products"
@@ -475,12 +475,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     'catalog.products.create.variantsBuilder.inventoryDisabled',
     'Inventory tracking controls are not available yet.',
   )
-
-  React.useEffect(() => {
-    if (!values.mediaDraftId) {
-      setValue('mediaDraftId', createLocalId())
-    }
-  }, [setValue, values.mediaDraftId])
 
   React.useEffect(() => {
     if (currentStep >= steps.length) setCurrentStep(0)
@@ -1176,3 +1170,7 @@ function formatTaxRateLabel(rate: TaxRateSummary): string {
 function createLocalId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
+  const initialValues = React.useMemo<ProductFormValues>(
+    () => ({ ...BASE_INITIAL_VALUES, mediaDraftId: createLocalId() }),
+    [],
+  )
