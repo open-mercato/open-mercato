@@ -161,7 +161,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
   const [canApplyToRoles, setCanApplyToRoles] = React.useState(false)
   const originalNavRef = React.useRef<SidebarGroup[] | null>(null)
-  const lastSyncedGroupsRef = React.useRef<AppShellProps['groups'] | null>(groups)
   const [headerTitle, setHeaderTitle] = React.useState<string | undefined>(currentTitle)
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
@@ -362,6 +361,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       setNavGroups(AppShell.cloneGroups(originalNavRef.current))
       setCustomizing(false)
       setCustomDraft(null)
+      try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     } catch (error) {
       console.error('Failed to save sidebar preferences', error)
       setCustomizationError(t('appShell.sidebarCustomizationSaveError'))
@@ -444,18 +444,13 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
-    if (!customizing || !customDraft) return
-    const base = AppShell.cloneGroups(groups)
-    originalNavRef.current = base
-    setNavGroups(applyCustomizationDraft(base, customDraft))
-  }, [groups, customizing, customDraft])
-
-  React.useEffect(() => {
-    const didGroupsChange = lastSyncedGroupsRef.current !== groups
-    lastSyncedGroupsRef.current = groups
-    if (customizing || !didGroupsChange) return
+    if (customizing && customDraft && originalNavRef.current) {
+      originalNavRef.current = AppShell.cloneGroups(groups)
+      setNavGroups(applyCustomizationDraft(originalNavRef.current, customDraft))
+      return
+    }
     setNavGroups(AppShell.cloneGroups(groups))
-  }, [groups, customizing])
+  }, [groups, customizing, customDraft])
 
   // Optional: full refresh from adminNavApi, used to reflect RBAC/org/entity changes without page reload
   React.useEffect(() => {
@@ -627,7 +622,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       })
     }
 
-    // TODO probably we don'n need `customizing ?` again
     const customizationEditor = customizing ? (
       customDraft ? (
         <div className="flex flex-col gap-3 rounded border border-dashed bg-muted/20 p-3">
