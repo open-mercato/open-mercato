@@ -55,6 +55,7 @@ import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serv
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
+import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -277,7 +278,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const manageFieldsetLabel = t('entities.customFields.manageFieldset', 'Manage fields')
   const fieldsetDialogTitle = t('entities.customFields.manageDialogTitle', 'Edit custom fields')
   const fieldsetDialogUnavailable = t('entities.customFields.manageDialogUnavailable', 'Field definitions page is unavailable.')
-  const fieldsetDialogPrimaryLabel = t('entities.customFields.openInNewTab', 'Open full editor')
   const deleteConfirmMessage = t('ui.forms.confirmDelete')
   const deleteSuccessMessage = t('ui.forms.flash.deleteSuccess')
   const deleteErrorMessage = t('ui.forms.flash.deleteError')
@@ -294,7 +294,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
   const [cfFieldsetSelections, setCfFieldsetSelections] = React.useState<Record<string, string | null>>({})
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
-const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
+  const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
+  const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
+  const fieldsetManagerRef = React.useRef<FieldDefinitionsManagerHandle | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
       const dedup = new Set<string>()
@@ -326,6 +328,10 @@ const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityI
     },
     [customEntity],
   )
+
+  const refreshCustomFieldDefinitions = React.useCallback(() => {
+    setCustomFieldDefsVersion((prev) => prev + 1)
+  }, [])
 
   const recordId = React.useMemo(() => {
     const raw = values.id
@@ -403,7 +409,7 @@ const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityI
     }
     load()
     return () => { cancelled = true }
-  }, [resolvedEntityIds, customEntity])
+  }, [resolvedEntityIds, customEntity, customFieldDefsVersion])
 
   React.useEffect(() => {
     if (!customFieldsetBindings) return
@@ -821,15 +827,12 @@ const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityI
     [buildCustomFieldsManageHref, fieldsetEditorTarget],
   )
 
-  const fieldsetEditorEmbedHref = React.useMemo(() => buildFieldsetEditorHref(true), [buildFieldsetEditorHref])
   const fieldsetEditorFullHref = React.useMemo(() => buildFieldsetEditorHref(false), [buildFieldsetEditorHref])
 
-  const handleFieldsetDialogPrimary = React.useCallback(() => {
-    if (!fieldsetEditorFullHref) return
-    if (typeof window !== 'undefined') {
-      window.open(fieldsetEditorFullHref, '_blank', 'noopener,noreferrer')
-    }
-  }, [fieldsetEditorFullHref])
+  const handleFieldsetDialogSave = React.useCallback(() => {
+    if (!fieldsetManagerRef.current) return
+    void fieldsetManagerRef.current.submit()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1256,34 +1259,27 @@ const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityI
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault()
-            handleFieldsetDialogPrimary()
+            handleFieldsetDialogSave()
           }
         }}
       >
         <DialogHeader>
           <DialogTitle>{fieldsetDialogTitle}</DialogTitle>
         </DialogHeader>
-        <div className="h-[70vh] overflow-hidden rounded-md border bg-muted/30">
-          {fieldsetEditorEmbedHref ? (
-            <iframe
-              src={fieldsetEditorEmbedHref}
-              title="Field definitions editor"
-              className="h-full w-full border-0"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground px-4 text-center">
-              {fieldsetDialogUnavailable}
-            </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => setFieldsetEditorTarget(null)}>
-            {cancelLabel}
-          </Button>
-          <Button type="button" onClick={handleFieldsetDialogPrimary} disabled={!fieldsetEditorFullHref}>
-            {fieldsetDialogPrimaryLabel}
-          </Button>
-        </div>
+        {fieldsetEditorTarget ? (
+          <FieldDefinitionsManager
+            ref={fieldsetManagerRef}
+            entityId={fieldsetEditorTarget.entityId}
+            initialFieldset={fieldsetEditorTarget.fieldsetCode}
+            fullEditorHref={fieldsetEditorFullHref ?? undefined}
+            onSaved={refreshCustomFieldDefinitions}
+            onClose={() => setFieldsetEditorTarget(null)}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground px-4 text-center">
+            {fieldsetDialogUnavailable}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

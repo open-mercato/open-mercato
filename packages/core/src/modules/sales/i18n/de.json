@@ -143,7 +143,8 @@
           "rate": "Satz",
           "location": "Ort",
           "updatedAt": "Aktualisiert",
-          "empty": "Noch keine Steuersätze."
+          "empty": "Noch keine Steuersätze.",
+          "search": "Steuersätze durchsuchen…"
         },
         "form": {
           "createTitle": "Steuersatz hinzufügen",
@@ -176,5 +177,8 @@
   "sales.order-statuses.delete": "Bestellstatus löschen",
   "sales.order-line-statuses.create": "Positionsstatus hinzufügen",
   "sales.order-line-statuses.update": "Positionsstatus aktualisieren",
-  "sales.order-line-statuses.delete": "Positionsstatus löschen"
+  "sales.order-line-statuses.delete": "Positionsstatus löschen",
+  "sales.tax-rates.create": "Steuersatz erstellen",
+  "sales.tax-rates.update": "Steuersatz aktualisieren",
+  "sales.tax-rates.delete": "Steuersatz löschen"
 }

@@ -143,7 +143,8 @@
           "rate": "Rate",
           "location": "Location",
           "updatedAt": "Updated",
-          "empty": "No tax rates yet."
+          "empty": "No tax rates yet.",
+          "search": "Search tax rates…"
         },
         "form": {
           "createTitle": "Add tax rate",
@@ -193,5 +194,8 @@
     }
   },
   "sales.order-statuses": {},
-  "sales.order-line-statuses": {}
+  "sales.order-line-statuses": {},
+  "sales.tax-rates.create": "Create tax rate",
+  "sales.tax-rates.update": "Update tax rate",
+  "sales.tax-rates.delete": "Delete tax rate"
 }

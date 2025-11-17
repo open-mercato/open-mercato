@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { Cog, GripVertical, Pencil, Plus, PlusCircle, Trash2 } from 'lucide-react'
+import { Cog, GripVertical, Pencil, Plus, Trash2 } from 'lucide-react'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
-import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
+import { FieldRegistry } from '../fields/registry'
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+} from '../../primitives/dialog'
 import {
   normalizeCustomFieldOptions,
   type CustomFieldOptionDto,
@@ -652,18 +652,20 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     handleOpenGroupDialog(group)
   }
 
-  const handleOpenOptionDialog = () => {
+  const resetOptionDialog = () => {
     setOptionValueDraft('')
     setOptionLabelDraft('')
     setOptionFormError(null)
+  }
+
+  const handleOpenOptionDialog = () => {
+    resetOptionDialog()
     setOptionDialogOpen(true)
   }
 
   const handleCloseOptionDialog = () => {
+    resetOptionDialog()
     setOptionDialogOpen(false)
-    setOptionFormError(null)
-    setOptionValueDraft('')
-    setOptionLabelDraft('')
   }
 
   const handleAddOption = () => {
@@ -776,16 +778,16 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   onClick={() => handleOpenGroupDialog()}
                   aria-label="Create group"
                 >
-                  <PlusCircle className="h-4 w-4" />
+                  <Plus className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
-                  className="h-8 inline-flex items-center gap-1 rounded border px-3 text-xs text-muted-foreground hover:bg-muted/40"
+                  className="h-8 w-8 inline-flex items-center justify-center rounded border text-muted-foreground hover:bg-muted/40"
                   onClick={() => handleOpenGroupDialog()}
                   aria-label="Edit groups"
                 >
                   <Cog className="h-4 w-4" />
-                  Edit groups
+                  <span className="sr-only">Edit groups</span>
                 </button>
               </div>
             </div>
@@ -1104,11 +1106,8 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     <Dialog
       open={optionDialogOpen}
       onOpenChange={(open) => {
-        if (open) {
-          setOptionDialogOpen(true)
-        } else {
-          handleCloseOptionDialog()
-        }
+        setOptionDialogOpen(open)
+        if (!open) resetOptionDialog()
       }}
     >
       <DialogContent className="max-w-sm">

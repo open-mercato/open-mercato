@@ -3,7 +3,6 @@
 import * as React from 'react'
 import { z } from 'zod'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Plus } from 'lucide-react'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -59,6 +58,7 @@ export function TaxRatesSettings() {
   const [entries, setEntries] = React.useState<TaxRateRow[]>([])
   const [loading, setLoading] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
+  const [search, setSearch] = React.useState('')
 
   const translations = React.useMemo(() => ({
     title: t('sales.config.taxRates.title', 'Tax rates'),
@@ -77,6 +77,7 @@ export function TaxRatesSettings() {
       location: t('sales.config.taxRates.table.location', 'Location'),
       updatedAt: t('sales.config.taxRates.table.updatedAt', 'Updated'),
       empty: t('sales.config.taxRates.table.empty', 'No tax rates yet.'),
+      search: t('sales.config.taxRates.table.search', 'Search tax rates…'),
     },
     form: {
       createTitle: t('sales.config.taxRates.form.createTitle', 'Add tax rate'),
@@ -147,7 +148,7 @@ export function TaxRatesSettings() {
   }, [translations.errors.load])
 
   React.useEffect(() => {
-    loadEntries().catch(() => {})
+    void loadEntries()
   }, [loadEntries, scopeVersion])
 
   const openCreate = React.useCallback(() => {
@@ -257,40 +258,56 @@ export function TaxRatesSettings() {
     }
   }, [dialog])
 
+  const filteredEntries = React.useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return entries
+    return entries.filter((entry) => {
+      const location = formatLocation(entry).toLowerCase()
+      return (
+        entry.name.toLowerCase().includes(term) ||
+        (entry.code ?? '').toLowerCase().includes(term) ||
+        location.includes(term)
+      )
+    })
+  }, [entries, search])
+
   return (
-    <section className="space-y-4 rounded-lg border p-5">
-      <div>
-        <h2 className="text-lg font-semibold">{translations.title}</h2>
+    <section className="rounded border bg-card text-card-foreground shadow-sm">
+      <div className="border-b px-6 py-4 space-y-1">
+        <h2 className="text-lg font-medium">{translations.title}</h2>
         <p className="text-sm text-muted-foreground">{translations.description}</p>
       </div>
 
-      <DataTable<TaxRateRow>
-        data={entries}
-        columns={columns}
-        isLoading={loading}
-        emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{translations.table.empty}</p>}
-        actions={(
-          <div className="flex gap-2">
+      <div className="px-2 py-4 sm:px-4">
+        <DataTable<TaxRateRow>
+          data={filteredEntries}
+          columns={columns}
+          isLoading={loading}
+          embedded
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={translations.table.search}
+          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{translations.table.empty}</p>}
+          actions={(
             <Button onClick={openCreate} size="sm">
-              <Plus className="mr-2 h-4 w-4" />
               {translations.actions.add}
             </Button>
-          </div>
-        )}
-        refreshButton={{
-          label: translations.actions.refresh,
-          onRefresh: () => { loadEntries().catch(() => {}) },
-          isRefreshing: loading,
-        }}
-        rowActions={(row) => (
-          <RowActions
-            items={[
-              { label: translations.actions.edit, onSelect: () => openEdit(row) },
-              { label: translations.actions.delete, destructive: true, onSelect: () => deleteEntry(row) },
-            ]}
-          />
-        )}
-      />
+          )}
+          refreshButton={{
+            label: translations.actions.refresh,
+            onRefresh: () => { void loadEntries() },
+            isRefreshing: loading,
+          }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { label: translations.actions.edit, onSelect: () => openEdit(row) },
+                { label: translations.actions.delete, destructive: true, onSelect: () => deleteEntry(row) },
+              ]}
+            />
+          )}
+        />
+      </div>
 
       <Dialog open={Boolean(dialog)} onOpenChange={(open) => { if (!open) closeDialog() }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">

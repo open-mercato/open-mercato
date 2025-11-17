@@ -143,7 +143,8 @@
           "rate": "Stawka",
           "location": "Lokalizacja",
           "updatedAt": "Zaktualizowano",
-          "empty": "Brak stawek podatkowych."
+          "empty": "Brak stawek podatkowych.",
+          "search": "Szukaj stawek podatku…"
         },
         "form": {
           "createTitle": "Dodaj stawkę podatkową",
@@ -176,5 +177,8 @@
   "sales.order-statuses.delete": "Usuń status zamówienia",
   "sales.order-line-statuses.create": "Dodaj status pozycji zamówienia",
   "sales.order-line-statuses.update": "Zaktualizuj status pozycji zamówienia",
-  "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia"
+  "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia",
+  "sales.tax-rates.create": "Utwórz stawkę podatku",
+  "sales.tax-rates.update": "Aktualizuj stawkę podatku",
+  "sales.tax-rates.delete": "Usuń stawkę podatku"
 }
