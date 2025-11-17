@@ -134,6 +134,7 @@ type TaxRateSnapshot = {
   channelId: string | null
   priority: number
   isCompound: boolean
+  isDefault: boolean
   metadata: Record<string, unknown> | null
   startsAt: string | null
   endsAt: string | null
@@ -281,6 +282,7 @@ function taxRateSeedFromSnapshot(snapshot: TaxRateSnapshot) {
     channelId: snapshot.channelId ?? null,
     priority: snapshot.priority,
     isCompound: snapshot.isCompound,
+    isDefault: snapshot.isDefault,
     metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
     startsAt: snapshot.startsAt ? new Date(snapshot.startsAt) : null,
     endsAt: snapshot.endsAt ? new Date(snapshot.endsAt) : null,

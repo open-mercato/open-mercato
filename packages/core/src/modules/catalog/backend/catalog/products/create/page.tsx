@@ -127,6 +127,26 @@ const createVariantDraft = (
   ...overrides,
 })
 
+const buildOptionValuesKey = (optionValues?: Record<string, string>): string => {
+  if (!optionValues) return ''
+  return Object.keys(optionValues)
+    .sort()
+    .map((key) => `${key}:${optionValues[key] ?? ''}`)
+    .join('|')
+}
+
+const haveSameOptionValues = (
+  current: Record<string, string> | undefined,
+  next: Record<string, string>,
+): boolean => {
+  const a = current ?? {}
+  const keys = new Set([...Object.keys(a), ...Object.keys(next)])
+  for (const key of keys) {
+    if ((a[key] ?? '') !== (next[key] ?? '')) return false
+  }
+  return true
+}
+
 const INITIAL_VALUES: ProductFormValues = {
   title: '',
   subtitle: '',
@@ -401,24 +421,35 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     }
     const combos = buildVariantCombinations(optionDefinitions)
     const existing = Array.isArray(values.variants) ? values.variants : []
+    const existingByKey = new Map(existing.map((variant) => [buildOptionValuesKey(variant.optionValues), variant]))
     let hasDefault = existing.some((variant) => variant.isDefault)
-    const nextVariants: VariantDraft[] = combos.map((combo) => {
-      const existingMatch = existing.find((entry) =>
-        Object.keys(combo).every((key) => entry.optionValues?.[key] === combo[key]),
-      )
+    let changed = existing.length !== combos.length
+    const nextVariants: VariantDraft[] = combos.map((combo, index) => {
+      const key = buildOptionValuesKey(combo)
+      const existingMatch = existingByKey.get(key)
       if (existingMatch) {
         if (existingMatch.isDefault) hasDefault = true
-        return { ...existingMatch, optionValues: combo }
+        if (!haveSameOptionValues(existingMatch.optionValues, combo)) {
+          changed = true
+          return { ...existingMatch, optionValues: combo }
+        }
+        if (existing[index] !== existingMatch) {
+          changed = true
+        }
+        return existingMatch
       }
+      changed = true
       return createVariantDraft(values.taxRateId ?? null, {
         title: Object.values(combo).join(' / '),
         optionValues: combo,
       })
     })
-    if (nextVariants.length) {
-      if (!hasDefault) {
-        nextVariants[0].isDefault = true
-      }
+    if (!nextVariants.length) return
+    if (!hasDefault) {
+      changed = true
+      nextVariants[0] = { ...nextVariants[0], isDefault: true }
+    }
+    if (changed) {
       setValue('variants', nextVariants)
     }
   }, [values.options, values.variants, values.hasVariants, setValue])

@@ -11,7 +11,7 @@ import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { type RowActionItem } from './RowActions'
-import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
@@ -493,8 +493,25 @@ export function DataTable<T>({
   onCustomFieldFilterFieldsetChange,
 }: DataTableProps<T>) {
   const router = useRouter()
+  const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
+  const hasInitializedScopeRef = React.useRef(false)
   React.useEffect(() => {
-    return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
+    return subscribeOrganizationScopeChanged((detail) => {
+      const prev = lastScopeRef.current
+      lastScopeRef.current = detail
+      if (!hasInitializedScopeRef.current) {
+        hasInitializedScopeRef.current = true
+        return
+      }
+      if (
+        prev &&
+        prev.organizationId === detail.organizationId &&
+        prev.tenantId === detail.tenantId
+      ) {
+        return
+      }
+      scheduleRouterRefresh(router)
+    })
   }, [router])
   const queryClient = useQueryClient()
   const perspectiveConfig = perspective ?? null
