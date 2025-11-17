@@ -11696,6 +11696,7 @@ export interface components {
             endsAt: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEndsAt"];
             id: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
             isCompound: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsCompound"];
+            isDefault: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsDefault"];
             metadata?: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
             name: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
@@ -11735,6 +11736,7 @@ export interface components {
         /** Format: uuid */
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsCompound: boolean;
+        DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsDefault: boolean;
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1"];
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0: null;
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1: {
@@ -11787,6 +11789,7 @@ export interface components {
             customerGroupId?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerGroupId"];
             endsAt?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesEndsAt"];
             isCompound?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsCompound"];
+            isDefault?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsDefault"];
             metadata?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
             name: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
@@ -11809,6 +11812,7 @@ export interface components {
         /** Format: date-time */
         DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesEndsAt: string;
         DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsCompound: boolean;
+        DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsDefault: boolean;
         DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
             [key: string]: unknown;
         };
@@ -11849,6 +11853,7 @@ export interface components {
             endsAt?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesEndsAt"];
             id: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             isCompound?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsCompound"];
+            isDefault?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsDefault"];
             metadata?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
             name?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
@@ -11873,6 +11878,7 @@ export interface components {
         /** Format: uuid */
         DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsCompound: boolean;
+        DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsDefault: boolean;
         DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
             [key: string]: unknown;
         };

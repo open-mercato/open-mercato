@@ -144,7 +144,8 @@
           "location": "Lokalizacja",
           "updatedAt": "Zaktualizowano",
           "empty": "Brak stawek podatkowych.",
-          "search": "Szukaj stawek podatku…"
+          "search": "Szukaj stawek podatku…",
+          "defaultBadge": "Domyślna"
         },
         "form": {
           "createTitle": "Dodaj stawkę podatkową",
@@ -157,6 +158,8 @@
           "regionCode": "Region",
           "postalCode": "Kod pocztowy",
           "city": "Miasto",
+          "isDefault": "Domyślna klasa podatkowa",
+          "isDefaultHelp": "Zostanie automatycznie ustawiona dla nowych produktów katalogu.",
           "save": "Zapisz",
           "cancel": "Anuluj"
         },

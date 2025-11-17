@@ -144,7 +144,8 @@
           "location": "Ubicación",
           "updatedAt": "Actualizado",
           "empty": "Aún no hay tipos de impuestos.",
-          "search": "Buscar tipos de impuestos…"
+          "search": "Buscar tipos de impuestos…",
+          "defaultBadge": "Predeterminado"
         },
         "form": {
           "createTitle": "Agregar tipo de impuesto",
@@ -157,6 +158,8 @@
           "regionCode": "Región",
           "postalCode": "Código postal",
           "city": "Ciudad",
+          "isDefault": "Clase de impuestos predeterminada",
+          "isDefaultHelp": "Se selecciona automáticamente para los nuevos productos del catálogo.",
           "save": "Guardar",
           "cancel": "Cancelar"
         },

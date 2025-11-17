@@ -432,6 +432,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "default_attachment_id": {
+          "name": "default_attachment_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "metadata": {
           "name": "metadata",
           "type": "jsonb",

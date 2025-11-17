@@ -109,6 +109,9 @@ export class CatalogProduct {
   @Property({ name: 'default_unit', type: 'text', nullable: true })
   defaultUnit?: string | null
 
+  @Property({ name: 'default_attachment_id', type: 'uuid', nullable: true })
+  defaultAttachmentId?: string | null
+
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 

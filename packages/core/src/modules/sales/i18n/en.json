@@ -144,7 +144,8 @@
           "location": "Location",
           "updatedAt": "Updated",
           "empty": "No tax rates yet.",
-          "search": "Search tax rates…"
+          "search": "Search tax rates…",
+          "defaultBadge": "Default"
         },
         "form": {
           "createTitle": "Add tax rate",
@@ -157,6 +158,8 @@
           "regionCode": "Region code",
           "postalCode": "Postal code",
           "city": "City",
+          "isDefault": "Default tax class",
+          "isDefaultHelp": "Preselect this class for new catalog products.",
           "save": "Save",
           "cancel": "Cancel"
         },

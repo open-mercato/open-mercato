@@ -317,6 +317,7 @@ const crud = makeCrudRoute({
       F.status_entry_id,
       F.primary_currency_code,
       F.default_unit,
+      F.default_attachment_id,
       F.is_configurable,
       F.is_active,
       F.metadata,

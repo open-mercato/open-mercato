@@ -58,6 +58,19 @@
         "handleExists": "Handle jest już używany.",
         "skuExists": "SKU jest już używany."
       },
+      "media": {
+        "label": "Media",
+        "dropHint": "Przeciągnij i upuść obrazy tutaj lub kliknij, aby je przesłać.",
+        "choose": "Wybierz pliki",
+        "uploading": "Przesyłam…",
+        "empty": "Nie dodano jeszcze żadnych mediów.",
+        "default": "Domyślny podgląd",
+        "errors": {
+          "imagesOnly": "Obsługiwane są tylko pliki graficzne.",
+          "uploadFailed": "Nie udało się przesłać pliku.",
+          "deleteFailed": "Nie udało się usunąć medium."
+        }
+      },
       "form": {
         "general": "Ogólne",
         "pricing": "Ceny",

@@ -47,6 +47,7 @@ type ProductSnapshot = {
   statusEntryId: string | null
   primaryCurrencyCode: string | null
   defaultUnit: string | null
+  defaultAttachmentId: string | null
   optionSchemaId: string | null
   customFieldsetCode: string | null
   metadata: Record<string, unknown> | null
@@ -83,6 +84,7 @@ const PRODUCT_CHANGE_KEYS = [
   'statusEntryId',
   'primaryCurrencyCode',
   'defaultUnit',
+  'defaultAttachmentId',
   'optionSchemaId',
   'customFieldsetCode',
   'metadata',
@@ -260,6 +262,7 @@ async function loadProductSnapshot(
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
     defaultUnit: record.defaultUnit ?? null,
+    defaultAttachmentId: record.defaultAttachmentId ?? null,
     customFieldsetCode: record.customFieldsetCode ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     isConfigurable: record.isConfigurable,
@@ -288,6 +291,7 @@ function applyProductSnapshot(
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
   record.defaultUnit = snapshot.defaultUnit ?? null
+  record.defaultAttachmentId = snapshot.defaultAttachmentId ?? null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.optionSchemaTemplate = snapshot.optionSchemaId
@@ -328,6 +332,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
       defaultUnit: parsed.defaultUnit ?? null,
+      defaultAttachmentId: parsed.defaultAttachmentId ?? null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       customFieldsetCode: parsed.customFieldsetCode ?? null,
       optionSchemaTemplate,
@@ -442,6 +447,9 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       record.primaryCurrencyCode = parsed.primaryCurrencyCode ?? null
     }
     if (parsed.defaultUnit !== undefined) record.defaultUnit = parsed.defaultUnit ?? null
+    if (parsed.defaultAttachmentId !== undefined) {
+      record.defaultAttachmentId = parsed.defaultAttachmentId ?? null
+    }
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }

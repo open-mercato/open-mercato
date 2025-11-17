@@ -6,6 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -19,6 +20,7 @@ type TaxRateRow = {
   name: string
   code: string | null
   rate: number | null
+  isDefault: boolean
   countryCode: string | null
   regionCode: string | null
   postalCode: string | null
@@ -38,6 +40,7 @@ const taxRateFormSchema = z.object({
   regionCode: z.string().trim().optional(),
   postalCode: z.string().trim().optional(),
   city: z.string().trim().optional(),
+  isDefault: z.boolean().optional(),
 })
 
 type TaxRateFormValues = z.infer<typeof taxRateFormSchema>
@@ -50,6 +53,7 @@ const DEFAULT_FORM_VALUES: TaxRateFormValues = {
   regionCode: '',
   postalCode: '',
   city: '',
+  isDefault: false,
 }
 
 export function TaxRatesSettings() {
@@ -78,6 +82,7 @@ export function TaxRatesSettings() {
       updatedAt: t('sales.config.taxRates.table.updatedAt', 'Updated'),
       empty: t('sales.config.taxRates.table.empty', 'No tax rates yet.'),
       search: t('sales.config.taxRates.table.search', 'Search tax rates…'),
+      defaultBadge: t('sales.config.taxRates.table.defaultBadge', 'Default'),
     },
     form: {
       createTitle: t('sales.config.taxRates.form.createTitle', 'Add tax rate'),
@@ -89,6 +94,11 @@ export function TaxRatesSettings() {
       regionCode: t('sales.config.taxRates.form.regionCode', 'Region code'),
       postalCode: t('sales.config.taxRates.form.postalCode', 'Postal code'),
       city: t('sales.config.taxRates.form.city', 'City'),
+      isDefault: t('sales.config.taxRates.form.isDefault', 'Default tax class'),
+      isDefaultHelp: t(
+        'sales.config.taxRates.form.isDefaultHelp',
+        'Preselect this class for new catalog products.'
+      ),
       save: t('sales.config.taxRates.form.save', 'Save'),
       cancel: t('sales.config.taxRates.form.cancel', 'Cancel'),
       codeHelp: t('sales.config.taxRates.form.codeHelp', 'Lowercase letters, numbers, and dashes.'),
@@ -112,6 +122,12 @@ export function TaxRatesSettings() {
     { id: 'regionCode', label: translations.form.regionCode, type: 'text', layout: 'half' },
     { id: 'postalCode', label: translations.form.postalCode, type: 'text', layout: 'half' },
     { id: 'city', label: translations.form.city, type: 'text', layout: 'half' },
+    {
+      id: 'isDefault',
+      label: translations.form.isDefault,
+      type: 'checkbox',
+      description: translations.form.isDefaultHelp,
+    },
   ], [translations.form])
 
   const loadEntries = React.useCallback(async () => {
@@ -131,6 +147,13 @@ export function TaxRatesSettings() {
             name: typeof item.name === 'string' && item.name.length ? item.name : '—',
             code: typeof item.code === 'string' && item.code.length ? item.code : null,
             rate: Number.isFinite(rawRate) ? rawRate : null,
+            isDefault: Boolean(
+              typeof item.isDefault === 'boolean'
+                ? item.isDefault
+                : typeof item.is_default === 'boolean'
+                  ? item.is_default
+                  : false,
+            ),
             countryCode: typeof item.countryCode === 'string' && item.countryCode.length ? item.countryCode : null,
             regionCode: typeof item.regionCode === 'string' && item.regionCode.length ? item.regionCode : null,
             postalCode: typeof item.postalCode === 'string' && item.postalCode.length ? item.postalCode : null,
@@ -173,6 +196,7 @@ export function TaxRatesSettings() {
       regionCode: values.regionCode?.trim() || undefined,
       postalCode: values.postalCode?.trim() || undefined,
       city: values.city?.trim() || undefined,
+      isDefault: Boolean(values.isDefault),
     }
     const method = dialog.mode === 'create' ? 'POST' : 'PUT'
     if (dialog.mode === 'edit') {
@@ -222,7 +246,16 @@ export function TaxRatesSettings() {
     {
       header: translations.table.name,
       accessorKey: 'name',
-      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{row.original.name}</span>
+          {row.original.isDefault ? (
+            <Badge variant="outline" className="text-xs uppercase tracking-wide">
+              {translations.table.defaultBadge}
+            </Badge>
+          ) : null}
+        </div>
+      ),
     },
     {
       header: translations.table.code,
@@ -255,6 +288,7 @@ export function TaxRatesSettings() {
       regionCode: dialog.entry.regionCode ?? '',
       postalCode: dialog.entry.postalCode ?? '',
       city: dialog.entry.city ?? '',
+      isDefault: Boolean(dialog.entry.isDefault),
     }
   }, [dialog])
 

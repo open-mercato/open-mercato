@@ -58,6 +58,19 @@
         "handleExists": "Handle already in use.",
         "skuExists": "SKU already in use."
       },
+      "media": {
+        "label": "Media",
+        "dropHint": "Drag and drop images here or click to upload.",
+        "choose": "Choose files",
+        "uploading": "Uploading…",
+        "empty": "No media uploaded yet.",
+        "default": "Default preview",
+        "errors": {
+          "imagesOnly": "Only image files are supported.",
+          "uploadFailed": "Upload failed.",
+          "deleteFailed": "Failed to delete media."
+        }
+      },
       "form": {
         "general": "General",
         "pricing": "Pricing",

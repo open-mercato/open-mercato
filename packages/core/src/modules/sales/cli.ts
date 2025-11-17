@@ -45,9 +45,12 @@ const seedTaxRatesCommand: ModuleCli = {
           deletedAt: null,
         })
         const existingCodes = new Set(existing.map((entry) => entry.code.toLowerCase()))
+        const hasDefault = existing.some((entry) => entry.isDefault)
+        let assignedDefault = hasDefault
         const now = new Date()
         for (const def of DEFAULT_TAX_RATES) {
           if (existingCodes.has(def.code)) continue
+          const shouldSetDefault = !assignedDefault
           const record = tem.create(SalesTaxRate, {
             organizationId,
             tenantId,
@@ -63,12 +66,14 @@ const seedTaxRatesCommand: ModuleCli = {
             channelId: null,
             priority: 0,
             isCompound: false,
+            isDefault: shouldSetDefault,
             metadata: null,
             startsAt: null,
             endsAt: null,
             createdAt: now,
             updatedAt: now,
           })
+          if (shouldSetDefault) assignedDefault = true
           tem.persist(record)
         }
       })

@@ -144,7 +144,8 @@
           "location": "Ort",
           "updatedAt": "Aktualisiert",
           "empty": "Noch keine Steuersätze.",
-          "search": "Steuersätze durchsuchen…"
+          "search": "Steuersätze durchsuchen…",
+          "defaultBadge": "Standard"
         },
         "form": {
           "createTitle": "Steuersatz hinzufügen",
@@ -157,6 +158,8 @@
           "regionCode": "Region",
           "postalCode": "PLZ",
           "city": "Stadt",
+          "isDefault": "Standard-Steuerklasse",
+          "isDefaultHelp": "Wird bei neuen Katalogprodukten automatisch vorausgewählt.",
           "save": "Speichern",
           "cancel": "Abbrechen"
         },

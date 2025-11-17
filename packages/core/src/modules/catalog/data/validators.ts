@@ -93,6 +93,7 @@ export const productCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
+  defaultAttachmentId: uuid().optional().nullable(),
   optionSchemaId: uuid().nullable().optional(),
   customFieldsetCode: slugSchema.nullable().optional(),
   isConfigurable: z.boolean().optional(),

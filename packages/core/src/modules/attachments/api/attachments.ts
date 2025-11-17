@@ -5,10 +5,12 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { buildAttachmentImageUrl } from '../lib/imageUrls'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
   POST: { requireAuth: true, requireFeatures: ['attachments.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
 const attachmentQuerySchema = z.object({
@@ -22,6 +24,7 @@ const attachmentItemSchema = z.object({
   fileName: z.string().describe('Original filename'),
   fileSize: z.number().int().nonnegative().describe('File size in bytes'),
   createdAt: z.string().describe('Upload timestamp (ISO 8601)'),
+  thumbnailUrl: z.string().optional().describe('Helper route that renders a thumbnail'),
 })
 
 const attachmentListResponseSchema = z.object({
@@ -35,6 +38,10 @@ const attachmentUploadBodySchema = z.object({
   file: z.string().min(1).describe('Binary file payload; supplied as multipart form-data'),
 })
 
+const attachmentDeleteQuerySchema = z.object({
+  id: z.string().uuid(),
+})
+
 const uploadResponseSchema = z.object({
   ok: z.literal(true),
   item: z.object({
@@ -42,6 +49,7 @@ const uploadResponseSchema = z.object({
     url: z.string(),
     fileName: z.string(),
     fileSize: z.number().int().nonnegative(),
+    thumbnailUrl: z.string().optional(),
   }),
 })
 
@@ -65,7 +73,16 @@ export async function GET(req: Request) {
     { entityId, recordId, organizationId: auth.orgId!, tenantId: auth.tenantId! },
     { orderBy: { createdAt: 'desc' } as any }
   )
-  return NextResponse.json({ items: items.map((a: any) => ({ id: a.id, url: a.url, fileName: a.fileName, fileSize: a.fileSize, createdAt: a.createdAt })) })
+  return NextResponse.json({
+    items: items.map((a: any) => ({
+      id: a.id,
+      url: a.url,
+      fileName: a.fileName,
+      fileSize: a.fileSize,
+      createdAt: a.createdAt,
+      thumbnailUrl: buildAttachmentImageUrl(a.id, { width: 320, height: 320 }),
+    })),
+  })
 }
 
 export async function POST(req: Request) {
@@ -139,7 +156,52 @@ export async function POST(req: Request) {
   })
   await em.persistAndFlush(att)
 
-  return NextResponse.json({ ok: true, item: { id: (att as any).id, url: urlPath, fileName: safeName, fileSize: buf.length } })
+  const attachmentId = (att as any).id
+  return NextResponse.json({
+    ok: true,
+    item: {
+      id: attachmentId,
+      url: urlPath,
+      fileName: safeName,
+      fileSize: buf.length,
+      thumbnailUrl: buildAttachmentImageUrl(attachmentId, { width: 320, height: 320 }),
+    },
+  })
+}
+
+export async function DELETE(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const url = new URL(req.url)
+  const id = url.searchParams.get('id') || ''
+  if (!id) return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
+  const { resolve } = await createRequestContainer()
+  const em = resolve('em') as any
+  let AttachmentEntity: any
+  try {
+    const mod = await import('../data/entities')
+    AttachmentEntity = (mod as any).Attachment
+  } catch (_e) {
+    AttachmentEntity = class Attachment {}
+  }
+  const record = await em.findOne(AttachmentEntity as any, {
+    id,
+    organizationId: auth.orgId!,
+    tenantId: auth.tenantId!,
+  })
+  if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
+  const relativePath = typeof record.url === 'string' ? record.url.replace(/^\//, '') : null
+  const safePath = relativePath ? relativePath.replace(/\.\.(\/|\\)/g, '') : null
+  const fullPath = safePath ? path.join(process.cwd(), 'public', safePath) : null
+  await em.removeAndFlush(record)
+  if (fullPath) {
+    try {
+      await fs.unlink(fullPath)
+    } catch {
+      // ignore unlink failures
+    }
+  }
+  return NextResponse.json({ ok: true })
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -172,6 +234,19 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Payload validation error', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Attachment violates field constraints', schema: errorSchema },
+      ],
+    },
+    DELETE: {
+      summary: 'Delete attachment',
+      description: 'Removes an uploaded attachment and deletes the stored asset.',
+      query: attachmentDeleteQuerySchema,
+      responses: [
+        { status: 200, description: 'Attachment deleted', schema: z.object({ ok: z.literal(true) }) },
+        { status: 404, description: 'Attachment not found', schema: errorSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Missing attachment identifier', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
       ],
     },
   },

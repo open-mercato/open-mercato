@@ -51,6 +51,7 @@ Key fields from `productCreateSchema`:
 - `organizationId`, `tenantId` — required scope identifiers.
 - `name` (string, ≤255), optional `description`.
 - Optional catalog metadata: `code` (lowercase slug), `statusEntryId`, `primaryCurrencyCode`, `defaultUnit`, `attributeSchemaId` reference, `attributeSchema` JSON override, `attributeValues` map, and `offers` (array of `{ channelId, title, description }`) that bind products to sales channels. When `attributeSchemaId` is provided, the product inherits a shared schema template; providing `attributeSchema` in the same payload overwrites individual fields for that single product without mutating the shared template.
+- `defaultAttachmentId` — optional attachment handle that stores the primary product image. Upload images via `/api/attachments`, then resolve responsive URLs with `buildAttachmentImageUrl(id, { width, height })` or by calling `/api/attachments/image/{id}` directly for server-side resizing.
 - Flags: `isConfigurable`, `isActive`, plus arbitrary `metadata` JSON.
 
 Example payload:

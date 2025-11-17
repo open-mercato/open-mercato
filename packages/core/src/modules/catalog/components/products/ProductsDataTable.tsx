@@ -17,6 +17,8 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { buildAttachmentImageUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { Image as ImageIcon } from 'lucide-react'
 
 type PricingScope = {
   variant_id?: string | null
@@ -60,6 +62,7 @@ export type ProductRow = {
   status_entry_id?: string | null
   primary_currency_code?: string | null
   default_unit?: string | null
+  default_attachment_id?: string | null
   is_configurable?: boolean
   is_active?: boolean
   metadata?: Record<string, unknown> | null
@@ -201,6 +204,28 @@ export default function ProductsDataTable() {
 
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => {
     const base: ColumnDef<ProductRow>[] = [
+      {
+        id: 'media',
+        header: '',
+        size: 80,
+        cell: ({ row }) => {
+          const attachmentId = row.original.default_attachment_id
+          if (!attachmentId) {
+            return (
+              <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed text-muted-foreground">
+                <ImageIcon className="h-4 w-4" />
+              </div>
+            )
+          }
+          const previewUrl = buildAttachmentImageUrl(attachmentId, { width: 96, height: 96 })
+          return (
+            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border">
+              <img src={previewUrl} alt={row.original.title ?? ''} className="h-full w-full object-cover" />
+            </div>
+          )
+        },
+        meta: { sticky: true },
+      },
       {
         accessorKey: 'title',
         header: t('catalog.products.table.title', 'Title'),

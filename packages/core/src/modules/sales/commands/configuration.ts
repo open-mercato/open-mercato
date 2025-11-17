@@ -402,6 +402,7 @@ async function loadTaxRateSnapshot(em: EntityManager, id: string): Promise<TaxRa
     channelId: record.channelId ?? null,
     priority: record.priority,
     isCompound: record.isCompound,
+    isDefault: record.isDefault,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     startsAt: record.startsAt ? record.startsAt.toISOString() : null,
     endsAt: record.endsAt ? record.endsAt.toISOString() : null,
@@ -497,6 +498,7 @@ function applyTaxRateSnapshot(record: SalesTaxRate, snapshot: TaxRateSnapshot): 
   record.channelId = snapshot.channelId ?? null
   record.priority = snapshot.priority
   record.isCompound = snapshot.isCompound
+  record.isDefault = snapshot.isDefault
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.startsAt = snapshot.startsAt ? new Date(snapshot.startsAt) : null
   record.endsAt = snapshot.endsAt ? new Date(snapshot.endsAt) : null
@@ -513,6 +515,19 @@ function resolveScopeFromUpdate<T extends { organizationId: string; tenantId: st
   ensureOrganizationScope(ctx, organizationId)
   ensureSameScope(entity, organizationId, tenantId)
   return { organizationId, tenantId }
+}
+
+async function deactivateOtherDefaultTaxRates(em: EntityManager, record: SalesTaxRate) {
+  await em.nativeUpdate(
+    SalesTaxRate,
+    {
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      deletedAt: null,
+      id: { $ne: record.id } as any,
+    },
+    { isDefault: false },
+  )
 }
 
 const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
@@ -1607,6 +1622,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
       channelId: parsed.channelId ?? null,
       priority: parsed.priority ?? 0,
       isCompound: parsed.isCompound ?? false,
+      isDefault: parsed.isDefault ?? false,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       startsAt: parsed.startsAt ?? null,
       endsAt: parsed.endsAt ?? null,
@@ -1615,6 +1631,9 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     })
     em.persist(record)
     await em.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(em, record)
+    }
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.sales.sales_tax_rate,
@@ -1716,6 +1735,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     if (parsed.channelId !== undefined) record.channelId = parsed.channelId ?? null
     if (parsed.priority !== undefined) record.priority = parsed.priority ?? 0
     if (parsed.isCompound !== undefined) record.isCompound = parsed.isCompound
+    if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
@@ -1726,6 +1746,9 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
       record.endsAt = parsed.endsAt ?? null
     }
     await em.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(em, record)
+    }
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

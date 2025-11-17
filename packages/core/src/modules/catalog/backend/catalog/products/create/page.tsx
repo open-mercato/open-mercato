@@ -14,10 +14,11 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { Plus, Trash2, FileText, AlignLeft, Upload, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Plus, Trash2, FileText, AlignLeft, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
+import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -54,6 +55,7 @@ type TaxRateSummary = {
   name: string
   code: string | null
   rate: number | null
+  isDefault: boolean
 }
 
 type ProductOptionInput = {
@@ -86,7 +88,9 @@ type ProductFormValues = {
   description: string
   useMarkdown: boolean
   taxRateId: string | null
-  attachments: File[]
+  mediaDraftId: string
+  mediaItems: ProductMediaItem[]
+  defaultMediaId: string | null
   hasVariants: boolean
   options: ProductOptionInput[]
   variants: VariantDraft[]
@@ -105,7 +109,9 @@ const productFormSchema = z.object({
   useMarkdown: z.boolean().optional(),
   taxRateId: z.string().uuid().nullable().optional(),
   hasVariants: z.boolean().optional(),
-  attachments: z.any().optional(),
+  mediaDraftId: z.string().optional(),
+  mediaItems: z.any().optional(),
+  defaultMediaId: z.string().uuid().nullable().optional(),
   options: z.any().optional(),
   variants: z.any().optional(),
 })
@@ -153,7 +159,9 @@ const INITIAL_VALUES: ProductFormValues = {
   handle: '',
   description: '',
   useMarkdown: false,
-  attachments: [],
+  mediaDraftId: '',
+  mediaItems: [],
+  defaultMediaId: null,
   taxRateId: null,
   hasVariants: false,
   options: [],
@@ -209,6 +217,13 @@ export default function CreateCatalogProductPage() {
                   : t('catalog.products.create.taxRates.unnamed', 'Untitled tax rate'),
               code: typeof item.code === 'string' && item.code.trim().length ? item.code : null,
               rate: Number.isFinite(rawRate) ? rawRate : null,
+              isDefault: Boolean(
+                typeof item.isDefault === 'boolean'
+                  ? item.isDefault
+                  : typeof item.is_default === 'boolean'
+                    ? item.is_default
+                    : false,
+              ),
             }
           }),
         )
@@ -271,6 +286,15 @@ export default function CreateCatalogProductPage() {
             }
             const handle = formValues.handle?.trim() || undefined
             const description = formValues.description?.trim() || undefined
+            const defaultAttachmentId =
+              typeof formValues.defaultMediaId === 'string' && formValues.defaultMediaId.trim().length
+                ? formValues.defaultMediaId
+                : null
+            const mediaItems = Array.isArray(formValues.mediaItems) ? formValues.mediaItems : []
+            const attachmentIds = mediaItems
+              .map((item) => (typeof item.id === 'string' ? item.id : null))
+              .filter((value): value is string => !!value)
+            const mediaDraftId = typeof formValues.mediaDraftId === 'string' ? formValues.mediaDraftId : ''
             const productPayload: Record<string, unknown> = {
               title,
               subtitle: formValues.subtitle?.trim() || undefined,
@@ -278,6 +302,7 @@ export default function CreateCatalogProductPage() {
               handle,
               isConfigurable: Boolean(formValues.hasVariants),
               metadata: formValues.options.length ? { optionSchema: formValues.options } : undefined,
+              defaultAttachmentId: defaultAttachmentId ?? undefined,
             }
 
             const { result: created } = await createCrud<{ id?: string }>('catalog/products', productPayload)
@@ -357,16 +382,23 @@ export default function CreateCatalogProductPage() {
               }
             }
 
-            const attachments: File[] = Array.isArray(formValues.attachments) ? formValues.attachments : []
-            for (const file of attachments) {
-              const fd = new FormData()
-              fd.set('entityId', E.catalog.catalog_product)
-              fd.set('recordId', productId)
-              fd.set('file', file)
-              try {
-                await fetch('/api/attachments', { method: 'POST', body: fd })
-              } catch (err) {
-                console.error('attachments.upload failed', err)
+            if (mediaDraftId && attachmentIds.length) {
+              const transfer = await apiCall<{ ok?: boolean; error?: string }>(
+                '/api/attachments/transfer',
+                {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({
+                    entityId: E.catalog.catalog_product,
+                    attachmentIds,
+                    fromRecordId: mediaDraftId,
+                    toRecordId: productId,
+                  }),
+                },
+                { fallback: null },
+              )
+              if (!transfer.ok) {
+                console.error('attachments.transfer.failed', transfer.result?.error)
               }
             }
 
@@ -401,6 +433,32 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     () => (values.taxRateId ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null : null),
     [taxRates, values.taxRateId],
   )
+  const fallbackTaxRate = React.useMemo(
+    () => taxRates.find((rate) => rate.isDefault) ?? null,
+    [taxRates],
+  )
+  const hasResolvedProductTaxRateRef = React.useRef(false)
+  React.useEffect(() => {
+    if (values.taxRateId && !hasResolvedProductTaxRateRef.current) {
+      hasResolvedProductTaxRateRef.current = true
+    }
+  }, [values.taxRateId])
+  React.useEffect(() => {
+    if (!fallbackTaxRate) return
+    if (hasResolvedProductTaxRateRef.current) return
+    hasResolvedProductTaxRateRef.current = true
+    setValue('taxRateId', fallbackTaxRate.id)
+    const variants = Array.isArray(values.variants) ? values.variants : []
+    let changed = false
+    const updatedVariants = variants.map((variant) => {
+      if (variant.taxRateId) return variant
+      changed = true
+      return { ...variant, taxRateId: fallbackTaxRate.id }
+    })
+    if (changed) {
+      setValue('variants', updatedVariants)
+    }
+  }, [fallbackTaxRate, setValue, values.variants])
   const defaultTaxRateLabel = defaultTaxRate ? formatTaxRateLabel(defaultTaxRate) : null
   const inventoryDisabledHint = t(
     'catalog.products.create.variantsBuilder.inventoryDisabled',
@@ -408,8 +466,30 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   )
 
   React.useEffect(() => {
+    if (!values.mediaDraftId) {
+      setValue('mediaDraftId', createLocalId())
+    }
+  }, [setValue, values.mediaDraftId])
+
+  React.useEffect(() => {
     if (currentStep >= steps.length) setCurrentStep(0)
   }, [currentStep])
+
+  const mediaItems = Array.isArray(values.mediaItems) ? values.mediaItems : []
+
+  const handleMediaItemsChange = React.useCallback(
+    (nextItems: ProductMediaItem[]) => {
+      setValue('mediaItems', nextItems)
+    },
+    [setValue],
+  )
+
+  const handleDefaultMediaChange = React.useCallback(
+    (attachmentId: string | null) => {
+      setValue('defaultMediaId', attachmentId)
+    },
+    [setValue],
+  )
 
   const ensureVariants = React.useCallback(() => {
     const optionDefinitions = Array.isArray(values.options) ? values.options : []
@@ -472,19 +552,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
       setValue('variants', nextVariants)
     }
   }, [values.taxRateId, values.variants, setValue])
-
-  const handleAttachmentChange = React.useCallback((files: FileList | null) => {
-    if (!files) return
-    const current = Array.isArray(values.attachments) ? values.attachments : []
-    setValue('attachments', [...current, ...Array.from(files)])
-  }, [values.attachments, setValue])
-
-  const removeAttachment = React.useCallback((index: number) => {
-    const current = Array.isArray(values.attachments) ? values.attachments : []
-    const next = current.filter((_, idx) => idx !== index)
-    setValue('attachments', next)
-  }, [values.attachments, setValue])
-
   const setVariantField = React.useCallback(
     (variantId: string, field: keyof VariantDraft, value: unknown) => {
       const next = (Array.isArray(values.variants) ? values.variants : []).map((variant) => {
@@ -563,7 +630,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     setValue('options', next)
   }, [values.options, setValue])
 
-  const attachments = Array.isArray(values.attachments) ? values.attachments : []
 
   return (
     <div className="space-y-6">
@@ -638,38 +704,14 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             )}
           </div>
 
-          <div className="space-y-3">
-            <Label>{t('catalog.products.create.attachments.title', 'Media')}</Label>
-            <div className="rounded-lg border border-dashed p-6 text-center">
-              <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('catalog.products.create.attachments.help', 'Drag and drop images here or click to upload.')}
-              </p>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="mt-4 text-sm"
-                onChange={(event) => handleAttachmentChange(event.target.files)}
-              />
-            </div>
-            {attachments.length ? (
-              <ul className="space-y-2 text-sm">
-                {attachments.map((file, index) => (
-                  <li key={`${file.name}-${index}`} className="flex items-center justify-between rounded-md border px-3 py-2">
-                    <div>
-                      <p className="font-medium">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">{formatSize(file.size)}</p>
-                    </div>
-                    <Button variant="ghost" size="icon" type="button" onClick={() => removeAttachment(index)}>
-                      <Trash2 className="h-4 w-4" />
-                      <span className="sr-only">{t('catalog.products.create.attachments.remove', 'Remove')}</span>
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+          <ProductMediaManager
+            entityId={E.catalog.catalog_product}
+            draftRecordId={values.mediaDraftId}
+            items={mediaItems}
+            defaultMediaId={values.defaultMediaId ?? null}
+            onItemsChange={handleMediaItemsChange}
+            onDefaultChange={handleDefaultMediaChange}
+          />
         </div>
       ) : null}
 
@@ -1080,14 +1122,6 @@ function slugify(input: string): string {
     .trim()
     .replace(/[^a-z0-9\-]+/g, '-')
     .replace(/^-+|-+$/g, '')
-}
-
-function formatSize(size: number): string {
-  if (!Number.isFinite(size)) return `${size}`
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
-  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
 function formatTaxRateLabel(rate: TaxRateSummary): string {

@@ -58,6 +58,19 @@
         "handleExists": "Handle wird bereits verwendet.",
         "skuExists": "SKU wird bereits verwendet."
       },
+      "media": {
+        "label": "Medien",
+        "dropHint": "Ziehe Bilder hierher oder klicke, um sie hochzuladen.",
+        "choose": "Dateien auswählen",
+        "uploading": "Wird hochgeladen…",
+        "empty": "Noch keine Medien hochgeladen.",
+        "default": "Standardvorschau",
+        "errors": {
+          "imagesOnly": "Es werden nur Bilddateien unterstützt.",
+          "uploadFailed": "Upload fehlgeschlagen.",
+          "deleteFailed": "Medien konnten nicht gelöscht werden."
+        }
+      },
       "form": {
         "general": "Allgemein",
         "pricing": "Preise",

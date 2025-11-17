@@ -58,6 +58,19 @@
         "handleExists": "El identificador ya está en uso.",
         "skuExists": "El SKU ya está en uso."
       },
+      "media": {
+        "label": "Medios",
+        "dropHint": "Arrastra y suelta imágenes aquí o haz clic para subirlas.",
+        "choose": "Elegir archivos",
+        "uploading": "Subiendo…",
+        "empty": "Todavía no se han subido medios.",
+        "default": "Vista previa predeterminada",
+        "errors": {
+          "imagesOnly": "Solo se admiten archivos de imagen.",
+          "uploadFailed": "Error al subir.",
+          "deleteFailed": "Error al eliminar el medio."
+        }
+      },
       "form": {
         "general": "General",
         "pricing": "Precios",

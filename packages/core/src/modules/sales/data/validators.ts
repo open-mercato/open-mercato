@@ -145,6 +145,7 @@ export const taxRateCreateSchema = scoped.extend({
   channelId: uuid().optional(),
   priority: z.coerce.number().int().min(0).max(10).optional(),
   isCompound: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
   metadata,
   startsAt: z.coerce.date().optional(),
   endsAt: z.coerce.date().optional(),
