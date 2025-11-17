@@ -19,6 +19,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
+import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -91,6 +92,7 @@ type ProductFormValues = {
   mediaDraftId: string
   mediaItems: ProductMediaItem[]
   defaultMediaId: string | null
+  defaultMediaUrl: string
   hasVariants: boolean
   options: ProductOptionInput[]
   variants: VariantDraft[]
@@ -112,6 +114,7 @@ const productFormSchema = z.object({
   mediaDraftId: z.string().optional(),
   mediaItems: z.any().optional(),
   defaultMediaId: z.string().uuid().nullable().optional(),
+  defaultMediaUrl: z.string().trim().max(500).nullable().optional(),
   options: z.any().optional(),
   variants: z.any().optional(),
 })
@@ -162,6 +165,7 @@ const INITIAL_VALUES: ProductFormValues = {
   mediaDraftId: '',
   mediaItems: [],
   defaultMediaId: null,
+  defaultMediaUrl: '',
   taxRateId: null,
   hasVariants: false,
   options: [],
@@ -286,7 +290,7 @@ export default function CreateCatalogProductPage() {
             }
             const handle = formValues.handle?.trim() || undefined
             const description = formValues.description?.trim() || undefined
-            const defaultAttachmentId =
+            const defaultMediaId =
               typeof formValues.defaultMediaId === 'string' && formValues.defaultMediaId.trim().length
                 ? formValues.defaultMediaId
                 : null
@@ -295,6 +299,12 @@ export default function CreateCatalogProductPage() {
               .map((item) => (typeof item.id === 'string' ? item.id : null))
               .filter((value): value is string => !!value)
             const mediaDraftId = typeof formValues.mediaDraftId === 'string' ? formValues.mediaDraftId : ''
+            const defaultMediaEntry = defaultMediaId ? mediaItems.find((item) => item.id === defaultMediaId) : null
+            const defaultMediaUrl = defaultMediaEntry
+              ? buildAttachmentImageUrl(defaultMediaEntry.id, {
+                  slug: slugifyAttachmentFileName(defaultMediaEntry.fileName),
+                })
+              : null
             const productPayload: Record<string, unknown> = {
               title,
               subtitle: formValues.subtitle?.trim() || undefined,
@@ -302,7 +312,8 @@ export default function CreateCatalogProductPage() {
               handle,
               isConfigurable: Boolean(formValues.hasVariants),
               metadata: formValues.options.length ? { optionSchema: formValues.options } : undefined,
-              defaultAttachmentId: defaultAttachmentId ?? undefined,
+              defaultMediaId: defaultMediaId ?? undefined,
+              defaultMediaUrl: defaultMediaUrl ?? undefined,
             }
 
             const { result: created } = await createCrud<{ id?: string }>('catalog/products', productPayload)
@@ -480,15 +491,41 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   const handleMediaItemsChange = React.useCallback(
     (nextItems: ProductMediaItem[]) => {
       setValue('mediaItems', nextItems)
+      const hasCurrent = nextItems.some((item) => item.id === values.defaultMediaId)
+      if (!hasCurrent) {
+        const fallbackId = nextItems[0]?.id ?? null
+        setValue('defaultMediaId', fallbackId)
+        if (fallbackId && nextItems[0]) {
+          setValue(
+            'defaultMediaUrl',
+            buildAttachmentImageUrl(fallbackId, {
+              slug: slugifyAttachmentFileName(nextItems[0].fileName),
+            }),
+          )
+        } else {
+          setValue('defaultMediaUrl', '')
+        }
+      }
     },
-    [setValue],
+    [setValue, values.defaultMediaId],
   )
 
   const handleDefaultMediaChange = React.useCallback(
     (attachmentId: string | null) => {
       setValue('defaultMediaId', attachmentId)
+      if (!attachmentId) {
+        setValue('defaultMediaUrl', '')
+        return
+      }
+      const target = mediaItems.find((item) => item.id === attachmentId)
+      if (target) {
+        setValue(
+          'defaultMediaUrl',
+          buildAttachmentImageUrl(target.id, { slug: slugifyAttachmentFileName(target.fileName) }),
+        )
+      }
     },
-    [setValue],
+    [mediaItems, setValue],
   )
 
   const ensureVariants = React.useCallback(() => {

@@ -1,6 +1,20 @@
 export type ImageSizeOptions = {
   width?: number
   height?: number
+  slug?: string | null
+}
+
+export function slugifyAttachmentFileName(fileName: string | null | undefined, fallback = 'asset'): string {
+  if (!fileName || !fileName.trim()) return fallback
+  const normalized = fileName.trim()
+  const lastDot = normalized.lastIndexOf('.')
+  const ext = lastDot > 0 ? normalized.slice(lastDot + 1).toLowerCase() : ''
+  const base = (lastDot > 0 ? normalized.slice(0, lastDot) : normalized)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const slug = base || fallback
+  return ext ? `${slug}.${ext}` : slug
 }
 
 export function buildAttachmentImageUrl(attachmentId: string, options?: ImageSizeOptions): string {
@@ -13,5 +27,6 @@ export function buildAttachmentImageUrl(attachmentId: string, options?: ImageSiz
     params.set('height', String(Math.max(1, Math.floor(options.height))))
   }
   const query = params.toString()
-  return `/api/attachments/image/${encodeURIComponent(attachmentId)}${query ? `?${query}` : ''}`
+  const slugSegment = options?.slug ? `/${encodeURIComponent(options.slug)}` : ''
+  return `/api/attachments/image/${encodeURIComponent(attachmentId)}${slugSegment}${query ? `?${query}` : ''}`
 }

@@ -178,6 +178,10 @@ type ProductListItem = Record<string, unknown> & {
   sku?: string | null
   handle?: string | null
   product_type?: CatalogProductType | null
+  primary_currency_code?: string | null
+  default_unit?: string | null
+  default_media_id?: string | null
+  default_media_url?: string | null
   custom_fieldset_code?: string | null
   option_schema_id?: string | null
 }
@@ -317,7 +321,8 @@ const crud = makeCrudRoute({
       F.status_entry_id,
       F.primary_currency_code,
       F.default_unit,
-      F.default_attachment_id,
+      F.default_media_id,
+      F.default_media_url,
       F.is_configurable,
       F.is_active,
       F.metadata,

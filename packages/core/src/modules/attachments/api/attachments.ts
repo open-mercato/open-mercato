@@ -5,7 +5,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { buildAttachmentImageUrl } from '../lib/imageUrls'
+import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -80,7 +80,11 @@ export async function GET(req: Request) {
       fileName: a.fileName,
       fileSize: a.fileSize,
       createdAt: a.createdAt,
-      thumbnailUrl: buildAttachmentImageUrl(a.id, { width: 320, height: 320 }),
+      thumbnailUrl: buildAttachmentImageUrl(a.id, {
+        width: 320,
+        height: 320,
+        slug: slugifyAttachmentFileName(a.fileName),
+      }),
     })),
   })
 }
@@ -164,7 +168,11 @@ export async function POST(req: Request) {
       url: urlPath,
       fileName: safeName,
       fileSize: buf.length,
-      thumbnailUrl: buildAttachmentImageUrl(attachmentId, { width: 320, height: 320 }),
+      thumbnailUrl: buildAttachmentImageUrl(attachmentId, {
+        width: 320,
+        height: 320,
+        slug: slugifyAttachmentFileName(safeName),
+      }),
     },
   })
 }

@@ -93,7 +93,8 @@ export const productCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
   defaultUnit: z.string().trim().max(50).optional(),
-  defaultAttachmentId: uuid().optional().nullable(),
+  defaultMediaId: uuid().optional().nullable(),
+  defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   optionSchemaId: uuid().nullable().optional(),
   customFieldsetCode: slugSchema.nullable().optional(),
   isConfigurable: z.boolean().optional(),
@@ -124,6 +125,8 @@ export const variantCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  defaultMediaId: uuid().optional().nullable(),
+  defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   weightValue: z.coerce.number().min(0).optional(),
   weightUnit: z.string().trim().max(25).optional(),
   dimensions: z

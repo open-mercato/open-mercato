@@ -43,6 +43,8 @@ type VariantSnapshot = {
   statusEntryId: string | null
   isDefault: boolean
   isActive: boolean
+  defaultMediaId: string | null
+  defaultMediaUrl: string | null
   weightValue: string | null
   weightUnit: string | null
   dimensions: Record<string, unknown> | null
@@ -66,6 +68,8 @@ const VARIANT_CHANGE_KEYS = [
   'statusEntryId',
   'isDefault',
   'isActive',
+  'defaultMediaId',
+  'defaultMediaUrl',
   'weightValue',
   'weightUnit',
   'dimensions',
@@ -113,6 +117,8 @@ async function loadVariantSnapshot(
     statusEntryId: record.statusEntryId ?? null,
     isDefault: record.isDefault,
     isActive: record.isActive,
+    defaultMediaId: record.defaultMediaId ?? null,
+    defaultMediaUrl: record.defaultMediaUrl ?? null,
     weightValue: record.weightValue ?? null,
     weightUnit: record.weightUnit ?? null,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
@@ -134,6 +140,8 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.isDefault = snapshot.isDefault
   record.isActive = snapshot.isActive
+  record.defaultMediaId = snapshot.defaultMediaId ?? null
+  record.defaultMediaUrl = snapshot.defaultMediaUrl ?? null
   record.weightValue = snapshot.weightValue ?? null
   record.weightUnit = snapshot.weightUnit ?? null
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
@@ -253,6 +261,8 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       statusEntryId: parsed.statusEntryId ?? null,
       isDefault: parsed.isDefault ?? false,
       isActive: parsed.isActive ?? true,
+      defaultMediaId: parsed.defaultMediaId ?? null,
+      defaultMediaUrl: parsed.defaultMediaUrl ?? null,
       weightValue: toNumericString(parsed.weightValue),
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
@@ -353,6 +363,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    if (parsed.defaultMediaId !== undefined) record.defaultMediaId = parsed.defaultMediaId ?? null
+    if (parsed.defaultMediaUrl !== undefined) record.defaultMediaUrl = parsed.defaultMediaUrl ?? null
     if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
       record.weightValue = toNumericString(parsed.weightValue)
     }

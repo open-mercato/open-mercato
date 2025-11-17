@@ -62,7 +62,8 @@ export type ProductRow = {
   status_entry_id?: string | null
   primary_currency_code?: string | null
   default_unit?: string | null
-  default_attachment_id?: string | null
+  default_media_id?: string | null
+  default_media_url?: string | null
   is_configurable?: boolean
   is_active?: boolean
   metadata?: Record<string, unknown> | null
@@ -209,15 +210,18 @@ export default function ProductsDataTable() {
         header: '',
         size: 80,
         cell: ({ row }) => {
-          const attachmentId = row.original.default_attachment_id
-          if (!attachmentId) {
+          const attachmentId = row.original.default_media_id
+          const storedUrl = row.original.default_media_url
+          if (!attachmentId && !storedUrl) {
             return (
               <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed text-muted-foreground">
                 <ImageIcon className="h-4 w-4" />
               </div>
             )
           }
-          const previewUrl = buildAttachmentImageUrl(attachmentId, { width: 96, height: 96 })
+          const previewUrl =
+            storedUrl ||
+            (attachmentId ? buildAttachmentImageUrl(attachmentId, { width: 96, height: 96 }) : null)
           return (
             <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border">
               <img src={previewUrl} alt={row.original.title ?? ''} className="h-full w-full object-cover" />

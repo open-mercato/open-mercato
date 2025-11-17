@@ -109,14 +109,23 @@ export class CatalogProduct {
   @Property({ name: 'default_unit', type: 'text', nullable: true })
   defaultUnit?: string | null
 
-  @Property({ name: 'default_attachment_id', type: 'uuid', nullable: true })
-  defaultAttachmentId?: string | null
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
   @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
   customFieldsetCode?: string | null
+
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
 
   @ManyToOne(() => CatalogOptionSchemaTemplate, {
     fieldName: 'option_schema_id',

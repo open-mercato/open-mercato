@@ -17,7 +17,10 @@ export const metadata = {
   GET: { requireAuth: true },
 }
 
-export async function GET(req: Request, context: { params: { id: string } }) {
+export async function GET(
+  req: Request,
+  context: { params: { id: string; slug?: string[] | undefined } }
+) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -26,7 +29,9 @@ export async function GET(req: Request, context: { params: { id: string } }) {
   if (!id) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
-  const parsedQuery = querySchema.safeParse(Object.fromEntries(new URL(req.url).searchParams.entries()))
+  const parsedQuery = querySchema.safeParse(
+    Object.fromEntries(new URL(req.url).searchParams.entries())
+  )
   if (!parsedQuery.success) {
     return NextResponse.json({ error: 'Invalid size parameters' }, { status: 400 })
   }

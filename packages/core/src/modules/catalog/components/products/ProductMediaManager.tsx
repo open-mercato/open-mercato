@@ -6,7 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@/lib/i18n/context'
-import { buildAttachmentImageUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 export type ProductMediaItem = {
   id: string
@@ -80,11 +80,12 @@ export function ProductMediaManager({
           }
           const existingIds = new Set(nextItems.map((entry) => entry.id))
           if (existingIds.has(call.result.item.id)) continue
+          const slug = slugifyAttachmentFileName(call.result.item.fileName)
           const uploaded = {
             ...call.result.item,
             thumbnailUrl:
               call.result.item.thumbnailUrl ??
-              buildAttachmentImageUrl(call.result.item.id, { width: 360, height: 360 }),
+              buildAttachmentImageUrl(call.result.item.id, { width: 360, height: 360, slug }),
           }
           nextItems = [...nextItems, uploaded]
           if (!defaultId) {
@@ -188,7 +189,10 @@ export function ProductMediaManager({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {items.map((item) => {
             const isDefault = defaultMediaId === item.id
-            const thumbnail = item.thumbnailUrl || buildAttachmentImageUrl(item.id, { width: 360, height: 360 })
+            const slug = slugifyAttachmentFileName(item.fileName)
+            const thumbnail =
+              item.thumbnailUrl ||
+              buildAttachmentImageUrl(item.id, { width: 360, height: 360, slug })
             return (
               <div key={item.id} className="flex flex-col rounded-md border bg-card">
                 <div className="relative aspect-square overflow-hidden rounded-t-md bg-muted">
