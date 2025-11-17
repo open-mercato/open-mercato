@@ -7,6 +7,7 @@ import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileN
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { storePartitionFile, deletePartitionFile } from '../lib/storage'
+import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -215,6 +216,9 @@ export async function DELETE(req: Request) {
   })
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await em.removeAndFlush(record)
+  await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
+    console.error('[attachments] failed to cleanup cached thumbnails', error)
+  })
   if (record.storagePath) {
     await deletePartitionFile(record.partitionCode, record.storagePath, record.storageDriver)
   }

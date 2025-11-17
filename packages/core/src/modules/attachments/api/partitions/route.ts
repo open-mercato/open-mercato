@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
-import { resolvePartitionEnvKey } from '../../lib/storage'
+import { resolvePartitionEnvKey } from '../../lib/partitionEnv'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const partitionBaseSchema = z.object({

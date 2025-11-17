@@ -5,6 +5,11 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { resolveAttachmentAbsolutePath } from '@open-mercato/core/modules/attachments/lib/storage'
+import {
+  buildThumbnailCacheKey,
+  readThumbnailCache,
+  writeThumbnailCache,
+} from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { promises as fs } from 'fs'
@@ -62,17 +67,29 @@ export async function GET(
     attachment.storagePath,
     attachment.storageDriver
   )
+  const cacheKey = buildThumbnailCacheKey(width, height)
   try {
-    const input = await fs.readFile(filePath)
-    let transformer = sharp(input)
-    if (width || height) {
-      transformer = transformer.resize({
-        width: width || undefined,
-        height: height || undefined,
-        fit: 'cover',
-      })
+    let buffer: Buffer | null = null
+    if (cacheKey) {
+      buffer = await readThumbnailCache(attachment.partitionCode, attachment.id, cacheKey)
     }
-    const buffer = await transformer.toBuffer()
+    if (!buffer) {
+      const input = await fs.readFile(filePath)
+      let transformer = sharp(input)
+      if (width || height) {
+        transformer = transformer.resize({
+          width: width || undefined,
+          height: height || undefined,
+          fit: 'cover',
+        })
+      }
+      buffer = await transformer.toBuffer()
+      if (cacheKey) {
+        void writeThumbnailCache(attachment.partitionCode, attachment.id, cacheKey, buffer).catch((cacheError) => {
+          console.error('attachments.image.cache.write failed', cacheError)
+        })
+      }
+    }
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
