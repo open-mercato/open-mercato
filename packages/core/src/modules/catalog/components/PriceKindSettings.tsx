@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -38,10 +40,21 @@ type DialogState =
   | { mode: 'create' }
   | { mode: 'edit'; entry: PriceKind }
 
+type PriceKindApiPayload = Partial<PriceKind> & {
+  display_mode?: PriceKind['displayMode']
+  currency_code?: string | null
+  is_promotion?: boolean
+  is_active?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
 const DISPLAY_MODES: Array<{ value: 'including-tax' | 'excluding-tax'; label: string }> = [
   { value: 'excluding-tax', label: 'Excluding tax' },
   { value: 'including-tax', label: 'Including tax' },
 ]
+
+const PAGE_SIZE = 100
 
 const DEFAULT_FORM = {
   code: '',
@@ -52,12 +65,42 @@ const DEFAULT_FORM = {
   isActive: true,
 }
 
+const normalizePriceKind = (input: PriceKindApiPayload | null | undefined): PriceKind => {
+  const raw = input ?? {}
+  const toStringValue = (value: unknown): string | null => {
+    if (typeof value === 'string') return value
+    if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+    return null
+  }
+  const toBooleanValue = (value: unknown): boolean | null => (typeof value === 'boolean' ? value : null)
+  const resolveDisplayMode = (value: string | null): PriceKind['displayMode'] =>
+    value === 'including-tax' ? 'including-tax' : value === 'excluding-tax' ? 'excluding-tax' : 'excluding-tax'
+
+  const displayMode = resolveDisplayMode(
+    toStringValue(raw.displayMode) ?? toStringValue(raw.display_mode),
+  )
+  const currencyCode = toStringValue(raw.currencyCode) ?? toStringValue(raw.currency_code)
+  const isPromotion = toBooleanValue(raw.isPromotion) ?? toBooleanValue(raw.is_promotion)
+  const isActive = toBooleanValue(raw.isActive) ?? toBooleanValue(raw.is_active)
+
+  return {
+    id: toStringValue(raw.id) ?? '',
+    code: toStringValue(raw.code) ?? '',
+    title: toStringValue(raw.title) ?? '',
+    displayMode,
+    currencyCode: currencyCode ?? null,
+    isPromotion: isPromotion ?? false,
+    isActive: isActive ?? true,
+    createdAt: toStringValue(raw.createdAt) ?? toStringValue(raw.created_at) ?? '',
+    updatedAt: toStringValue(raw.updatedAt) ?? toStringValue(raw.updated_at) ?? '',
+  }
+}
+
 export function PriceKindSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const [items, setItems] = React.useState<PriceKind[]>([])
   const [loading, setLoading] = React.useState(false)
-  const [searchDraft, setSearchDraft] = React.useState('')
   const [search, setSearch] = React.useState('')
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
   const [form, setForm] = React.useState(DEFAULT_FORM)
@@ -85,22 +128,22 @@ export function PriceKindSettings() {
 
   const loadItems = React.useCallback(async () => {
     setLoading(true)
+    const loadErrorMessage = t('catalog.priceKinds.errors.load', 'Failed to load price kinds.')
     try {
-      const params = new URLSearchParams({ pageSize: '200' })
-      if (search.trim().length) params.set('search', search.trim())
-      const payload = await readApiResultOrThrow<{ items?: PriceKind[] }>(
-        `/api/catalog/price-kinds?${params.toString()}`,
+      const payload = await readApiResultOrThrow<{ items?: PriceKindApiPayload[] }>(
+        `/api/catalog/price-kinds?pageSize=${PAGE_SIZE}`,
         undefined,
-        { errorMessage: t('catalog.priceKinds.errors.load', 'Failed to load price kinds.') },
+        { errorMessage: loadErrorMessage },
       )
-      setItems(Array.isArray(payload.items) ? payload.items : [])
+      const normalized = Array.isArray(payload.items) ? payload.items.map((item) => normalizePriceKind(item)) : []
+      setItems(normalized)
     } catch (err) {
       console.error('catalog.price-kinds.list failed', err)
-      flash(t('catalog.priceKinds.errors.load', 'Failed to load price kinds.'), 'error')
+      flash(loadErrorMessage, 'error')
     } finally {
       setLoading(false)
     }
-  }, [search, t])
+  }, [t])
 
   React.useEffect(() => {
     loadItems().catch(() => {})
@@ -216,16 +259,18 @@ export function PriceKindSettings() {
     [handleSubmit],
   )
 
+  const displayModeLabels = React.useMemo(() => ({
+    'including-tax': t('catalog.priceKinds.form.displayMode.include', 'Including tax'),
+    'excluding-tax': t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax'),
+  }), [t])
+
   const displayModeOptions = React.useMemo(
     () =>
       DISPLAY_MODES.map((mode) => ({
         ...mode,
-        label:
-          mode.value === 'including-tax'
-            ? t('catalog.priceKinds.form.displayMode.include', 'Including tax')
-            : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax'),
+        label: displayModeLabels[mode.value],
       })),
-    [t],
+    [displayModeLabels],
   )
 
   const currencyLabels = React.useMemo(() => ({
@@ -248,125 +293,136 @@ export function PriceKindSettings() {
     manageTitle: t('catalog.priceKinds.form.currency.manage', 'Manage currencies'),
   }), [t])
 
-  const tableEmpty = !loading && items.length === 0
+  const tableLabels = React.useMemo(() => ({
+    code: t('catalog.priceKinds.table.code', 'Code'),
+    title: t('catalog.priceKinds.table.title', 'Title'),
+    displayMode: t('catalog.priceKinds.table.displayMode', 'Display mode'),
+    currency: t('catalog.priceKinds.table.currency', 'Currency'),
+    promotion: t('catalog.priceKinds.table.promotion', 'Promotion'),
+    promotionYes: t('catalog.priceKinds.table.promotionYes', 'Yes'),
+    promotionNo: t('catalog.priceKinds.table.promotionNo', 'No'),
+    active: t('catalog.priceKinds.table.active', 'Active'),
+    activeYes: t('catalog.priceKinds.table.activeYes', 'Active'),
+    activeNo: t('catalog.priceKinds.table.activeNo', 'Inactive'),
+    search: t('catalog.priceKinds.search.placeholder', 'Search by code or title…'),
+    empty: t('catalog.priceKinds.table.empty', 'No price kinds yet.'),
+  }), [t])
+
+  const columns = React.useMemo<ColumnDef<PriceKind>[]>(() => [
+    {
+      accessorKey: 'code',
+      header: tableLabels.code,
+      cell: ({ row }) => <span className="font-mono uppercase">{row.original.code}</span>,
+    },
+    {
+      accessorKey: 'title',
+      header: tableLabels.title,
+      cell: ({ row }) => <span className="font-medium">{row.original.title}</span>,
+    },
+    {
+      accessorKey: 'displayMode',
+      header: tableLabels.displayMode,
+      cell: ({ row }) => displayModeLabels[row.original.displayMode] ?? row.original.displayMode,
+    },
+    {
+      accessorKey: 'currencyCode',
+      header: tableLabels.currency,
+      cell: ({ row }) => (row.original.currencyCode ? row.original.currencyCode.toUpperCase() : '—'),
+    },
+    {
+      id: 'promotion',
+      header: tableLabels.promotion,
+      cell: ({ row }) =>
+        row.original.isPromotion ? (
+          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 dark:border-amber-500/50 dark:bg-amber-500/10 dark:text-amber-100">
+            {tableLabels.promotionYes}
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
+            {tableLabels.promotionNo}
+          </span>
+        ),
+    },
+    {
+      id: 'active',
+      header: tableLabels.active,
+      cell: ({ row }) =>
+        row.original.isActive ? (
+          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-100">
+            {tableLabels.activeYes}
+          </span>
+        ) : (
+          <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
+            {tableLabels.activeNo}
+          </span>
+        ),
+    },
+  ], [displayModeLabels, tableLabels])
+
+  const filteredItems = React.useMemo(() => {
+    const term = search.trim().toLowerCase()
+    if (!term) return items
+    return items.filter((item) => {
+      const currency = (item.currencyCode ?? '').toLowerCase()
+      const modeLabel = (displayModeLabels[item.displayMode] ?? item.displayMode).toLowerCase()
+      return (
+        item.code.toLowerCase().includes(term) ||
+        item.title.toLowerCase().includes(term) ||
+        currency.includes(term) ||
+        modeLabel.includes(term)
+      )
+    })
+  }, [displayModeLabels, items, search])
+
+  const handleRowClick = React.useCallback((entry: PriceKind) => {
+    openDialog({ mode: 'edit', entry })
+  }, [openDialog])
 
   return (
-    <section className="rounded-lg border bg-card text-card-foreground shadow-sm">
-      <div className="flex flex-col gap-4 border-b px-6 py-4 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold">{t('catalog.priceKinds.title', 'Price kinds')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('catalog.priceKinds.description', 'Configure reusable price kinds that control pricing columns and tax display.')}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => openDialog({ mode: 'create' })}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('catalog.priceKinds.actions.add', 'Add price kind')}
-        </Button>
+    <section className="border bg-card text-card-foreground shadow-sm">
+      <div className="border-b px-6 py-4 space-y-1">
+        <h2 className="text-lg font-semibold">{t('catalog.priceKinds.title', 'Price kinds')}</h2>
+        <p className="text-sm text-muted-foreground">
+          {t('catalog.priceKinds.description', 'Configure reusable price kinds that control pricing columns and tax display.')}
+        </p>
       </div>
-      <div className="space-y-4 p-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center">
-          <Input
-            value={searchDraft}
-            onChange={(event) => setSearchDraft(event.target.value)}
-            placeholder={t('catalog.priceKinds.search.placeholder', 'Search by code or title…')}
-            className="md:max-w-sm"
-          />
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setSearch(searchDraft.trim())} disabled={loading}>
-              {t('catalog.priceKinds.actions.search', 'Search')}
+      <div className="px-2 py-4 sm:px-4">
+        <DataTable<PriceKind>
+          data={filteredItems}
+          columns={columns}
+          embedded
+          isLoading={loading}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={tableLabels.search}
+          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{tableLabels.empty}</p>}
+          actions={(
+            <Button size="sm" onClick={() => openDialog({ mode: 'create' })}>
+              {t('catalog.priceKinds.actions.add', 'Add price kind')}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => { setSearch(''); setSearchDraft('') }} disabled={loading}>
-              {t('catalog.priceKinds.actions.clear', 'Clear')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => loadItems()} disabled={loading}>
-              {t('catalog.priceKinds.actions.refresh', 'Refresh')}
-            </Button>
-          </div>
-        </div>
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[640px] table-fixed border-collapse text-sm">
-            <thead>
-              <tr className="bg-muted/40 text-left">
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.code', 'Code')}</th>
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.title', 'Title')}</th>
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.displayMode', 'Display mode')}</th>
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.currency', 'Currency')}</th>
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.promotion', 'Promotion')}</th>
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.active', 'Active')}</th>
-                <th className="px-4 py-2 font-medium">{t('catalog.priceKinds.table.actions', 'Actions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((entry) => (
-                <tr key={entry.id} className="border-t">
-                  <td className="px-4 py-2 font-mono text-xs uppercase">{entry.code}</td>
-                  <td className="px-4 py-2">{entry.title}</td>
-                  <td className="px-4 py-2">
-                    <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
-                      {entry.displayMode === 'including-tax'
-                        ? t('catalog.priceKinds.form.displayMode.include', 'Including tax')
-                        : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    {entry.currencyCode ? (
-                      <span className="font-mono text-xs uppercase">{entry.currencyCode}</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    {entry.isPromotion ? (
-                      <span className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-900 dark:border-purple-500/50 dark:bg-purple-500/10 dark:text-purple-100">
-                        {t('catalog.priceKinds.table.promotionYes', 'Yes')}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">{t('catalog.priceKinds.table.promotionNo', 'No')}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    {entry.isActive ? (
-                      <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-900 dark:border-emerald-500/50 dark:bg-emerald-500/10 dark:text-emerald-100">
-                        {t('catalog.priceKinds.table.activeYes', 'Active')}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">
-                        {t('catalog.priceKinds.table.activeNo', 'Inactive')}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => openDialog({ mode: 'edit', entry })}>
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">{t('catalog.priceKinds.actions.edit', 'Edit')}</span>
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(entry)}>
-                        <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">{t('catalog.priceKinds.actions.delete', 'Delete')}</span>
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {tableEmpty ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    {t('catalog.priceKinds.table.empty', 'No price kinds yet.')}
-                  </td>
-                </tr>
-              ) : null}
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    {t('catalog.priceKinds.table.loading', 'Loading…')}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+          )}
+          refreshButton={{
+            label: t('catalog.priceKinds.actions.refresh', 'Refresh'),
+            onRefresh: () => { void loadItems() },
+            isRefreshing: loading,
+          }}
+          rowActions={(entry) => (
+            <RowActions
+              items={[
+                {
+                  label: t('catalog.priceKinds.actions.edit', 'Edit'),
+                  onSelect: () => openDialog({ mode: 'edit', entry }),
+                },
+                {
+                  label: t('catalog.priceKinds.actions.delete', 'Delete'),
+                  destructive: true,
+                  onSelect: () => { void handleDelete(entry) },
+                },
+              ]}
+            />
+          )}
+          onRowClick={handleRowClick}
+        />
       </div>
       <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent>

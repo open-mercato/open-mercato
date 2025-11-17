@@ -150,7 +150,7 @@ export default function CreateCatalogProductPage() {
     const loadPriceKinds = async () => {
       try {
         const payload = await readApiResultOrThrow<{ items?: PriceKindSummary[] }>(
-          '/api/catalog/price-kinds?pageSize=200',
+          '/api/catalog/price-kinds?pageSize=100',
           undefined,
           { errorMessage: t('catalog.priceKinds.errors.load', 'Failed to load price kinds.') },
         )
