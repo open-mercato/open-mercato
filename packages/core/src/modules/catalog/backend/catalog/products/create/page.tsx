@@ -39,6 +39,16 @@ type PriceKindSummary = {
   displayMode: 'including-tax' | 'excluding-tax'
 }
 
+type PriceKindApiPayload = {
+  id?: string | number
+  code?: string
+  title?: string
+  currencyCode?: string | null
+  currency_code?: string | null
+  displayMode?: string | null
+  display_mode?: string | null
+}
+
 type TaxRateSummary = {
   id: string
   name: string
@@ -140,7 +150,7 @@ export default function CreateCatalogProductPage() {
   React.useEffect(() => {
     const loadPriceKinds = async () => {
       try {
-        const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+        const payload = await readApiResultOrThrow<{ items?: PriceKindApiPayload[] }>(
           '/api/catalog/price-kinds?pageSize=100',
           undefined,
           { errorMessage: t('catalog.priceKinds.errors.load', 'Failed to load price kinds.') },
@@ -1009,7 +1019,7 @@ function buildVariantCombinations(options: ProductOptionInput[]): Record<string,
   }, initial)
 }
 
-function normalizePriceKindSummary(input: Record<string, unknown> | undefined | null): PriceKindSummary | null {
+function normalizePriceKindSummary(input: PriceKindApiPayload | undefined | null): PriceKindSummary | null {
   if (!input) return null
   const getString = (value: unknown): string | null => {
     if (typeof value === 'string' && value.trim().length) return value.trim()
@@ -1020,12 +1030,8 @@ function normalizePriceKindSummary(input: Record<string, unknown> | undefined | 
   const code = getString(input.code)
   const title = getString(input.title)
   if (!id || !code || !title) return null
-  const currency =
-    getString((input as Record<string, unknown>).currencyCode) ??
-    getString((input as Record<string, unknown>)['currency_code'])
-  const displayRaw =
-    getString((input as Record<string, unknown>).displayMode) ??
-    getString((input as Record<string, unknown>)['display_mode'])
+  const currency = getString(input.currencyCode) ?? getString(input.currency_code)
+  const displayRaw = getString(input.displayMode) ?? getString(input.display_mode)
   const displayMode: PriceKindSummary['displayMode'] =
     displayRaw === 'including-tax' ? 'including-tax' : 'excluding-tax'
   return {
