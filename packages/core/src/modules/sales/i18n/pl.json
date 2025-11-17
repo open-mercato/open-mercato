@@ -126,6 +126,48 @@
           "save": "Status zapisany.",
           "delete": "Status usunięty."
         }
+      },
+      "taxRates": {
+        "title": "Stawki podatkowe",
+        "description": "Zarządzaj klasami VAT używanymi w cenniku katalogu.",
+        "actions": {
+          "add": "Dodaj stawkę podatkową",
+          "edit": "Edytuj",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć stawkę \"{{name}}\"?",
+          "refresh": "Odśwież"
+        },
+        "table": {
+          "name": "Nazwa",
+          "code": "Kod",
+          "rate": "Stawka",
+          "location": "Lokalizacja",
+          "updatedAt": "Zaktualizowano",
+          "empty": "Brak stawek podatkowych."
+        },
+        "form": {
+          "createTitle": "Dodaj stawkę podatkową",
+          "editTitle": "Edytuj stawkę podatkową",
+          "name": "Nazwa",
+          "code": "Kod",
+          "codeHelp": "Małe litery, cyfry i myślniki.",
+          "rate": "Stawka (%)",
+          "countryCode": "Kod kraju",
+          "regionCode": "Region",
+          "postalCode": "Kod pocztowy",
+          "city": "Miasto",
+          "save": "Zapisz",
+          "cancel": "Anuluj"
+        },
+        "messages": {
+          "saved": "Stawka podatkowa zapisana.",
+          "deleted": "Stawka podatkowa usunięta."
+        },
+        "errors": {
+          "load": "Nie udało się wczytać stawek podatkowych.",
+          "save": "Nie udało się zapisać stawki podatkowej.",
+          "delete": "Nie udało się usunąć stawki podatkowej."
+        }
       }
     }
   },

@@ -107,6 +107,15 @@
           "help": "Drag and drop images here or click to upload.",
           "remove": "Remove"
         },
+        "taxRates": {
+          "label": "Clase de IVA",
+          "noneSelected": "Ninguna clase de IVA seleccionada",
+          "emptyOption": "No hay clases de IVA disponibles",
+          "help": "Se aplica a los precios nuevos salvo que se sobrescriba por variante.",
+          "empty": "Defina las clases de IVA en Ventas \u2192 Configuraci\u00f3n.",
+          "error": "No se pudieron cargar los tipos impositivos.",
+          "unnamed": "Tipo impositivo sin nombre"
+        },
         "organize": {
           "placeholder": "Work in progress on this tab."
         },
@@ -248,6 +257,10 @@
           "titlePlaceholder": "Variant title",
           "skuPlaceholder": "e.g., SKU-001",
           "priceColumn": "Price {{title}}",
+          "vatColumn": "Clase de IVA",
+          "vatOptionDefault": "Usar IVA del producto ({{label}})",
+          "vatOptionNone": "Sin clase de IVA",
+          "inventoryDisabled": "El control de inventario a\u00fan no est\u00e1 disponible aqu\u00ed.",
           "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },
         "remove": "Eliminar",

@@ -40,6 +40,13 @@ type PriceKindSummary = {
   displayMode: 'including-tax' | 'excluding-tax'
 }
 
+type TaxRateSummary = {
+  id: string
+  name: string
+  code: string | null
+  rate: number | null
+}
+
 type ProductOptionInput = {
   id: string
   title: string
@@ -55,6 +62,7 @@ type VariantDraft = {
   title: string
   sku: string
   isDefault: boolean
+  taxRateId: string | null
   manageInventory: boolean
   allowBackorder: boolean
   hasInventoryKit: boolean
@@ -69,6 +77,7 @@ type ProductFormValues = {
   description: string
   useMarkdown: boolean
   primaryCurrencyCode: string
+  taxRateId: string | null
   attachments: File[]
   hasVariants: boolean
   options: ProductOptionInput[]
@@ -91,6 +100,7 @@ const productFormSchema = z.object({
     .trim()
     .length(3, 'Currency must be a three-letter code')
     .optional(),
+  taxRateId: z.string().uuid().nullable().optional(),
   hasVariants: z.boolean().optional(),
   attachments: z.any().optional(),
   options: z.any().optional(),
@@ -102,6 +112,7 @@ const DEFAULT_VARIANT: VariantDraft = {
   title: 'Default variant',
   sku: '',
   isDefault: true,
+  taxRateId: null,
   manageInventory: false,
   allowBackorder: false,
   hasInventoryKit: false,
@@ -117,6 +128,7 @@ const INITIAL_VALUES: ProductFormValues = {
   useMarkdown: false,
   primaryCurrencyCode: '',
   attachments: [],
+  taxRateId: null,
   hasVariants: false,
   options: [],
   variants: [DEFAULT_VARIANT],
@@ -128,6 +140,7 @@ export default function CreateCatalogProductPage() {
   const t = useT()
   const router = useRouter()
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
+  const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   const {
     data: currencyDictionary,
     refetch: refetchCurrencyDictionary,
@@ -150,6 +163,37 @@ export default function CreateCatalogProductPage() {
     loadPriceKinds().catch(() => {})
   }, [t])
 
+  React.useEffect(() => {
+    const loadTaxRates = async () => {
+      try {
+        const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+          '/api/sales/tax-rates?pageSize=200',
+          undefined,
+          { errorMessage: t('catalog.products.create.taxRates.error', 'Failed to load tax rates.'), fallback: { items: [] } },
+        )
+        const items = Array.isArray(payload.items) ? payload.items : []
+        setTaxRates(
+          items.map((item) => {
+            const rawRate = typeof item.rate === 'number' ? item.rate : Number(item.rate ?? Number.NaN)
+            return {
+              id: String(item.id),
+              name:
+                typeof item.name === 'string' && item.name.trim().length
+                  ? item.name
+                  : t('catalog.products.create.taxRates.unnamed', 'Untitled tax rate'),
+              code: typeof item.code === 'string' && item.code.trim().length ? item.code : null,
+              rate: Number.isFinite(rawRate) ? rawRate : null,
+            }
+          }),
+        )
+      } catch (err) {
+        console.error('sales.tax-rates.fetch failed', err)
+        setTaxRates([])
+      }
+    }
+    loadTaxRates().catch(() => {})
+  }, [t])
+
   const fetchCurrencyOptions = React.useCallback(async () => {
     const entries = currencyDictionary?.entries ?? (await refetchCurrencyDictionary()).entries
     return entries.map((entry) => ({
@@ -170,6 +214,7 @@ export default function CreateCatalogProductPage() {
           setValue={setValue}
           errors={errors}
           priceKinds={priceKinds}
+          taxRates={taxRates}
         />
       ),
     },
@@ -187,7 +232,7 @@ export default function CreateCatalogProductPage() {
         />
       ),
     },
-  ], [priceKinds, fetchCurrencyOptions, t])
+  ], [priceKinds, taxRates, fetchCurrencyOptions, t])
 
   return (
     <Page>
@@ -252,9 +297,15 @@ export default function CreateCatalogProductPage() {
               variantIdMap[variant.id] = variantId
             }
 
+            const productLevelTaxRateId = formValues.taxRateId ?? null
             for (const variant of variantDrafts) {
               const variantId = variantIdMap[variant.id]
               if (!variantId) continue
+              const resolvedVariantTaxRateId = variant.taxRateId ?? productLevelTaxRateId
+              const resolvedVariantTaxRate =
+                resolvedVariantTaxRateId
+                  ? taxRates.find((rate) => rate.id === resolvedVariantTaxRateId)?.rate ?? null
+                  : null
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim()
                 if (!value) continue
@@ -272,6 +323,9 @@ export default function CreateCatalogProductPage() {
                   variantId,
                   currencyCode,
                   priceKindId: priceKind.id,
+                }
+                if (typeof resolvedVariantTaxRate === 'number' && Number.isFinite(resolvedVariantTaxRate)) {
+                  pricePayload.taxRate = resolvedVariantTaxRate
                 }
                 if (priceKind.displayMode === 'including-tax') {
                   pricePayload.unitPriceGross = numeric
@@ -309,6 +363,7 @@ type ProductBuilderProps = {
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
   priceKinds: PriceKindSummary[]
+  taxRates: TaxRateSummary[]
 }
 
 type ProductMetaSectionProps = {
@@ -318,9 +373,18 @@ type ProductMetaSectionProps = {
   currencyOptionsLoader: () => Promise<Array<{ value: string; label: string; color: string | null; icon: string | null }>>
 }
 
-function ProductBuilder({ values, setValue, errors, priceKinds }: ProductBuilderProps) {
+function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: ProductBuilderProps) {
   const t = useT()
   const [currentStep, setCurrentStep] = React.useState(0)
+  const defaultTaxRate = React.useMemo(
+    () => (values.taxRateId ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null : null),
+    [taxRates, values.taxRateId],
+  )
+  const defaultTaxRateLabel = defaultTaxRate ? formatTaxRateLabel(defaultTaxRate) : null
+  const inventoryDisabledHint = t(
+    'catalog.products.create.variantsBuilder.inventoryDisabled',
+    'Inventory tracking controls are not available yet.',
+  )
 
   React.useEffect(() => {
     if (currentStep >= steps.length) setCurrentStep(0)
@@ -350,6 +414,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds }: ProductBuilder
         title: Object.values(combo).join(' / '),
         sku: '',
         isDefault: false,
+        taxRateId: null,
         manageInventory: false,
         allowBackorder: false,
         hasInventoryKit: false,
@@ -536,6 +601,32 @@ function ProductBuilder({ values, setValue, errors, priceKinds }: ProductBuilder
             )}
           </div>
 
+          <div className="space-y-2">
+            <Label>{t('catalog.products.create.taxRates.label', 'VAT class')}</Label>
+            <select
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              value={values.taxRateId ?? ''}
+              onChange={(event) => setValue('taxRateId', event.target.value || null)}
+              disabled={!taxRates.length}
+            >
+              <option value="">
+                {taxRates.length
+                  ? t('catalog.products.create.taxRates.noneSelected', 'No VAT class selected')
+                  : t('catalog.products.create.taxRates.emptyOption', 'No VAT classes available')}
+              </option>
+              {taxRates.map((rate) => (
+                <option key={rate.id} value={rate.id}>
+                  {formatTaxRateLabel(rate)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              {taxRates.length
+                ? t('catalog.products.create.taxRates.help', 'Applied to new prices unless overridden per variant.')
+                : t('catalog.products.create.taxRates.empty', 'Define VAT classes under Sales → Configuration.')}
+            </p>
+          </div>
+
           <div className="space-y-3">
             <Label>{t('catalog.products.create.attachments.title', 'Media')}</Label>
             <div className="rounded-lg border border-dashed p-6 text-center">
@@ -642,6 +733,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds }: ProductBuilder
                   <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.defaultOption', 'Default option')}</th>
                   <th className="px-3 py-2 text-left">{t('catalog.products.form.variants', 'Variant title')}</th>
                   <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.sku', 'SKU')}</th>
+                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.vatColumn', 'VAT class')}</th>
                   <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.manageInventory', 'Managed inventory')}</th>
                   <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.allowBackorder', 'Allow backorder')}</th>
                   <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.inventoryKit', 'Has inventory kit')}</th>
@@ -692,28 +784,53 @@ function ProductBuilder({ values, setValue, errors, priceKinds }: ProductBuilder
                         placeholder={t('catalog.products.create.variantsBuilder.skuPlaceholder', 'e.g., SKU-001')}
                       />
                     </td>
+                    <td className="px-3 py-2">
+                      <select
+                        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                        value={variant.taxRateId ?? ''}
+                        onChange={(event) => setVariantField(variant.id, 'taxRateId', event.target.value || null)}
+                        disabled={!taxRates.length}
+                      >
+                        <option value="">
+                          {defaultTaxRateLabel
+                            ? t('catalog.products.create.variantsBuilder.vatOptionDefault', 'Use product VAT ({{label}})').replace('{{label}}', defaultTaxRateLabel)
+                            : t('catalog.products.create.variantsBuilder.vatOptionNone', 'No VAT class')}
+                        </option>
+                        {taxRates.map((rate) => (
+                          <option key={rate.id} value={rate.id}>
+                            {formatTaxRateLabel(rate)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="px-3 py-2 text-center">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded border"
+                        className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
                         checked={variant.manageInventory}
                         onChange={(event) => setVariantField(variant.id, 'manageInventory', event.target.checked)}
+                        disabled
+                        title={inventoryDisabledHint}
                       />
                     </td>
                     <td className="px-3 py-2 text-center">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded border"
+                        className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
                         checked={variant.allowBackorder}
                         onChange={(event) => setVariantField(variant.id, 'allowBackorder', event.target.checked)}
+                        disabled
+                        title={inventoryDisabledHint}
                       />
                     </td>
                     <td className="px-3 py-2 text-center">
                       <input
                         type="checkbox"
-                        className="h-4 w-4 rounded border"
+                        className="h-4 w-4 rounded border disabled:cursor-not-allowed disabled:opacity-60"
                         checked={variant.hasInventoryKit}
                         onChange={(event) => setVariantField(variant.id, 'hasInventoryKit', event.target.checked)}
+                        disabled
+                        title={inventoryDisabledHint}
                       />
                     </td>
                     {priceKinds.map((kind) => (
@@ -903,6 +1020,18 @@ function formatSize(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+function formatTaxRateLabel(rate: TaxRateSummary): string {
+  const extras: string[] = []
+  if (typeof rate.rate === 'number' && Number.isFinite(rate.rate)) {
+    extras.push(`${rate.rate}%`)
+  }
+  if (rate.code) {
+    extras.push(rate.code.toUpperCase())
+  }
+  if (!extras.length) return rate.name
+  return `${rate.name} • ${extras.join(' · ')}`
 }
 
 function createLocalId(): string {

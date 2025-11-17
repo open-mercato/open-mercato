@@ -126,6 +126,48 @@
           "save": "Status saved.",
           "delete": "Status deleted."
         }
+      },
+      "taxRates": {
+        "title": "Tax rates",
+        "description": "Maintain VAT classes applied to catalog pricing.",
+        "actions": {
+          "add": "Add tax rate",
+          "edit": "Edit",
+          "delete": "Delete",
+          "deleteConfirm": "Delete tax rate \"{{name}}\"?",
+          "refresh": "Refresh"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "rate": "Rate",
+          "location": "Location",
+          "updatedAt": "Updated",
+          "empty": "No tax rates yet."
+        },
+        "form": {
+          "createTitle": "Add tax rate",
+          "editTitle": "Edit tax rate",
+          "name": "Name",
+          "code": "Code",
+          "codeHelp": "Lowercase letters, numbers, and dashes.",
+          "rate": "Rate (%)",
+          "countryCode": "Country code",
+          "regionCode": "Region code",
+          "postalCode": "Postal code",
+          "city": "City",
+          "save": "Save",
+          "cancel": "Cancel"
+        },
+        "messages": {
+          "saved": "Tax rate saved.",
+          "deleted": "Tax rate deleted."
+        },
+        "errors": {
+          "load": "Failed to load tax rates.",
+          "save": "Failed to save tax rate.",
+          "delete": "Failed to delete tax rate."
+        }
       }
     }
     ,

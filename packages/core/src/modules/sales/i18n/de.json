@@ -126,6 +126,48 @@
           "save": "Status gespeichert.",
           "delete": "Status gelöscht."
         }
+      },
+      "taxRates": {
+        "title": "Steuersätze",
+        "description": "Verwalten Sie MwSt.-Klassen für Katalogpreise.",
+        "actions": {
+          "add": "Steuersatz hinzufügen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen",
+          "deleteConfirm": "Steuersatz \"{{name}}\" löschen?",
+          "refresh": "Aktualisieren"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "rate": "Satz",
+          "location": "Ort",
+          "updatedAt": "Aktualisiert",
+          "empty": "Noch keine Steuersätze."
+        },
+        "form": {
+          "createTitle": "Steuersatz hinzufügen",
+          "editTitle": "Steuersatz bearbeiten",
+          "name": "Name",
+          "code": "Code",
+          "codeHelp": "Kleinbuchstaben, Zahlen und Bindestriche.",
+          "rate": "Satz (%)",
+          "countryCode": "Ländercode",
+          "regionCode": "Region",
+          "postalCode": "PLZ",
+          "city": "Stadt",
+          "save": "Speichern",
+          "cancel": "Abbrechen"
+        },
+        "messages": {
+          "saved": "Steuersatz gespeichert.",
+          "deleted": "Steuersatz gelöscht."
+        },
+        "errors": {
+          "load": "Steuersätze konnten nicht geladen werden.",
+          "save": "Steuersatz konnte nicht gespeichert werden.",
+          "delete": "Steuersatz konnte nicht gelöscht werden."
+        }
       }
     }
   },

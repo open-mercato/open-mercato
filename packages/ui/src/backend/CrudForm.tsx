@@ -8,7 +8,44 @@ import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
 import remarkGfm from 'remark-gfm'
-import { Trash2, Save, Settings, Layers, Tag, Sparkles, Package, Shirt, Grid } from 'lucide-react'
+import {
+  Trash2,
+  Save,
+  Settings,
+  Layers,
+  Tag,
+  Sparkles,
+  Package,
+  Shirt,
+  Grid,
+  ShoppingBag,
+  ShoppingCart,
+  Store,
+  Users,
+  Briefcase,
+  Building,
+  BookOpen,
+  Bookmark,
+  Camera,
+  Car,
+  Clock,
+  Cloud,
+  Compass,
+  CreditCard,
+  Database,
+  Flame,
+  Gift,
+  Globe,
+  Heart,
+  Key,
+  Map,
+  Palette,
+  Shield,
+  Star,
+  Truck,
+  Zap,
+  Coins,
+} from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
@@ -144,6 +181,33 @@ const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?:
   package: Package,
   shirt: Shirt,
   grid: Grid,
+  shoppingBag: ShoppingBag,
+  shoppingCart: ShoppingCart,
+  store: Store,
+  users: Users,
+  briefcase: Briefcase,
+  building: Building,
+  bookOpen: BookOpen,
+  bookmark: Bookmark,
+  camera: Camera,
+  car: Car,
+  clock: Clock,
+  cloud: Cloud,
+  compass: Compass,
+  creditCard: CreditCard,
+  database: Database,
+  flame: Flame,
+  gift: Gift,
+  globe: Globe,
+  heart: Heart,
+  key: Key,
+  map: Map,
+  palette: Palette,
+  shield: Shield,
+  star: Star,
+  truck: Truck,
+  zap: Zap,
+  coins: Coins,
 }
 
 type CustomFieldGroupLayout = {
@@ -1223,6 +1287,63 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       else col1.push(g)
     }
 
+    const renderGroupedCards = (items: CrudFormGroup[]) => {
+      return items.flatMap((g) => {
+        const isCustomFieldsGroup = g.kind === 'customFields'
+        if (isCustomFieldsGroup) {
+          if (isLoadingCustomFields) {
+            return [
+              <div key={`${g.id}-loading`} className="rounded-lg border bg-card p-4">
+                <DataLoader
+                  isLoading
+                  loadingMessage={resolvedLoadingMessage}
+                  spinnerSize="md"
+                  className="min-h-[1px]"
+                >
+                  <div />
+                </DataLoader>
+              </div>,
+            ]
+          }
+          const nodes: React.ReactNode[] = []
+          if (g.component) {
+            nodes.push(
+              <div key={`${g.id}-component`} className="rounded-lg border bg-card p-4">
+                {g.component({ values, setValue, errors })}
+              </div>,
+            )
+          }
+          const renderedSections = renderCustomFieldsContent()
+          if (renderedSections.length) nodes.push(...renderedSections)
+          return nodes
+        }
+
+        const groupFields = resolveGroupFields(g)
+        return [
+          <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
+            {g.title ? (
+              <div className="text-sm font-medium">{g.title}</div>
+            ) : null}
+            {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+            {g.component ? (
+              <div>{g.component({ values, setValue, errors })}</div>
+            ) : null}
+            <DataLoader
+              isLoading={false}
+              loadingMessage={resolvedLoadingMessage}
+              spinnerSize="md"
+              className="min-h-[1px]"
+            >
+              {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
+            </DataLoader>
+          </div>,
+        ]
+      })
+    }
+
+    const col1Content = renderGroupedCards(col1)
+    const col2Content = renderGroupedCards(col2)
+
     return (
       <div className="space-y-4">
         {!embedded ? (
@@ -1264,64 +1385,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         >
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
-              <div className="space-y-4">
-                {col1.map((g) => {
-                  const isCustomFieldsGroup = g.kind === 'customFields'
-                  const groupFields = isCustomFieldsGroup ? [] : resolveGroupFields(g)
-                  return (
-                    <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
-                      {g.title || isCustomFieldsGroup ? (
-                        <div className="text-sm font-medium">{g.title || customFieldsLabel}</div>
-                      ) : null}
-                      {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
-                      {g.component ? (
-                        <div>{g.component({ values, setValue, errors })}</div>
-                      ) : null}
-                      <DataLoader
-                        isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-                        loadingMessage={resolvedLoadingMessage}
-                        spinnerSize="md"
-                        className="min-h-[1px]"
-                      >
-                        {isCustomFieldsGroup
-                          ? renderCustomFieldsContent()
-                          : groupFields.length > 0
-                            ? renderFields(groupFields)
-                            : <div className="min-h-[1px]" />}
-                      </DataLoader>
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="space-y-4">
-                {col2.map((g) => {
-                  const isCustomFieldsGroup = g.kind === 'customFields'
-                  const groupFields = isCustomFieldsGroup ? [] : resolveGroupFields(g)
-                  return (
-                    <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
-                      {g.title || isCustomFieldsGroup ? (
-                        <div className="text-sm font-medium">{g.title || customFieldsLabel}</div>
-                      ) : null}
-                      {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
-                      {g.component ? (
-                        <div>{g.component({ values, setValue, errors })}</div>
-                      ) : null}
-                      <DataLoader
-                        isLoading={isCustomFieldsGroup && isLoadingCustomFields}
-                        loadingMessage={resolvedLoadingMessage}
-                        spinnerSize="md"
-                        className="min-h-[1px]"
-                      >
-                        {isCustomFieldsGroup
-                          ? renderCustomFieldsContent()
-                          : groupFields.length > 0
-                            ? renderFields(groupFields)
-                            : <div className="min-h-[1px]" />}
-                      </DataLoader>
-                    </div>
-                  )
-                })}
-              </div>
+              <div className="space-y-4">{col1Content}</div>
+              <div className="space-y-4">{col2Content}</div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2`}>

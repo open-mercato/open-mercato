@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useQuery, type UseQueryResult, type QueryClient } from '@tanstack/react-query'
 import { readApiResultOrThrow } from './apiCall'
+import type { CustomFieldOptionDto } from '@open-mercato/shared/modules/entities/options'
 
 export type CustomFieldDefDto = {
   entityId?: string
@@ -8,7 +9,7 @@ export type CustomFieldDefDto = {
   kind: string
   label?: string
   description?: string
-  options?: string[]
+  options?: CustomFieldOptionDto[]
   optionsUrl?: string
   multi?: boolean
   filterable?: boolean

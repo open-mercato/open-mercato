@@ -194,6 +194,10 @@ export async function run(argv = process.argv) {
         execSync(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
         console.log('✅ Catalog units seeded\n')
 
+        console.log('💶 Seeding default tax rates...')
+        execSync(`yarn mercato sales seed-tax-rates --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+        console.log('✅ Tax rates seeded\n')
+
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {

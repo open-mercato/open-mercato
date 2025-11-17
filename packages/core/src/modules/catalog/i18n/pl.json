@@ -107,6 +107,15 @@
           "help": "Drag and drop images here or click to upload.",
           "remove": "Remove"
         },
+        "taxRates": {
+          "label": "Klasa VAT",
+          "noneSelected": "Nie wybrano klasy VAT",
+          "emptyOption": "Brak dost\u0119pnych klas VAT",
+          "help": "Stosowana do nowych cen, chyba \u017ce zostanie nadpisana na poziomie wariantu.",
+          "empty": "Zdefiniuj klasy VAT w Sales \u2192 Konfiguracja.",
+          "error": "Nie uda\u0142o si\u0119 wczyta\u0107 stawek podatkowych.",
+          "unnamed": "Stawka podatku bez nazwy"
+        },
         "organize": {
           "placeholder": "Work in progress on this tab."
         },
@@ -248,6 +257,10 @@
           "titlePlaceholder": "Variant title",
           "skuPlaceholder": "e.g., SKU-001",
           "priceColumn": "Price {{title}}",
+          "vatColumn": "Klasa VAT",
+          "vatOptionDefault": "U\u017cyj klas\u0119 VAT produktu ({{label}})",
+          "vatOptionNone": "Brak klasy VAT",
+          "inventoryDisabled": "Sterowanie stanem magazynowym b\u0119dzie wkr\u00f3tce dost\u0119pne.",
           "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },
         "remove": "Usuń",

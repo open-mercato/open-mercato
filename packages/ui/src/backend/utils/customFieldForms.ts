@@ -10,6 +10,7 @@ import {
 } from './customFieldDefs'
 import { FieldRegistry, loadGeneratedFieldRegistrations } from '../fields/registry'
 import { apiCall } from './apiCall'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 
 let registryReady: Promise<void> | null = null
 
@@ -86,7 +87,10 @@ export function buildFormFieldFromCustomFieldDef(
         label,
         type: 'select',
         description: def.description,
-        options: (def.options || []).map((option) => ({ value: String(option), label: String(option) })),
+        options: normalizeCustomFieldOptions(def.options || []).map((option) => ({
+          value: option.value,
+          label: option.label,
+        })),
         multiple: !!def.multi,
         required,
         ...(def.optionsUrl
@@ -102,8 +106,9 @@ export function buildFormFieldFromCustomFieldDef(
     default: {
       if (def.kind === 'text' && def.multi) {
         const base: any = { id, label, type: 'tags', description: def.description, required }
-        if (Array.isArray(def.options) && def.options.length > 0) {
-          base.options = def.options.map((option) => ({ value: String(option), label: String(option) }))
+        const resolvedOptions = normalizeCustomFieldOptions(def.options || [])
+        if (resolvedOptions.length > 0) {
+          base.options = resolvedOptions.map((option) => ({ value: option.value, label: option.label }))
         }
         if (def.optionsUrl) {
           base.loadOptions = async (query?: string) => {

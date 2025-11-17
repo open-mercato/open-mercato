@@ -15,6 +15,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 
 export const metadata = {
   // Reading definitions is needed by record forms; keep it auth-protected but accessible to all authenticated users
@@ -205,7 +206,10 @@ export async function GET(req: Request) {
         label: d.configJson?.label || d.key,
         description: d.configJson?.description || undefined,
         multi: Boolean(d.configJson?.multi),
-        options: Array.isArray(d.configJson?.options) ? d.configJson.options : undefined,
+        options: (() => {
+          const normalizedOptions = normalizeCustomFieldOptions(d.configJson?.options)
+          return normalizedOptions.length ? normalizedOptions : undefined
+        })(),
         optionsUrl: (() => {
           const dictionaryId = typeof d.configJson?.dictionaryId === 'string' ? d.configJson.dictionaryId : undefined
           if (dictionaryId) return `/api/dictionaries/${dictionaryId}/entries`

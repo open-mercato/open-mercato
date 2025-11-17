@@ -126,6 +126,48 @@
           "save": "Estado guardado.",
           "delete": "Estado eliminado."
         }
+      },
+      "taxRates": {
+        "title": "Tipos de impuestos",
+        "description": "Administra las clases de IVA aplicadas a los precios del catálogo.",
+        "actions": {
+          "add": "Agregar tipo de impuesto",
+          "edit": "Editar",
+          "delete": "Eliminar",
+          "deleteConfirm": "¿Eliminar el tipo \"{{name}}\"?",
+          "refresh": "Actualizar"
+        },
+        "table": {
+          "name": "Nombre",
+          "code": "Código",
+          "rate": "Tasa",
+          "location": "Ubicación",
+          "updatedAt": "Actualizado",
+          "empty": "Aún no hay tipos de impuestos."
+        },
+        "form": {
+          "createTitle": "Agregar tipo de impuesto",
+          "editTitle": "Editar tipo de impuesto",
+          "name": "Nombre",
+          "code": "Código",
+          "codeHelp": "Letras minúsculas, números y guiones.",
+          "rate": "Tasa (%)",
+          "countryCode": "Código de país",
+          "regionCode": "Región",
+          "postalCode": "Código postal",
+          "city": "Ciudad",
+          "save": "Guardar",
+          "cancel": "Cancelar"
+        },
+        "messages": {
+          "saved": "Tipo de impuesto guardado.",
+          "deleted": "Tipo de impuesto eliminado."
+        },
+        "errors": {
+          "load": "No se pudieron cargar los tipos de impuestos.",
+          "save": "No se pudo guardar el tipo de impuesto.",
+          "delete": "No se pudo eliminar el tipo de impuesto."
+        }
       }
     }
   },

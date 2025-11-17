@@ -107,6 +107,15 @@
           "help": "Drag and drop images here or click to upload.",
           "remove": "Remove"
         },
+        "taxRates": {
+          "label": "Mehrwertsteuersatz",
+          "noneSelected": "Keine MwSt.-Klasse ausgew\u00e4hlt",
+          "emptyOption": "Keine MwSt.-Klassen verf\u00fcgbar",
+          "help": "Wird auf neue Preise angewendet, sofern nicht pro Variante \u00fcberschrieben.",
+          "empty": "Definieren Sie MwSt.-Klassen unter Sales \u2192 Konfiguration.",
+          "error": "Steuers\u00e4tze konnten nicht geladen werden.",
+          "unnamed": "Unbenannter Steuersatz"
+        },
         "organize": {
           "placeholder": "Work in progress on this tab."
         },
@@ -248,6 +257,10 @@
           "titlePlaceholder": "Variant title",
           "skuPlaceholder": "e.g., SKU-001",
           "priceColumn": "Price {{title}}",
+          "vatColumn": "MwSt.-Klasse",
+          "vatOptionDefault": "Produkt-MwSt. verwenden ({{label}})",
+          "vatOptionNone": "Keine MwSt.-Klasse",
+          "inventoryDisabled": "Die Bestandssteuerung ist hier noch nicht verf\u00fcgbar.",
           "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },
         "remove": "Entfernen",
