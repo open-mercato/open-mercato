@@ -15,8 +15,6 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus, Trash2, FileText, AlignLeft, Upload, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
-import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -77,7 +75,6 @@ type ProductFormValues = {
   handle: string
   description: string
   useMarkdown: boolean
-  primaryCurrencyCode: string
   taxRateId: string | null
   attachments: File[]
   hasVariants: boolean
@@ -96,11 +93,6 @@ const productFormSchema = z.object({
     .optional(),
   description: z.string().optional(),
   useMarkdown: z.boolean().optional(),
-  primaryCurrencyCode: z
-    .string()
-    .trim()
-    .length(3, 'Currency must be a three-letter code')
-    .optional(),
   taxRateId: z.string().uuid().nullable().optional(),
   hasVariants: z.boolean().optional(),
   attachments: z.any().optional(),
@@ -131,7 +123,6 @@ const INITIAL_VALUES: ProductFormValues = {
   handle: '',
   description: '',
   useMarkdown: false,
-  primaryCurrencyCode: '',
   attachments: [],
   taxRateId: null,
   hasVariants: false,
@@ -146,11 +137,6 @@ export default function CreateCatalogProductPage() {
   const router = useRouter()
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
-  const {
-    data: currencyDictionary,
-    refetch: refetchCurrencyDictionary,
-  } = useCurrencyDictionary()
-
   React.useEffect(() => {
     const loadPriceKinds = async () => {
       try {
@@ -199,16 +185,6 @@ export default function CreateCatalogProductPage() {
     loadTaxRates().catch(() => {})
   }, [t])
 
-  const fetchCurrencyOptions = React.useCallback(async () => {
-    const entries = currencyDictionary?.entries ?? (await refetchCurrencyDictionary()).entries
-    return entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
-  }, [currencyDictionary, refetchCurrencyDictionary])
-
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'builder',
@@ -227,18 +203,17 @@ export default function CreateCatalogProductPage() {
       id: 'product-meta',
       column: 2,
       title: t('catalog.products.create.meta.title', 'Product meta'),
-      description: t('catalog.products.create.meta.description', 'Manage subtitle, handle, and currency for storefronts.'),
+      description: t('catalog.products.create.meta.description', 'Manage subtitle and handle for storefronts.'),
       component: ({ values, setValue, errors }: CrudFormGroupComponentProps) => (
         <ProductMetaSection
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
-          currencyOptionsLoader={fetchCurrencyOptions}
           taxRates={taxRates}
         />
       ),
     },
-  ], [priceKinds, taxRates, fetchCurrencyOptions, t])
+  ], [priceKinds, taxRates, t])
 
   return (
     <Page>
@@ -381,7 +356,6 @@ type ProductMetaSectionProps = {
   values: ProductFormValues
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
-  currencyOptionsLoader: () => Promise<Array<{ value: string; label: string; color: string | null; icon: string | null }>>
   taxRates: TaxRateSummary[]
 }
 
@@ -401,14 +375,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   React.useEffect(() => {
     if (currentStep >= steps.length) setCurrentStep(0)
   }, [currentStep])
-
-  React.useEffect(() => {
-    const titleValue = typeof values.title === 'string' ? values.title : ''
-    const handleValue = typeof values.handle === 'string' ? values.handle : ''
-    if (titleValue && !handleValue) {
-      setValue('handle', slugify(titleValue))
-    }
-  }, [values.title, values.handle, setValue])
 
   const ensureVariants = React.useCallback(() => {
     const optionDefinitions = Array.isArray(values.options) ? values.options : []
@@ -722,7 +688,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
           ) : null}
 
           <div className="rounded-lg border">
-            <div className="max-w-full overflow-x-auto">
+            <div className="w-full overflow-x-auto">
               <table className="w-full min-w-[900px] table-fixed border-collapse text-sm">
                 <thead className="bg-muted/40">
                   <tr>
@@ -891,30 +857,41 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   )
 }
 
-function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader, taxRates }: ProductMetaSectionProps) {
+function ProductMetaSection({ values, setValue, errors, taxRates }: ProductMetaSectionProps) {
   const t = useT()
-  const currencyLabels = React.useMemo(() => ({
-    placeholder: t('catalog.products.create.currency.placeholder', 'Select currency…'),
-    addLabel: t('catalog.products.create.currency.add', 'Add currency'),
-    addPrompt: t('catalog.products.create.currency.addPrompt', 'Provide a currency code.'),
-    dialogTitle: t('catalog.products.create.currency.dialogTitle', 'Add currency'),
-    valueLabel: t('catalog.products.create.currency.valueLabel', 'Currency code'),
-    valuePlaceholder: t('catalog.products.create.currency.valuePlaceholder', 'e.g. USD'),
-    labelLabel: t('catalog.products.create.currency.labelLabel', 'Display label'),
-    labelPlaceholder: t('catalog.products.create.currency.labelPlaceholder', 'e.g. US Dollar'),
-    emptyError: t('catalog.products.create.currency.required', 'Currency code is required.'),
-    cancelLabel: t('catalog.products.create.currency.cancel', 'Cancel'),
-    saveLabel: t('catalog.products.create.currency.save', 'Save'),
-    saveShortcutHint: t('catalog.products.create.currency.saveShortcut', 'Press Enter to save'),
-    successCreateLabel: t('catalog.products.create.currency.success', 'Currency added.'),
-    errorLoad: t('catalog.products.create.currency.loadError', 'Unable to load currencies.'),
-    errorSave: t('catalog.products.create.currency.error', 'Unable to add currency.'),
-    loadingLabel: t('catalog.products.create.currency.loading', 'Loading currencies…'),
-    manageTitle: t('catalog.products.create.currency.manage', 'Manage currencies'),
-  }), [t])
-
   const handleValue = typeof values.handle === 'string' ? values.handle : ''
   const titleSource = typeof values.title === 'string' ? values.title : ''
+  const autoHandleEnabledRef = React.useRef(handleValue.trim().length === 0)
+
+  React.useEffect(() => {
+    if (!autoHandleEnabledRef.current) return
+    const normalizedTitle = titleSource.trim()
+    if (!normalizedTitle) {
+      if (handleValue) {
+        setValue('handle', '')
+      }
+      return
+    }
+    const nextHandle = slugify(normalizedTitle)
+    if (nextHandle !== handleValue) {
+      setValue('handle', nextHandle)
+    }
+  }, [titleSource, handleValue, setValue])
+
+  const handleHandleInputChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value
+      autoHandleEnabledRef.current = nextValue.trim().length === 0
+      setValue('handle', nextValue)
+    },
+    [setValue],
+  )
+
+  const handleGenerateHandle = React.useCallback(() => {
+    const slug = slugify(titleSource)
+    autoHandleEnabledRef.current = true
+    setValue('handle', slug)
+  }, [titleSource, setValue])
 
   return (
     <div className="space-y-4">
@@ -933,17 +910,14 @@ function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader, t
         <div className="flex gap-2">
           <Input
             value={handleValue}
-            onChange={(event) => setValue('handle', event.target.value)}
+            onChange={handleHandleInputChange}
             placeholder={t('catalog.products.create.placeholders.handle', 'e.g., summer-sneaker')}
             className="font-mono lowercase"
           />
           <Button
             type="button"
             variant="outline"
-            onClick={() => {
-              const slug = slugify(titleSource)
-              setValue('handle', slug)
-            }}
+            onClick={handleGenerateHandle}
           >
             {t('catalog.products.create.actions.generateHandle', 'Generate')}
           </Button>
@@ -952,18 +926,6 @@ function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader, t
           {t('catalog.products.create.handleHelp', 'Handle is used for URLs and must be unique.')}
         </p>
         {errors.handle ? <p className="text-xs text-red-600">{errors.handle}</p> : null}
-      </div>
-
-      <div className="space-y-2">
-        <Label>{t('catalog.products.create.fields.currency', 'Primary currency')}</Label>
-        <DictionaryEntrySelect
-          value={values.primaryCurrencyCode || undefined}
-          onChange={(value) => setValue('primaryCurrencyCode', value ?? '')}
-          fetchOptions={currencyOptionsLoader}
-          labels={currencyLabels}
-          allowInlineCreate={false}
-        />
-        {errors.primaryCurrencyCode ? <p className="text-xs text-red-600">{errors.primaryCurrencyCode}</p> : null}
       </div>
 
       <div className="space-y-2">
