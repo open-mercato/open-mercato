@@ -1009,6 +1009,34 @@ function buildVariantCombinations(options: ProductOptionInput[]): Record<string,
   }, initial)
 }
 
+function normalizePriceKindSummary(input: Record<string, unknown> | undefined | null): PriceKindSummary | null {
+  if (!input) return null
+  const getString = (value: unknown): string | null => {
+    if (typeof value === 'string' && value.trim().length) return value.trim()
+    if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+    return null
+  }
+  const id = getString(input.id)
+  const code = getString(input.code)
+  const title = getString(input.title)
+  if (!id || !code || !title) return null
+  const currency =
+    getString((input as Record<string, unknown>).currencyCode) ??
+    getString((input as Record<string, unknown>)['currency_code'])
+  const displayRaw =
+    getString((input as Record<string, unknown>).displayMode) ??
+    getString((input as Record<string, unknown>)['display_mode'])
+  const displayMode: PriceKindSummary['displayMode'] =
+    displayRaw === 'including-tax' ? 'including-tax' : 'excluding-tax'
+  return {
+    id,
+    code,
+    title,
+    currencyCode: currency,
+    displayMode,
+  }
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
