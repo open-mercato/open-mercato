@@ -172,6 +172,11 @@ const BASE_INITIAL_VALUES: ProductFormValues = {
   variants: [createVariantDraft(null, { isDefault: true })],
 }
 
+const INITIAL_VALUES: ProductFormValues = {
+  ...BASE_INITIAL_VALUES,
+  mediaDraftId: createLocalId(),
+}
+
 const steps = ['general', 'organize', 'variants'] as const
 
 export default function CreateCatalogProductPage() {
@@ -277,7 +282,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          initialValues={initialValues}
+          initialValues={INITIAL_VALUES}
           schema={productFormSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
           cancelHref="/backend/catalog/products"
@@ -333,7 +338,7 @@ export default function CreateCatalogProductPage() {
                 sku: variant.sku?.trim() || undefined,
                 isDefault: Boolean(variant.isDefault),
                 isActive: true,
-                metadata: Object.keys(variant.optionValues).length ? { optionValues: variant.optionValues } : undefined,
+                optionValues: Object.keys(variant.optionValues).length ? variant.optionValues : undefined,
               }
               const { result: variantResult } = await createCrud<{ id?: string; variantId?: string }>(
                 'catalog/variants',
@@ -1170,7 +1175,5 @@ function formatTaxRateLabel(rate: TaxRateSummary): string {
 function createLocalId(): string {
   return Math.random().toString(36).slice(2, 10)
 }
-  const initialValues = React.useMemo<ProductFormValues>(
-    () => ({ ...BASE_INITIAL_VALUES, mediaDraftId: createLocalId() }),
-    [],
-  )
+
+const initialValues = { ...BASE_INITIAL_VALUES }

@@ -268,6 +268,9 @@ export class CatalogProductVariant {
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
+  @Property({ name: 'option_values', type: 'jsonb', nullable: true })
+  optionValues?: Record<string, string> | null
+
   @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
   customFieldsetCode?: string | null
 
@@ -284,7 +287,7 @@ export class CatalogProductVariant {
   prices = new Collection<CatalogProductPrice>(this)
 
   @OneToMany(() => CatalogVariantOptionValue, (optionValue) => optionValue.variant)
-  optionValues = new Collection<CatalogVariantOptionValue>(this)
+  optionValueLinks = new Collection<CatalogVariantOptionValue>(this)
 
   @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.parentVariant)
   componentRelations = new Collection<CatalogProductVariantRelation>(this)
@@ -602,6 +605,9 @@ export class CatalogProductPrice {
 
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  taxAmount?: string | null
 
   @Property({ name: 'channel_id', type: 'uuid', nullable: true })
   channelId?: string | null

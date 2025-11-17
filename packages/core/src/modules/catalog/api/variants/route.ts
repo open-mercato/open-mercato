@@ -91,6 +91,7 @@ const crud = makeCrudRoute({
       FV.weight_unit,
       FV.dimensions,
       FV.metadata,
+      FV.option_values,
       'custom_fieldset_code',
       FV.created_at,
       FV.updated_at,

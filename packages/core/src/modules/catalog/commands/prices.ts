@@ -13,6 +13,7 @@ import {
   type PriceCreateInput,
   type PriceUpdateInput,
 } from '../data/validators'
+import type { TaxCalculationService } from '@open-mercato/core/modules/sales/services/taxCalculationService'
 import {
   cloneJson,
   ensureOrganizationScope,
@@ -42,6 +43,7 @@ type PriceSnapshot = {
   unitPriceNet: string | null
   unitPriceGross: string | null
   taxRate: string | null
+  taxAmount: string | null
   channelId: string | null
   userId: string | null
   userGroupId: string | null
@@ -69,6 +71,7 @@ const PRICE_CHANGE_KEYS = [
   'unitPriceNet',
   'unitPriceGross',
   'taxRate',
+  'taxAmount',
   'channelId',
   'userId',
   'userGroupId',
@@ -168,6 +171,7 @@ async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSn
     unitPriceNet: record.unitPriceNet ?? null,
     unitPriceGross: record.unitPriceGross ?? null,
     taxRate: record.taxRate ?? null,
+    taxAmount: record.taxAmount ?? null,
     channelId: record.channelId ?? null,
     userId: record.userId ?? null,
     userGroupId: record.userGroupId ?? null,
@@ -193,6 +197,7 @@ function applyPriceSnapshot(em: EntityManager, record: CatalogProductPrice, snap
   record.unitPriceNet = snapshot.unitPriceNet ?? null
   record.unitPriceGross = snapshot.unitPriceGross ?? null
   record.taxRate = snapshot.taxRate ?? null
+  record.taxAmount = snapshot.taxAmount ?? null
   record.channelId = snapshot.channelId ?? null
   record.userId = snapshot.userId ?? null
   record.userGroupId = snapshot.userGroupId ?? null
@@ -203,6 +208,37 @@ function applyPriceSnapshot(em: EntityManager, record: CatalogProductPrice, snap
   record.endsAt = snapshot.endsAt ? new Date(snapshot.endsAt) : null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
+}
+
+type PriceAmountInput = {
+  amount: number
+  mode: 'net' | 'gross'
+}
+
+function resolveAmountInputFromParsed(
+  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>
+): PriceAmountInput | null {
+  if (typeof parsed.unitPriceNet === 'number' && Number.isFinite(parsed.unitPriceNet)) {
+    return { amount: parsed.unitPriceNet, mode: 'net' }
+  }
+  if (typeof parsed.unitPriceGross === 'number' && Number.isFinite(parsed.unitPriceGross)) {
+    return { amount: parsed.unitPriceGross, mode: 'gross' }
+  }
+  return null
+}
+
+function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
+  const net = numericStringToNumber(record.unitPriceNet)
+  if (net !== null) return { amount: net, mode: 'net' }
+  const gross = numericStringToNumber(record.unitPriceGross)
+  if (gross !== null) return { amount: gross, mode: 'gross' }
+  return null
+}
+
+function numericStringToNumber(value: string | null | undefined): number | null {
+  if (value === undefined || value === null) return null
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
 }
 
 const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> = {
@@ -251,6 +287,26 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     }
     const productEntity = product
     const channelId = parsed.channelId ?? (offer ? offer.channelId : null)
+    const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
+    const amountInput = resolveAmountInputFromParsed(parsed)
+    let unitPriceNetValue = toNumericString(parsed.unitPriceNet)
+    let unitPriceGrossValue = toNumericString(parsed.unitPriceGross)
+    let taxRateValue = toNumericString(parsed.taxRate)
+    let taxAmountValue: string | null = null
+    if (amountInput) {
+      const calculation = await taxCalculationService.calculateUnitAmounts({
+        amount: amountInput.amount,
+        mode: amountInput.mode,
+        organizationId: scopeSource.organizationId,
+        tenantId: scopeSource.tenantId,
+        taxRateId: parsed.taxRateId ?? null,
+        taxRate: parsed.taxRate ?? null,
+      })
+      unitPriceNetValue = toNumericString(calculation.netAmount)
+      unitPriceGrossValue = toNumericString(calculation.grossAmount)
+      taxAmountValue = toNumericString(calculation.taxAmount)
+      taxRateValue = toNumericString(calculation.taxRate)
+    }
 
     const now = new Date()
     const record = em.create(CatalogProductPrice, {
@@ -264,9 +320,10 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       kind: priceKind.code,
       minQuantity: parsed.minQuantity ?? 1,
       maxQuantity: parsed.maxQuantity ?? null,
-      unitPriceNet: toNumericString(parsed.unitPriceNet),
-      unitPriceGross: toNumericString(parsed.unitPriceGross),
-      taxRate: toNumericString(parsed.taxRate),
+      unitPriceNet: unitPriceNetValue,
+      unitPriceGross: unitPriceGrossValue,
+      taxRate: taxRateValue,
+      taxAmount: taxAmountValue,
       channelId,
       userId: parsed.userId ?? null,
       userGroupId: parsed.userGroupId ?? null,
@@ -458,6 +515,34 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     }
     ensureSameScope(targetPriceKind, targetProduct.organizationId, targetProduct.tenantId)
 
+    const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
+    const amountInput = resolveAmountInputFromParsed(parsed)
+    const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
+    const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
+    const hasTaxRateInput = Object.prototype.hasOwnProperty.call(parsed, 'taxRate')
+    const hasTaxRateIdInput = Object.prototype.hasOwnProperty.call(parsed, 'taxRateId')
+    let taxCalculationResult: Awaited<ReturnType<TaxCalculationService['calculateUnitAmounts']>> | null = null
+    let calculationBase = amountInput
+    if (!calculationBase && (hasTaxRateInput || hasTaxRateIdInput)) {
+      calculationBase = resolveAmountInputFromRecord(record)
+    }
+    if (calculationBase) {
+      const taxRateIdForCalculation = hasTaxRateIdInput ? parsed.taxRateId ?? null : undefined
+      const taxRateForCalculation = hasTaxRateInput
+        ? parsed.taxRate ?? null
+        : taxRateIdForCalculation === null
+          ? null
+          : record.taxRate ?? null
+      taxCalculationResult = await taxCalculationService.calculateUnitAmounts({
+        amount: calculationBase.amount,
+        mode: calculationBase.mode,
+        organizationId: targetProduct.organizationId,
+        tenantId: targetProduct.tenantId,
+        taxRateId: taxRateIdForCalculation,
+        taxRate: taxRateForCalculation,
+      })
+    }
+
     record.variant = targetVariant
     record.product = targetProduct
     record.offer = targetOffer
@@ -469,14 +554,27 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (parsed.currencyCode !== undefined) record.currencyCode = parsed.currencyCode
     if (parsed.minQuantity !== undefined) record.minQuantity = parsed.minQuantity ?? 1
     if (parsed.maxQuantity !== undefined) record.maxQuantity = parsed.maxQuantity ?? null
-    if (Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')) {
-      record.unitPriceNet = toNumericString(parsed.unitPriceNet)
-    }
-    if (Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')) {
-      record.unitPriceGross = toNumericString(parsed.unitPriceGross)
-    }
-    if (Object.prototype.hasOwnProperty.call(parsed, 'taxRate')) {
-      record.taxRate = toNumericString(parsed.taxRate)
+    if (taxCalculationResult) {
+      record.unitPriceNet = toNumericString(taxCalculationResult.netAmount)
+      record.unitPriceGross = toNumericString(taxCalculationResult.grossAmount)
+      record.taxRate = toNumericString(taxCalculationResult.taxRate)
+      record.taxAmount = toNumericString(taxCalculationResult.taxAmount)
+    } else {
+      if (hasNetInput) {
+        record.unitPriceNet = toNumericString(parsed.unitPriceNet)
+      }
+      if (hasGrossInput) {
+        record.unitPriceGross = toNumericString(parsed.unitPriceGross)
+      }
+      if (hasTaxRateInput) {
+        record.taxRate = toNumericString(parsed.taxRate)
+        if (parsed.taxRate == null) {
+          record.taxAmount = null
+        }
+      } else if (hasTaxRateIdInput && parsed.taxRateId === null) {
+        record.taxRate = null
+        record.taxAmount = null
+      }
     }
     if (parsed.channelId !== undefined) {
       record.channelId = parsed.channelId ?? null
@@ -564,6 +662,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
         unitPriceNet: before.unitPriceNet ?? null,
         unitPriceGross: before.unitPriceGross ?? null,
         taxRate: before.taxRate ?? null,
+        taxAmount: before.taxAmount ?? null,
         channelId: before.channelId ?? null,
         userId: before.userId ?? null,
         userGroupId: before.userGroupId ?? null,
@@ -689,6 +788,7 @@ const deletePriceCommand: CommandHandler<
         unitPriceNet: before.unitPriceNet ?? null,
         unitPriceGross: before.unitPriceGross ?? null,
         taxRate: before.taxRate ?? null,
+        taxAmount: before.taxAmount ?? null,
         channelId: before.channelId ?? null,
         userId: before.userId ?? null,
         userGroupId: before.userGroupId ?? null,

@@ -1263,6 +1263,15 @@
           "nullable": true,
           "mappedType": "json"
         },
+        "option_values": {
+          "name": "option_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "custom_fieldset_code": {
           "name": "custom_fieldset_code",
           "type": "text",
@@ -1493,6 +1502,17 @@
           "primary": false,
           "nullable": true,
           "precision": 7,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "tax_amount": {
+          "name": "tax_amount",
+          "type": "numeric(16,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 16,
           "scale": 4,
           "mappedType": "decimal"
         },

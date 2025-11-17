@@ -102,6 +102,7 @@ const crud = makeCrudRoute({
       FP.unit_price_net,
       FP.unit_price_gross,
       FP.tax_rate,
+      FP.tax_amount,
       FP.channel_id,
       FP.user_id,
       FP.user_group_id,

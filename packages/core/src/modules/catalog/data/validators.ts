@@ -44,6 +44,17 @@ const optionConfigurationSchema = z
   )
   .optional()
 
+const variantOptionValuesSchema = z
+  .record(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(191),
+    z.string().trim().max(255)
+  )
+  .optional()
+
 const optionChoiceSchema = z.object({
   code: slugSchema,
   label: z.string().trim().max(255).optional(),
@@ -139,6 +150,7 @@ export const variantCreateSchema = scoped.extend({
     .optional(),
   metadata: metadataSchema,
   optionConfiguration: optionConfigurationSchema,
+  optionValues: variantOptionValuesSchema,
   customFieldsetCode: slugSchema.nullable().optional(),
 })
 
@@ -235,6 +247,7 @@ export const priceCreateSchema = scoped.extend({
   unitPriceNet: z.coerce.number().min(0).optional(),
   unitPriceGross: z.coerce.number().min(0).optional(),
   taxRate: z.coerce.number().min(0).max(100).optional(),
+  taxRateId: uuid().nullable().optional(),
   channelId: uuid().optional(),
   userId: uuid().optional(),
   userGroupId: uuid().optional(),
