@@ -57,7 +57,11 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: access.status })
   }
 
-  const filePath = resolveAttachmentAbsolutePath(attachment.partitionCode, attachment.storagePath)
+  const filePath = resolveAttachmentAbsolutePath(
+    attachment.partitionCode,
+    attachment.storagePath,
+    attachment.storageDriver
+  )
   try {
     const input = await fs.readFile(filePath)
     let transformer = sharp(input)

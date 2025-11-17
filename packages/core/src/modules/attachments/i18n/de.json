@@ -1,0 +1,61 @@
+{
+  "attachments": {
+    "partitions": {
+      "nav": {
+        "title": "Anhänge"
+      },
+      "title": "Attachment partitions",
+      "description": "Define storage partitions and visibility for uploads.",
+      "actions": {
+        "add": "Add partition",
+        "refresh": "Refresh",
+        "edit": "Edit",
+        "delete": "Delete",
+        "cancel": "Cancel",
+        "save": "Save changes",
+        "create": "Create partition"
+      },
+      "table": {
+        "code": "Code",
+        "title": "Title",
+        "description": "Description",
+        "visibility": "Visibility",
+        "public": "Public",
+        "private": "Private",
+        "envKey": "Env variable",
+        "search": "Search partitions…",
+        "empty": "No partitions configured."
+      },
+      "form": {
+        "codeLabel": "Code",
+        "titleLabel": "Title",
+        "descriptionLabel": "Description",
+        "publicLabel": "Publicly accessible",
+        "codePlaceholder": "e.g. marketingAssets",
+        "titlePlaceholder": "e.g. Marketing assets",
+        "descriptionPlaceholder": "Explain how this partition is used.",
+        "envKeyHelp": "Set this env var to override storage path:"
+      },
+      "dialog": {
+        "createTitle": "Create partition",
+        "editTitle": "Edit partition",
+        "createDescription": "Define a storage partition for attachments.",
+        "editDescription": "Update partition metadata and visibility."
+      },
+      "messages": {
+        "created": "Partition created.",
+        "updated": "Partition updated.",
+        "deleted": "Partition removed."
+      },
+      "errors": {
+        "load": "Failed to load partitions.",
+        "save": "Failed to save partition.",
+        "delete": "Failed to delete partition.",
+        "required": "Code and title are required."
+      },
+      "confirm": {
+        "delete": "Delete partition \"{{code}}\"?"
+      }
+    }
+  }
+}

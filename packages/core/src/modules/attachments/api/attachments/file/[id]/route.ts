@@ -35,7 +35,11 @@ export async function GET(req: Request, context: { params: { id: string } }) {
     return NextResponse.json({ error: message }, { status: access.status })
   }
 
-  const filePath = resolveAttachmentAbsolutePath(attachment.partitionCode, attachment.storagePath)
+  const filePath = resolveAttachmentAbsolutePath(
+    attachment.partitionCode,
+    attachment.storagePath,
+    attachment.storageDriver
+  )
   let buffer: Buffer
   try {
     buffer = await fs.readFile(filePath)

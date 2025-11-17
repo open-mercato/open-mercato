@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/attachments/attachments/file/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /attachments/attachments/file/{id} */
+        get: operations["attachments_get_attachments_attachments_file_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attachments/attachments/image/{id}/{slug}": {
         parameters: {
             query?: never;
@@ -105,6 +122,38 @@ export interface paths {
          */
         post: operations["attachments_post_attachments_attachments_transfer"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/partitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        get: operations["attachments_get_attachments_partitions"];
+        /**
+         * PUT /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        put: operations["attachments_put_attachments_partitions"];
+        /**
+         * POST /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        post: operations["attachments_post_attachments_partitions"];
+        /**
+         * DELETE /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        delete: operations["attachments_delete_attachments_partitions"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3104,6 +3153,8 @@ export interface components {
             error: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses404ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAttachmentsAttachmentsDeleteResponses404ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsFileIdGetParameters0Schema: string;
+        DocPathsAttachmentsAttachmentsFileIdGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsAttachmentsAttachmentsGetParameters0Schema: string;
         DocPathsAttachmentsAttachmentsGetParameters1Schema: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchema: {
@@ -3115,6 +3166,7 @@ export interface components {
             fileName: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileName"];
             fileSize: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileSize"];
             id: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            partitionCode?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPartitionCode"];
             thumbnailUrl?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesThumbnailUrl"];
             url: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUrl"];
         };
@@ -3122,6 +3174,7 @@ export interface components {
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileName: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileSize: number;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPartitionCode: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesThumbnailUrl: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUrl: string;
         DocPathsAttachmentsAttachmentsGetResponses400ContentApplicationJsonSchema: {
@@ -3139,10 +3192,6 @@ export interface components {
         DocPathsAttachmentsAttachmentsImageIdSlugGetParameters0Schema: string;
         DocPathsAttachmentsAttachmentsImageIdSlugGetParameters1Schema: string;
         DocPathsAttachmentsAttachmentsImageIdSlugGetResponses200ContentApplicationJsonSchema: Record<string, never>;
-        DocPathsAttachmentsAttachmentsImageIdSlugGetResponses401ContentApplicationJsonSchema: {
-            error: components["schemas"]["DocPathsAttachmentsAttachmentsImageIdSlugGetResponses401ContentApplicationJsonSchemaPropertiesError"];
-        };
-        DocPathsAttachmentsAttachmentsImageIdSlugGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchema: {
             entityId: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesEntityId"];
             fieldKey?: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFieldKey"];
@@ -3192,6 +3241,41 @@ export interface components {
             error: components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         /** Format: uuid */
         DocPathsAuditLogsAuditLogsAccessGetParameters0Schema: string;
         /** Format: uuid */
@@ -12544,6 +12628,28 @@ export interface operations {
             };
         };
     };
+    attachments_get_attachments_attachments_file_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsAttachmentsFileIdGetParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsFileIdGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     attachments_get_attachments_attachments_image_id_slug: {
         parameters: {
             query?: never;
@@ -12563,20 +12669,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsImageIdSlugGetResponses200ContentApplicationJsonSchema"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    /**
-                     * @example {
-                     *       "error": "string"
-                     *     }
-                     */
-                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsImageIdSlugGetResponses401ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -12625,6 +12717,196 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_put_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_post_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_delete_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

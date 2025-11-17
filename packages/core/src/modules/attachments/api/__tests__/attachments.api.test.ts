@@ -1,10 +1,29 @@
 /** @jest-environment node */
 import { POST as upload } from '@open-mercato/core/modules/attachments/api/attachments'
 
+const partitions = [
+  { id: 'p-private', code: 'privateAttachments', title: 'Private', isPublic: false, storageDriver: 'local' },
+  { id: 'p-products', code: 'productsMedia', title: 'Products', isPublic: true, storageDriver: 'local' },
+]
+
 const mockEm = {
-  findOne: jest.fn(async () => ({ configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf'] } })),
-  create: jest.fn((_cls: any, data: any) => ({ ...data, id: 'att-1' })),
+  findOne: jest.fn(async (entity: any, where: any) => {
+    if (entity?.name === 'AttachmentPartition') {
+      return partitions.find((p) => p.code === where?.code) ?? null
+    }
+    if (entity?.name === 'CustomFieldDef') {
+      return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf'] } }
+    }
+    return null
+  }),
+  create: jest.fn((_cls: any, data: any) => ({ ...data })),
   persistAndFlush: jest.fn(async () => {}),
+  getRepository: jest.fn(() => ({
+    findAll: jest.fn(async () => partitions),
+    create: jest.fn((data: any) => data),
+  })),
+  persist: jest.fn(),
+  flush: jest.fn(),
 }
 
 jest.mock('@/lib/di/container', () => ({
@@ -19,7 +38,10 @@ jest.spyOn(fsp, 'mkdir').mockResolvedValue(undefined as any)
 jest.spyOn(fsp, 'writeFile').mockResolvedValue(undefined as any)
 
 // Avoid loading MikroORM decorators in tests
-jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({ Attachment: class Attachment {} }))
+jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
+  Attachment: class Attachment {},
+  AttachmentPartition: class AttachmentPartition {},
+}))
 
 function fdWith(file: File, extra: Record<string, string> = {}) {
   const fd = new FormData()

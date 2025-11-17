@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
-import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '../lib/partitions'
+import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { storePartitionFile, deletePartitionFile } from '../lib/storage'
 import { randomUUID } from 'crypto'
@@ -139,7 +139,7 @@ export async function POST(req: Request) {
         if (size > maxBytes) return NextResponse.json({ error: `File exceeds ${cfg.maxAttachmentSizeMb} MB limit` }, { status: 400 })
       }
       if (typeof cfg.partitionCode === 'string' && cfg.partitionCode.trim().length > 0) {
-        partitionFromField = cfg.partitionCode.trim()
+        partitionFromField = sanitizePartitionCode(cfg.partitionCode)
       }
     } catch {}
   }
@@ -216,7 +216,7 @@ export async function DELETE(req: Request) {
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await em.removeAndFlush(record)
   if (record.storagePath) {
-    await deletePartitionFile(record.partitionCode, record.storagePath)
+    await deletePartitionFile(record.partitionCode, record.storagePath, record.storageDriver)
   }
   return NextResponse.json({ ok: true })
 }

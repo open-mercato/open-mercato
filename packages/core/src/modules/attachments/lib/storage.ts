@@ -75,14 +75,25 @@ export async function storePartitionFile(payload: StorePartitionFilePayload): Pr
   }
 }
 
-export function resolveAttachmentAbsolutePath(partitionCode: string, storagePath: string): string {
-  const root = resolvePartitionRoot(partitionCode)
+export function resolveAttachmentAbsolutePath(
+  partitionCode: string,
+  storagePath: string,
+  storageDriver?: string | null
+): string {
   const safeRelative = storagePath.replace(/^\/*/, '').replace(/\.\.(\/|\\)/g, '')
+  if (storageDriver === 'legacyPublic') {
+    return path.join(process.cwd(), safeRelative)
+  }
+  const root = resolvePartitionRoot(partitionCode)
   return path.join(root, safeRelative)
 }
 
-export async function deletePartitionFile(partitionCode: string, storagePath: string): Promise<void> {
-  const absolutePath = resolveAttachmentAbsolutePath(partitionCode, storagePath)
+export async function deletePartitionFile(
+  partitionCode: string,
+  storagePath: string,
+  storageDriver?: string | null
+): Promise<void> {
+  const absolutePath = resolveAttachmentAbsolutePath(partitionCode, storagePath, storageDriver)
   try {
     await fs.unlink(absolutePath)
   } catch {
