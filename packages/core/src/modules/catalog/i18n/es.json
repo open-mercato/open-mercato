@@ -54,6 +54,10 @@
         "deleted": "Producto eliminado",
         "created": "Producto creado"
       },
+      "errors": {
+        "handleExists": "El identificador ya está en uso.",
+        "skuExists": "El SKU ya está en uso."
+      },
       "form": {
         "general": "General",
         "pricing": "Precios",

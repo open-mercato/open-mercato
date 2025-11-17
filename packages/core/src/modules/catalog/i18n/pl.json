@@ -54,6 +54,10 @@
         "deleted": "Produkt został usunięty",
         "created": "Produkt utworzony"
       },
+      "errors": {
+        "handleExists": "Handle jest już używany.",
+        "skuExists": "SKU jest już używany."
+      },
       "form": {
         "general": "Ogólne",
         "pricing": "Ceny",

@@ -140,12 +140,17 @@ export default function CreateCatalogProductPage() {
   React.useEffect(() => {
     const loadPriceKinds = async () => {
       try {
-        const payload = await readApiResultOrThrow<{ items?: PriceKindSummary[] }>(
+        const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
           '/api/catalog/price-kinds?pageSize=100',
           undefined,
           { errorMessage: t('catalog.priceKinds.errors.load', 'Failed to load price kinds.') },
         )
-        setPriceKinds(Array.isArray(payload.items) ? payload.items : [])
+        const items = Array.isArray(payload.items) ? payload.items : []
+        setPriceKinds(
+          items
+            .map((item) => normalizePriceKindSummary(item))
+            .filter((item): item is PriceKindSummary => item !== null),
+        )
       } catch (err) {
         console.error('catalog.price-kinds.fetch failed', err)
         setPriceKinds([])
@@ -236,15 +241,12 @@ export default function CreateCatalogProductPage() {
             }
             const handle = formValues.handle?.trim() || undefined
             const description = formValues.description?.trim() || undefined
-            const primaryCurrency = formValues.primaryCurrencyCode?.trim().toUpperCase() || undefined
-
             const productPayload: Record<string, unknown> = {
               title,
               subtitle: formValues.subtitle?.trim() || undefined,
               description,
               handle,
               isConfigurable: Boolean(formValues.hasVariants),
-              primaryCurrencyCode: primaryCurrency,
               metadata: formValues.options.length ? { optionSchema: formValues.options } : undefined,
             }
 
@@ -297,7 +299,10 @@ export default function CreateCatalogProductPage() {
                     t('catalog.products.create.errors.priceNonNegative', 'Prices must be zero or greater.'),
                   )
                 }
-                const currencyCode = priceKind.currencyCode ?? primaryCurrency
+                const currencyCode =
+                  typeof priceKind.currencyCode === 'string' && priceKind.currencyCode.trim().length
+                    ? priceKind.currencyCode.trim().toUpperCase()
+                    : ''
                 if (!currencyCode) {
                   throw createCrudFormError(
                     t('catalog.products.create.errors.currency', 'Provide a currency for all price kinds.'),
@@ -698,11 +703,26 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                     <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.vatColumn', 'Tax class')}</th>
                     {priceKinds.map((kind) => (
                       <th key={kind.id} className="px-3 py-2 text-left">
-                        <div className="flex items-center gap-1">
-                          <span>{t('catalog.products.create.variantsBuilder.priceColumn', 'Price {{title}}').replace('{{title}}', kind.title)}</span>
-                          <small title={kind.displayMode === 'including-tax' ? t('catalog.priceKinds.form.displayMode.include', 'Including tax') : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')} className="text-xs text-muted-foreground">
-                            {kind.displayMode === 'including-tax' ? 'Ⓣ' : 'Ⓝ'}
-                          </small>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <span>
+                              {t('catalog.products.create.variantsBuilder.priceColumn', 'Price {{title}}').replace('{{title}}', kind.title)}
+                            </span>
+                            <small
+                              title={
+                                kind.displayMode === 'including-tax'
+                                  ? t('catalog.priceKinds.form.displayMode.include', 'Including tax')
+                                  : t('catalog.priceKinds.form.displayMode.exclude', 'Excluding tax')
+                              }
+                              className="text-xs text-muted-foreground"
+                            >
+                              {kind.displayMode === 'including-tax' ? 'Ⓣ' : 'Ⓝ'}
+                            </small>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {kind.currencyCode?.toUpperCase() ??
+                              t('catalog.products.create.variantsBuilder.currencyMissing', 'Currency missing')}
+                          </span>
                         </div>
                       </th>
                     ))}
@@ -772,7 +792,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                         <td key={kind.id} className="px-3 py-2">
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">
-                              {kind.currencyCode ?? values.primaryCurrencyCode ?? '—'}
+                              {kind.currencyCode ?? '—'}
                             </span>
                             <input
                               type="number"

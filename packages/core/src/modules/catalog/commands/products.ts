@@ -2,6 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
@@ -336,9 +337,17 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       updatedAt: now,
     })
     em.persist(record)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error)
+    }
     await syncOffers(em, record, parsed.offers)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error)
+    }
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product,
@@ -455,7 +464,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await syncOffers(em, record, parsed.offers)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      await rethrowProductUniqueConstraint(error)
+    }
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -670,3 +683,56 @@ const deleteProductCommand: CommandHandler<
 registerCommand(createProductCommand)
 registerCommand(updateProductCommand)
 registerCommand(deleteProductCommand)
+
+function resolveProductUniqueConstraint(error: unknown): 'handle' | 'sku' | null {
+  if (!(error instanceof UniqueConstraintViolationException)) return null
+  const constraint = typeof (error as { constraint?: string }).constraint === 'string'
+    ? (error as { constraint?: string }).constraint
+    : null
+  if (constraint === 'catalog_products_handle_scope_unique') return 'handle'
+  if (constraint === 'catalog_products_sku_scope_unique') return 'sku'
+  const message = typeof (error as { message?: string }).message === 'string'
+    ? (error as { message?: string }).message
+    : ''
+  const normalized = message.toLowerCase()
+  if (
+    normalized.includes('catalog_products_handle_scope_unique') ||
+    normalized.includes(' handle')
+  ) {
+    return 'handle'
+  }
+  if (
+    normalized.includes('catalog_products_sku_scope_unique') ||
+    normalized.includes(' sku')
+  ) {
+    return 'sku'
+  }
+  return null
+}
+
+async function rethrowProductUniqueConstraint(error: unknown): Promise<never> {
+  const target = resolveProductUniqueConstraint(error)
+  if (target === 'handle') await throwDuplicateHandleError()
+  if (target === 'sku') await throwDuplicateSkuError()
+  throw error
+}
+
+async function throwDuplicateHandleError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate('catalog.products.errors.handleExists', 'Handle already in use.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { handle: message },
+    details: [{ path: ['handle'], message, code: 'duplicate', origin: 'validation' }],
+  })
+}
+
+async function throwDuplicateSkuError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate('catalog.products.errors.skuExists', 'SKU already in use.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { sku: message },
+    details: [{ path: ['sku'], message, code: 'duplicate', origin: 'validation' }],
+  })
+}

@@ -54,6 +54,10 @@
         "deleted": "Product deleted",
         "created": "Product created"
       },
+      "errors": {
+        "handleExists": "Handle already in use.",
+        "skuExists": "SKU already in use."
+      },
       "form": {
         "general": "General",
         "pricing": "Pricing",
