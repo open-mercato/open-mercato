@@ -132,7 +132,8 @@
           "titleRequired": "Provide a product title.",
           "id": "Product id missing after create.",
           "variant": "Failed to create variant.",
-          "currency": "Provide a currency for all price kinds."
+          "currency": "Provide a currency for all price kinds.",
+          "priceNonNegative": "Los precios deben ser cero o superiores."
         },
         "currency": {
           "placeholder": "Select currency…",

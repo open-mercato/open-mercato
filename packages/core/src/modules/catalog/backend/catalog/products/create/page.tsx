@@ -136,6 +136,14 @@ const INITIAL_VALUES: ProductFormValues = {
 
 const steps = ['general', 'organize', 'variants'] as const
 
+const sanitizePriceAmount = (value: string): string => {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const normalized = trimmed.replace(/^[+-]+/, '').trimStart()
+  return normalized
+}
+
 export default function CreateCatalogProductPage() {
   const t = useT()
   const router = useRouter()
@@ -312,6 +320,11 @@ export default function CreateCatalogProductPage() {
                 if (!value) continue
                 const numeric = Number(value)
                 if (Number.isNaN(numeric)) continue
+                if (numeric < 0) {
+                  throw createCrudFormError(
+                    t('catalog.products.create.errors.priceNonNegative', 'Prices must be zero or greater.'),
+                  )
+                }
                 const currencyCode = priceKind.currencyCode ?? primaryCurrency
                 if (!currencyCode) {
                   throw createCrudFormError(
@@ -469,14 +482,18 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
 
   const setVariantPrice = React.useCallback(
     (variantId: string, priceKindId: string, amount: string) => {
+      const sanitized = sanitizePriceAmount(amount)
       const next = (Array.isArray(values.variants) ? values.variants : []).map((variant) => {
         if (variant.id !== variantId) return variant
+        const nextPrices = { ...(variant.prices ?? {}) }
+        if (sanitized) {
+          nextPrices[priceKindId] = { amount: sanitized }
+        } else {
+          delete nextPrices[priceKindId]
+        }
         return {
           ...variant,
-          prices: {
-            ...(variant.prices ?? {}),
-            [priceKindId]: { amount },
-          },
+          prices: nextPrices,
         }
       })
       setValue('variants', next)
@@ -823,13 +840,14 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                           <span className="text-xs text-muted-foreground">
                             {kind.currencyCode ?? values.primaryCurrencyCode ?? '—'}
                           </span>
-                          <input
-                            type="number"
-                            className="w-full rounded-md border px-2 py-1"
-                            value={variant.prices?.[kind.id]?.amount ?? ''}
-                            onChange={(event) => setVariantPrice(variant.id, kind.id, event.target.value)}
-                            placeholder="0.00"
-                          />
+                      <input
+                        type="number"
+                        className="w-full rounded-md border px-2 py-1"
+                        value={variant.prices?.[kind.id]?.amount ?? ''}
+                        onChange={(event) => setVariantPrice(variant.id, kind.id, event.target.value)}
+                        placeholder="0.00"
+                        min={0}
+                      />
                         </div>
                       </td>
                     ))}
