@@ -55,6 +55,11 @@
       },
       "confirm": {
         "delete": "Delete partition \"{{code}}\"?"
+      },
+      "locked": {
+        "title": "Partition settings locked",
+        "description": "Attachment partitions are managed by environment defaults while demo or onboarding mode is enabled.",
+        "hint": "Update the environment variables below to re-enable in-app configuration."
       }
     }
   }

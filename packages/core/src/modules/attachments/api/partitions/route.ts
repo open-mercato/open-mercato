@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { Attachment, AttachmentPartition } from '../../data/entities'
-import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode } from '../../lib/partitions'
+import { ensureDefaultPartitions, DEFAULT_ATTACHMENT_PARTITIONS, sanitizePartitionCode, isPartitionSettingsLocked } from '../../lib/partitions'
 import { resolvePartitionEnvKey } from '../../lib/storage'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -65,6 +65,12 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (isPartitionSettingsLocked()) {
+    return NextResponse.json(
+      { error: 'Attachment partitions are managed by the environment in demo/onboarding mode.' },
+      { status: 403 },
+    )
+  }
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -100,6 +106,12 @@ export async function POST(req: Request) {
 }
 
 export async function PUT(req: Request) {
+  if (isPartitionSettingsLocked()) {
+    return NextResponse.json(
+      { error: 'Attachment partitions are managed by the environment in demo/onboarding mode.' },
+      { status: 403 },
+    )
+  }
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -130,6 +142,12 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  if (isPartitionSettingsLocked()) {
+    return NextResponse.json(
+      { error: 'Attachment partitions are managed by the environment in demo/onboarding mode.' },
+      { status: 403 },
+    )
+  }
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

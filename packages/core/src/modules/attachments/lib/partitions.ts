@@ -59,3 +59,9 @@ export function sanitizePartitionCode(input: string): string {
   const normalized = trimmed.replace(/[^a-zA-Z0-9_-]/g, '')
   return normalized
 }
+
+export function isPartitionSettingsLocked(): boolean {
+  const demoModeEnabled = process.env.DEMO_MODE !== 'false'
+  const onboardingEnabled = process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true'
+  return demoModeEnabled || onboardingEnabled
+}
