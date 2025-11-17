@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { promises as fs } from 'fs'
-import path from 'path'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
+import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '../lib/imageUrls'
+import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '../lib/partitions'
+import { Attachment, AttachmentPartition } from '../data/entities'
+import { storePartitionFile, deletePartitionFile } from '../lib/storage'
+import { randomUUID } from 'crypto'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -25,6 +28,7 @@ const attachmentItemSchema = z.object({
   fileSize: z.number().int().nonnegative().describe('File size in bytes'),
   createdAt: z.string().describe('Upload timestamp (ISO 8601)'),
   thumbnailUrl: z.string().optional().describe('Helper route that renders a thumbnail'),
+  partitionCode: z.string().optional().describe('Partition identifier'),
 })
 
 const attachmentListResponseSchema = z.object({
@@ -67,9 +71,8 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
-  const { Attachment } = await import('../data/entities')
   const items = await em.find(
-    Attachment as any,
+    Attachment,
     { entityId, recordId, organizationId: auth.orgId!, tenantId: auth.tenantId! },
     { orderBy: { createdAt: 'desc' } as any }
   )
@@ -80,6 +83,7 @@ export async function GET(req: Request) {
       fileName: a.fileName,
       fileSize: a.fileSize,
       createdAt: a.createdAt,
+      partitionCode: a.partitionCode,
       thumbnailUrl: buildAttachmentImageUrl(a.id, {
         width: 320,
         height: 320,
@@ -92,6 +96,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const tenantId = auth.tenantId
+  const orgId = auth.orgId
 
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
@@ -106,12 +112,14 @@ export async function POST(req: Request) {
   if (!entityId || !recordId || !file) return NextResponse.json({ error: 'entityId, recordId and file are required' }, { status: 400 })
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = resolve('em') as EntityManager
+  await ensureDefaultPartitions(em)
   // Optional per-field validations
+  let partitionFromField: string | null = null
   if (fieldKey) {
     try {
       const { CustomFieldDef } = await import('@open-mercato/core/modules/entities/data/entities')
-      const def = await em.findOne(CustomFieldDef as any, {
+      const def = await em.findOne(CustomFieldDef, {
         entityId,
         key: fieldKey,
         $and: [
@@ -130,25 +138,37 @@ export async function POST(req: Request) {
         const size = (await file.arrayBuffer()).byteLength
         if (size > maxBytes) return NextResponse.json({ error: `File exceeds ${cfg.maxAttachmentSizeMb} MB limit` }, { status: 400 })
       }
+      if (typeof cfg.partitionCode === 'string' && cfg.partitionCode.trim().length > 0) {
+        partitionFromField = cfg.partitionCode.trim()
+      }
     } catch {}
   }
   const buf = Buffer.from(await file.arrayBuffer())
-  const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'attachments')
-  await fs.mkdir(uploadsDir, { recursive: true })
   const safeName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
-  const fname = `${Date.now()}_${safeName}`
-  const outPath = path.join(uploadsDir, fname)
-  await fs.writeFile(outPath, buf)
-  const urlPath = `/uploads/attachments/${fname}`
-
-  let AttachmentEntity: any
-  try {
-    const mod = await import('../data/entities')
-    AttachmentEntity = (mod as any).Attachment
-  } catch (_e) {
-    AttachmentEntity = class Attachment {}
+  const resolvedPartitionCode = partitionFromField ?? resolveDefaultPartitionCode(entityId)
+  const partition =
+    (await em.findOne(AttachmentPartition, { code: partitionFromField ?? '' })) ??
+    (await em.findOne(AttachmentPartition, { code: resolvedPartitionCode }))
+  if (!partition) {
+    return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
-  const att = em.create(AttachmentEntity as any, {
+  let stored
+  try {
+    stored = await storePartitionFile({
+      partitionCode: partition.code,
+      orgId,
+      tenantId,
+      fileName: safeName,
+      buffer: buf,
+    })
+  } catch (error) {
+    console.error('[attachments] failed to persist file', error)
+    return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
+  }
+
+  const attachmentId = randomUUID()
+  const att = em.create(Attachment, {
+    id: attachmentId,
     entityId,
     recordId,
     organizationId: auth.orgId!,
@@ -156,18 +176,21 @@ export async function POST(req: Request) {
     fileName: safeName,
     mimeType: (file as any).type || 'application/octet-stream',
     fileSize: buf.length,
-    url: urlPath,
+    partitionCode: partition.code,
+    storageDriver: partition.storageDriver || 'local',
+    storagePath: stored.storagePath,
+    url: buildAttachmentFileUrl(attachmentId),
   })
   await em.persistAndFlush(att)
 
-  const attachmentId = (att as any).id
   return NextResponse.json({
     ok: true,
     item: {
       id: attachmentId,
-      url: urlPath,
+      url: att.url,
       fileName: safeName,
       fileSize: buf.length,
+      partitionCode: partition.code,
       thumbnailUrl: buildAttachmentImageUrl(attachmentId, {
         width: 320,
         height: 320,
@@ -184,30 +207,16 @@ export async function DELETE(req: Request) {
   const id = url.searchParams.get('id') || ''
   if (!id) return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  let AttachmentEntity: any
-  try {
-    const mod = await import('../data/entities')
-    AttachmentEntity = (mod as any).Attachment
-  } catch (_e) {
-    AttachmentEntity = class Attachment {}
-  }
-  const record = await em.findOne(AttachmentEntity as any, {
+  const em = resolve('em') as EntityManager
+  const record = await em.findOne(Attachment, {
     id,
     organizationId: auth.orgId!,
     tenantId: auth.tenantId!,
   })
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  const relativePath = typeof record.url === 'string' ? record.url.replace(/^\//, '') : null
-  const safePath = relativePath ? relativePath.replace(/\.\.(\/|\\)/g, '') : null
-  const fullPath = safePath ? path.join(process.cwd(), 'public', safePath) : null
   await em.removeAndFlush(record)
-  if (fullPath) {
-    try {
-      await fs.unlink(fullPath)
-    } catch {
-      // ignore unlink failures
-    }
+  if (record.storagePath) {
+    await deletePartitionFile(record.partitionCode, record.storagePath)
   }
   return NextResponse.json({ ok: true })
 }

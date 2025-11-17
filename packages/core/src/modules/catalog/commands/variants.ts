@@ -245,6 +245,46 @@ async function restoreVariantOptionValues(
   }
 }
 
+type MetadataSplitResult = {
+  metadata: Record<string, unknown> | null
+  optionValues: Record<string, string> | null
+  hadOptionValues: boolean
+}
+
+function splitOptionValuesFromMetadata(
+  metadata?: Record<string, unknown> | null
+): MetadataSplitResult {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {
+      metadata: metadata ? cloneJson(metadata) : null,
+      optionValues: null,
+      hadOptionValues: false,
+    }
+  }
+  const { optionValues, ...rest } = metadata as Record<string, unknown> & {
+    optionValues?: unknown
+  }
+  const normalizedMetadata = Object.keys(rest).length ? cloneJson(rest) : null
+  return {
+    metadata: normalizedMetadata,
+    optionValues: normalizeOptionValues(optionValues),
+    hadOptionValues: optionValues !== undefined,
+  }
+}
+
+function normalizeOptionValues(input: unknown): Record<string, string> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const normalized: Record<string, string> = {}
+  for (const [rawKey, rawValue] of Object.entries(input)) {
+    if (typeof rawValue !== 'string') continue
+    const key = rawKey.trim()
+    const value = rawValue.trim()
+    if (!key || !value) continue
+    normalized[key] = value
+  }
+  return Object.keys(normalized).length ? normalized : null
+}
+
 const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string }> = {
   id: 'catalog.variants.create',
   async execute(rawInput, ctx) {
@@ -253,6 +293,10 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
+
+    const metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+    const resolvedOptionValues =
+      parsed.optionValues ?? (metadataSplit.hadOptionValues ? metadataSplit.optionValues : null)
 
     const now = new Date()
     const record = em.create(CatalogProductVariant, {
@@ -270,8 +314,8 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightValue: toNumericString(parsed.weightValue),
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
-      optionValues: parsed.optionValues ? cloneJson(parsed.optionValues) : null,
+      metadata: metadataSplit.metadata,
+      optionValues: resolvedOptionValues ? cloneJson(resolvedOptionValues) : null,
       customFieldsetCode: parsed.customFieldsetCode ?? null,
       createdAt: now,
       updatedAt: now,
@@ -377,11 +421,15 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.dimensions !== undefined) {
       record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
     }
+    let metadataSplit: MetadataSplitResult | null = null
+    if (parsed.metadata !== undefined) {
+      metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+      record.metadata = metadataSplit.metadata
+    }
     if (parsed.optionValues !== undefined) {
       record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
-    }
-    if (parsed.metadata !== undefined) {
-      record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
+    } else if (metadataSplit?.hadOptionValues) {
+      record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
     }
     if (parsed.customFieldsetCode !== undefined) {
       record.customFieldsetCode = parsed.customFieldsetCode ?? null

@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { SalesTaxRate } from '../data/entities'
 
@@ -25,9 +26,42 @@ export interface TaxCalculationService {
 }
 
 export class DefaultTaxCalculationService implements TaxCalculationService {
-  constructor(private readonly em: EntityManager) {}
+  constructor(private readonly em: EntityManager, private readonly eventBus?: EventBus | null) {}
 
   async calculateUnitAmounts(input: CalculateTaxInput): Promise<TaxCalculationResult> {
+    let workingInput = { ...input }
+    let resolved: TaxCalculationResult | undefined
+
+    if (this.eventBus) {
+      await this.eventBus.emitEvent('sales.tax.calculate.before', {
+        input: workingInput,
+        setInput(next: Partial<CalculateTaxInput>) {
+          if (!next) return
+          workingInput = { ...workingInput, ...next }
+        },
+        setResult(next: TaxCalculationResult | null | undefined) {
+          if (next) resolved = next
+        },
+      })
+      if (resolved) return resolved
+    }
+
+    resolved = await this.performCalculation(workingInput)
+
+    if (this.eventBus) {
+      await this.eventBus.emitEvent('sales.tax.calculate.after', {
+        input: workingInput,
+        result: resolved,
+        setResult(next: TaxCalculationResult | null | undefined) {
+          if (next) resolved = next
+        },
+      })
+    }
+
+    return resolved
+  }
+
+  private async performCalculation(input: CalculateTaxInput): Promise<TaxCalculationResult> {
     const amount = this.normalizeAmount(input.amount)
     const mode = input.mode === 'gross' ? 'gross' : input.mode === 'net' ? 'net' : null
     if (!mode) {

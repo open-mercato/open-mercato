@@ -30,3 +30,11 @@ export function buildAttachmentImageUrl(attachmentId: string, options?: ImageSiz
   const slugSegment = options?.slug ? `/${encodeURIComponent(options.slug)}` : ''
   return `/api/attachments/image/${encodeURIComponent(attachmentId)}${slugSegment}${query ? `?${query}` : ''}`
 }
+
+export function buildAttachmentFileUrl(attachmentId: string, options?: { download?: boolean }): string {
+  if (!attachmentId) return ''
+  const params = new URLSearchParams()
+  if (options?.download) params.set('download', '1')
+  const query = params.toString()
+  return `/api/attachments/file/${encodeURIComponent(attachmentId)}${query ? `?${query}` : ''}`
+}

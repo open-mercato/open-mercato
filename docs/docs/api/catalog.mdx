@@ -128,6 +128,38 @@ Key fields:
 - Price components: `unitPriceNet`, `unitPriceGross`, `taxRate`.
 - Effective dates: `startsAt`, `endsAt` (coerced to `Date` by Zod).
 
+### Shared tax calculation service
+
+All price commands and the admin builders call the DI-provided `taxCalculationService` (registered by the Sales module) to keep net/gross/tax amounts consistent. The default implementation looks up the requested tax class (`taxRateId`) or explicit rate, normalizes non-negative inputs, and stores computed `unitPriceNet`, `unitPriceGross`, and `taxAmount` back on the `catalog_product_prices` row.
+
+You can override/extend the calculation pipeline via the event bus:
+
+- `sales.tax.calculate.before` — receives `{ input, setInput(next), setResult(result) }`. Call `setInput()` to tweak the pending payload (e.g., swap the `taxRateId` based on the customer/region) or `setResult()` to bypass the built-in calculator entirely.
+- `sales.tax.calculate.after` — receives `{ input, result, setResult(next) }`. Use this to post-process the computed numbers (rounding, recoverable VAT adjustments, etc.).
+
+Example hook (run from any module bootstrap/registrar):
+
+```ts
+import { createRequestContainer } from '@/lib/di/container'
+
+const container = await createRequestContainer()
+const eventBus = container.resolve('eventBus')
+
+eventBus?.on('sales.tax.calculate.before', ({ input, setInput }) => {
+  if (!input.taxRateId && input.organizationId === 'org-brazil') {
+    setInput({ taxRateId: 'default-brazilian-rate' })
+  }
+})
+
+eventBus?.on('sales.tax.calculate.after', ({ result, setResult }) => {
+  if (result && result.taxAmount > 0) {
+    setResult({ ...result, taxAmount: Math.ceil(result.taxAmount * 100) / 100 })
+  }
+})
+```
+
+Prefer `taxRateId` over raw percentages so the service can validate scope and reuse the Sales → Tax Rates admin UI.
+
 ## Price kind commands — `catalog.priceKinds.*`
 
 Stored in `packages/core/src/modules/catalog/commands/priceKinds.ts`.

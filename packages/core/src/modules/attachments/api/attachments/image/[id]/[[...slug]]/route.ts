@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
-import { promises as fs } from 'fs'
-import path from 'path'
 import sharp from 'sharp'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
+import { resolveAttachmentAbsolutePath } from '@open-mercato/core/modules/attachments/lib/storage'
+import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { promises as fs } from 'fs'
 
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
@@ -12,7 +15,7 @@ const querySchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: false },
 }
 
 export async function GET(
@@ -20,9 +23,6 @@ export async function GET(
   context: { params: { id: string; slug?: string[] | undefined } }
 ) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.orgId || !auth.tenantId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
   const id = context.params.id
   if (!id) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
@@ -36,19 +36,10 @@ export async function GET(
   const { width, height } = parsedQuery.data
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
-  let AttachmentEntity: any
-  try {
-    const mod = await import('@open-mercato/core/modules/attachments/data/entities')
-    AttachmentEntity = mod.Attachment
-  } catch {
-    return NextResponse.json({ error: 'Attachment model missing' }, { status: 500 })
-  }
+  const em = resolve('em') as EntityManager
 
-  const attachment = await em.findOne(AttachmentEntity, {
+  const attachment = await em.findOne(Attachment, {
     id,
-    organizationId: auth.orgId,
-    tenantId: auth.tenantId,
   })
   if (!attachment) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -56,10 +47,17 @@ export async function GET(
   if (typeof attachment.mimeType !== 'string' || !attachment.mimeType.startsWith('image/')) {
     return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
+  const partition = await em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+  if (!partition) {
+    return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })
+  }
+  const access = checkAttachmentAccess(auth, attachment, partition)
+  if (!access.ok) {
+    const message = access.status === 401 ? 'Unauthorized' : 'Forbidden'
+    return NextResponse.json({ error: message }, { status: access.status })
+  }
 
-  const relativePath = attachment.url.startsWith('/') ? attachment.url.substring(1) : attachment.url
-  const safePath = relativePath.replace(/\.\.(\/|\\)/g, '')
-  const filePath = path.join(process.cwd(), 'public', safePath)
+  const filePath = resolveAttachmentAbsolutePath(attachment.partitionCode, attachment.storagePath)
   try {
     const input = await fs.readFile(filePath)
     let transformer = sharp(input)
@@ -74,7 +72,7 @@ export async function GET(
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
-        'Cache-Control': 'public, max-age=3600',
+        'Cache-Control': partition.isPublic ? 'public, max-age=3600' : 'private, max-age=60',
       },
     })
   } catch (error) {

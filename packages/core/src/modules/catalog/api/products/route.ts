@@ -282,6 +282,7 @@ async function decorateProductsAfterList(
         min_quantity: best.minQuantity,
         max_quantity: best.maxQuantity ?? null,
         tax_rate: best.taxRate ?? null,
+        tax_amount: best.taxAmount ?? null,
         scope: {
           variant_id: resolvePriceVariantId(best),
           offer_id: resolvePriceOfferId(best),

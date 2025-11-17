@@ -380,18 +380,20 @@ export default function CreateCatalogProductPage() {
                     {},
                   )
                 }
-                const pricePayload: Record<string, unknown> = {
-                  productId,
-                  variantId,
-                  currencyCode,
-                  priceKindId: priceKind.id,
-                }
-                if (typeof resolvedVariantTaxRate === 'number' && Number.isFinite(resolvedVariantTaxRate)) {
-                  pricePayload.taxRate = resolvedVariantTaxRate
-                }
-                if (priceKind.displayMode === 'including-tax') {
-                  pricePayload.unitPriceGross = numeric
-                } else {
+              const pricePayload: Record<string, unknown> = {
+                productId,
+                variantId,
+                currencyCode,
+                priceKindId: priceKind.id,
+              }
+              if (resolvedVariantTaxRateId) {
+                pricePayload.taxRateId = resolvedVariantTaxRateId
+              } else if (typeof resolvedVariantTaxRate === 'number' && Number.isFinite(resolvedVariantTaxRate)) {
+                pricePayload.taxRate = resolvedVariantTaxRate
+              }
+              if (priceKind.displayMode === 'including-tax') {
+                pricePayload.unitPriceGross = numeric
+              } else {
                   pricePayload.unitPriceNet = numeric
                 }
                 await createCrud('catalog/prices', pricePayload)

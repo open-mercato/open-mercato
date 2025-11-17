@@ -9,8 +9,8 @@ export function register(container: AppContainer) {
       const eventBus = cradle.eventBus ?? null
       return new DefaultSalesCalculationService(eventBus)
     }).singleton(),
-    taxCalculationService: asFunction(({ em }: AppContainer) => {
-      return new DefaultTaxCalculationService(em)
+    taxCalculationService: asFunction(({ em, eventBus }: AppContainer) => {
+      return new DefaultTaxCalculationService(em, eventBus ?? null)
     }).singleton(),
   })
 }
