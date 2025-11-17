@@ -38,7 +38,7 @@ import {
   Globe,
   Heart,
   Key,
-  Map,
+  Map as MapIcon,
   Palette,
   Shield,
   Star,
@@ -201,7 +201,7 @@ const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?:
   globe: Globe,
   heart: Heart,
   key: Key,
-  map: Map,
+  map: MapIcon,
   palette: Palette,
   shield: Shield,
   star: Star,
@@ -294,7 +294,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [cfMetadata, setCfMetadata] = React.useState<CustomFieldDefinitionsPayload | null>(null)
   const [cfFieldsetSelections, setCfFieldsetSelections] = React.useState<Record<string, string | null>>({})
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
-  const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null } | null>(null)
+const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
       const dedup = new Set<string>()
@@ -433,7 +433,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     if (!cfDefinitions.length) return { cfFields: [], customFieldLayout: [] as CustomFieldEntityLayout[] }
     const aggregated: CrudField[] = []
     const layout: CustomFieldEntityLayout[] = []
-    const defsByEntity = new Map<string, CustomFieldDefDto[]>()
+    const defsByEntity = new globalThis.Map<string, CustomFieldDefDto[]>()
     cfDefinitions.forEach((def) => {
       const entityId = typeof def.entityId === 'string' && def.entityId.trim().length
         ? def.entityId.trim()
@@ -451,9 +451,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       fieldset?: CustomFieldsetDto,
     ): CustomFieldSectionLayout | null => {
       if (!defList.length) return null
-      const groupsMap = new Map<string, CustomFieldGroupLayout>()
+      const groupsMap = new globalThis.Map<string, CustomFieldGroupLayout>()
       const order: string[] = []
-      const fieldsetGroupMap = new Map<string, { title?: string; hint?: string; code: string }>()
+      const fieldsetGroupMap = new globalThis.Map<string, { title?: string; hint?: string; code: string }>()
       if (Array.isArray(fieldset?.groups)) {
         fieldset.groups.forEach((group) => {
           if (!group?.code) return
@@ -512,7 +512,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const hasFieldsets = availableFieldsets.length > 0
       const singleFieldsetPerRecord =
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
-      const defsByFieldset = new Map<string | null, CustomFieldDefDto[]>()
+      const defsByFieldset = new globalThis.Map<string | null, CustomFieldDefDto[]>()
       defsForEntity.forEach((def) => {
         const code = typeof def.fieldset === 'string' && def.fieldset.trim().length > 0 ? def.fieldset.trim() : null
         const bucket = defsByFieldset.get(code) ?? []
@@ -610,7 +610,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [fields, cfFields])
 
   const fieldById = React.useMemo(() => {
-    return new Map(allFields.map((f) => [f.id, f]))
+    return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
 
   const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
@@ -788,10 +788,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const handleOpenFieldsetEditor = React.useCallback(
-    (entityId: string, fieldsetCode: string | null) => {
+    (entityId: string, fieldsetCode: string | null, view: 'entity' | 'fieldset' = 'entity') => {
       const href = buildCustomFieldsManageHref(entityId)
       if (!href) return
-      setFieldsetEditorTarget({ entityId, fieldsetCode })
+      setFieldsetEditorTarget({ entityId, fieldsetCode, view })
     },
     [buildCustomFieldsManageHref],
   )
@@ -802,23 +802,34 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setValues((prev) => ({ ...prev, ...initialValues } as CrudFormValues<TValues>))
   }, [initialValues])
 
-  const fieldsetEditorHref = React.useMemo(() => {
-    if (!fieldsetEditorTarget) return null
-    const base = buildCustomFieldsManageHref(fieldsetEditorTarget.entityId)
-    if (!base) return null
-    if (fieldsetEditorTarget.fieldsetCode) {
+  const buildFieldsetEditorHref = React.useCallback(
+    (includeViewParam: boolean) => {
+      if (!fieldsetEditorTarget) return null
+      const base = buildCustomFieldsManageHref(fieldsetEditorTarget.entityId)
+      if (!base) return null
+      const params: string[] = []
+      if (fieldsetEditorTarget.fieldsetCode) {
+        params.push(`fieldset=${encodeURIComponent(fieldsetEditorTarget.fieldsetCode)}`)
+      }
+      if (includeViewParam && fieldsetEditorTarget.view === 'fieldset') {
+        params.push('view=fieldset')
+      }
+      if (!params.length) return base
       const connector = base.includes('?') ? '&' : '?'
-      return `${base}${connector}fieldset=${encodeURIComponent(fieldsetEditorTarget.fieldsetCode)}`
-    }
-    return base
-  }, [buildCustomFieldsManageHref, fieldsetEditorTarget])
+      return `${base}${connector}${params.join('&')}`
+    },
+    [buildCustomFieldsManageHref, fieldsetEditorTarget],
+  )
+
+  const fieldsetEditorEmbedHref = React.useMemo(() => buildFieldsetEditorHref(true), [buildFieldsetEditorHref])
+  const fieldsetEditorFullHref = React.useMemo(() => buildFieldsetEditorHref(false), [buildFieldsetEditorHref])
 
   const handleFieldsetDialogPrimary = React.useCallback(() => {
-    if (!fieldsetEditorHref) return
+    if (!fieldsetEditorFullHref) return
     if (typeof window !== 'undefined') {
-      window.open(fieldsetEditorHref, '_blank', 'noopener,noreferrer')
+      window.open(fieldsetEditorFullHref, '_blank', 'noopener,noreferrer')
     }
-  }, [fieldsetEditorHref])
+  }, [fieldsetEditorFullHref])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1006,7 +1017,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [dynamicOptions])
 
   const fieldOptionsById = React.useMemo(() => {
-    const map = new Map<string, CrudFieldOption[]>()
+    const map = new globalThis.Map<string, CrudFieldOption[]>()
     for (const f of allFields) {
       if (!('type' in f) || f.type === 'custom') continue
       const builtin = f as CrudBuiltinField
@@ -1146,7 +1157,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 type="button"
                 className="inline-flex h-8 w-8 items-center justify-center rounded border text-muted-foreground hover:text-foreground"
                 onClick={() =>
-                  handleOpenFieldsetEditor(entityLayout.entityId, entityLayout.activeFieldset ?? null)}
+                  handleOpenFieldsetEditor(entityLayout.entityId, entityLayout.activeFieldset ?? null, 'fieldset')}
                 disabled={!manageHref}
                 title={manageFieldsetLabel}
               >
@@ -1184,7 +1195,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                  onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode)}
+                  onClick={() => handleOpenFieldsetEditor(entityLayout.entityId, section.fieldsetCode, 'fieldset')}
                   disabled={manageDisabled}
                 >
                   <Settings className="size-4" />
@@ -1253,9 +1264,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <DialogTitle>{fieldsetDialogTitle}</DialogTitle>
         </DialogHeader>
         <div className="h-[70vh] overflow-hidden rounded-md border bg-muted/30">
-          {fieldsetEditorHref ? (
+          {fieldsetEditorEmbedHref ? (
             <iframe
-              src={fieldsetEditorHref}
+              src={fieldsetEditorEmbedHref}
               title="Field definitions editor"
               className="h-full w-full border-0"
             />
@@ -1269,7 +1280,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <Button type="button" variant="outline" onClick={() => setFieldsetEditorTarget(null)}>
             {cancelLabel}
           </Button>
-          <Button type="button" onClick={handleFieldsetDialogPrimary} disabled={!fieldsetEditorHref}>
+          <Button type="button" onClick={handleFieldsetDialogPrimary} disabled={!fieldsetEditorFullHref}>
             {fieldsetDialogPrimaryLabel}
           </Button>
         </div>

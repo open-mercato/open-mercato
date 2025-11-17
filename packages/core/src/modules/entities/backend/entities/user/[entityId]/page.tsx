@@ -1,6 +1,6 @@
 "use client"
 import React, { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -29,6 +29,7 @@ type DefErrors = FieldDefinitionError
 export default function EditDefinitionsPage({ params }: { params?: { entityId?: string } }) {
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
@@ -47,6 +48,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [fieldsets, setFieldsets] = useState<FieldsetDefinition[]>([])
   const [activeFieldset, setActiveFieldset] = useState<string | null>(null)
   const [singleFieldsetPerRecord, setSingleFieldsetPerRecord] = useState(true)
+  const requestedFieldset = React.useMemo(() => {
+    const raw = searchParams?.get('fieldset')
+    return raw && raw.trim().length ? raw.trim() : null
+  }, [searchParams])
+  const embedFieldsetView = React.useMemo(() => searchParams?.get('view') === 'fieldset', [searchParams])
   const normalizeGroupPayload = React.useCallback((value: unknown) => {
     if (!value) return null
     if (typeof value === 'string') {
@@ -91,7 +97,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       if ((issue.path || []).includes('kind')) errs.kind = issue.message
     }
     return errs
-  }, [entityId])
+  }, [entityId, requestedFieldset])
 
   const validateAndSetErrorAt = (index: number, d: Def) => {
     const errs = validateDef(d)
@@ -154,6 +160,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
           setFieldsets(loadedFieldsets)
           setActiveFieldset((prev) => {
+            if (requestedFieldset && loadedFieldsets.some((fs) => fs.code === requestedFieldset)) {
+              return requestedFieldset
+            }
             if (prev && loadedFieldsets.some((fs) => fs.code === prev)) return prev
             return loadedFieldsets[0]?.code ?? null
           })
@@ -366,9 +375,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     } as any,
     ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' }] : []),
   ]
-  const groups: CrudFormGroup[] = [
-    { id: 'settings', title: 'Entity Settings', column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
-    { id: 'definitions', title: 'Field Definitions', column: 1, component: () => (
+  const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
         definitions={defs}
         errors={defErrors}
@@ -417,8 +424,86 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           },
         }}
       />
-    ) },
+    ),
+  [defs, defErrors, deletedKeys, fieldsets, activeFieldset, singleFieldsetPerRecord, orderDirty, orderSaving, addField, removeField, restoreField, saveOrderIfDirty])
+
+  const definitionsGroup: CrudFormGroup = { id: 'definitions', title: 'Field Definitions', column: 1, component: renderFieldDefinitions }
+
+  const groups: CrudFormGroup[] = [
+    { id: 'settings', title: 'Entity Settings', column: 1, fields: entitySource === 'custom' ? ['label','description','defaultEditor','showInSidebar'] : ['label','description','defaultEditor'] },
+    definitionsGroup,
   ]
+
+  const handleCrudFormSubmit = React.useCallback(async (vals: Record<string, unknown>) => {
+    if (!validateAll()) {
+      flash('Please fix validation errors in field definitions', 'error')
+      throw createCrudFormError('Please fix validation errors in field definitions')
+    }
+    if (entitySource === 'custom') {
+      const partial = upsertCustomEntitySchema
+        .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
+        .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
+      const normalized = {
+        ...(vals as any),
+        defaultEditor: (vals as any)?.defaultEditor || undefined,
+      }
+      const parsed = partial.safeParse(normalized)
+      if (!parsed.success) throw createCrudFormError('Validation failed')
+      const callEntity = await apiCall('/api/entities/entities', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId, ...(parsed.data as any) }),
+      })
+      if (!callEntity.ok) {
+        await raiseCrudError(callEntity.response, 'Failed to save entity')
+      }
+      try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
+    }
+    const defsPayload = {
+      entityId,
+      definitions: defs.filter((d) => !!d.key).map((d) => ({
+        key: d.key,
+        kind: d.kind,
+        configJson: d.configJson,
+        isActive: d.isActive !== false,
+      })),
+      fieldsets: buildFieldsetPayload(),
+      singleFieldsetPerRecord,
+    }
+    const callDefs = await apiCall('/api/entities/definitions.batch', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(defsPayload),
+    })
+    if (!callDefs.ok) {
+      await raiseCrudError(callDefs.response, 'Failed to save definitions')
+    }
+    try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
+    await invalidateCustomFieldDefs(queryClient, entityId)
+    flash('Definitions saved', 'success')
+  }, [buildFieldsetPayload, defs, entityId, entitySource, queryClient, singleFieldsetPerRecord, validateAll])
+
+  if (embedFieldsetView) {
+    return (
+      <div className="p-4">
+        <CrudForm
+          schema={entityFormSchema}
+          title={`Edit fieldset: ${requestedFieldset ?? entityId}`}
+          fields={[]}
+          groups={[definitionsGroup]}
+          initialValues={entityInitial as any}
+          isLoading={entityFormLoading || loading}
+          submitLabel="Save"
+          deleteVisible={false}
+          title={`Edit fieldset: ${requestedFieldset ?? entityId}`}
+          backHref={undefined}
+          cancelHref={undefined}
+          embedded
+          onSubmit={handleCrudFormSubmit}
+        />
+      </div>
+    )
+  }
 
   return (
     <Page>
@@ -442,55 +527,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           ) : null}
           cancelHref={entitySource === 'code' ? "/backend/entities/system" : "/backend/entities/user"}
           successRedirect={entitySource === 'code' ? "/backend/entities/system?flash=Definitions%20saved&type=success" : "/backend/entities/user?flash=Definitions%20saved&type=success"}
-          onSubmit={async (vals) => {
-            // Validate fields client-side before hitting the API
-            if (!validateAll()) {
-              flash('Please fix validation errors in field definitions', 'error')
-              throw createCrudFormError('Please fix validation errors in field definitions')
-            }
-            // Save entity settings only for custom entities
-            if (entitySource === 'custom') {
-              // Treat showInSidebar as optional to avoid defaulting to false when omitted
-              const partial = upsertCustomEntitySchema
-                .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
-                .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
-              const normalized = { 
-                ...(vals as any), 
-                defaultEditor: (vals as any)?.defaultEditor || undefined,
-              }
-              const parsed = partial.safeParse(normalized)
-              if (!parsed.success) throw createCrudFormError('Validation failed')
-              const callEntity = await apiCall('/api/entities/entities', {
-                method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId, ...(parsed.data as any) })
-              })
-              if (!callEntity.ok) {
-                await raiseCrudError(callEntity.response, 'Failed to save entity')
-              }
-            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
-            }
-            // Save definitions in a single batch (transactional)
-            const defsPayload = {
-              entityId,
-              definitions: defs.filter(d => !!d.key).map((d) => ({
-                key: d.key,
-                kind: d.kind,
-                configJson: d.configJson,
-                isActive: d.isActive !== false,
-              })),
-              fieldsets: buildFieldsetPayload(),
-              singleFieldsetPerRecord,
-            }
-            const callDefs = await apiCall('/api/entities/definitions.batch', {
-              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(defsPayload)
-            })
-            if (!callDefs.ok) {
-              await raiseCrudError(callDefs.response, 'Failed to save definitions')
-            }
-            try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
-            // Invalidate all custom field definition caches so DataTables refresh with new labels
-            await invalidateCustomFieldDefs(queryClient, entityId)
-            flash('Definitions saved', 'success')
-          }}
+          onSubmit={handleCrudFormSubmit}
         onDelete={entitySource === 'custom' ? async () => {
           const callDelete = await apiCall('/api/entities/entities', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entityId }) })
           if (!callDelete.ok) {

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { GripVertical, Plus, Trash2 } from 'lucide-react'
+import { Cog, GripVertical, Pencil, Plus, PlusCircle, Trash2 } from 'lucide-react'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
 import {
@@ -496,25 +496,33 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
   const [optionValueDraft, setOptionValueDraft] = React.useState('')
   const [optionLabelDraft, setOptionLabelDraft] = React.useState('')
+  const [optionDialogOpen, setOptionDialogOpen] = React.useState(false)
+  const [optionFormError, setOptionFormError] = React.useState<string | null>(null)
   const [groupDialogOpen, setGroupDialogOpen] = React.useState(false)
   const [groupDraft, setGroupDraft] = React.useState({ code: '', title: '', hint: '' })
+  const [editingGroupCode, setEditingGroupCode] = React.useState<string | null>(null)
   const [groupError, setGroupError] = React.useState<string | null>(null)
+  const currentFieldsetValue = React.useMemo(
+    () => (typeof local.configJson?.fieldset === 'string' ? local.configJson.fieldset : ''),
+    [local.configJson?.fieldset],
+  )
   React.useEffect(() => { setLocal(definition) }, [definition.key])
   React.useEffect(() => {
     setOptionValueDraft('')
     setOptionLabelDraft('')
     setGroupDialogOpen(false)
     setGroupDraft({ code: '', title: '', hint: '' })
+    setEditingGroupCode(null)
     setGroupError(null)
   }, [definition.key])
   React.useEffect(() => {
     if (!currentFieldsetValue) {
       setGroupDialogOpen(false)
       setGroupDraft({ code: '', title: '', hint: '' })
+      setEditingGroupCode(null)
       setGroupError(null)
     }
   }, [currentFieldsetValue])
-  const currentFieldsetValue = typeof local.configJson?.fieldset === 'string' ? local.configJson.fieldset : ''
   const currentGroup = React.useMemo(() => normalizeGroupValue(local.configJson?.group), [local])
   const groupOptions = React.useMemo(() => {
     const list = Array.isArray(availableGroups) ? [...availableGroups] : []
@@ -587,9 +595,19 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     onRegisterGroup?.(currentFieldsetValue, nextGroup)
   }
 
-  const handleOpenGroupDialog = () => {
+  const handleOpenGroupDialog = (group?: FieldsetGroup) => {
     if (!currentFieldsetValue) return
-    setGroupDraft({ code: '', title: '', hint: '' })
+    if (group) {
+      setGroupDraft({
+        code: group.code,
+        title: group.title ?? '',
+        hint: group.hint ?? '',
+      })
+      setEditingGroupCode(group.code)
+    } else {
+      setGroupDraft({ code: '', title: '', hint: '' })
+      setEditingGroupCode(null)
+    }
     setGroupError(null)
     setGroupDialogOpen(true)
   }
@@ -607,20 +625,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
       hint: groupDraft.hint.trim() || undefined,
     }
     onRegisterGroup?.(currentFieldsetValue, group)
-    const nextConfig = { ...(local.configJson || {}) }
-    nextConfig.group = group
-    apply({ configJson: nextConfig }, true)
+    const shouldAttachToField = !editingGroupCode || currentGroup?.code === editingGroupCode
+    if (shouldAttachToField) {
+      const nextConfig = { ...(local.configJson || {}) }
+      nextConfig.group = group
+      apply({ configJson: nextConfig }, true)
+    }
     setGroupDraft({ code: '', title: '', hint: '' })
+    setEditingGroupCode(null)
     setGroupDialogOpen(false)
-  }
-
-  const handleGroupDetailChange = (patch: Partial<FieldsetGroup>) => {
-    if (!currentFieldsetValue || !currentGroup) return
-    const nextGroup = { ...currentGroup, ...patch }
-    const nextConfig = { ...(local.configJson || {}) }
-    nextConfig.group = nextGroup
-    apply({ configJson: nextConfig }, true)
-    onRegisterGroup?.(currentFieldsetValue, nextGroup)
   }
 
   const handleRemoveGroupEntry = (code: string) => {
@@ -629,17 +642,42 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     if (currentGroup?.code === code) {
       handleGroupSelect('')
     }
+    if (editingGroupCode === code) {
+      setGroupDraft({ code: '', title: '', hint: '' })
+      setEditingGroupCode(null)
+    }
+  }
+
+  const handleEditGroupEntry = (group: FieldsetGroup) => {
+    handleOpenGroupDialog(group)
+  }
+
+  const handleOpenOptionDialog = () => {
+    setOptionValueDraft('')
+    setOptionLabelDraft('')
+    setOptionFormError(null)
+    setOptionDialogOpen(true)
+  }
+
+  const handleCloseOptionDialog = () => {
+    setOptionDialogOpen(false)
+    setOptionFormError(null)
+    setOptionValueDraft('')
+    setOptionLabelDraft('')
   }
 
   const handleAddOption = () => {
     const value = optionValueDraft.trim()
     const label = optionLabelDraft.trim()
-    if (!value) return
+    if (!value) {
+      setOptionFormError('Value is required')
+      return
+    }
+    setOptionFormError(null)
     const nextOptions = Array.isArray(local.configJson?.options) ? [...local.configJson!.options] : []
     nextOptions.push({ value, label: label || value })
     apply({ configJson: { ...(local.configJson || {}), options: nextOptions } }, true)
-    setOptionValueDraft('')
-    setOptionLabelDraft('')
+    handleCloseOptionDialog()
   }
 
   const handleRemoveOption = (index: number) => {
@@ -718,42 +756,38 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             <div>
               <div className="flex items-center justify-between">
                 <label className="text-xs">Group</label>
+              </div>
+              <div className="flex items-center gap-2 mt-1">
+                <select
+                  className="flex-1 border rounded px-2 py-1 text-sm"
+                  value={currentGroup?.code ?? ''}
+                  onChange={(event) => handleGroupSelect(event.target.value)}
+                >
+                  <option value="">No group</option>
+                  {groupOptions.map((group) => (
+                    <option key={group.code} value={group.code}>
+                      {group.title || group.code}
+                    </option>
+                  ))}
+                </select>
                 <button
                   type="button"
-                  className="text-xs text-blue-600 hover:underline"
-                  onClick={handleOpenGroupDialog}
+                  className="h-8 w-8 inline-flex items-center justify-center rounded border text-muted-foreground hover:bg-muted/40"
+                  onClick={() => handleOpenGroupDialog()}
+                  aria-label="Create group"
                 >
-                  + New group
+                  <PlusCircle className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="h-8 inline-flex items-center gap-1 rounded border px-3 text-xs text-muted-foreground hover:bg-muted/40"
+                  onClick={() => handleOpenGroupDialog()}
+                  aria-label="Edit groups"
+                >
+                  <Cog className="h-4 w-4" />
+                  Edit groups
                 </button>
               </div>
-              <select
-                className="border rounded w-full px-2 py-1 text-sm"
-                value={currentGroup?.code ?? ''}
-                onChange={(event) => handleGroupSelect(event.target.value)}
-              >
-                <option value="">No group</option>
-                {groupOptions.map((group) => (
-                  <option key={group.code} value={group.code}>
-                    {group.title || group.code}
-                  </option>
-                ))}
-              </select>
-              {currentGroup ? (
-                <div className="mt-2 grid grid-cols-1 gap-2">
-                  <input
-                    className="border rounded w-full px-2 py-1 text-xs"
-                    placeholder="Group title"
-                    value={currentGroup.title ?? ''}
-                    onChange={(event) => handleGroupDetailChange({ title: event.target.value })}
-                  />
-                  <input
-                    className="border rounded w-full px-2 py-1 text-xs"
-                    placeholder="Hint / description"
-                    value={currentGroup.hint ?? ''}
-                    onChange={(event) => handleGroupDetailChange({ hint: event.target.value })}
-                  />
-                </div>
-              ) : null}
             </div>
           ) : null}
         </div>
@@ -828,29 +862,6 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         {local.kind === 'select' && (
           <div className="md:col-span-6 space-y-3">
             <label className="text-xs">Options</label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <input
-                className="border rounded px-2 py-1 text-sm"
-                value={optionValueDraft}
-                onChange={(event) => setOptionValueDraft(event.target.value)}
-                placeholder="Value (required)"
-              />
-              <input
-                className="border rounded px-2 py-1 text-sm"
-                value={optionLabelDraft}
-                onChange={(event) => setOptionLabelDraft(event.target.value)}
-                placeholder="Label (optional)"
-              />
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                className="px-3 py-1 border rounded text-xs hover:bg-gray-50"
-                onClick={handleAddOption}
-              >
-                Add option
-              </button>
-            </div>
             <div className="space-y-2">
               {resolvedOptions.length > 0 ? (
                 resolvedOptions.map((option, idx) => (
@@ -875,6 +886,16 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               ) : (
                 <span className="text-xs text-muted-foreground">No options defined.</span>
               )}
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                className="text-xs px-2 py-1 border rounded hover:bg-gray-50 inline-flex items-center gap-1"
+                onClick={handleOpenOptionDialog}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add option
+              </button>
             </div>
           </div>
         )}
@@ -1081,27 +1102,91 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
       </div>
     </div>
     <Dialog
+      open={optionDialogOpen}
+      onOpenChange={(open) => {
+        if (open) {
+          setOptionDialogOpen(true)
+        } else {
+          handleCloseOptionDialog()
+        }
+      }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Add option</DialogTitle>
+          <DialogDescription>Provide the stored value and optional label shown to users.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div>
+            <label className="text-xs">Value</label>
+            <input
+              className="mt-1 w-full rounded border px-2 py-1 text-sm font-mono"
+              placeholder="unique_value"
+              value={optionValueDraft}
+              onChange={(event) => {
+                setOptionFormError(null)
+                setOptionValueDraft(event.target.value)
+              }}
+            />
+            {optionFormError ? <p className="mt-1 text-xs text-red-600">{optionFormError}</p> : null}
+          </div>
+          <div>
+            <label className="text-xs">Label</label>
+            <input
+              className="mt-1 w-full rounded border px-2 py-1 text-sm"
+              placeholder="Label shown to users (optional)"
+              value={optionLabelDraft}
+              onChange={(event) => setOptionLabelDraft(event.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <button
+            type="button"
+            className="h-8 rounded border px-3 text-sm"
+            onClick={handleCloseOptionDialog}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="h-8 rounded bg-primary px-3 text-sm text-primary-foreground"
+            onClick={handleAddOption}
+          >
+            Add option
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    <Dialog
       open={groupDialogOpen}
       onOpenChange={(open) => {
         setGroupDialogOpen(open)
-        if (!open) setGroupError(null)
+        if (!open) {
+          setGroupError(null)
+          setEditingGroupCode(null)
+          setGroupDraft({ code: '', title: '', hint: '' })
+        }
       }}
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>New group</DialogTitle>
-          <DialogDescription>Add a reusable group for this fieldset.</DialogDescription>
+          <DialogTitle>{editingGroupCode ? 'Edit group' : 'New group'}</DialogTitle>
+          <DialogDescription>
+            {editingGroupCode ? 'Update the selected group for this fieldset.' : 'Add a reusable group for this fieldset.'}
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div>
             <label className="text-xs font-medium">Group code</label>
             <input
-              className="mt-1 w-full rounded border px-2 py-1 text-sm font-mono"
+              className="mt-1 w-full rounded border px-2 py-1 text-sm font-mono disabled:cursor-not-allowed disabled:bg-muted/40 disabled:text-muted-foreground"
               value={groupDraft.code}
               onChange={(event) => {
                 setGroupDraft((prev) => ({ ...prev, code: event.target.value }))
                 if (groupError) setGroupError(null)
               }}
+              disabled={!!editingGroupCode}
               placeholder="e.g. buying_committee"
             />
             {groupError ? <div className="text-xs text-red-600 mt-1">{groupError}</div> : null}
@@ -1137,14 +1222,24 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         <div className="text-xs text-muted-foreground">{group.hint}</div>
                       ) : null}
                     </div>
-                    <button
-                      type="button"
-                      className="text-red-500 hover:text-red-600"
-                      onClick={() => handleRemoveGroupEntry(group.code)}
-                      aria-label={`Delete ${group.code}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => handleEditGroupEntry(group)}
+                        aria-label={`Edit ${group.code}`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="text-red-500 hover:text-red-600"
+                        onClick={() => handleRemoveGroupEntry(group.code)}
+                        aria-label={`Delete ${group.code}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

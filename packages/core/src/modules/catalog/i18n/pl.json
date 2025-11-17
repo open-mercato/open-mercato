@@ -108,13 +108,14 @@
           "remove": "Remove"
         },
         "taxRates": {
-          "label": "Klasa VAT",
-          "noneSelected": "Nie wybrano klasy VAT",
-          "emptyOption": "Brak dost\u0119pnych klas VAT",
+          "label": "Tax class",
+          "noneSelected": "No tax class selected",
+          "emptyOption": "No tax classes available",
           "help": "Stosowana do nowych cen, chyba \u017ce zostanie nadpisana na poziomie wariantu.",
-          "empty": "Zdefiniuj klasy VAT w Sales \u2192 Konfiguracja.",
+          "empty": "Define tax classes under Sales \u2192 Configuration.",
           "error": "Nie uda\u0142o si\u0119 wczyta\u0107 stawek podatkowych.",
-          "unnamed": "Stawka podatku bez nazwy"
+          "unnamed": "Untitled tax rate",
+          "manage": "Manage tax classes"
         },
         "organize": {
           "placeholder": "Work in progress on this tab."
@@ -249,6 +250,7 @@
           "toggle": "Yes, this is a product with variants",
           "defaultOption": "Default option",
           "sku": "SKU",
+          "vatColumn": "Tax class",
           "manageInventory": "Managed inventory",
           "allowBackorder": "Allow backorder",
           "inventoryKit": "Has inventory kit",
@@ -257,9 +259,8 @@
           "titlePlaceholder": "Variant title",
           "skuPlaceholder": "e.g., SKU-001",
           "priceColumn": "Price {{title}}",
-          "vatColumn": "Klasa VAT",
-          "vatOptionDefault": "U\u017cyj klas\u0119 VAT produktu ({{label}})",
-          "vatOptionNone": "Brak klasy VAT",
+          "vatOptionDefault": "Use product tax class ({{label}})",
+          "vatOptionNone": "No tax class",
           "inventoryDisabled": "Sterowanie stanem magazynowym b\u0119dzie wkr\u00f3tce dost\u0119pne.",
           "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },

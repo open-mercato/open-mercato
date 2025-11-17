@@ -108,13 +108,14 @@
           "remove": "Remove"
         },
         "taxRates": {
-          "label": "Mehrwertsteuersatz",
-          "noneSelected": "Keine MwSt.-Klasse ausgew\u00e4hlt",
-          "emptyOption": "Keine MwSt.-Klassen verf\u00fcgbar",
+          "label": "Tax class",
+          "noneSelected": "No tax class selected",
+          "emptyOption": "No tax classes available",
           "help": "Wird auf neue Preise angewendet, sofern nicht pro Variante \u00fcberschrieben.",
-          "empty": "Definieren Sie MwSt.-Klassen unter Sales \u2192 Konfiguration.",
+          "empty": "Define tax classes under Sales \u2192 Configuration.",
           "error": "Steuers\u00e4tze konnten nicht geladen werden.",
-          "unnamed": "Unbenannter Steuersatz"
+          "unnamed": "Untitled tax rate",
+          "manage": "Manage tax classes"
         },
         "organize": {
           "placeholder": "Work in progress on this tab."
@@ -249,6 +250,7 @@
           "toggle": "Yes, this is a product with variants",
           "defaultOption": "Default option",
           "sku": "SKU",
+          "vatColumn": "Tax class",
           "manageInventory": "Managed inventory",
           "allowBackorder": "Allow backorder",
           "inventoryKit": "Has inventory kit",
@@ -257,9 +259,8 @@
           "titlePlaceholder": "Variant title",
           "skuPlaceholder": "e.g., SKU-001",
           "priceColumn": "Price {{title}}",
-          "vatColumn": "MwSt.-Klasse",
-          "vatOptionDefault": "Produkt-MwSt. verwenden ({{label}})",
-          "vatOptionNone": "Keine MwSt.-Klasse",
+          "vatOptionDefault": "Use product tax class ({{label}})",
+          "vatOptionNone": "No tax class",
           "inventoryDisabled": "Die Bestandssteuerung ist hier noch nicht verf\u00fcgbar.",
           "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },

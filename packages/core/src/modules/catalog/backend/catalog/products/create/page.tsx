@@ -13,7 +13,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { Plus, Trash2, FileText, AlignLeft, Upload, ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, FileText, AlignLeft, Upload, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -229,6 +229,7 @@ export default function CreateCatalogProductPage() {
           setValue={setValue}
           errors={errors}
           currencyOptionsLoader={fetchCurrencyOptions}
+          taxRates={taxRates}
         />
       ),
     },
@@ -371,6 +372,7 @@ type ProductMetaSectionProps = {
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
   currencyOptionsLoader: () => Promise<Array<{ value: string; label: string; color: string | null; icon: string | null }>>
+  taxRates: TaxRateSummary[]
 }
 
 function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: ProductBuilderProps) {
@@ -389,6 +391,14 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   React.useEffect(() => {
     if (currentStep >= steps.length) setCurrentStep(0)
   }, [currentStep])
+
+  React.useEffect(() => {
+    const titleValue = typeof values.title === 'string' ? values.title : ''
+    const handleValue = typeof values.handle === 'string' ? values.handle : ''
+    if (titleValue && !handleValue) {
+      setValue('handle', slugify(titleValue))
+    }
+  }, [values.title, values.handle, setValue])
 
   const ensureVariants = React.useCallback(() => {
     const optionDefinitions = Array.isArray(values.options) ? values.options : []
@@ -601,32 +611,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label>{t('catalog.products.create.taxRates.label', 'VAT class')}</Label>
-            <select
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={values.taxRateId ?? ''}
-              onChange={(event) => setValue('taxRateId', event.target.value || null)}
-              disabled={!taxRates.length}
-            >
-              <option value="">
-                {taxRates.length
-                  ? t('catalog.products.create.taxRates.noneSelected', 'No VAT class selected')
-                  : t('catalog.products.create.taxRates.emptyOption', 'No VAT classes available')}
-              </option>
-              {taxRates.map((rate) => (
-                <option key={rate.id} value={rate.id}>
-                  {formatTaxRateLabel(rate)}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              {taxRates.length
-                ? t('catalog.products.create.taxRates.help', 'Applied to new prices unless overridden per variant.')
-                : t('catalog.products.create.taxRates.empty', 'Define VAT classes under Sales → Configuration.')}
-            </p>
-          </div>
-
           <div className="space-y-3">
             <Label>{t('catalog.products.create.attachments.title', 'Media')}</Label>
             <div className="rounded-lg border border-dashed p-6 text-center">
@@ -733,7 +717,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                   <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.defaultOption', 'Default option')}</th>
                   <th className="px-3 py-2 text-left">{t('catalog.products.form.variants', 'Variant title')}</th>
                   <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.sku', 'SKU')}</th>
-                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.vatColumn', 'VAT class')}</th>
+                  <th className="px-3 py-2 text-left">{t('catalog.products.create.variantsBuilder.vatColumn', 'Tax class')}</th>
                   <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.manageInventory', 'Managed inventory')}</th>
                   <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.allowBackorder', 'Allow backorder')}</th>
                   <th className="px-3 py-2 text-center">{t('catalog.products.create.variantsBuilder.inventoryKit', 'Has inventory kit')}</th>
@@ -793,8 +777,8 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                       >
                         <option value="">
                           {defaultTaxRateLabel
-                            ? t('catalog.products.create.variantsBuilder.vatOptionDefault', 'Use product VAT ({{label}})').replace('{{label}}', defaultTaxRateLabel)
-                            : t('catalog.products.create.variantsBuilder.vatOptionNone', 'No VAT class')}
+                            ? t('catalog.products.create.variantsBuilder.vatOptionDefault', 'Use product tax class ({{label}})').replace('{{label}}', defaultTaxRateLabel)
+                            : t('catalog.products.create.variantsBuilder.vatOptionNone', 'No tax class')}
                         </option>
                         {taxRates.map((rate) => (
                           <option key={rate.id} value={rate.id}>
@@ -890,7 +874,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
   )
 }
 
-function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader }: ProductMetaSectionProps) {
+function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader, taxRates }: ProductMetaSectionProps) {
   const t = useT()
   const currencyLabels = React.useMemo(() => ({
     placeholder: t('catalog.products.create.currency.placeholder', 'Select currency…'),
@@ -963,6 +947,49 @@ function ProductMetaSection({ values, setValue, errors, currencyOptionsLoader }:
           allowInlineCreate={false}
         />
         {errors.primaryCurrencyCode ? <p className="text-xs text-red-600">{errors.primaryCurrencyCode}</p> : null}
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label>{t('catalog.products.create.taxRates.label', 'Tax class')}</Label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              if (typeof window !== 'undefined') {
+                window.open('/backend/config/sales?section=tax-rates', '_blank', 'noopener,noreferrer')
+              }
+            }}
+            title={t('catalog.products.create.taxRates.manage', 'Manage tax classes')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Settings className="h-4 w-4" />
+            <span className="sr-only">{t('catalog.products.create.taxRates.manage', 'Manage tax classes')}</span>
+          </Button>
+        </div>
+        <select
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          value={values.taxRateId ?? ''}
+          onChange={(event) => setValue('taxRateId', event.target.value || null)}
+          disabled={!taxRates.length}
+        >
+          <option value="">
+            {taxRates.length
+              ? t('catalog.products.create.taxRates.noneSelected', 'No tax class selected')
+              : t('catalog.products.create.taxRates.emptyOption', 'No tax classes available')}
+          </option>
+          {taxRates.map((rate) => (
+            <option key={rate.id} value={rate.id}>
+              {formatTaxRateLabel(rate)}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          {taxRates.length
+            ? t('catalog.products.create.taxRates.help', 'Applied to new prices unless overridden per variant.')
+            : t('catalog.products.create.taxRates.empty', 'Define tax classes under Sales → Configuration.')}
+        </p>
       </div>
     </div>
   )

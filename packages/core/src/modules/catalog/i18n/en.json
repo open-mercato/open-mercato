@@ -108,13 +108,14 @@
           "remove": "Remove"
         },
         "taxRates": {
-          "label": "VAT class",
-          "noneSelected": "No VAT class selected",
-          "emptyOption": "No VAT classes available",
+          "label": "Tax class",
+          "noneSelected": "No tax class selected",
+          "emptyOption": "No tax classes available",
           "help": "Applied to new prices unless overridden per variant.",
-          "empty": "Define VAT classes under Sales \u2192 Configuration.",
+          "empty": "Define tax classes under Sales \u2192 Configuration.",
           "error": "Failed to load tax rates.",
-          "unnamed": "Untitled tax rate"
+          "unnamed": "Untitled tax rate",
+          "manage": "Manage tax classes"
         },
         "organize": {
           "placeholder": "Work in progress on this tab."
@@ -249,7 +250,7 @@
           "toggle": "Yes, this is a product with variants",
           "defaultOption": "Default option",
           "sku": "SKU",
-          "vatColumn": "VAT class",
+          "vatColumn": "Tax class",
           "manageInventory": "Managed inventory",
           "allowBackorder": "Allow backorder",
           "inventoryKit": "Has inventory kit",
@@ -258,8 +259,8 @@
           "titlePlaceholder": "Variant title",
           "skuPlaceholder": "e.g., SKU-001",
           "priceColumn": "Price {{title}}",
-          "vatOptionDefault": "Use product VAT ({{label}})",
-          "vatOptionNone": "No VAT class",
+          "vatOptionDefault": "Use product tax class ({{label}})",
+          "vatOptionNone": "No tax class",
           "inventoryDisabled": "Inventory tracking will be available soon.",
           "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
         },

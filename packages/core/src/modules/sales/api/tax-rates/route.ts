@@ -14,7 +14,7 @@ const rawBodySchema = z.object({}).passthrough()
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
+    pageSize: z.coerce.number().min(1).max(200).default(50),
     search: z.string().optional(),
     country: z.string().optional(),
     region: z.string().optional(),
