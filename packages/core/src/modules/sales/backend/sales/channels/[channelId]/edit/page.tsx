@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -17,8 +17,7 @@ type ChannelApiResponse = {
   items?: Array<Record<string, unknown>>
 }
 
-export default function EditChannelPage() {
-  const params = useParams<{ channelId: string }>()
+export default function EditChannelPage({ params }: { params?: { channelId?: string } }) {
   const channelId = params?.channelId ?? ''
   const router = useRouter()
   const t = useT()

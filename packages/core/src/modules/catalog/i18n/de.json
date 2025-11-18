@@ -1,5 +1,10 @@
 {
   "customers~catalog": {
+    "errors": {
+      "tenant_required": "Tenant context is required.",
+      "organization_required": "Organization context is required.",
+      "id_required": "Record identifier is required."
+    },
     "nav": {
       "group": "Katalog"
     }
@@ -8,6 +13,79 @@
     "module": {
       "title": "Produktkatalog",
       "description": "Verwalte wiederverwendbare Produkte, Varianten und Preise für Vertriebsdokumente."
+    },
+    "categories": {
+      "page": {
+        "title": "Categories"
+      },
+      "list": {
+        "title": "Categories",
+        "actions": {
+          "create": "Create",
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "searchPlaceholder": "Search categories",
+        "filters": {
+          "status": "Status",
+          "all": "All",
+          "active": "Active",
+          "inactive": "Inactive"
+        },
+        "columns": {
+          "category": "Category",
+          "path": "Path",
+          "parent": "Parent",
+          "children": "Children",
+          "active": "Active"
+        },
+        "error": {
+          "load": "Failed to load categories",
+          "delete": "Failed to delete category"
+        },
+        "confirmDelete": "Archive category \"{{name}}\"?",
+        "none": "—"
+      },
+      "select": {
+        "error": "Failed to load categories",
+        "inactive": "inactive",
+        "empty": "Root level",
+        "loading": "Loading categories…"
+      },
+      "form": {
+        "createTitle": "Create category",
+        "editTitle": "Edit category",
+        "loading": "Loading category...",
+        "field": {
+          "name": "Name",
+          "namePlaceholder": "e.g., Footwear",
+          "slug": "Slug",
+          "slugHelp": "Lowercase identifier for URLs or imports.",
+          "description": "Description",
+          "parent": "Parent",
+          "isActive": "Active"
+        },
+        "group": {
+          "details": "Details"
+        },
+        "action": {
+          "create": "Create",
+          "save": "Save"
+        },
+        "errors": {
+          "name": "Provide the category name.",
+          "load": "Failed to load category",
+          "notFound": "Category not found",
+          "idRequired": "Category identifier is required.",
+          "delete": "Failed to delete category"
+        },
+        "pathLabel": "Path: {{path}}"
+      },
+      "flash": {
+        "created": "Category created",
+        "updated": "Category updated",
+        "deleted": "Category archived"
+      }
     },
     "products": {
       "page": {

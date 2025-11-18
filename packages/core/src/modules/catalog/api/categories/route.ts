@@ -31,6 +31,7 @@ const viewSchema = z
     pageSize: z.coerce.number().min(1).max(200).default(50),
     search: z.string().optional(),
     status: z.enum(['all', 'active', 'inactive']).optional(),
+    ids: z.string().optional(),
   })
   .passthrough()
 
@@ -114,6 +115,12 @@ function sanitizeSearch(term?: string | null): string {
   return term.trim().toLowerCase()
 }
 
+function parseIds(raw?: string | null): string[] | null {
+  if (!raw) return null
+  const parts = raw.split(',').map((value) => value.trim()).filter((value) => value.length > 0)
+  return parts.length ? Array.from(new Set(parts)) : null
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ items: [] }, { status: 401 })
@@ -125,6 +132,7 @@ export async function GET(req: Request) {
     pageSize: url.searchParams.get('pageSize') ?? undefined,
     search: url.searchParams.get('search') ?? undefined,
     status: url.searchParams.get('status') ?? undefined,
+    ids: url.searchParams.get('ids') ?? undefined,
   })
   if (!parsed.success) {
     return NextResponse.json({ items: [], error: 'Invalid query' }, { status: 400 })
@@ -191,6 +199,8 @@ export async function GET(req: Request) {
 
   const status = query.status ?? 'all'
   const search = sanitizeSearch(query.search ?? null)
+  const ids = parseIds(query.ids)
+  const idSet = ids ? new Set(ids) : null
   let rows = hierarchy.ordered
 
   if (status === 'active') rows = rows.filter((node) => node.isActive)
@@ -200,6 +210,9 @@ export async function GET(req: Request) {
       const label = node.pathLabel.toLowerCase()
       return node.name.toLowerCase().includes(search) || label.includes(search)
     })
+  }
+  if (idSet && idSet.size) {
+    rows = rows.filter((node) => idSet.has(node.id))
   }
 
   const total = rows.length

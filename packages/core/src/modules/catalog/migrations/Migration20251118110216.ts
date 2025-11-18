@@ -16,7 +16,11 @@ export class Migration20251118110216 extends Migration {
   }
 
   override async down(): Promise<void> {
+    this.addSql(`alter table "catalog_product_category_assignments" drop constraint "catalog_product_category_assignments_product_id_foreign";`);
     this.addSql(`alter table "catalog_product_category_assignments" drop constraint "catalog_product_category_assignments_category_id_foreign";`);
+
+    this.addSql(`drop table if exists "catalog_product_category_assignments";`);
+    this.addSql(`drop table if exists "catalog_product_categories";`);
   }
 
 }

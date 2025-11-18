@@ -154,7 +154,7 @@ export default function SalesChannelsPage() {
         <DataTable<ChannelRow>
           title={(
             <div className="flex flex-col">
-              <span className="text-xl font-semibold">{t('sales.channels.nav.title', 'Sales channels')}</span>
+              <span>{t('sales.channels.nav.title', 'Sales channels')}</span>
               <span className="text-sm font-normal text-muted-foreground">
                 {t('sales.channels.table.subtitle', 'Organize catalog offers per marketplace or storefront.')}
               </span>

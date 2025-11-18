@@ -9,10 +9,14 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
+import { Download, Plus, Upload, Trash2, Copy } from 'lucide-react'
+import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 type AttachmentAssignment = {
   type: string
@@ -53,6 +57,7 @@ type AssignmentDraft = {
 }
 
 const PAGE_SIZE = 25
+const ENV_APP_URL = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
 
 function formatFileSize(value: number): string {
   if (!Number.isFinite(value)) return '—'
@@ -75,6 +80,17 @@ function humanDate(value: string, locale?: string): string {
 
 function buildFilterSignature(values: FilterValues): string {
   return JSON.stringify(values, Object.keys(values).sort())
+}
+
+function resolveAbsoluteUrl(path: string): string {
+  if (!path) return path
+  if (/^https?:\/\//i.test(path)) return path
+  const base =
+    ENV_APP_URL ||
+    (typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '')
+  if (!base) return path
+  const normalizedBase = base.replace(/\/$/, '')
+  return `${normalizedBase}${path.startsWith('/') ? path : `/${path}`}`
 }
 
 type AssignmentsEditorProps = {
@@ -182,7 +198,8 @@ function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: Assi
           ))
         )}
       </div>
-      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={handleAdd}>
+      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={handleAdd} className="inline-flex items-center gap-1">
+        <Plus className="h-4 w-4" />
         {labels.add}
       </Button>
     </div>
@@ -202,6 +219,8 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
   const t = useT()
   const [tags, setTags] = React.useState<string[]>([])
   const [assignments, setAssignments] = React.useState<AssignmentDraft[]>([])
+  const [sizeWidth, setSizeWidth] = React.useState<string>('')
+  const [sizeHeight, setSizeHeight] = React.useState<string>('')
 
   React.useEffect(() => {
     setTags(item?.tags ?? [])
@@ -212,6 +231,21 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
         href: assignment.href ?? '',
         label: assignment.label ?? '',
       })),
+    )
+    setSizeWidth('')
+    setSizeHeight('')
+  }, [item])
+
+  const isImage = React.useMemo(() => Boolean(item?.mimeType?.toLowerCase().startsWith('image/')), [item])
+  const previewUrl = React.useMemo(() => {
+    if (!item) return null
+    return (
+      item.thumbnailUrl ??
+      buildAttachmentImageUrl(item.id, {
+        width: 320,
+        height: 320,
+        slug: slugifyAttachmentFileName(item.fileName),
+      })
     )
   }, [item])
 
@@ -234,6 +268,40 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
     [handleSubmit, onOpenChange],
   )
 
+  const handleCopyResizedUrl = React.useCallback(async () => {
+    if (!item) return
+    const width = sizeWidth ? Number(sizeWidth) : undefined
+    const height = sizeHeight ? Number(sizeHeight) : undefined
+    if (!width && !height) {
+      flash(
+        'attachments.library.metadata.resizeTool.missing',
+        t('attachments.library.metadata.resizeTool.missing', 'Enter width or height to generate the URL.'),
+        'error',
+      )
+      return
+    }
+    const url = buildAttachmentImageUrl(item.id, {
+      width: width && width > 0 ? width : undefined,
+      height: height && height > 0 ? height : undefined,
+      slug: slugifyAttachmentFileName(item.fileName),
+    })
+    const absolute = resolveAbsoluteUrl(url)
+    try {
+      await navigator.clipboard.writeText(absolute)
+      flash(
+        'attachments.library.metadata.resizeTool.copied',
+        t('attachments.library.metadata.resizeTool.copied', 'Image URL copied.'),
+        'success',
+      )
+    } catch {
+      flash(
+        'attachments.library.metadata.resizeTool.copyError',
+        t('attachments.library.metadata.resizeTool.copyError', 'Unable to copy URL.'),
+        'error',
+      )
+    }
+  }, [item, sizeHeight, sizeWidth, t])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl" onKeyDown={handleKeyDown}>
@@ -247,13 +315,65 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
               event.preventDefault()
               void handleSubmit()
             }}
-          >
-            <div className="space-y-1">
-              <div className="text-sm font-medium">{item.fileName}</div>
-              <div className="text-xs text-muted-foreground">
-                {formatFileSize(item.fileSize)} • {item.partitionCode}
+            >
+              <div className="space-y-1">
+                <div className="text-sm font-medium">{item.fileName}</div>
+                <div className="text-xs text-muted-foreground">
+                  {formatFileSize(item.fileSize)} • {item.partitionCode}
+                </div>
               </div>
-            </div>
+            {isImage ? (
+              <div className="space-y-3 rounded border p-3">
+                <div className="text-sm font-medium">{t('attachments.library.metadata.preview', 'Preview')}</div>
+                {previewUrl ? (
+                  <img src={previewUrl} alt={item.fileName} className="h-48 w-full rounded-md object-contain bg-muted" />
+                ) : null}
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">
+                    {t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" htmlFor="resize-width">
+                        {t('attachments.library.metadata.resizeTool.width', 'Width (px)')}
+                      </label>
+                      <Input
+                        id="resize-width"
+                        type="number"
+                        min={0}
+                        value={sizeWidth}
+                        onChange={(event) => setSizeWidth(event.target.value)}
+                        disabled={saving}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium" htmlFor="resize-height">
+                        {t('attachments.library.metadata.resizeTool.height', 'Height (px)')}
+                      </label>
+                      <Input
+                        id="resize-height"
+                        type="number"
+                        min={0}
+                        value={sizeHeight}
+                        onChange={(event) => setSizeHeight(event.target.value)}
+                        disabled={saving}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="inline-flex items-center gap-2"
+                    onClick={() => void handleCopyResizedUrl()}
+                    disabled={saving}
+                  >
+                    <Copy className="h-4 w-4" />
+                    {t('attachments.library.metadata.resizeTool.copy', 'Copy URL')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <TagsInput
               value={tags}
               onChange={(next) => setTags(next)}
@@ -308,50 +428,119 @@ type UploadDialogProps = {
 
 function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags, onUploaded }: UploadDialogProps) {
   const t = useT()
-  const [file, setFile] = React.useState<File | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [files, setFiles] = React.useState<File[]>([])
   const [partitionCode, setPartitionCode] = React.useState<string>('')
   const [tags, setTags] = React.useState<string[]>([])
   const [assignments, setAssignments] = React.useState<AssignmentDraft[]>([])
   const [isSubmitting, setIsSubmitting] = React.useState(false)
-
-  const reset = React.useCallback(() => {
-    setFile(null)
+  const [isDragOver, setDragOver] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const resetForm = React.useCallback(() => {
+    setFiles([])
+    setPartitionCode('')
     setTags([])
     setAssignments([])
-    setPartitionCode('')
+    setError(null)
   }, [])
 
+  React.useEffect(() => {
+    if (!open) {
+      resetForm()
+    }
+  }, [open, resetForm])
+
+  const acceptFiles = React.useCallback(
+    (list: FileList | null) => {
+      if (!list || !list.length) return
+      setError(null)
+      setFiles((prev) => {
+        const dedupe = new Map(prev.map((file) => [`${file.name}:${file.size}`, file]))
+        for (const file of Array.from(list)) {
+          dedupe.set(`${file.name}:${file.size}`, file)
+        }
+        return Array.from(dedupe.values())
+      })
+    },
+    [],
+  )
+
+  const handleDrop = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      setDragOver(false)
+      acceptFiles(event.dataTransfer?.files ?? null)
+    },
+    [acceptFiles],
+  )
+
+  const handleDragOver = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragOver(true)
+  }, [])
+
+  const handleDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragOver(false)
+  }, [])
+
+  const pickFiles = React.useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const removeFile = React.useCallback(
+    (name: string, size: number) => {
+      setFiles((prev) => prev.filter((file) => !(file.name === name && file.size === size)))
+    },
+    [],
+  )
+
   const handleSubmit = React.useCallback(async () => {
-    if (!file) {
-      flash('attachments.library.upload.fileRequired', 'Select a file to upload.', 'error')
+    if (!files.length) {
+      setError(t('attachments.library.upload.fileRequired', 'Select at least one file to upload.'))
       return
     }
     setIsSubmitting(true)
+    setError(null)
     try {
-      const fd = new FormData()
-      fd.set('entityId', 'attachments:library')
-      fd.set('recordId', typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()))
-      fd.set('file', file)
-      if (partitionCode) fd.set('partitionCode', partitionCode)
-      if (tags.length) fd.set('tags', JSON.stringify(tags))
-      if (assignments.length) fd.set('assignments', JSON.stringify(assignments))
-      const call = await apiCall<{ error?: string }>('/api/attachments', {
-        method: 'POST',
-        body: fd,
-      })
-      if (!call.ok) {
-        const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
-        flash('attachments.library.upload.failed', message, 'error')
-        return
+      for (const file of files) {
+        const fd = new FormData()
+        fd.set('entityId', 'attachments:library')
+        fd.set('recordId', typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()))
+        fd.set('file', file)
+        if (partitionCode) fd.set('partitionCode', partitionCode)
+        if (tags.length) fd.set('tags', JSON.stringify(tags))
+        const cleanedAssignments = assignments
+          .map((assignment) => ({
+            type: assignment.type?.trim() ?? '',
+            id: assignment.id?.trim() ?? '',
+            href: assignment.href?.trim() || undefined,
+            label: assignment.label?.trim() || undefined,
+          }))
+          .filter((assignment) => assignment.type && assignment.id)
+        if (cleanedAssignments.length) fd.set('assignments', JSON.stringify(cleanedAssignments))
+        const call = await apiCall<{ error?: string }>('/api/attachments', {
+          method: 'POST',
+          body: fd,
+        })
+        if (!call.ok) {
+          const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
+          setError(message)
+          flash('attachments.library.upload.failed', message, 'error')
+          return
+        }
       }
       flash('attachments.library.upload.success', t('attachments.library.upload.success', 'Attachment uploaded.'), 'success')
       onUploaded()
       onOpenChange(false)
-      reset()
+      resetForm()
     } finally {
       setIsSubmitting(false)
     }
-  }, [assignments, file, onOpenChange, onUploaded, partitionCode, reset, t, tags])
+  }, [assignments, files, onOpenChange, onUploaded, partitionCode, resetForm, t, tags])
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -380,13 +569,60 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
             void handleSubmit()
           }}
         >
-          <div className="space-y-1">
-            <label className="text-sm font-medium">{t('attachments.library.upload.file', 'File')}</label>
-            <input
-              type="file"
-              disabled={isSubmitting}
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t('attachments.library.upload.file', 'Files')}</label>
+            <div
+              className={cn(
+                'flex flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center transition-colors',
+                isDragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/30',
+              )}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              role="presentation"
+            >
+              <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t('attachments.library.upload.dropHint', 'Drag and drop files here or click to upload.')}
+              </p>
+              <Button type="button" variant="outline" size="sm" className="mt-4" onClick={pickFiles} disabled={isSubmitting}>
+                {isSubmitting ? t('attachments.library.upload.submitting', 'Uploading…') : t('attachments.library.upload.choose', 'Choose files')}
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                onChange={(event) => acceptFiles(event.target.files)}
+                disabled={isSubmitting}
+              />
+            </div>
+            {files.length ? (
+              <div className="space-y-2">
+                {files.map((candidate) => (
+                  <div key={`${candidate.name}-${candidate.size}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                    <div>
+                      <div className="font-medium">{candidate.name}</div>
+                      <div className="text-xs text-muted-foreground">{formatFileSize(candidate.size)}</div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeFile(candidate.name, candidate.size)}
+                      disabled={isSubmitting}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {t('attachments.library.upload.noFiles', 'No files selected yet.')}
+              </p>
+            )}
+            {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium">{t('attachments.library.upload.partition', 'Partition')}</label>
@@ -433,7 +669,7 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
             <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => onOpenChange(false)}>
               {t('attachments.library.upload.cancel', 'Cancel')}
             </Button>
-            <Button type="submit" disabled={isSubmitting || !file}>
+            <Button type="submit" disabled={isSubmitting || !files.length}>
               {isSubmitting ? t('attachments.library.upload.submitting', 'Uploading…') : t('attachments.library.upload.submit', 'Upload')}
             </Button>
           </div>
@@ -622,6 +858,21 @@ export function AttachmentLibrary() {
           </div>
         ),
       },
+      {
+        id: 'download',
+        header: t('attachments.library.table.download', 'Download'),
+        enableSorting: false,
+        cell: ({ row }) => {
+          const absolute = resolveAbsoluteUrl(row.original.url)
+          return (
+            <Button variant="ghost" size="icon" asChild>
+              <a href={absolute} download aria-label={t('attachments.library.table.download', 'Download')}>
+                <Download className="h-4 w-4" />
+              </a>
+            </Button>
+          )
+        },
+      },
     ]
   }, [t])
 
@@ -689,11 +940,12 @@ export function AttachmentLibrary() {
                 label: t('attachments.library.actions.edit', 'Edit metadata'),
                 onSelect: () => openMetadataDialog(row),
               },
-              {
-                label: t('attachments.library.actions.copyUrl', 'Copy URL'),
-                onSelect: () => {
-                  navigator.clipboard
-                    .writeText(row.url)
+                {
+                  label: t('attachments.library.actions.copyUrl', 'Copy URL'),
+                  onSelect: () => {
+                    const absolute = resolveAbsoluteUrl(row.url)
+                    navigator.clipboard
+                      .writeText(absolute)
                     .then(() =>
                       flash(
                         'attachments.library.actions.copied',

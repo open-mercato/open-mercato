@@ -11076,7 +11076,7 @@ export interface components {
             addressLine1?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1"];
             addressLine2?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2"];
             city?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCity"];
-            code?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            code: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             contactEmail?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesContactEmail"];
             contactPhone?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesContactPhone"];
             country?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCountry"];
@@ -11139,7 +11139,7 @@ export interface components {
             addressLine1?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1"];
             addressLine2?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2"];
             city?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCity"];
-            code?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            code: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             contactEmail?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesContactEmail"];
             contactPhone?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesContactPhone"];
             country?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCountry"];
@@ -25168,7 +25168,8 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "code": "string"
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchema"];
@@ -25233,7 +25234,8 @@ export interface operations {
                  * @example {
                  *       "organizationId": "00000000-0000-4000-8000-000000000000",
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
-                 *       "name": "string"
+                 *       "name": "string",
+                 *       "code": "string"
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchema"];

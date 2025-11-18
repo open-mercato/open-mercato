@@ -21,10 +21,11 @@
         "file": "File",
         "tags": "Tags",
         "assignments": "Assignments",
-        "partition": "Partition",
-        "created": "Created",
-        "empty": "No attachments found.",
-        "search": "Search files…"
+      "partition": "Partition",
+      "created": "Created",
+      "download": "Download",
+      "empty": "No attachments found.",
+      "search": "Search files…"
       },
       "filters": {
         "partition": "Partition",
@@ -40,6 +41,16 @@
         "noSelection": "Select an attachment to edit.",
         "error": "Failed to update metadata.",
         "success": "Attachment updated.",
+        "preview": "Preview",
+        "resizeTool": {
+          "title": "Generate resized URL",
+          "width": "Width (px)",
+          "height": "Height (px)",
+          "copy": "Copy URL",
+          "missing": "Enter width or height to generate the URL.",
+          "copied": "Image URL copied.",
+          "copyError": "Unable to copy URL."
+        },
         "assignments": {
           "title": "Assignments",
           "description": "Add the records this attachment belongs to with optional links.",
@@ -53,9 +64,12 @@
       },
       "upload": {
         "title": "Upload attachment",
-        "file": "File",
+        "file": "Files",
         "partition": "Partition",
         "partitionDefault": "Default (private)",
+        "dropHint": "Drag and drop files here or click to upload.",
+        "choose": "Choose files",
+        "noFiles": "No files selected yet.",
         "tagsPlaceholder": "Add tags",
         "cancel": "Cancel",
         "submitting": "Uploading…",

@@ -55,6 +55,7 @@ export function useChannelFields(): { fields: CrudField[]; groups: CrudFormGroup
       label: labels.code,
       type: 'text',
       description: 'Lowercase letters, numbers, and dashes.',
+      required: true,
     },
     {
       id: 'description',
