@@ -10,6 +10,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CategorySelect } from '../../../../../components/categories/CategorySelect'
+import { CategorySlugFieldSync } from '../../../../../components/categories/CategorySlugFieldSync'
 
 type CategoryRow = {
   id: string
@@ -170,6 +171,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
       title: t('catalog.categories.form.group.details', 'Details'),
       column: 1,
       fields: ['name', 'slug', 'description', 'parentId', 'isActive'],
+      component: (ctx) => <CategorySlugFieldSync {...ctx} />,
     },
     {
       id: 'custom',

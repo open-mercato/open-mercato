@@ -20,6 +20,7 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
     search: z.string().optional(),
     isActive: z.string().optional(),
     withDeleted: z.coerce.boolean().optional(),
@@ -42,6 +43,9 @@ export async function buildOptionSchemaFilters(
   ctx: { container: any; auth?: { tenantId?: string | null } },
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
+  if (query.id) {
+    filters.id = { $eq: query.id }
+  }
   const term = sanitizeSearchTerm(query.search)
   if (term) {
     const like = `%${term}%`

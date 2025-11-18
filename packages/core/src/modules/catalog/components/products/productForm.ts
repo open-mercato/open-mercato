@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CatalogProductOptionSchema } from '../../data/types'
 import type { ProductMediaItem } from './ProductMediaManager'
 
 export type PriceKindSummary = {
@@ -66,6 +67,10 @@ export type ProductFormValues = {
   variants: VariantDraft[]
   metadata?: Record<string, unknown> | null
   customFieldsetCode?: string | null
+  categoryIds: string[]
+  channelIds: string[]
+  tags: string[]
+  optionSchemaId?: string | null
 }
 
 export const productFormSchema = z.object({
@@ -89,6 +94,10 @@ export const productFormSchema = z.object({
   variants: z.any().optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
   customFieldsetCode: z.string().optional(),
+  categoryIds: z.array(z.string().uuid()).optional(),
+  channelIds: z.array(z.string().uuid()).optional(),
+  tags: z.array(z.string().trim().min(1).max(100)).optional(),
+  optionSchemaId: z.string().uuid().nullable().optional(),
 })
 
 export const PRODUCT_FORM_STEPS = ['general', 'organize', 'variants'] as const
@@ -109,6 +118,10 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   variants: [],
   metadata: {},
   customFieldsetCode: null,
+  categoryIds: [],
+  channelIds: [],
+  tags: [],
+  optionSchemaId: null,
 }
 
 export const createInitialProductFormValues = (): ProductFormValues => ({
@@ -200,4 +213,58 @@ export const slugify = (input: string): string => {
 
 export function createLocalId(): string {
   return Math.random().toString(36).slice(2, 10)
+}
+
+export function buildOptionSchemaDefinition(
+  options: ProductOptionInput[] | undefined,
+  name: string
+): CatalogProductOptionSchema | null {
+  const list = Array.isArray(options) ? options : []
+  if (!list.length) return null
+  const normalizedName = name && name.trim().length ? name.trim() : 'Product options'
+  const schemaOptions = list
+    .map((option) => {
+      const title = option.title?.trim() || ''
+      const code = slugify(title || option.id || createLocalId())
+      const values = Array.isArray(option.values) ? option.values : []
+      return {
+        code: code || slugify(createLocalId()),
+        label: title || code || 'Option',
+        inputType: 'select' as const,
+        choices: values
+          .map((value) => {
+            const label = value.label?.trim() || ''
+            const valueCode = slugify(label || value.id || createLocalId())
+            if (!label && !valueCode) return null
+            return {
+              code: valueCode || slugify(createLocalId()),
+              label: label || valueCode || 'Choice',
+            }
+          })
+          .filter((entry): entry is { code: string; label: string } => !!entry),
+      }
+    })
+    .filter((entry) => entry.label.trim().length)
+  if (!schemaOptions.length) return null
+  return {
+    version: 1,
+    name: normalizedName,
+    options: schemaOptions,
+  }
+}
+
+export function convertSchemaToProductOptions(
+  schema: CatalogProductOptionSchema | null | undefined
+): ProductOptionInput[] {
+  if (!schema || !Array.isArray(schema.options)) return []
+  return schema.options.map((option) => ({
+    id: createLocalId(),
+    title: option.label ?? option.code ?? 'Option',
+    values: Array.isArray(option.choices)
+      ? option.choices.map((choice) => ({
+          id: createLocalId(),
+          label: choice.label ?? choice.code ?? '',
+        }))
+      : [],
+  }))
 }

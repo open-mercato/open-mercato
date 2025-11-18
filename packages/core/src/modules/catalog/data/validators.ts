@@ -77,6 +77,8 @@ const optionSchema = z.object({
   options: z.array(optionDefinitionSchema).max(64),
 })
 
+const tagLabelSchema = z.string().trim().min(1).max(100)
+
 const offerContentSchema = z.object({
   title: z.string().trim().max(255).optional(),
   description: z.string().trim().max(4000).optional(),
@@ -130,11 +132,14 @@ export const productCreateSchema = scoped.extend({
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   optionSchemaId: uuid().nullable().optional(),
+  optionSchema: optionSchema.optional(),
   customFieldsetCode: slugSchema.nullable().optional(),
   isConfigurable: z.boolean().optional(),
   isActive: z.boolean().optional(),
   metadata: metadataSchema,
   offers: z.array(offerInputSchema.omit({ id: true })).optional(),
+  categoryIds: z.array(uuid()).max(100).optional(),
+  tags: z.array(tagLabelSchema).max(100).optional(),
 })
 
 export const productUpdateSchema = z

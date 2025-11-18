@@ -18,6 +18,9 @@ import {
 } from '../lib/metadata'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -58,6 +61,10 @@ const attachmentUploadBodySchema = z.object({
   recordId: z.string().min(1),
   fieldKey: z.string().optional(),
   file: z.string().min(1).describe('Binary file payload; supplied as multipart form-data'),
+  customFields: z
+    .string()
+    .optional()
+    .describe('JSON encoded map of custom field values collected from the upload form.'),
 })
 
 const attachmentDeleteQuerySchema = z.object({
@@ -74,6 +81,7 @@ const uploadResponseSchema = z.object({
     thumbnailUrl: z.string().optional(),
     tags: z.array(z.string()).optional(),
     assignments: z.array(attachmentAssignmentSchema).optional(),
+    customFields: z.record(z.string(), z.unknown()).optional(),
   }),
 })
 
@@ -82,6 +90,38 @@ const errorSchema = z.object({
 })
 
 const LIBRARY_ENTITY_ID = 'attachments:library'
+
+function parseCustomFieldsEntry(value: FormDataEntryValue | null): Record<string, unknown> {
+  if (!value) return {}
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return {}
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      return {}
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value) && !(value instanceof File)) {
+    return { ...(value as Record<string, unknown>) }
+  }
+  return {}
+}
+
+function buildFormPayload(form: FormData): Record<string, unknown> {
+  const payload: Record<string, unknown> = {}
+  form.forEach((value, key) => {
+    if (key === 'customFields') {
+      payload.customFields = parseCustomFieldsEntry(value)
+      return
+    }
+    payload[key] = value
+  })
+  return payload
+}
 
 function parseFormTags(value: FormDataEntryValue | null): string[] {
   if (!value) return []
@@ -160,6 +200,8 @@ export async function POST(req: Request) {
   }
 
   const form = await req.formData()
+  const formPayload = buildFormPayload(form)
+  const customFieldValues = splitCustomFieldPayload(formPayload).custom
   const entityId = String(form.get('entityId') || '')
   const recordId = String(form.get('recordId') || '')
   const fieldKey = String(form.get('fieldKey') || '')
@@ -175,6 +217,7 @@ export async function POST(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  const dataEngine = resolve('dataEngine')
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
@@ -265,6 +308,21 @@ export async function POST(req: Request) {
     storageMetadata: metadata,
   })
   await em.persistAndFlush(att)
+  if (dataEngine) {
+    try {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.attachments.attachment,
+        recordId: attachmentId,
+        tenantId,
+        organizationId: orgId,
+        values: customFieldValues,
+      })
+    } catch (error) {
+      console.error('[attachments] failed to persist custom attributes', error)
+      return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
+    }
+  }
 
   return NextResponse.json({
     ok: true,
@@ -281,6 +339,7 @@ export async function POST(req: Request) {
       }),
       tags: metadata.tags ?? [],
       assignments: metadata.assignments ?? [],
+      customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
     },
   })
 }

@@ -12,28 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useT } from '@/lib/i18n/context'
-
-type OfferRow = {
-  id: string
-  title: string
-  description: string | null
-  productId: string | null
-  productTitle: string | null
-  productSku: string | null
-  productMediaUrl: string | null
-  prices: Array<{
-    id?: string
-    priceKindId?: string | null
-    priceKindCode?: string | null
-    priceKindTitle?: string | null
-    currencyCode?: string | null
-    unitPriceNet?: string | null
-    unitPriceGross?: string | null
-    displayMode?: string | null
-  }>
-  isActive: boolean
-  updatedAt: string | null
-}
+import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from './offerTableUtils'
 
 type OffersResponse = {
   items?: Array<Record<string, unknown>>
@@ -70,20 +49,18 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
           ) : (
             <div className="h-12 w-12 rounded border bg-muted" />
           )}
-          <div className="flex flex-col">
-            <span className="font-medium">{row.original.title}</span>
-            <span className="text-xs text-muted-foreground">
-              {row.original.productTitle ?? t('sales.channels.offers.table.emptyProduct', 'Unlinked product')}
-            </span>
+          <div className="flex flex-col gap-1">
+            <div>
+              <span className="font-medium">{row.original.title}</span>
+              <div className="text-xs text-muted-foreground">
+                {row.original.productTitle ?? t('sales.channels.offers.table.emptyProduct', 'Unlinked product')}
+              </div>
+            </div>
+            <div>{renderOfferPriceSummary(row.original, t)}</div>
           </div>
         </div>
       ),
       meta: { sticky: true },
-    },
-    {
-      accessorKey: 'prices',
-      header: t('sales.channels.offers.table.prices', 'Price overrides'),
-      cell: ({ row }) => renderPriceSummary(row.original, t),
     },
     {
       accessorKey: 'isActive',
@@ -155,156 +132,72 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
     setPage(1)
   }, [])
 
-  return (
+  const tableTitle = (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">
-            {t('sales.channels.offers.heading', 'Offers for {{name}}', { name: channelName || t('sales.channels.nav.title', 'Sales channels') })}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {t('sales.channels.offers.subtitle', 'Override product presentation and pricing per channel.')}
-          </p>
-        </div>
-        <Button asChild>
-          <Link href={`/backend/sales/channels/${channelId}/offers/create`}>
-            {t('sales.channels.offers.actions.create', 'Add offer')}
-          </Link>
-        </Button>
+      <div className="text-lg font-semibold">
+        {t('sales.channels.offers.heading', 'Offers for {{name}}', { name: channelName || t('sales.channels.nav.title', 'Sales channels') })}
       </div>
-      <DataTable<OfferRow>
-        columns={columns}
-        data={rows}
-        isLoading={isLoading}
-        sorting={sorting}
-        onSortingChange={setSorting}
-        searchValue={search}
-        onSearchChange={handleSearchChange}
-        searchPlaceholder={t('sales.channels.offers.table.search', 'Search offers…')}
-        pagination={{
-          page,
-          pageSize: PAGE_SIZE,
-          total,
-          totalPages,
-          onPageChange: setPage,
-        }}
-        refreshButton={{
-          label: t('sales.channels.offers.table.refresh', 'Refresh'),
-          onRefresh: () => setReloadToken((token) => token + 1),
-          isRefreshing: isLoading,
-        }}
-        rowActions={(row) => (
-          <RowActions
-            items={[
-              {
-                id: 'edit',
-                label: t('sales.channels.offers.actions.edit', 'Edit'),
-                href: `/backend/sales/channels/${channelId}/offers/${row.id}/edit`,
-              },
-              {
-                id: 'delete',
-                label: t('sales.channels.offers.actions.delete', 'Delete'),
-                onSelect: () => handleDelete(row),
-                destructive: true,
-              },
-            ]}
-          />
-        )}
-        onRowClick={(row) => router.push(`/backend/sales/channels/${channelId}/offers/${row.id}/edit`)}
-        emptyState={
-          <div className="py-10 text-center text-sm text-muted-foreground">
-            {t('sales.channels.offers.table.empty', 'No offers for this channel yet.')}
-          </div>
-        }
-      />
+      <p className="text-sm text-muted-foreground">
+        {t('sales.channels.offers.subtitle', 'Override product presentation and pricing per channel.')}
+      </p>
     </div>
   )
-}
 
-function mapOfferRow(item: Record<string, unknown>): OfferRow {
-  const product = item.product && typeof item.product === 'object'
-    ? item.product as Record<string, unknown>
-    : null
-  const prices = Array.isArray(item.prices) ? item.prices as Array<Record<string, unknown>> : []
-  return {
-    id: typeof item.id === 'string' ? item.id : '',
-    title: typeof item.title === 'string' && item.title.length ? item.title : 'Untitled offer',
-    description: typeof item.description === 'string' ? item.description : null,
-    productId: typeof item.productId === 'string' ? item.productId : typeof item.product_id === 'string' ? item.product_id : null,
-    productTitle: typeof product?.title === 'string' ? product.title : null,
-    productSku: typeof product?.sku === 'string' ? product.sku : null,
-    productMediaUrl: typeof product?.defaultMediaUrl === 'string'
-      ? product.defaultMediaUrl
-      : typeof product?.default_media_url === 'string'
-        ? product.default_media_url
-        : null,
-    prices: prices.map((row) => ({
-      id: typeof row.id === 'string' ? row.id : undefined,
-      priceKindId: typeof row.priceKindId === 'string'
-        ? row.priceKindId
-        : typeof row.price_kind_id === 'string'
-          ? row.price_kind_id
-          : null,
-      priceKindCode: typeof row.priceKindCode === 'string'
-        ? row.priceKindCode
-        : typeof row.price_kind_code === 'string'
-          ? row.price_kind_code
-          : null,
-      priceKindTitle: typeof row.priceKindTitle === 'string'
-        ? row.priceKindTitle
-        : typeof row.price_kind_title === 'string'
-          ? row.price_kind_title
-          : null,
-      currencyCode: typeof row.currencyCode === 'string'
-        ? row.currencyCode
-        : typeof row.currency_code === 'string'
-          ? row.currency_code
-          : null,
-      unitPriceNet: typeof row.unitPriceNet === 'string'
-        ? row.unitPriceNet
-        : typeof row.unit_price_net === 'string'
-          ? row.unit_price_net
-          : null,
-      unitPriceGross: typeof row.unitPriceGross === 'string'
-        ? row.unitPriceGross
-        : typeof row.unit_price_gross === 'string'
-          ? row.unit_price_gross
-          : null,
-      displayMode: typeof row.displayMode === 'string'
-        ? row.displayMode
-        : typeof row.display_mode === 'string'
-          ? row.display_mode
-          : null,
-    })),
-    isActive: item.isActive === true || item.is_active === true,
-    updatedAt: typeof item.updatedAt === 'string'
-      ? item.updatedAt
-      : typeof item.updated_at === 'string'
-        ? item.updated_at
-        : null,
-  }
-}
+  const actions = (
+    <Button asChild>
+      <Link href={`/backend/sales/channels/${channelId}/offers/create`}>
+        {t('sales.channels.offers.actions.create', 'Add offer')}
+      </Link>
+    </Button>
+  )
 
-function renderPriceSummary(row: OfferRow, t: (key: string, fallback: string, vars?: Record<string, unknown>) => string) {
-  if (!row.prices.length) {
-    return <span className="text-xs text-muted-foreground">{t('sales.channels.offers.table.noOverrides', 'No overrides')}</span>
-  }
   return (
-    <div className="flex flex-wrap gap-2">
-      {row.prices.map((price) => {
-        const label = price.priceKindCode || price.priceKindTitle || t('sales.channels.offers.table.price', 'Price')
-        const numeric = price.displayMode === 'including-tax'
-          ? price.unitPriceGross ?? price.unitPriceNet
-          : price.unitPriceNet ?? price.unitPriceGross
-        return (
-          <div key={`${price.id}-${label}`} className="rounded border px-2 py-1 text-xs">
-            <div className="font-medium">{label}</div>
-            <div className="text-muted-foreground">
-              {price.currencyCode ?? ''} {numeric ?? '—'}
-            </div>
-          </div>
-        )
-      })}
-    </div>
+    <DataTable<OfferRow>
+      title={tableTitle}
+      actions={actions}
+      columns={columns}
+      data={rows}
+      isLoading={isLoading}
+      sorting={sorting}
+      onSortingChange={setSorting}
+      searchValue={search}
+      onSearchChange={handleSearchChange}
+      searchPlaceholder={t('sales.channels.offers.table.search', 'Search offers…')}
+      pagination={{
+        page,
+        pageSize: PAGE_SIZE,
+        total,
+        totalPages,
+        onPageChange: setPage,
+      }}
+      refreshButton={{
+        label: t('sales.channels.offers.table.refresh', 'Refresh'),
+        onRefresh: () => setReloadToken((token) => token + 1),
+        isRefreshing: isLoading,
+      }}
+      rowActions={(row) => (
+        <RowActions
+          items={[
+            {
+              id: 'edit',
+              label: t('sales.channels.offers.actions.edit', 'Edit'),
+              href: `/backend/sales/channels/${channelId}/offers/${row.id}/edit`,
+            },
+            {
+              id: 'delete',
+              label: t('sales.channels.offers.actions.delete', 'Delete'),
+              onSelect: () => handleDelete(row),
+              destructive: true,
+            },
+          ]}
+        />
+      )}
+      onRowClick={(row) => router.push(`/backend/sales/channels/${channelId}/offers/${row.id}/edit`)}
+      emptyState={
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          {t('sales.channels.offers.table.empty', 'No offers for this channel yet.')}
+        </div>
+      }
+    />
   )
 }

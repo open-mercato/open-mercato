@@ -87,6 +87,13 @@
         }
       },
       "offers": {
+        "listTitle": "Angebote der Vertriebskanäle",
+        "listSubtitle": "Prüfe Produktanpassungen in allen Vertriebskanälen.",
+        "filters": {
+          "channels": "Vertriebskanäle",
+          "channelsPlaceholder": "Nach Kanälen filtern…",
+          "channelsLoadError": "Kanäle konnten nicht geladen werden"
+        },
         "heading": "Offers for {{name}}",
         "subtitle": "Override product presentation and pricing per channel.",
         "actions": {
@@ -113,9 +120,12 @@
           "search": "Search offers…",
           "refresh": "Refresh",
           "empty": "No offers for this channel yet.",
+          "emptyAll": "Noch keine Angebote vorhanden.",
           "noOverrides": "No overrides",
           "price": "Price",
-          "emptyProduct": "Unlinked product"
+          "emptyProduct": "Unlinked product",
+          "channel": "Kanal",
+          "channelUnassigned": "Nicht zugewiesen"
         },
         "form": {
           "createTitle": "Create offer",
@@ -124,11 +134,36 @@
           "updateSubmit": "Save changes",
           "loading": "Loading offer…",
           "channel": "Channel",
-          "product": "Product",
-          "defaultMedia": "Default media",
+          "channelDetails": "Details",
+          "channelPlaceholder": "Kanal auswählen",
+          "product": "Produkt",
+          "productGroup": "Produkt",
+          "productGroupHelp": "Durchsuche den Katalog und wähle das Produkt, das du für diesen Kanal anpassen möchtest.",
+          "productSummaryTitle": "Produktübersicht",
+          "productSummaryPlaceholder": "Wähle ein Produkt, um Medien, Preis und Varianten zu sehen.",
+          "productSearchPlaceholder": "Nach Titel, SKU oder ID suchen…",
+          "productSearchLoading": "Produkte werden gesucht…",
+          "productSearchEmpty": "Keine Produkte gefunden.",
+          "productSearchHint": "Mindestens 2 Zeichen eingeben oder eine Produkt-ID einfügen.",
+          "productSearchIntro": "Suche nach Namen oder füge die Produkt-ID ein, um Artikel zu finden.",
+          "productSelectedHint": "Gewählte Produkt-ID: {{id}}",
+          "productClear": "Auswahl löschen",
+          "productUntitled": "Unbenanntes Produkt",
+          "productPriceMissing": "Kein Preis",
+          "productPriceLabel": "Grundpreis",
+          "productSelect": "Auswählen",
+          "productSelected": "Ausgewählt",
+          "defaultMedia": "Standardbild",
+          "mediaGroupTitle": "Standardmedien überschreiben",
+          "mediaEmpty": "Wähle ein Produkt, um seine Medien zu laden.",
+          "mediaHelp": "Bestimme, welches Vorschaubild im Kanal angezeigt wird.",
+          "mediaInherit": "Produktstandard verwenden",
+          "mediaSelected": "Aktiv",
           "title": "Title",
           "description": "Description",
           "active": "Active",
+          "variantsTitle": "Varianten",
+          "variantsEmpty": "Keine Varianten für dieses Produkt.",
           "tabs": {
             "offers": "Offers"
           },
@@ -139,12 +174,16 @@
           }
         },
         "pricing": {
-          "help": "Provide overrides for price kinds when this offer is active.",
-          "add": "Add price",
-          "selectKind": "Select price kind",
-          "amount": "Amount",
-          "remove": "Remove",
-          "empty": "No overrides yet."
+          "help": "Lege Überschreibungen pro Preistyp fest, sobald das Angebot aktiv ist.",
+          "add": "Preis hinzufügen",
+          "selectKind": "Preistyp auswählen",
+          "amount": "Betrag",
+          "remove": "Entfernen",
+          "empty": "Noch keine Überschreibungen.",
+          "basePriceLabel": "Kanalpreis",
+          "basePriceMissing": "Kein Preis gefunden",
+          "basePriceHelp": "Wird angezeigt, wenn keine Überschreibung existiert.",
+          "overrideHint": "Überschreibungen ersetzen den Kanalpreis."
         }
       }
     },

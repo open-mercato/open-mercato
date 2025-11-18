@@ -8,6 +8,7 @@ import { offerCreateSchema, offerUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_offer'
+import { parseIdList } from '../products/route'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -17,6 +18,7 @@ const listSchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     productId: z.string().uuid().optional(),
     channelId: z.string().uuid().optional(),
+    channelIds: z.string().optional(),
     id: z.string().uuid().optional(),
     search: z.string().optional(),
     isActive: z.string().optional(),
@@ -56,6 +58,11 @@ function buildOfferFilters(query: OfferListQuery): Record<string, unknown> {
   }
   if (query.channelId) {
     filters.channel_id = { $eq: query.channelId }
+  } else {
+    const channelIds = parseIdList(query.channelIds)
+    if (channelIds.length) {
+      filters.channel_id = { $in: channelIds }
+    }
   }
   if (searchTerm) {
     const like = `%${searchTerm.replace(/%/g, '\\%')}%`

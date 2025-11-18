@@ -87,6 +87,13 @@
         }
       },
       "offers": {
+        "listTitle": "Oferty kanałów sprzedaży",
+        "listSubtitle": "Przeglądaj nadpisania produktów we wszystkich kanałach sprzedaży.",
+        "filters": {
+          "channels": "Kanały sprzedaży",
+          "channelsPlaceholder": "Filtruj według kanałów…",
+          "channelsLoadError": "Nie udało się wczytać kanałów"
+        },
         "heading": "Offers for {{name}}",
         "subtitle": "Override product presentation and pricing per channel.",
         "actions": {
@@ -113,9 +120,12 @@
           "search": "Search offers…",
           "refresh": "Refresh",
           "empty": "No offers for this channel yet.",
+          "emptyAll": "Brak dostępnych ofert.",
           "noOverrides": "No overrides",
           "price": "Price",
-          "emptyProduct": "Unlinked product"
+          "emptyProduct": "Unlinked product",
+          "channel": "Kanał",
+          "channelUnassigned": "Nieprzypisany"
         },
         "form": {
           "createTitle": "Create offer",
@@ -124,11 +134,36 @@
           "updateSubmit": "Save changes",
           "loading": "Loading offer…",
           "channel": "Channel",
+          "channelDetails": "Szczegóły",
+          "channelPlaceholder": "Wybierz kanał",
           "product": "Product",
-          "defaultMedia": "Default media",
+          "productGroup": "Produkt",
+          "productGroupHelp": "Wyszukaj w katalogu i wybierz produkt, który chcesz dostosować dla tego kanału.",
+          "productSummaryTitle": "Podsumowanie produktu",
+          "productSummaryPlaceholder": "Wybierz produkt, aby zobaczyć jego media, ceny i warianty.",
+          "productSearchPlaceholder": "Szukaj po nazwie, SKU lub ID…",
+          "productSearchLoading": "Wyszukiwanie produktów…",
+          "productSearchEmpty": "Brak pasujących produktów.",
+          "productSearchHint": "Wpisz co najmniej 2 znaki lub wklej identyfikator produktu.",
+          "productSearchIntro": "Szukaj po nazwie lub wklej ID produktu, aby znaleźć pozycję.",
+          "productSelectedHint": "Wybrany identyfikator produktu: {{id}}",
+          "productClear": "Wyczyść wybór",
+          "productUntitled": "Produkt bez nazwy",
+          "productPriceMissing": "Brak ceny",
+          "productPriceLabel": "Cena bazowa",
+          "productSelect": "Wybierz",
+          "productSelected": "Wybrano",
+          "defaultMedia": "Domyślne media",
+          "mediaGroupTitle": "Nadpisanie domyślnego media",
+          "mediaEmpty": "Najpierw wybierz produkt, aby wczytać media.",
+          "mediaHelp": "Wybierz miniaturę, która ma reprezentować ofertę w kanale.",
+          "mediaInherit": "Użyj domyślnego produktu",
+          "mediaSelected": "Aktywne",
           "title": "Title",
           "description": "Description",
           "active": "Active",
+          "variantsTitle": "Warianty",
+          "variantsEmpty": "Brak wariantów dla tego produktu.",
           "tabs": {
             "offers": "Offers"
           },
@@ -144,7 +179,11 @@
           "selectKind": "Select price kind",
           "amount": "Amount",
           "remove": "Remove",
-          "empty": "No overrides yet."
+          "empty": "No overrides yet.",
+          "basePriceLabel": "Cena kanału",
+          "basePriceMissing": "Brak ceny",
+          "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",
+          "overrideHint": "Nadpisania mają pierwszeństwo przed ceną kanału."
         }
       }
     },

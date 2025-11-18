@@ -102,7 +102,11 @@
         "configurable": "Konfigurowalne",
         "productType": "Typ produktu",
         "channels": "Kanały sprzedaży",
-        "channelsLoadError": "Nie udało się załadować kanałów"
+        "channelsLoadError": "Nie udało się załadować kanałów",
+        "categories": "Kategorie",
+        "categoriesLoadError": "Nie udało się załadować kategorii",
+        "tags": "Tagi",
+        "tagsLoadError": "Nie udało się załadować tagów"
       },
       "types": {
         "simple": "Prosty",
@@ -219,7 +223,15 @@
           "manage": "Manage tax classes"
         },
         "organize": {
-          "placeholder": "Work in progress on this tab."
+          "categoriesLabel": "Kategorie",
+          "categoriesPlaceholder": "Szukaj kategorii",
+          "categoriesHelp": "Przypisz produkt do jednego lub wielu węzłów taksonomii.",
+          "channelsLabel": "Kanały sprzedaży",
+          "channelsPlaceholder": "Wybierz kanały",
+          "channelsHelp": "Wybrane kanały otrzymają domyślne oferty dla tego produktu.",
+          "tagsLabel": "Tagi",
+          "tagsPlaceholder": "Dodaj tag i naciśnij Enter",
+          "tagsHelp": "Opisuj produkty wspólnymi etykietami, aby tworzyć szybkie filtry."
         },
         "tabs": {
           "label": "Sekcje produktu",

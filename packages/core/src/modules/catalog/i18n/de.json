@@ -102,7 +102,11 @@
         "configurable": "Konfigurierbar",
         "productType": "Produkttyp",
         "channels": "Vertriebskanäle",
-        "channelsLoadError": "Kanäle konnten nicht geladen werden"
+        "channelsLoadError": "Kanäle konnten nicht geladen werden",
+        "categories": "Kategorien",
+        "categoriesLoadError": "Kategorien konnten nicht geladen werden",
+        "tags": "Tags",
+        "tagsLoadError": "Tags konnten nicht geladen werden"
       },
       "types": {
         "simple": "Einfach",
@@ -219,7 +223,15 @@
           "manage": "Manage tax classes"
         },
         "organize": {
-          "placeholder": "Work in progress on this tab."
+          "categoriesLabel": "Kategorien",
+          "categoriesPlaceholder": "Kategorien suchen",
+          "categoriesHelp": "Produkt(e) einem oder mehreren Taxonomie-Knoten zuweisen.",
+          "channelsLabel": "Vertriebskanäle",
+          "channelsPlaceholder": "Kanäle auswählen",
+          "channelsHelp": "Ausgewählte Kanäle erhalten Standardangebote für dieses Produkt.",
+          "tagsLabel": "Tags",
+          "tagsPlaceholder": "Tag hinzufügen und Enter drücken",
+          "tagsHelp": "Produkte mit gemeinsamen Labels beschreiben, um schnelle Filter zu erstellen."
         },
         "tabs": {
           "label": "Produktabschnitte",

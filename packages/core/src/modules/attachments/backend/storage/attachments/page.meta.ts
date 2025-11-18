@@ -13,10 +13,10 @@ export const metadata = {
   pageTitleKey: 'attachments.library.title',
   pageGroup: 'Storage',
   pageGroupKey: 'customers.storage.nav.group',
+  pagePriority: 20,
   pageOrder: 110,
   icon: attachmentIcon,
   breadcrumb: [
     { label: 'Attachments', labelKey: 'attachments.library.title' },
   ],
 } as const
-

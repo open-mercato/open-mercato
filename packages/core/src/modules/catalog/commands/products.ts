@@ -13,6 +13,10 @@ import {
   CatalogProductOption,
   CatalogProductVariant,
   CatalogOptionSchemaTemplate,
+  CatalogProductCategory,
+  CatalogProductCategoryAssignment,
+  CatalogProductTag,
+  CatalogProductTagAssignment,
 } from '../data/entities'
 import {
   productCreateSchema,
@@ -23,6 +27,7 @@ import {
 } from '../data/validators'
 import type {
   CatalogOfferLocalizedContent,
+  CatalogProductOptionSchema,
   CatalogProductType,
 } from '../data/types'
 import {
@@ -95,6 +100,189 @@ const PRODUCT_CHANGE_KEYS = [
   'isConfigurable',
   'isActive',
 ] as const satisfies readonly string[]
+
+function slugifyCode(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function randomSuffix(): string {
+  return Math.random().toString(36).slice(2, 8)
+}
+
+function generateOptionSchemaCode(base?: string | null): string {
+  const slug = slugifyCode(base ?? '')
+  const prefix = slug.length ? slug : 'product-option-schema'
+  return `${prefix}-${randomSuffix()}`
+}
+
+function normalizeCatalogOptionSchema(
+  input?: CatalogProductOptionSchema | null
+): CatalogProductOptionSchema | null {
+  if (!input || !Array.isArray(input.options) || !input.options.length) return null
+  const options = input.options
+    .map((option) => {
+      if (!option) return null
+      const label =
+        typeof option.label === 'string' && option.label.trim().length ? option.label.trim() : null
+      const codeSource =
+        typeof option.code === 'string' && option.code.trim().length ? option.code.trim() : label
+      const code = slugifyCode(codeSource ?? '')
+      if (!label && !code) return null
+      const choices = Array.isArray(option.choices)
+        ? option.choices
+            .map((choice) => {
+              if (!choice) return null
+              const choiceLabel =
+                typeof choice.label === 'string' && choice.label.trim().length ? choice.label.trim() : null
+              const choiceCodeSource =
+                typeof choice.code === 'string' && choice.code.trim().length
+                  ? choice.code.trim()
+                  : choiceLabel
+              const choiceCode = slugifyCode(choiceCodeSource ?? '')
+              if (!choiceLabel && !choiceCode) return null
+              return {
+                code: choiceCode || `choice-${randomSuffix()}`,
+                label: choiceLabel ?? (choiceCode || `Choice ${randomSuffix()}`),
+              }
+            })
+            .filter(
+              (entry): entry is { code: string; label: string } =>
+                !!entry && entry.code.trim().length > 0 && entry.label.trim().length > 0
+            )
+        : []
+      return {
+        code: code || `option-${randomSuffix()}`,
+        label: label ?? (code || `Option ${randomSuffix()}`),
+        description:
+          typeof option.description === 'string' && option.description.trim().length
+            ? option.description.trim()
+            : null,
+        inputType: option.inputType ?? 'select',
+        isRequired: option.isRequired ?? false,
+        isMultiple: option.isMultiple ?? false,
+        choices,
+      }
+    })
+    .filter(
+      (entry): entry is CatalogProductOptionSchema['options'][number] =>
+        !!entry && entry.code.trim().length > 0
+    )
+  if (!options.length) return null
+  return {
+    version: typeof input.version === 'number' && input.version > 0 ? input.version : 1,
+    name: typeof input.name === 'string' && input.name.trim().length ? input.name.trim() : undefined,
+    description:
+      typeof input.description === 'string' && input.description.trim().length
+        ? input.description.trim()
+        : undefined,
+    options,
+  }
+}
+
+function convertLegacyOptionSchema(raw: unknown): CatalogProductOptionSchema | null {
+  if (!Array.isArray(raw)) return null
+  const options = raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const source = entry as Record<string, unknown>
+      const title =
+        typeof source['title'] === 'string' && (source['title'] as string).trim().length
+          ? (source['title'] as string).trim()
+          : null
+      if (!title) return null
+      const values = Array.isArray(source['values'])
+        ? (source['values'] as unknown[])
+            .map((value: any) => {
+              if (!value || typeof value !== 'object') return null
+              const label =
+                typeof value.label === 'string' && value.label.trim().length ? value.label.trim() : null
+              if (!label) return null
+              return { code: slugifyCode(label), label }
+            })
+            .filter((choice): choice is { code: string; label: string } => !!choice)
+        : []
+      return {
+        code: slugifyCode(title),
+        label: title,
+        inputType: 'select' as const,
+        choices: values,
+      }
+    })
+    .filter((option): option is CatalogProductOptionSchema['options'][number] => !!option)
+  if (!options.length) return null
+  return {
+    version: 1,
+    options,
+  }
+}
+
+function extractOptionSchemaInput(source: {
+  metadata?: Record<string, unknown> | null | undefined
+  optionSchema?: CatalogProductOptionSchema | null | undefined
+}): { schema: CatalogProductOptionSchema | null; metadata: Record<string, unknown> | null } {
+  const metadata =
+    source.metadata && typeof source.metadata === 'object'
+      ? { ...(source.metadata as Record<string, unknown>) }
+      : null
+  let schema = normalizeCatalogOptionSchema(source.optionSchema)
+  if (!schema && metadata) {
+    const legacy = convertLegacyOptionSchema(
+      (metadata as Record<string, unknown>)['optionSchema'] ??
+        (metadata as Record<string, unknown>)['option_schema']
+    )
+    schema = normalizeCatalogOptionSchema(legacy)
+  }
+  if (metadata) {
+    delete (metadata as Record<string, unknown>)['optionSchema']
+    delete (metadata as Record<string, unknown>)['option_schema']
+  }
+  return {
+    schema,
+    metadata: metadata && Object.keys(metadata).length ? metadata : null,
+  }
+}
+
+function ensureSchemaName(name?: string | null, fallback?: string | null): string {
+  if (name && name.trim().length) return name.trim()
+  if (fallback && fallback.trim().length) return fallback.trim()
+  return 'Product option schema'
+}
+
+function assignOptionSchemaTemplate(
+  em: EntityManager,
+  product: CatalogProduct,
+  schema: CatalogProductOptionSchema,
+  preferredName?: string | null
+): CatalogOptionSchemaTemplate {
+  const resolvedName = ensureSchemaName(schema.name, preferredName ?? product.title)
+  let template = product.optionSchemaTemplate
+  if (!template) {
+    template = em.create(CatalogOptionSchemaTemplate, {
+      organizationId: product.organizationId,
+      tenantId: product.tenantId,
+      name: resolvedName,
+      code: generateOptionSchemaCode(resolvedName),
+      description: schema.description ?? null,
+      schema: cloneJson(schema),
+      metadata: { source: 'product' },
+      isActive: true,
+    })
+    em.persist(template)
+  } else {
+    template.name = resolvedName
+    if (!template.code) {
+      template.code = generateOptionSchemaCode(resolvedName)
+    }
+    template.description = schema.description ?? template.description ?? null
+    template.schema = cloneJson(schema)
+  }
+  product.optionSchemaTemplate = template
+  return template
+}
 
 function cloneOfferContent(value: CatalogOfferLocalizedContent | null | undefined): CatalogOfferLocalizedContent | null {
   return value ? cloneJson(value) : null
@@ -245,6 +433,157 @@ async function syncOffers(
   }
 }
 
+async function syncCategoryAssignments(
+  em: EntityManager,
+  product: CatalogProduct,
+  categoryIds: string[] | undefined
+): Promise<void> {
+  const normalized = Array.from(
+    new Set(
+      (Array.isArray(categoryIds) ? categoryIds : [])
+        .map((id) => (typeof id === 'string' ? id.trim() : ''))
+        .filter((id) => id.length)
+    )
+  )
+  const existing = await em.find(CatalogProductCategoryAssignment, { product })
+  if (!normalized.length) {
+    if (existing.length) {
+      for (const assignment of existing) {
+        em.remove(assignment)
+      }
+    }
+    return
+  }
+  const categories = await em.find(
+    CatalogProductCategory,
+    {
+      id: { $in: normalized },
+      organizationId: product.organizationId,
+      tenantId: product.tenantId,
+    }
+  )
+  const categoryMap = new Map(categories.map((category) => [category.id, category]))
+  const claimed = new Set<string>()
+  normalized.forEach((categoryId, index) => {
+    const category = categoryMap.get(categoryId)
+    if (!category) return
+    let assignment = existing.find((item) => {
+      const value = typeof item.category === 'string' ? item.category : item.category?.id
+      return value === categoryId
+    })
+    if (!assignment) {
+      assignment = em.create(CatalogProductCategoryAssignment, {
+        product,
+        category,
+        organizationId: product.organizationId,
+        tenantId: product.tenantId,
+        position: index,
+      })
+      em.persist(assignment)
+      existing.push(assignment)
+    }
+    assignment.position = index
+    claimed.add(assignment.id)
+  })
+  for (const assignment of existing) {
+    if (!claimed.has(assignment.id)) {
+      em.remove(assignment)
+    }
+  }
+}
+
+function slugifyTagLabel(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || `tag-${Math.random().toString(36).slice(2, 10)}`
+  )
+}
+
+async function syncProductTags(
+  em: EntityManager,
+  product: CatalogProduct,
+  tags: string[] | undefined
+): Promise<void> {
+  const labelMap = new Map<string, string>()
+  if (Array.isArray(tags)) {
+    tags.forEach((raw) => {
+      const label = typeof raw === 'string' ? raw.trim() : ''
+      if (!label) return
+      const slug = slugifyTagLabel(label)
+      if (!labelMap.has(slug)) {
+        labelMap.set(slug, label)
+      }
+    })
+  }
+  const slugs = Array.from(labelMap.keys())
+  const existingAssignments = await em.find(
+    CatalogProductTagAssignment,
+    { product },
+    { populate: ['tag'] }
+  )
+  if (!slugs.length) {
+    if (existingAssignments.length) {
+      for (const assignment of existingAssignments) {
+        em.remove(assignment)
+      }
+    }
+    return
+  }
+  const existingTags = await em.find(
+    CatalogProductTag,
+    {
+      organizationId: product.organizationId,
+      tenantId: product.tenantId,
+      slug: { $in: slugs },
+    }
+  )
+  const tagsBySlug = new Map(existingTags.map((tag) => [tag.slug, tag]))
+  for (const slug of slugs) {
+    if (tagsBySlug.has(slug)) continue
+    const label = labelMap.get(slug) ?? slug
+    const tag = em.create(CatalogProductTag, {
+      organizationId: product.organizationId,
+      tenantId: product.tenantId,
+      slug,
+      label,
+    })
+    em.persist(tag)
+    tagsBySlug.set(slug, tag)
+  }
+  const assignmentByTagId = new Map(
+    existingAssignments.map((assignment) => [
+      typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id,
+      assignment,
+    ])
+  )
+  const keepIds = new Set<string>()
+  for (const slug of slugs) {
+    const tag = tagsBySlug.get(slug)
+    if (!tag) continue
+    const tagId = tag.id
+    let assignment = assignmentByTagId.get(tagId)
+    if (!assignment) {
+      assignment = em.create(CatalogProductTagAssignment, {
+        product,
+        tag,
+        organizationId: product.organizationId,
+        tenantId: product.tenantId,
+      })
+      em.persist(assignment)
+    }
+    keepIds.add(assignment.id)
+  }
+  for (const assignment of existingAssignments) {
+    if (!keepIds.has(assignment.id)) {
+      em.remove(assignment)
+    }
+  }
+}
+
 async function loadProductSnapshot(
   em: EntityManager,
   id: string
@@ -331,15 +670,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
-    let optionSchemaTemplate: CatalogOptionSchemaTemplate | null = null
-    if (parsed.optionSchemaId) {
-      optionSchemaTemplate = await requireOptionSchemaTemplate(
-        em,
-        parsed.optionSchemaId,
-        'Option schema not found'
-      )
-      ensureSameScope(optionSchemaTemplate, parsed.organizationId, parsed.tenantId)
-    }
+    const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
     const record = em.create(CatalogProduct, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -354,14 +685,30 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       defaultUnit: parsed.defaultUnit ?? null,
       defaultMediaId: parsed.defaultMediaId ?? null,
       defaultMediaUrl: parsed.defaultMediaUrl ?? null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: sanitizedMetadata ? cloneJson(sanitizedMetadata) : null,
       customFieldsetCode: parsed.customFieldsetCode ?? null,
-      optionSchemaTemplate,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
       createdAt: now,
       updatedAt: now,
     })
+    let optionSchemaTemplate: CatalogOptionSchemaTemplate | null = null
+    if (parsed.optionSchemaId) {
+      optionSchemaTemplate = await requireOptionSchemaTemplate(
+        em,
+        parsed.optionSchemaId,
+        'Option schema not found'
+      )
+      ensureSameScope(optionSchemaTemplate, parsed.organizationId, parsed.tenantId)
+      record.optionSchemaTemplate = optionSchemaTemplate
+    } else if (optionSchemaDefinition) {
+      optionSchemaTemplate = assignOptionSchemaTemplate(
+        em,
+        record,
+        optionSchemaDefinition,
+        optionSchemaDefinition.name ?? parsed.title
+      )
+    }
     em.persist(record)
     try {
       await em.flush()
@@ -369,6 +716,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       await rethrowProductUniqueConstraint(error)
     }
     await syncOffers(em, record, parsed.offers)
+    await syncCategoryAssignments(em, record, parsed.categoryIds)
+    await syncProductTags(em, record, parsed.tags)
     try {
       await em.flush()
     } catch (error) {
@@ -474,8 +823,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.defaultMediaUrl !== undefined) {
       record.defaultMediaUrl = parsed.defaultMediaUrl ?? null
     }
-    if (parsed.metadata !== undefined) {
-      record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
+    const metadataProvided =
+      rawInput && typeof rawInput === 'object' && Object.prototype.hasOwnProperty.call(rawInput, 'metadata')
+    const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
+    if (metadataProvided) {
+      record.metadata = sanitizedMetadata ? cloneJson(sanitizedMetadata) : null
     }
     if (parsed.optionSchemaId !== undefined) {
       if (!parsed.optionSchemaId) {
@@ -490,12 +842,22 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         record.optionSchemaTemplate = optionTemplate
       }
     }
+    if (optionSchemaDefinition) {
+      assignOptionSchemaTemplate(
+        em,
+        record,
+        optionSchemaDefinition,
+        optionSchemaDefinition.name ?? parsed.title ?? record.title
+      )
+    }
     if (parsed.customFieldsetCode !== undefined) {
       record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
     if (parsed.isConfigurable !== undefined) record.isConfigurable = parsed.isConfigurable
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await syncOffers(em, record, parsed.offers)
+    await syncCategoryAssignments(em, record, parsed.categoryIds)
+    await syncProductTags(em, record, parsed.tags)
     try {
       await em.flush()
     } catch (error) {

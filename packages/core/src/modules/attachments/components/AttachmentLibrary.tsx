@@ -12,9 +12,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Input } from '@open-mercato/ui/primitives/input'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { CrudForm, type CrudField, type CrudFormGroup, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
+import { z } from 'zod'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { LucideIcon } from 'lucide-react'
 import { Download, Plus, Upload, Trash2, Copy, File, FileText, FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode } from 'lucide-react'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
@@ -179,6 +183,21 @@ function resolveAttachmentPlaceholder(mimeType?: string | null, fileName?: strin
   return { icon: File, label: fallbackLabel }
 }
 
+function normalizeCustomFieldSubmitValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((entry) => entry !== undefined)
+  }
+  if (value === undefined) return null
+  return value
+}
+
+type AttachmentUploadFormValues = {
+  files: File[]
+  partitionCode?: string
+  tags?: string[]
+  assignments?: AssignmentDraft[]
+} & Record<string, unknown>
+
 type AssignmentsEditorProps = {
   value: AssignmentDraft[]
   onChange: (next: AssignmentDraft[]) => void
@@ -288,6 +307,402 @@ function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: Assi
         <Plus className="h-4 w-4" />
         {labels.add}
       </Button>
+    </div>
+  )
+}
+
+type AttachmentFilesFieldProps = CrudCustomFieldRenderProps & {
+  labels: {
+    dropHint: string
+    choose: string
+    uploading: string
+    empty: string
+  }
+  uploading: boolean
+}
+
+function AttachmentFilesField({
+  value,
+  setValue,
+  disabled,
+  error,
+  labels,
+  uploading,
+}: AttachmentFilesFieldProps) {
+  const files = React.useMemo(() => (Array.isArray(value) ? (value as File[]) : []), [value])
+  const [isDragOver, setDragOver] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const acceptFiles = React.useCallback(
+    (list: FileList | null) => {
+      if (!list?.length) return
+      const dedupe = new Map<string, File>(files.map((file) => [`${file.name}:${file.size}`, file]))
+      Array.from(list).forEach((file) => {
+        dedupe.set(`${file.name}:${file.size}`, file)
+      })
+      setValue(Array.from(dedupe.values()))
+    },
+    [files, setValue],
+  )
+
+  const handleDrop = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (disabled || uploading) return
+      event.preventDefault()
+      event.stopPropagation()
+      setDragOver(false)
+      acceptFiles(event.dataTransfer?.files ?? null)
+    },
+    [acceptFiles, disabled, uploading],
+  )
+
+  const handleDragOver = React.useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (disabled || uploading) return
+      event.preventDefault()
+      event.stopPropagation()
+      setDragOver(true)
+    },
+    [disabled, uploading],
+  )
+
+  const handleDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setDragOver(false)
+  }, [])
+
+  const removeFile = React.useCallback(
+    (name: string, size: number) => {
+      if (disabled || uploading) return
+      setValue(files.filter((file) => !(file.name === name && file.size === size)))
+    },
+    [disabled, files, setValue, uploading],
+  )
+
+  const pickFiles = React.useCallback(() => {
+    if (disabled || uploading) return
+    fileInputRef.current?.click()
+  }, [disabled, uploading])
+
+  const renderFileList = () => {
+    if (!files.length) {
+      return <p className="text-xs text-muted-foreground">{labels.empty}</p>
+    }
+    return (
+      <div className="space-y-2">
+        {files.map((candidate) => (
+          <div key={`${candidate.name}-${candidate.size}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+            <div>
+              <div className="font-medium">{candidate.name}</div>
+              <div className="text-xs text-muted-foreground">{formatFileSize(candidate.size)}</div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => removeFile(candidate.name, candidate.size)}
+              disabled={disabled || uploading}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <div
+        className={cn(
+          'flex flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center transition-colors',
+          isDragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/30',
+          disabled || uploading ? 'opacity-70' : '',
+        )}
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        role="presentation"
+      >
+        <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
+        <p className="mt-2 text-sm text-muted-foreground">{labels.dropHint}</p>
+        <Button type="button" variant="outline" size="sm" className="mt-4" onClick={pickFiles} disabled={disabled || uploading}>
+          {uploading ? labels.uploading : labels.choose}
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          multiple
+          onChange={(event) => {
+            acceptFiles(event.target.files)
+            event.currentTarget.value = ''
+          }}
+          disabled={disabled || uploading}
+        />
+      </div>
+      {renderFileList()}
+      {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
+    </div>
+  )
+}
+
+type AttachmentUploadFormProps = {
+  partitions: Array<{ code: string; title: string }>
+  availableTags: string[]
+  onUploaded: () => void
+  onCancel: () => void
+}
+
+function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel }: AttachmentUploadFormProps) {
+  const t = useT()
+  const [isUploading, setIsUploading] = React.useState(false)
+  const [uploadProgress, setUploadProgress] = React.useState<{ completed: number; total: number }>({ completed: 0, total: 0 })
+
+  const partitionOptions = React.useMemo(
+    () =>
+      partitions.map((entry) => ({
+        value: entry.code,
+        label: entry.title || entry.code,
+      })),
+    [partitions],
+  )
+
+  const assignmentLabels = React.useMemo(
+    () => ({
+      title: t('attachments.library.upload.assignments.title', 'Assignments'),
+      description: t(
+        'attachments.library.upload.assignments.description',
+        'Optionally link this file to existing records now or add them later.',
+      ),
+      type: t('attachments.library.upload.assignments.type', 'Type'),
+      id: t('attachments.library.upload.assignments.id', 'Record ID'),
+      href: t('attachments.library.upload.assignments.href', 'Link'),
+      label: t('attachments.library.upload.assignments.label', 'Label'),
+      add: t('attachments.library.upload.assignments.add', 'Add assignment'),
+      remove: t('attachments.library.upload.assignments.remove', 'Remove'),
+    }),
+    [t],
+  )
+
+  const formSchema = React.useMemo(
+    () =>
+      z
+        .object({
+          files: z.array(z.any()).min(1, { message: t('attachments.library.upload.fileRequired', 'Select at least one file to upload.') }),
+          partitionCode: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+          assignments: z
+            .array(
+              z.object({
+                type: z.string().min(1),
+                id: z.string().min(1),
+                href: z.string().nullable().optional(),
+                label: z.string().nullable().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .passthrough(),
+    [t],
+  )
+
+  const fields = React.useMemo<CrudField[]>(() => {
+    return [
+      {
+        id: 'files',
+        label: t('attachments.library.upload.file', 'Files'),
+        type: 'custom',
+        component: (props) => (
+          <AttachmentFilesField
+            {...props}
+            uploading={isUploading}
+            labels={{
+              dropHint: t('attachments.library.upload.dropHint', 'Drag and drop files here or click to upload.'),
+              choose: t('attachments.library.upload.choose', 'Choose files'),
+              uploading: t('attachments.library.upload.submitting', 'Uploading…'),
+              empty: t('attachments.library.upload.noFiles', 'No files selected yet.'),
+            }}
+          />
+        ),
+      },
+      {
+        id: 'partitionCode',
+        label: t('attachments.library.upload.partition', 'Partition'),
+        type: 'select',
+        options: [
+          { value: '', label: t('attachments.library.upload.partitionDefault', 'Default (private)') },
+          ...partitionOptions,
+        ],
+      },
+      {
+        id: 'tags',
+        label: t('attachments.library.table.tags', 'Tags'),
+        type: 'custom',
+        component: ({ value, setValue, disabled }) => (
+          <TagsInput
+            value={Array.isArray(value) ? (value as string[]) : []}
+            onChange={(next) => setValue(next)}
+            suggestions={availableTags}
+            placeholder={t('attachments.library.upload.tagsPlaceholder', 'Add tags')}
+            disabled={Boolean(disabled) || isUploading}
+          />
+        ),
+      },
+      {
+        id: 'assignments',
+        label: '',
+        type: 'custom',
+        component: ({ value, setValue, disabled }) => (
+          <AttachmentAssignmentsEditor
+            value={Array.isArray(value) ? (value as AssignmentDraft[]) : []}
+            onChange={(next) => setValue(next)}
+            labels={assignmentLabels}
+            disabled={Boolean(disabled) || isUploading}
+          />
+        ),
+      },
+    ]
+  }, [assignmentLabels, availableTags, isUploading, partitionOptions, t])
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    return [
+      {
+        id: 'details',
+        title: t('attachments.library.upload.title', 'Upload attachment'),
+        column: 1,
+        fields: ['files', 'partitionCode', 'tags', 'assignments'],
+      },
+      {
+        id: 'customFields',
+        title: t('entities.customFields.title', 'Custom attributes'),
+        column: 2,
+        kind: 'customFields',
+      },
+    ]
+  }, [t])
+
+  const uploadPercentage = uploadProgress.total
+    ? Math.min(100, Math.round((uploadProgress.completed / uploadProgress.total) * 100))
+    : 0
+
+  const handleSubmit = React.useCallback(
+    async (values: AttachmentUploadFormValues) => {
+      const files = Array.isArray(values.files) ? values.files : []
+      if (!files.length) {
+        throw new Error(t('attachments.library.upload.fileRequired', 'Select at least one file to upload.'))
+      }
+      setUploadProgress({ completed: 0, total: files.length })
+      setIsUploading(true)
+      try {
+        const tags = Array.isArray(values.tags)
+          ? values.tags
+              .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+              .filter((tag) => tag.length > 0)
+          : []
+        const cleanedAssignments =
+          Array.isArray(values.assignments) && values.assignments.length
+            ? values.assignments
+                .map((assignment) => ({
+                  type: assignment.type?.trim() ?? '',
+                  id: assignment.id?.trim() ?? '',
+                  href: assignment.href?.trim() || undefined,
+                  label: assignment.label?.trim() || undefined,
+                }))
+                .filter((assignment) => assignment.type && assignment.id)
+            : []
+        const customFields = collectCustomFieldValues(values, {
+          transform: (value) => normalizeCustomFieldSubmitValue(value),
+        })
+        let completed = 0
+        for (const file of files) {
+          const fd = new FormData()
+          fd.set('entityId', LIBRARY_ENTITY_ID)
+          fd.set(
+            'recordId',
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now()),
+          )
+          fd.set('file', file)
+          if (typeof values.partitionCode === 'string' && values.partitionCode.trim().length) {
+            fd.set('partitionCode', values.partitionCode.trim())
+          }
+          if (tags.length) fd.set('tags', JSON.stringify(tags))
+          if (cleanedAssignments.length) fd.set('assignments', JSON.stringify(cleanedAssignments))
+          if (Object.keys(customFields).length) fd.set('customFields', JSON.stringify(customFields))
+          const call = await apiCall<{ error?: string }>('/api/attachments', {
+            method: 'POST',
+            body: fd,
+          })
+          if (!call.ok) {
+            const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
+            throw new Error(message)
+          }
+          completed += 1
+          setUploadProgress({ completed, total: files.length })
+        }
+        flash(t('attachments.library.upload.success', 'Attachment uploaded.'), 'success')
+        onUploaded()
+        onCancel()
+      } catch (err: any) {
+        const message = err?.message || t('attachments.library.upload.failed', 'Upload failed.')
+        flash(message, 'error')
+        throw new Error(message)
+      } finally {
+        setIsUploading(false)
+      }
+    },
+    [onCancel, onUploaded, t],
+  )
+
+  return (
+    <div className="relative">
+      <CrudForm<AttachmentUploadFormValues>
+        embedded
+        schema={formSchema}
+        entityId={E.attachments.attachment}
+        fields={fields}
+        groups={groups}
+        initialValues={{ files: [], tags: [], assignments: [], partitionCode: '' }}
+        submitLabel={
+          isUploading
+            ? t('attachments.library.upload.submitting', 'Uploading…')
+            : t('attachments.library.upload.submit', 'Upload')
+        }
+        extraActions={
+          <Button type="button" variant="outline" onClick={onCancel} disabled={isUploading}>
+            {t('attachments.library.upload.cancel', 'Cancel')}
+          </Button>
+        }
+        onSubmit={handleSubmit}
+      />
+      {isUploading ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/90 px-6 text-center backdrop-blur">
+          <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border/50 bg-card/95 px-6 py-8 shadow-2xl">
+            <Spinner size="lg" className="border-primary/50 border-t-primary" />
+            <div className="w-full space-y-3">
+              <p className="text-base font-semibold">
+                {t('attachments.library.upload.progressLabel', 'Uploading files')}
+              </p>
+              {uploadProgress.total > 0 ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    {uploadProgress.completed}/{uploadProgress.total}
+                  </p>
+                  <div className="h-2 w-full rounded bg-muted">
+                    <div
+                      className="h-2 rounded bg-primary transition-all"
+                      style={{
+                        width: `${uploadPercentage}%`,
+                      }}
+                    />
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -672,7 +1087,7 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg" onKeyDown={handleKeyDown}>
+      <DialogContent className="relative sm:max-w-lg" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>{t('attachments.library.upload.title', 'Upload attachment')}</DialogTitle>
         </DialogHeader>
@@ -807,9 +1222,9 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
           </div>
         </form>
         {isSubmitting ? (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border bg-card px-8 py-6 text-center shadow-xl">
-              <Spinner size="lg" className="border-primary/40 border-t-primary" />
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/95 px-6 text-center backdrop-blur">
+            <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border/50 bg-card/95 px-6 py-8 shadow-2xl">
+              <Spinner size="lg" className="border-primary/50 border-t-primary" />
               <div className="w-full space-y-3">
                 <p className="text-base font-semibold">{t('attachments.library.upload.progressLabel', 'Uploading files')}</p>
                 {uploadProgress.total > 0 ? (
@@ -1072,6 +1487,37 @@ export function AttachmentLibrary() {
     await queryClient.invalidateQueries({ queryKey: ['attachments-library'], exact: false })
   }, [queryClient])
 
+  const handleDelete = React.useCallback(
+    async (row: AttachmentRow) => {
+      const confirmMessage = t(
+        'attachments.library.confirm.delete',
+        'Delete attachment "{{name}}"? This action cannot be undone.',
+      ).replace('{{name}}', row.fileName || row.id)
+      if (!window.confirm(confirmMessage)) return
+      try {
+        const call = await apiCall<{ error?: string }>(
+          `/api/attachments/library/${encodeURIComponent(row.id)}`,
+          { method: 'DELETE' },
+        )
+        if (!call.ok) {
+          const message =
+            call.result?.error || t('attachments.library.errors.delete', 'Failed to delete attachment.')
+          flash(message, 'error')
+          return
+        }
+        flash(t('attachments.library.messages.deleted', 'Attachment removed.'), 'success')
+        if (selectedRow?.id === row.id) {
+          setSelectedRow(null)
+          setMetadataDialogOpen(false)
+        }
+        await queryClient.invalidateQueries({ queryKey: ['attachments-library'], exact: false })
+      } catch (err: any) {
+        flash(err?.message || t('attachments.library.errors.delete', 'Failed to delete attachment.'), 'error')
+      }
+    },
+    [queryClient, selectedRow, t],
+  )
+
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 1
   return (
@@ -1103,12 +1549,12 @@ export function AttachmentLibrary() {
                 label: t('attachments.library.actions.edit', 'Edit metadata'),
                 onSelect: () => openMetadataDialog(row),
               },
-                {
-                  label: t('attachments.library.actions.copyUrl', 'Copy URL'),
-                  onSelect: () => {
-                    const absolute = resolveAbsoluteUrl(row.url)
-                    navigator.clipboard
-                      .writeText(absolute)
+              {
+                label: t('attachments.library.actions.copyUrl', 'Copy URL'),
+                onSelect: () => {
+                  const absolute = resolveAbsoluteUrl(row.url)
+                  navigator.clipboard
+                    .writeText(absolute)
                     .then(() =>
                       flash(
                         t('attachments.library.actions.copied', 'Link copied.'),
@@ -1122,6 +1568,11 @@ export function AttachmentLibrary() {
                       ),
                     )
                 },
+              },
+              {
+                label: t('attachments.library.actions.delete', 'Delete'),
+                destructive: true,
+                onSelect: () => { void handleDelete(row) },
               },
             ]}
           />

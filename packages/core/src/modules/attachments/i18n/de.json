@@ -15,7 +15,8 @@
         "edit": "Edit metadata",
         "copyUrl": "Copy URL",
         "copied": "Link copied.",
-        "copyError": "Unable to copy link."
+        "copyError": "Unable to copy link.",
+        "delete": "Delete"
       },
       "table": {
         "file": "File",
@@ -90,8 +91,15 @@
           "remove": "Remove"
         }
       },
+      "messages": {
+        "deleted": "Attachment removed."
+      },
       "errors": {
-        "load": "Failed to load attachments."
+        "load": "Failed to load attachments.",
+        "delete": "Failed to delete attachment."
+      },
+      "confirm": {
+        "delete": "Delete attachment \"{{name}}\"? This action cannot be undone."
       }
     },
     "partitions": {

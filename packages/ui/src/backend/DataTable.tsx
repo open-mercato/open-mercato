@@ -1306,10 +1306,10 @@ export function DataTable<T>({
     const fieldsetSelector =
       supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
         ? (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fieldset</span>
+          <div className="space-y-1">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fieldset</div>
             <select
-              className="h-9 rounded border bg-background px-2 text-sm"
+              className="w-full rounded border bg-background px-2 py-2 text-sm"
               value={activeCustomFieldFilterFieldset ?? ''}
               onChange={(event) => handleCustomFieldFilterFieldsetChange(event.target.value)}
             >
@@ -1322,13 +1322,7 @@ export function DataTable<T>({
           </div>
         )
         : null
-    const leadingItems =
-      perspectiveButton || fieldsetSelector ? (
-        <div className="flex items-center gap-2">
-          {perspectiveButton}
-          {fieldsetSelector}
-        </div>
-      ) : null
+    const leadingItems = perspectiveButton ? <div className="flex items-center gap-2">{perspectiveButton}</div> : null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -1340,6 +1334,7 @@ export function DataTable<T>({
         onApply={onFiltersApply}
         onClear={onFiltersClear}
         leadingItems={leadingItems}
+        filtersExtraContent={fieldsetSelector}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />

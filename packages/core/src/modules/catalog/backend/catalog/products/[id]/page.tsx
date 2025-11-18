@@ -21,6 +21,11 @@ import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import {
+  fetchOptionSchemaTemplate,
+  type OptionSchemaRecord,
+  type OptionSchemaTemplateSummary,
+} from '../optionSchemaClient'
+import {
   type ProductFormValues,
   type TaxRateSummary,
   type ProductOptionInput,
@@ -28,6 +33,8 @@ import {
   createLocalId,
   slugify,
   formatTaxRateLabel,
+  buildOptionSchemaDefinition,
+  convertSchemaToProductOptions,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { MetadataEditor } from '@open-mercato/core/modules/catalog/components/products/MetadataEditor'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
@@ -68,29 +75,6 @@ type AttachmentListResponse = {
 
 type OptionSchemaTemplateListResponse = {
   items?: OptionSchemaTemplateSummary[]
-}
-
-type OptionSchemaTemplateSummary = {
-  id?: string
-  name?: string | null
-  code?: string | null
-  description?: string | null
-  schema?: OptionSchemaRecord | null
-}
-
-type OptionSchemaRecord = {
-  version?: number | null
-  name?: string | null
-  description?: string | null
-  options?: OptionDefinitionRecord[]
-}
-
-type OptionDefinitionRecord = {
-  code?: string | null
-  label?: string | null
-  description?: string | null
-  inputType?: string | null
-  choices?: Array<{ code?: string | null; label?: string | null }>
 }
 
 type VariantSummary = {
@@ -165,7 +149,19 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
         const record = Array.isArray(productRes.result?.items) ? productRes.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
         const metadata = normalizeMetadata(record.metadata)
-        const optionSchema = readOptionSchema(metadata)
+        const optionSchemaId =
+          typeof record.option_schema_id === 'string'
+            ? record.option_schema_id
+            : typeof (record as any).optionSchemaId === 'string'
+              ? (record as any).optionSchemaId
+              : null
+        const optionSchemaTemplate = optionSchemaId ? await fetchOptionSchemaTemplate(optionSchemaId) : null
+        let optionInputs = optionSchemaTemplate?.schema
+          ? convertSchemaToProductOptions(optionSchemaTemplate.schema)
+          : []
+        if (!optionInputs.length) {
+          optionInputs = readOptionSchema(metadata)
+        }
         const attachments = await fetchAttachments(productId)
         const { customValues } = extractCustomFields(record)
         const defaultMediaId = typeof record.default_media_id === 'string' ? record.default_media_id : (record as any).defaultMediaId ?? null
@@ -182,7 +178,8 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           defaultMediaId,
           defaultMediaUrl,
           hasVariants: Boolean(record.is_configurable ?? record.isConfigurable),
-          options: optionSchema,
+          options: optionInputs,
+          optionSchemaId,
           variants: [],
           metadata,
           customFieldsetCode:
@@ -261,14 +258,46 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
-      id: 'builder',
+      id: 'details',
       column: 1,
       component: ({ values, setValue, errors }) => (
-        <ProductEditBuilder
+        <ProductDetailsSection
           values={values as ProductFormValues}
           setValue={setValue}
           errors={errors}
-          taxRates={taxRates}
+          productId={productId ?? ''}
+        />
+      ),
+    },
+    {
+      id: 'dimensions',
+      column: 1,
+      component: ({ values, setValue }) => (
+        <ProductDimensionsSection values={values as ProductFormValues} setValue={setValue} />
+      ),
+    },
+    {
+      id: 'metadata',
+      column: 1,
+      component: ({ values, setValue }) => (
+        <ProductMetadataSection values={values as ProductFormValues} setValue={setValue} />
+      ),
+    },
+    {
+      id: 'options',
+      column: 1,
+      component: ({ values, setValue }) => (
+        <ProductOptionsSection values={values as ProductFormValues} setValue={setValue} />
+      ),
+    },
+    {
+      id: 'variants',
+      column: 1,
+      component: ({ values, setValue, errors }) => (
+        <ProductVariantsSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
           productId={productId ?? ''}
           variants={variants}
         />
@@ -324,6 +353,12 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
       defaultMediaUrl: defaultMediaUrl ?? undefined,
       customFieldsetCode: formValues.customFieldsetCode?.trim().length ? formValues.customFieldsetCode : undefined,
     }
+    const optionSchemaDefinition = buildOptionSchemaDefinition(formValues.options, title)
+    if (optionSchemaDefinition) {
+      payload.optionSchema = optionSchemaDefinition
+    } else if (formValues.optionSchemaId) {
+      payload.optionSchemaId = null
+    }
     const customFields = collectCustomFieldValues(formValues)
     if (Object.keys(customFields).length) {
       payload.customFields = customFields
@@ -370,13 +405,12 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
   )
 }
 
-type ProductEditBuilderProps = {
+
+type ProductDetailsSectionProps = {
   values: ProductFormValues
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
-  taxRates: TaxRateSummary[]
   productId: string
-  variants: VariantSummary[]
 }
 
 type ProductMetaSectionProps = {
@@ -386,75 +420,14 @@ type ProductMetaSectionProps = {
   taxRates: TaxRateSummary[]
 }
 
-function ProductEditBuilder({
-  values,
-  setValue,
-  errors,
-  taxRates,
-  productId,
-  variants,
-}: ProductEditBuilderProps) {
+type ProductVariantsSectionProps = CrudFormGroupComponentProps<ProductFormValues> & {
+  productId: string
+  variants: VariantSummary[]
+}
+
+function ProductDetailsSection({ values, setValue, errors, productId }: ProductDetailsSectionProps) {
   const t = useT()
   const mediaItems = Array.isArray(values.mediaItems) ? values.mediaItems : []
-  const metadata = normalizeMetadata(values.metadata)
-  const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false)
-  const [schemaTemplates, setSchemaTemplates] = React.useState<OptionSchemaTemplateSummary[]>([])
-  const [schemaLoading, setSchemaLoading] = React.useState(false)
-  const [saveSchemaOpen, setSaveSchemaOpen] = React.useState(false)
-  const [schemaToEdit, setSchemaToEdit] = React.useState<OptionSchemaTemplateSummary | null>(null)
-
-  const loadSchemas = React.useCallback(async () => {
-    setSchemaLoading(true)
-    try {
-      const res = await apiCall<OptionSchemaTemplateListResponse>('/api/catalog/option-schemas?page=1&pageSize=100')
-      if (res.ok) {
-        setSchemaTemplates(Array.isArray(res.result?.items) ? res.result?.items ?? [] : [])
-      } else {
-        setSchemaTemplates([])
-      }
-    } catch (err) {
-      console.error('catalog.option-schemas.list failed', err)
-      setSchemaTemplates([])
-    } finally {
-      setSchemaLoading(false)
-    }
-  }, [])
-
-  const handleDeleteSchema = React.useCallback(async (id: string) => {
-    try {
-      await deleteCrud('catalog/option-schemas', id, {
-        errorMessage: t('catalog.products.edit.schemas.deleteError', 'Failed to delete schema.'),
-      })
-      flash(t('catalog.products.edit.schemas.deleted', 'Schema deleted.'), 'success')
-      void loadSchemas()
-    } catch (err) {
-      console.error('catalog.option-schemas.delete failed', err)
-    }
-  }, [loadSchemas, t])
-
-  const handleSaveSchema = React.useCallback(async (name: string) => {
-    if (!name.trim().length) {
-      const message = t('catalog.products.edit.schemas.nameRequired', 'Provide a schema name.')
-      throw createCrudFormError(message, { name: message })
-    }
-    const schemaPayload = buildSchemaFromOptions(Array.isArray(values.options) ? values.options : [], name)
-    if (!schemaPayload.options.length) {
-      throw createCrudFormError(t('catalog.products.edit.schemas.empty', 'Add at least one option before saving.'), {})
-    }
-    const payload: Record<string, unknown> = {
-      name: name.trim(),
-      code: slugify(name.trim()),
-      schema: schemaPayload,
-      isActive: true,
-    }
-    if (schemaToEdit?.id) payload.id = schemaToEdit.id
-    if (schemaToEdit?.id) await updateCrud('catalog/option-schemas', payload)
-    else await createCrud('catalog/option-schemas', payload)
-    flash(t('catalog.products.edit.schemas.saved', 'Schema saved.'), 'success')
-    setSaveSchemaOpen(false)
-    setSchemaToEdit(null)
-    void loadSchemas()
-  }, [schemaToEdit, t, values.options, loadSchemas])
 
   const handleMediaItemsChange = React.useCallback(
     (nextItems: ProductMediaItem[]) => {
@@ -495,48 +468,6 @@ function ProductEditBuilder({
     },
     [mediaItems, setValue],
   )
-
-  const handleOptionTitleChange = React.useCallback((optionId: string, nextTitle: string) => {
-    const next = (Array.isArray(values.options) ? values.options : []).map((option) =>
-      option.id === optionId ? { ...option, title: nextTitle } : option,
-    )
-    setValue('options', next)
-  }, [setValue, values.options])
-
-  const setOptionValues = React.useCallback((optionId: string, labels: string[]) => {
-    const normalized = labels.map((label) => label.trim()).filter((label) => label.length)
-    const unique = Array.from(new Set(normalized))
-    const next = (Array.isArray(values.options) ? values.options : []).map((option) => {
-      if (option.id !== optionId) return option
-      const existingByLabel = new Map(option.values.map((value) => [value.label, value]))
-      const nextValues = unique.map((label) => existingByLabel.get(label) ?? { id: createLocalId(), label })
-      return {
-        ...option,
-        values: nextValues,
-      }
-    })
-    setValue('options', next)
-  }, [setValue, values.options])
-
-  const addOption = React.useCallback(() => {
-    const next = [
-      ...(Array.isArray(values.options) ? values.options : []),
-      { id: createLocalId(), title: '', values: [] },
-    ]
-    setValue('options', next)
-  }, [setValue, values.options])
-
-  const removeOption = React.useCallback((optionId: string) => {
-    const next = (Array.isArray(values.options) ? values.options : []).filter((option) => option.id !== optionId)
-    setValue('options', next)
-  }, [setValue, values.options])
-
-  const handleMetadataChange = React.useCallback((next: Record<string, unknown>) => {
-    setValue('metadata', next)
-  }, [setValue])
-
-  const dimensionValues = normalizeDimensions(metadata)
-  const weightValues = normalizeWeight(metadata)
 
   return (
     <div className="space-y-6">
@@ -596,39 +527,156 @@ function ProductEditBuilder({
         onItemsChange={handleMediaItemsChange}
         onDefaultChange={handleDefaultMediaChange}
       />
+    </div>
+  )
+}
 
-      <div className="rounded-lg border p-4">
-        <h3 className="text-sm font-semibold">{t('catalog.products.edit.dimensions', 'Dimensions & weight')}</h3>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.width', 'Width')}</Label>
-            <Input type="number" value={dimensionValues.width ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'width', event.target.value))} placeholder="0" />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.height', 'Height')}</Label>
-            <Input type="number" value={dimensionValues.height ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'height', event.target.value))} placeholder="0" />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.depth', 'Depth')}</Label>
-            <Input type="number" value={dimensionValues.depth ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'depth', event.target.value))} placeholder="0" />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.unit', 'Size unit')}</Label>
-            <Input value={dimensionValues.unit ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'unit', event.target.value))} placeholder="cm" />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.value', 'Weight')}</Label>
-            <Input type="number" value={weightValues.value ?? ''} onChange={(event) => setValue('metadata', applyWeight(metadata, 'value', event.target.value))} placeholder="0" />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.unit', 'Weight unit')}</Label>
-            <Input value={weightValues.unit ?? ''} onChange={(event) => setValue('metadata', applyWeight(metadata, 'unit', event.target.value))} placeholder="kg" />
-          </div>
+function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
+  const t = useT()
+  const metadata = normalizeMetadata(values.metadata)
+  const dimensionValues = normalizeDimensions(metadata)
+  const weightValues = normalizeWeight(metadata)
+
+  return (
+    <div className="rounded-lg border p-4">
+      <h3 className="text-sm font-semibold">{t('catalog.products.edit.dimensions', 'Dimensions & weight')}</h3>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.width', 'Width')}</Label>
+          <Input type="number" value={dimensionValues.width ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'width', event.target.value))} placeholder="0" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.height', 'Height')}</Label>
+          <Input type="number" value={dimensionValues.height ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'height', event.target.value))} placeholder="0" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.depth', 'Depth')}</Label>
+          <Input type="number" value={dimensionValues.depth ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'depth', event.target.value))} placeholder="0" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.unit', 'Size unit')}</Label>
+          <Input value={dimensionValues.unit ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'unit', event.target.value))} placeholder="cm" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.value', 'Weight')}</Label>
+          <Input type="number" value={weightValues.value ?? ''} onChange={(event) => setValue('metadata', applyWeight(metadata, 'value', event.target.value))} placeholder="0" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.unit', 'Weight unit')}</Label>
+          <Input value={weightValues.unit ?? ''} onChange={(event) => setValue('metadata', applyWeight(metadata, 'unit', event.target.value))} placeholder="kg" />
         </div>
       </div>
+    </div>
+  )
+}
 
-      <MetadataEditor value={metadata} onChange={handleMetadataChange} />
+function ProductMetadataSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
+  const metadata = normalizeMetadata(values.metadata)
+  const handleMetadataChange = React.useCallback((next: Record<string, unknown>) => {
+    setValue('metadata', next)
+  }, [setValue])
 
+  return <MetadataEditor value={metadata} onChange={handleMetadataChange} />
+}
+
+function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
+  const t = useT()
+  const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false)
+  const [schemaTemplates, setSchemaTemplates] = React.useState<OptionSchemaTemplateSummary[]>([])
+  const [schemaLoading, setSchemaLoading] = React.useState(false)
+  const [saveSchemaOpen, setSaveSchemaOpen] = React.useState(false)
+  const [schemaToEdit, setSchemaToEdit] = React.useState<OptionSchemaTemplateSummary | null>(null)
+
+  const loadSchemas = React.useCallback(async () => {
+    setSchemaLoading(true)
+    try {
+      const res = await apiCall<OptionSchemaTemplateListResponse>('/api/catalog/option-schemas?page=1&pageSize=100')
+      if (res.ok) {
+        setSchemaTemplates(Array.isArray(res.result?.items) ? res.result?.items ?? [] : [])
+      } else {
+        setSchemaTemplates([])
+      }
+    } catch (err) {
+      console.error('catalog.option-schemas.list failed', err)
+      setSchemaTemplates([])
+    } finally {
+      setSchemaLoading(false)
+    }
+  }, [])
+
+  const handleDeleteSchema = React.useCallback(async (id: string) => {
+    try {
+      await deleteCrud('catalog/option-schemas', id, {
+        errorMessage: t('catalog.products.edit.schemas.deleteError', 'Failed to delete schema.'),
+      })
+      flash(t('catalog.products.edit.schemas.deleted', 'Schema deleted.'), 'success')
+      void loadSchemas()
+    } catch (err) {
+      console.error('catalog.option-schemas.delete failed', err)
+    }
+  }, [loadSchemas, t])
+
+  const handleSaveSchema = React.useCallback(async (name: string) => {
+    if (!name.trim().length) {
+      const message = t('catalog.products.edit.schemas.nameRequired', 'Provide a schema name.')
+      throw createCrudFormError(message, { name: message })
+    }
+    const schemaPayload = buildSchemaFromOptions(Array.isArray(values.options) ? values.options : [], name)
+    if (!schemaPayload.options.length) {
+      throw createCrudFormError(t('catalog.products.edit.schemas.empty', 'Add at least one option before saving.'), {})
+    }
+    const payload: Record<string, unknown> = {
+      name: name.trim(),
+      code: slugify(name.trim()),
+      schema: schemaPayload,
+      isActive: true,
+    }
+    if (schemaToEdit?.id) payload.id = schemaToEdit.id
+    if (schemaToEdit?.id) await updateCrud('catalog/option-schemas', payload)
+    else await createCrud('catalog/option-schemas', payload)
+    flash(t('catalog.products.edit.schemas.saved', 'Schema saved.'), 'success')
+    setSaveSchemaOpen(false)
+    setSchemaToEdit(null)
+    void loadSchemas()
+  }, [schemaToEdit, t, values.options, loadSchemas])
+
+  const handleOptionTitleChange = React.useCallback((optionId: string, nextTitle: string) => {
+    const next = (Array.isArray(values.options) ? values.options : []).map((option) =>
+      option.id === optionId ? { ...option, title: nextTitle } : option,
+    )
+    setValue('options', next)
+  }, [setValue, values.options])
+
+  const setOptionValues = React.useCallback((optionId: string, labels: string[]) => {
+    const normalized = labels.map((label) => label.trim()).filter((label) => label.length)
+    const unique = Array.from(new Set(normalized))
+    const next = (Array.isArray(values.options) ? values.options : []).map((option) => {
+      if (option.id !== optionId) return option
+      const existingByLabel = new Map(option.values.map((value) => [value.label, value]))
+      const nextValues = unique.map((label) => existingByLabel.get(label) ?? { id: createLocalId(), label })
+      return {
+        ...option,
+        values: nextValues,
+      }
+    })
+    setValue('options', next)
+  }, [setValue, values.options])
+
+  const addOption = React.useCallback(() => {
+    const next = [
+      ...(Array.isArray(values.options) ? values.options : []),
+      { id: createLocalId(), title: '', values: [] },
+    ]
+    setValue('options', next)
+  }, [setValue, values.options])
+
+  const removeOption = React.useCallback((optionId: string) => {
+    const next = (Array.isArray(values.options) ? values.options : []).filter((option) => option.id !== optionId)
+    setValue('options', next)
+  }, [setValue, values.options])
+
+  return (
+    <>
       <div className="space-y-4 rounded-lg border p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('catalog.products.create.optionsBuilder.title', 'Product options')}</h3>
@@ -695,49 +743,6 @@ function ProductEditBuilder({
         ) : null}
       </div>
 
-      <div className="space-y-3 rounded-lg border p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">{t('catalog.products.edit.variants', 'Variants')}</h3>
-          <Button asChild size="sm">
-            <Link href={`/backend/catalog/products/${productId}/variants/create`}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('catalog.products.edit.variants.add', 'Add variant')}
-            </Link>
-          </Button>
-        </div>
-        {variants.length ? (
-          <div className="overflow-hidden rounded-md border">
-            <table className="w-full table-auto text-sm">
-              <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2 font-normal">{t('catalog.products.form.variants', 'Variant')}</th>
-                  <th className="px-3 py-2 font-normal">SKU</th>
-                  <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.default', 'Default')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {variants.map((variant) => (
-                  <tr key={variant.id} className="border-t hover:bg-muted/40">
-                    <td className="px-3 py-2">
-                      <Link href={`/backend/catalog/products/${productId}/variants/${variant.id}`} className="flex items-center gap-2 text-foreground">
-                        {variant.name}
-                        <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">{variant.sku || '—'}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{variant.isDefault ? t('common.yes', 'Yes') : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            {t('catalog.products.edit.variants.empty', 'No variants defined yet.')}
-          </p>
-        )}
-      </div>
-
       <OptionSchemaDialog
         open={schemaDialogOpen}
         onOpenChange={(next) => {
@@ -768,6 +773,54 @@ function ProductEditBuilder({
         defaultName={schemaToEdit?.name ?? ''}
         onSubmit={handleSaveSchema}
       />
+    </>
+  )
+}
+
+function ProductVariantsSection({ productId, variants }: ProductVariantsSectionProps) {
+  const t = useT()
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">{t('catalog.products.edit.variants', 'Variants')}</h3>
+        <Button asChild size="sm">
+          <Link href={`/backend/catalog/products/${productId}/variants/create`}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('catalog.products.edit.variants.add', 'Add variant')}
+          </Link>
+        </Button>
+      </div>
+      {variants.length ? (
+        <div className="overflow-hidden rounded-md border">
+          <table className="w-full table-auto text-sm">
+            <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-normal">{t('catalog.products.form.variants', 'Variant')}</th>
+                <th className="px-3 py-2 font-normal">SKU</th>
+                <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.default', 'Default')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variants.map((variant) => (
+                <tr key={variant.id} className="border-t hover:bg-muted/40">
+                  <td className="px-3 py-2">
+                    <Link href={`/backend/catalog/variants/${variant.id}`} className="text-sm font-medium hover:underline">
+                      {variant.name || variant.id}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2 text-muted-foreground">{variant.sku || '—'}</td>
+                  <td className="px-3 py-2 text-muted-foreground">{variant.isDefault ? t('common.yes', 'Yes') : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {t('catalog.products.edit.variants.empty', 'No variants defined yet.')}
+        </p>
+      )}
     </div>
   )
 }
@@ -896,8 +949,11 @@ function normalizeMetadata(value: unknown): Record<string, any> {
 }
 
 function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
-  const raw = metadata.optionSchema
-  if (!Array.isArray(raw)) return []
+  const raw = Array.isArray(metadata.optionSchema)
+    ? metadata.optionSchema
+    : Array.isArray(metadata.option_schema)
+      ? metadata.option_schema
+      : []
   return raw
     .map((option) => {
       if (!option || typeof option !== 'object') return null
@@ -918,6 +974,7 @@ function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
     })
     .filter((entry): entry is ProductOptionInput => !!entry)
 }
+
 
 function extractCustomFields(record: Record<string, unknown>): { customValues: Record<string, unknown> } {
   const customValues: Record<string, unknown> = {}
@@ -995,14 +1052,9 @@ const cleanupWeight = (weight: { value?: number; unit?: string }) => {
 
 function buildMetadataPayload(values: ProductFormValues): Record<string, unknown> {
   const metadata = normalizeMetadata(values.metadata)
-  metadata.optionSchema = Array.isArray(values.options)
-    ? values.options.map((option) => ({
-        id: option.id,
-        title: option.title,
-        values: option.values.map((value) => ({ id: value.id, label: value.label })),
-      }))
-    : []
   metadata.__useMarkdown = values.useMarkdown ?? false
+  delete metadata.optionSchema
+  delete metadata.option_schema
   return metadata
 }
 
@@ -1022,13 +1074,7 @@ function buildSchemaFromOptions(options: ProductOptionInput[], name: string): Op
 function extractOptionsFromTemplate(template: OptionSchemaTemplateSummary): ProductOptionInput[] {
   const schema = template?.schema
   if (!schema || !Array.isArray(schema.options)) return []
-  return schema.options.map((option) => ({
-    id: createLocalId(),
-    title: option.label ?? option.code ?? 'Option',
-    values: Array.isArray(option.choices)
-      ? option.choices.map((choice) => ({ id: createLocalId(), label: choice.label ?? choice.code ?? '' }))
-      : [],
-  }))
+  return convertSchemaToProductOptions(schema)
 }
 
 function OptionSchemaDialog({

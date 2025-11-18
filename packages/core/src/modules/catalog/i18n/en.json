@@ -102,7 +102,11 @@
         "configurable": "Configurable",
         "productType": "Product type",
         "channels": "Sales channels",
-        "channelsLoadError": "Failed to load channels"
+        "channelsLoadError": "Failed to load channels",
+        "categories": "Categories",
+        "categoriesLoadError": "Failed to load categories",
+        "tags": "Tags",
+        "tagsLoadError": "Failed to load tags"
       },
       "types": {
         "simple": "Simple",
@@ -219,7 +223,15 @@
           "manage": "Manage tax classes"
         },
         "organize": {
-          "placeholder": "Work in progress on this tab."
+          "categoriesLabel": "Categories",
+          "categoriesPlaceholder": "Search categories",
+          "categoriesHelp": "Assign products to one or more taxonomy nodes.",
+          "channelsLabel": "Sales channels",
+          "channelsPlaceholder": "Pick channels",
+          "channelsHelp": "Selected channels will receive default offers for this product.",
+          "tagsLabel": "Tags",
+          "tagsPlaceholder": "Add tag and press Enter",
+          "tagsHelp": "Describe products with shared labels to build quick filters."
         },
         "tabs": {
           "label": "Product sections",

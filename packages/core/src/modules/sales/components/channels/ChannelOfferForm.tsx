@@ -506,11 +506,14 @@ function ChannelSelectInput({
   value,
   onChange,
   disabled,
+  showDetailsLink,
 }: {
   value: string | null
   onChange: (next: string | null) => void
   disabled?: boolean
+  showDetailsLink?: boolean
 }) {
+  const t = useT()
   const [options, setOptions] = React.useState<Array<{ id: string; name: string }>>([])
   React.useEffect(() => {
     async function load() {
@@ -529,14 +532,22 @@ function ChannelSelectInput({
         console.error('sales.channels.options', err)
       }
     }
-    if (!disabled) void load()
-  }, [disabled])
+    void load()
+  }, [])
 
   if (disabled && value) {
     const label = options.find((opt) => opt.id === value)?.name ?? value
     return (
-      <div className="rounded border bg-muted px-3 py-2 text-sm">
-        {label}
+      <div className="flex items-center justify-between gap-3 rounded border bg-muted px-3 py-2 text-sm">
+        <div className="min-w-0">
+          <div className="font-medium truncate">{label}</div>
+          <div className="text-xs text-muted-foreground truncate">{value}</div>
+        </div>
+        {showDetailsLink ? (
+          <Link href={`/backend/sales/channels/${value}/edit`} className="text-xs font-medium text-primary hover:underline">
+            {t('sales.channels.offers.form.channelDetails', 'Details')}
+          </Link>
+        ) : null}
       </div>
     )
   }
@@ -546,7 +557,7 @@ function ChannelSelectInput({
       value={value ?? ''}
       onChange={(event) => onChange(event.target.value || null)}
     >
-      <option value="">— Select channel —</option>
+      <option value="">{t('sales.channels.offers.form.channelPlaceholder', 'Select channel')}</option>
       {options.map((opt) => (
         <option key={opt.id} value={opt.id}>
           {opt.name}
@@ -559,33 +570,52 @@ function ChannelSelectInput({
 function ProductSelectInput({
   value,
   onChange,
+  channelId,
 }: {
   value: string | null
   onChange: (next: string | null) => void
+  channelId: string | null
 }) {
+  const t = useT()
   const [query, setQuery] = React.useState('')
-  const [options, setOptions] = React.useState<Array<{ id: string; title: string }>>([])
+  const [results, setResults] = React.useState<ProductSearchResult[]>([])
+  const [isLoading, setLoading] = React.useState(false)
+  const [hasTyped, setHasTyped] = React.useState(false)
+
+  const trimmed = query.trim()
+  const shouldSearch = trimmed.length >= 2 || UUID_REGEX.test(trimmed)
 
   React.useEffect(() => {
+    if (!shouldSearch) {
+      setResults([])
+      return
+    }
     let cancelled = false
     const controller = new AbortController()
     const timeout = setTimeout(async () => {
+      setLoading(true)
       try {
-        const params = new URLSearchParams({ pageSize: '25' })
-        if (query.trim().length) params.set('search', query.trim())
-        const payload = await fetch(`/api/catalog/products?${params.toString()}`, { signal: controller.signal })
-        if (!payload.ok) return
-        const data = await payload.json()
-        const items = Array.isArray(data?.items) ? data.items : []
+        const params = new URLSearchParams({ pageSize: '10' })
+        if (UUID_REGEX.test(trimmed)) {
+          params.set('id', trimmed)
+        } else if (trimmed.length) {
+          params.set('search', trimmed)
+        }
+        if (channelId) params.set('channelId', channelId)
+        const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+          `/api/catalog/products?${params.toString()}`,
+          { signal: controller.signal },
+          { fallback: { items: [] } },
+        )
+        const items = Array.isArray(payload.items) ? payload.items : []
         if (!cancelled) {
-          setOptions(items.map((item: Record<string, unknown>) => ({
-            id: typeof item.id === 'string' ? item.id : '',
-            title: typeof item.title === 'string' ? item.title : '',
-          })))
+          setResults(items.map(mapProductSearchResult))
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
-        console.error('catalog.products.options', err)
+        console.error('catalog.products.lookup', err)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }, 250)
     return () => {
@@ -593,28 +623,116 @@ function ProductSelectInput({
       clearTimeout(timeout)
       controller.abort()
     }
-  }, [query])
+  }, [channelId, shouldSearch, trimmed])
+
+  const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && UUID_REGEX.test(trimmed)) {
+      event.preventDefault()
+      onChange(trimmed)
+    }
+  }, [onChange, trimmed])
+
+  const selectedHint = value
+    ? t('sales.channels.offers.form.productSelectedHint', 'Selected product ID: {{id}}', { id: value })
+    : null
 
   return (
-    <div className="space-y-2">
-      <input
-        className="w-full rounded border px-2 py-2 text-sm"
-        list="product-options"
-        value={value ?? ''}
-        onChange={(event) => onChange(event.target.value || null)}
-        placeholder="Product ID"
-      />
-      <input
-        className="w-full rounded border px-2 py-2 text-sm"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search products…"
-      />
-      <datalist id="product-options">
-        {options.map((opt) => (
-          <option key={opt.id} value={opt.id}>{opt.title}</option>
-        ))}
-      </datalist>
+    <div className="space-y-3">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <input
+          className="w-full rounded border pl-8 pr-2 py-2 text-sm"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setHasTyped(true)
+          }}
+          onKeyDown={handleKeyDown}
+          placeholder={t('sales.channels.offers.form.productSearchPlaceholder', 'Search by title, SKU, or ID…')}
+        />
+      </div>
+      {selectedHint ? (
+        <div className="rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
+          {selectedHint}
+        </div>
+      ) : null}
+      {value ? (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>
+          {t('sales.channels.offers.form.productClear', 'Clear selection')}
+        </Button>
+      ) : null}
+      {shouldSearch ? (
+        <div className="space-y-2">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('sales.channels.offers.form.productSearchLoading', 'Searching products…')}
+            </div>
+          ) : null}
+          {!isLoading && !results.length ? (
+            <p className="text-xs text-muted-foreground">
+              {t('sales.channels.offers.form.productSearchEmpty', 'No products match your search.')}
+            </p>
+          ) : null}
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {results.map((product) => {
+              const isSelected = value === product.id
+              return (
+                <div
+                  key={product.id}
+                  className={cn(
+                    'flex gap-3 rounded border bg-card p-3 transition-colors',
+                    isSelected ? 'border-primary/70 bg-primary/5' : 'hover:border-primary/50',
+                  )}
+                >
+                  <div className="h-12 w-12 overflow-hidden rounded border bg-muted">
+                    {product.defaultMediaUrl ? (
+                      <img src={product.defaultMediaUrl} alt={product.title} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-muted-foreground">
+                        <ImageIcon className="h-5 w-5" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{product.title || t('sales.channels.offers.form.productUntitled', 'Untitled product')}</div>
+                        {product.sku ? (
+                          <div className="text-xs text-muted-foreground">SKU · {product.sku}</div>
+                        ) : null}
+                      </div>
+                      <div className="text-xs font-medium text-muted-foreground">
+                        {product.pricing ? formatPriceDisplay(product.pricing) : t('sales.channels.offers.form.productPriceMissing', 'No price')}
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant={isSelected ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => onChange(product.id)}
+                      >
+                        {isSelected
+                          ? t('sales.channels.offers.form.productSelected', 'Selected')
+                          : t('sales.channels.offers.form.productSelect', 'Select')}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : hasTyped ? (
+        <p className="text-xs text-muted-foreground">
+          {t('sales.channels.offers.form.productSearchHint', 'Type at least 2 characters or paste a product ID.')}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {t('sales.channels.offers.form.productSearchIntro', 'Search by name or paste the product id to find catalog items.')}
+        </p>
+      )}
     </div>
   )
 }
@@ -623,24 +741,74 @@ function DefaultMediaSelect({
   value,
   options,
   onChange,
+  productThumbnail,
 }: {
   value: string | null
-  options: Array<{ id: string; label: string }>
+  options: MediaOption[]
   onChange: (next: string | null) => void
+  productThumbnail: string | null
 }) {
+  const t = useT()
+  if (!options.length) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('sales.channels.offers.form.mediaEmpty', 'Select a product to load its media.')}
+      </p>
+    )
+  }
+  const tiles = [
+    {
+      id: 'inherit',
+      label: t('sales.channels.offers.form.mediaInherit', 'Use product default'),
+      thumbnail: productThumbnail,
+      selected: value == null,
+      onClick: () => onChange(null),
+    },
+    ...options.map((opt) => ({
+      id: opt.id,
+      label: opt.label,
+      thumbnail: opt.thumbnailUrl ?? null,
+      selected: value === opt.id,
+      onClick: () => onChange(opt.id),
+    })),
+  ]
   return (
-    <select
-      className="w-full rounded border px-2 py-2 text-sm"
-      value={value ?? ''}
-      onChange={(event) => onChange(event.target.value || null)}
-    >
-      <option value="">{options.length ? '— Inherit product media —' : 'Select a product first'}</option>
-      {options.map((opt) => (
-        <option key={opt.id} value={opt.id}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {t('sales.channels.offers.form.mediaHelp', 'Choose the thumbnail that should represent this offer in the channel.')}
+      </p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {tiles.map((tile) => (
+          <button
+            key={tile.id}
+            type="button"
+            className={cn(
+              'flex flex-col rounded border text-left transition-colors',
+              tile.selected ? 'border-primary shadow-sm' : 'hover:border-primary/60',
+            )}
+            onClick={tile.onClick}
+          >
+            <div className="relative aspect-square overflow-hidden rounded-t bg-muted">
+              {tile.thumbnail ? (
+                <img src={tile.thumbnail} alt={tile.label} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                  <ImageIcon className="h-6 w-6" />
+                </div>
+              )}
+              {tile.selected ? (
+                <div className="absolute right-2 top-2 rounded-full bg-primary/90 px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+                  {t('sales.channels.offers.form.mediaSelected', 'Active')}
+                </div>
+              ) : null}
+            </div>
+            <div className="p-2">
+              <div className="line-clamp-2 text-xs font-medium">{tile.label}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -873,6 +1041,31 @@ async function resolveVariantThumbnail(
   return null
 }
 
+function mapProductSearchResult(item: Record<string, unknown>): ProductSearchResult {
+  return {
+    id: typeof item.id === 'string' ? item.id : '',
+    title: typeof item.title === 'string' ? item.title : '',
+    sku: typeof item.sku === 'string' ? item.sku : null,
+    defaultMediaUrl: typeof item.defaultMediaUrl === 'string'
+      ? item.defaultMediaUrl
+      : typeof item.default_media_url === 'string'
+        ? item.default_media_url
+      : null,
+    pricing: item.pricing && typeof item.pricing === 'object'
+      ? normalizePricing(item.pricing as Record<string, unknown>)
+      : null,
+  }
+}
+
+function formatPriceDisplay(pricing: PricingSummary | null): string {
+  if (!pricing) return '—'
+  const amount = pricing.displayMode === 'including-tax'
+    ? pricing.unitPriceGross ?? pricing.unitPriceNet
+    : pricing.unitPriceNet ?? pricing.unitPriceGross
+  if (!amount) return pricing.currencyCode ?? '—'
+  return `${pricing.currencyCode ?? ''} ${amount}`
+}
+
 function PriceOverridesEditor({
   values,
   onChange,
@@ -904,14 +1097,32 @@ function PriceOverridesEditor({
   }, [onChange, onRemove, values])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="rounded border bg-muted/60 px-3 py-2">
+        <div className="text-xs uppercase text-muted-foreground">
+          {t('sales.channels.offers.pricing.basePriceLabel', 'Channel price')}
+        </div>
+        <div className="text-base font-semibold">
+          {basePrice ? formatPriceDisplay(basePrice) : t('sales.channels.offers.pricing.basePriceMissing', 'No price found')}
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {t('sales.channels.offers.pricing.basePriceHelp', 'Shown to shoppers when no override is configured.')}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {t('sales.channels.offers.pricing.help', 'Provide overrides for price kinds when this offer is active.')}
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={addRow}>
+            {t('sales.channels.offers.pricing.add', 'Add price')}
+          </Button>
+        </div>
+      </div>
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {t('sales.channels.offers.pricing.help', 'Provide overrides for price kinds when this offer is active.')}
+        <p className="text-xs text-muted-foreground">
+          {t('sales.channels.offers.pricing.overrideHint', 'Overrides take precedence over the channel price.')}
         </p>
-        <Button type="button" variant="outline" size="sm" onClick={addRow}>
-          {t('sales.channels.offers.pricing.add', 'Add price')}
-        </Button>
       </div>
       {values.length ? (
         <div className="space-y-2">
@@ -958,6 +1169,83 @@ function PriceOverridesEditor({
           {t('sales.channels.offers.pricing.empty', 'No overrides yet.')}
         </p>
       )}
+    </div>
+  )
+}
+
+function ProductOverviewCard({ summary, variants }: { summary: ProductSummary; variants: ProductVariantPreview[] }) {
+  const t = useT()
+  if (!summary) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('sales.channels.offers.form.productSummaryPlaceholder', 'Select a product to preview its media, price, and variants.')}
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-3">
+        <div className="h-16 w-16 overflow-hidden rounded border bg-muted">
+          {summary.defaultMediaUrl ? (
+            <img src={summary.defaultMediaUrl} alt={summary.title} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              <ImageIcon className="h-5 w-5" />
+            </div>
+          )}
+        </div>
+        <div className="flex-1">
+          <div className="text-sm font-semibold">{summary.title || t('sales.channels.offers.form.productUntitled', 'Untitled product')}</div>
+          {summary.sku ? (
+            <div className="text-xs text-muted-foreground">SKU · {summary.sku}</div>
+          ) : null}
+          <div className="text-sm">
+            <span className="text-muted-foreground">{t('sales.channels.offers.form.productPriceLabel', 'Base price')}:</span>{' '}
+            <span className="font-semibold">{formatPriceDisplay(summary.pricing)}</span>
+          </div>
+        </div>
+      </div>
+      {summary.description ? (
+        <p className="text-sm text-muted-foreground">{summary.description}</p>
+      ) : null}
+      <ProductVariantsList variants={variants} />
+    </div>
+  )
+}
+
+function ProductVariantsList({ variants }: { variants: ProductVariantPreview[] }) {
+  const t = useT()
+  if (!variants.length) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t('sales.channels.offers.form.variantsEmpty', 'No variants available for this product.')}
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">{t('sales.channels.offers.form.variantsTitle', 'Variants')}</div>
+      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+        {variants.map((variant) => (
+          <div key={variant.id} className="flex gap-3 rounded border bg-card p-2">
+            <div className="h-10 w-10 overflow-hidden rounded border bg-muted">
+              {variant.thumbnailUrl ? (
+                <img src={variant.thumbnailUrl} alt={variant.name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full items-center justify-center text-muted-foreground">
+                  <ImageIcon className="h-4 w-4" />
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-medium">{variant.name}</div>
+              {variant.sku ? (
+                <div className="text-[11px] text-muted-foreground">SKU · {variant.sku}</div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -7,8 +7,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   CatalogOffer,
   CatalogProduct,
+  CatalogProductCategoryAssignment,
   CatalogProductPrice,
   CatalogProductVariant,
+  CatalogProductTagAssignment,
 } from '../../data/entities'
 import { CATALOG_PRODUCT_TYPES } from '../../data/types'
 import type { CatalogProductType } from '../../data/types'
@@ -44,6 +46,8 @@ const listSchema = z
     productType: z.enum(CATALOG_PRODUCT_TYPES).optional(),
     channelIds: z.string().optional(),
     channelId: z.string().uuid().optional(),
+    categoryIds: z.string().optional(),
+    tagIds: z.string().optional(),
     offerId: z.string().uuid().optional(),
     userId: z.string().uuid().optional(),
     userGroupId: z.string().uuid().optional(),
@@ -82,6 +86,53 @@ export async function buildProductFilters(
   ctx: CrudCtx
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const restrictedProductIds: { value: Set<string> | null } = { value: null }
+
+  const intersectProductIds = (ids: string[]) => {
+    const normalized = ids.filter((id): id is string => typeof id === 'string' && id.trim().length)
+    const current = new Set(normalized)
+    if (!current.size) {
+      restrictedProductIds.value = new Set()
+      return
+    }
+    if (!restrictedProductIds.value) {
+      restrictedProductIds.value = current
+      return
+    }
+    restrictedProductIds.value = new Set(
+      Array.from(restrictedProductIds.value).filter((id) => current.has(id))
+    )
+  }
+
+  const applyRestrictedProducts = () => {
+    if (!restrictedProductIds.value) return
+    if (restrictedProductIds.value.size === 0) {
+      filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+      return
+    }
+    const ids = Array.from(restrictedProductIds.value)
+    const existing = filters.id as Record<string, unknown> | undefined
+    if (existing && typeof existing === 'object') {
+      if ('$eq' in existing && typeof (existing as { $eq?: unknown }).$eq === 'string') {
+        const target = (existing as { $eq: string }).$eq
+        if (!restrictedProductIds.value.has(target)) {
+          filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+        }
+        return
+      }
+      if ('$in' in existing && Array.isArray((existing as { $in?: unknown }).$in)) {
+        const subset = ((existing as { $in: string[] }).$in).filter((id) =>
+          restrictedProductIds.value!.has(id)
+        )
+        filters.id = subset.length
+          ? { $in: subset }
+          : { $eq: '00000000-0000-0000-0000-000000000000' }
+        return
+      }
+    }
+    filters.id = ids.length === 1 ? { $eq: ids[0] } : { $in: ids }
+  }
   if (query.id) {
     filters.id = { $eq: query.id }
   }
@@ -112,7 +163,6 @@ export async function buildProductFilters(
   }
   const channelFilterIds = parseIdList(query.channelIds)
   if (channelFilterIds.length) {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const offerRows = await em.find(
       CatalogOffer,
       {
@@ -121,20 +171,40 @@ export async function buildProductFilters(
       },
       { fields: ['id', 'product'] }
     )
-    const productIds = Array.from(
-      new Set(
-        offerRows
-          .map((offer) =>
-            typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null
-          )
-          .filter((id): id is string => !!id)
-      )
+    const productIds = offerRows
+      .map((offer) => (typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null))
+      .filter((id): id is string => !!id)
+    intersectProductIds(productIds)
+  }
+
+  const categoryFilterIds = parseIdList(query.categoryIds)
+  if (categoryFilterIds.length) {
+    const assignments = await em.find(
+      CatalogProductCategoryAssignment,
+      { category: { $in: categoryFilterIds } },
+      { fields: ['id', 'product'] }
     )
-    if (!productIds.length) {
-      filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
-    } else {
-      filters.id = { $in: productIds }
-    }
+    const productIds = assignments
+      .map((assignment) =>
+        typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
+      )
+      .filter((id): id is string => !!id)
+    intersectProductIds(productIds)
+  }
+
+  const tagFilterIds = parseIdList(query.tagIds)
+  if (tagFilterIds.length) {
+    const assignments = await em.find(
+      CatalogProductTagAssignment,
+      { tag: { $in: tagFilterIds } },
+      { fields: ['id', 'product'] }
+    )
+    const productIds = assignments
+      .map((assignment) =>
+        typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
+      )
+      .filter((id): id is string => !!id)
+    intersectProductIds(productIds)
   }
   const customFieldset =
     typeof query.customFieldset === 'string' && query.customFieldset.trim().length
@@ -142,11 +212,11 @@ export async function buildProductFilters(
       : null
   const tenantId = ctx.auth?.tenantId ?? null
   try {
-    const em = ctx.container.resolve('em') as EntityManager
+    const scopedEm = ctx.container.resolve('em') as EntityManager
     const cfFilters = await buildCustomFieldFiltersFromQuery({
       entityIds: [E.catalog.catalog_product],
       query,
-      em,
+      em: scopedEm,
       tenantId,
       fieldset: customFieldset ?? undefined,
     })
@@ -154,6 +224,7 @@ export async function buildProductFilters(
   } catch {
     // ignore custom field filter errors; fall back to base filters
   }
+  applyRestrictedProducts()
   return filters
 }
 

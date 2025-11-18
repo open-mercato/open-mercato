@@ -17,12 +17,15 @@ import { CatalogOffer } from '@open-mercato/core/modules/catalog/data/entities'
 
 const rawBodySchema = z.object({}).passthrough()
 
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
     id: z.string().uuid().optional(),
+    ids: z.string().optional(),
     isActive: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -56,9 +59,21 @@ const salesChannelItemSchema = z.object({
 
 const salesChannelListResponseSchema = createPagedListResponseSchema(salesChannelItemSchema)
 
+function parseIdList(raw?: string): string[] {
+  if (!raw) return []
+  return raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => UUID_REGEX.test(value))
+}
+
 function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
+  else {
+    const ids = parseIdList(query.ids)
+    if (ids.length) filters.id = { $in: ids }
+  }
   if (query.search && query.search.trim().length > 0) {
     const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
     filters.$or = [

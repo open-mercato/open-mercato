@@ -161,6 +161,9 @@ export class CatalogProduct {
   @OneToMany(() => CatalogProductCategoryAssignment, (assignment) => assignment.product)
   categoryAssignments = new Collection<CatalogProductCategoryAssignment>(this)
 
+  @OneToMany(() => CatalogProductTagAssignment, (assignment) => assignment.product)
+  tagAssignments = new Collection<CatalogProductTagAssignment>(this)
+
 }
 @Entity({ tableName: 'catalog_product_categories' })
 @Index({ name: 'catalog_product_categories_scope_idx', properties: ['organizationId', 'tenantId'] })
@@ -255,6 +258,65 @@ export class CatalogProductCategoryAssignment {
 
   @Property({ name: 'position', type: 'int', default: 0 })
   position: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'catalog_product_tags' })
+@Index({ name: 'catalog_product_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_product_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class CatalogProductTag {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @OneToMany(() => CatalogProductTagAssignment, (assignment) => assignment.tag)
+  assignments = new Collection<CatalogProductTagAssignment>(this)
+}
+
+@Entity({ tableName: 'catalog_product_tag_assignments' })
+@Index({ name: 'catalog_product_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_product_tag_assignments_unique', properties: ['product', 'tag'] })
+export class CatalogProductTagAssignment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @ManyToOne(() => CatalogProductTag, { fieldName: 'tag_id', deleteRule: 'cascade' })
+  tag!: CatalogProductTag
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

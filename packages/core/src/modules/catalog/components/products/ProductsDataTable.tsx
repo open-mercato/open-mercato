@@ -141,6 +141,42 @@ export default function ProductsDataTable() {
   const { data: customFieldDefs = [] } = useCustomFieldDefs(ENTITY_ID, {
     keyExtras: [scopeVersion, reloadToken],
   })
+  const [channelOptionsCache, setChannelOptionsCache] = React.useState<Record<string, FilterOption>>({})
+  const [categoryOptionsCache, setCategoryOptionsCache] = React.useState<Record<string, FilterOption>>({})
+  const [tagOptionsCache, setTagOptionsCache] = React.useState<Record<string, FilterOption>>({})
+
+  const registerOptions = React.useCallback(
+    (
+      setter: React.Dispatch<React.SetStateAction<Record<string, FilterOption>>>,
+      options: FilterOption[]
+    ) => {
+      setter((prev) => {
+        const next = { ...prev }
+        options.forEach((opt) => {
+          if (opt.value) next[opt.value] = opt
+        })
+        return next
+      })
+    },
+    []
+  )
+
+  const registerChannelOptions = React.useCallback(
+    (options: FilterOption[]) => registerOptions(setChannelOptionsCache, options),
+    [registerOptions]
+  )
+  const registerCategoryOptions = React.useCallback(
+    (options: FilterOption[]) => registerOptions(setCategoryOptionsCache, options),
+    [registerOptions]
+  )
+  const registerTagOptions = React.useCallback(
+    (options: FilterOption[]) => registerOptions(setTagOptionsCache, options),
+    [registerOptions]
+  )
+
+  const channelOptions = React.useMemo(() => Object.values(channelOptionsCache), [channelOptionsCache])
+  const categoryOptions = React.useMemo(() => Object.values(categoryOptionsCache), [categoryOptionsCache])
+  const tagOptions = React.useMemo(() => Object.values(tagOptionsCache), [tagOptionsCache])
 
   const loadChannelOptions = React.useCallback(
     async (term?: string): Promise<FilterOption[]> => {
@@ -153,7 +189,7 @@ export default function ProductsDataTable() {
           { errorMessage: t('catalog.products.filters.channelsLoadError', 'Failed to load channels') },
         )
         const items = Array.isArray(payload?.items) ? payload.items : []
-        return items
+        const options = items
           .map((entry) => {
             const value = typeof entry.id === 'string' ? entry.id : null
             if (!value) return null
@@ -163,14 +199,74 @@ export default function ProductsDataTable() {
                 : typeof entry.code === 'string'
                   ? entry.code
                   : value
-            return { value, label }
+            return { value, label, description: typeof entry.code === 'string' ? entry.code : undefined }
           })
           .filter((option): option is FilterOption => !!option)
+        registerChannelOptions(options)
+        return options
       } catch {
         return []
       }
     },
-    [t],
+    [registerChannelOptions, t],
+  )
+
+  const loadCategoryOptions = React.useCallback(
+    async (term?: string): Promise<FilterOption[]> => {
+      try {
+        const params = new URLSearchParams({ pageSize: '200', view: 'manage' })
+        if (term && term.trim().length) params.set('search', term.trim())
+        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; name?: string; parentName?: string | null }> }>(
+          `/api/catalog/categories?${params.toString()}`,
+          undefined,
+          { errorMessage: t('catalog.products.filters.categoriesLoadError', 'Failed to load categories') },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const options = items
+          .map((entry) => {
+            const value = typeof entry.id === 'string' ? entry.id : null
+            if (!value) return null
+            const label = typeof entry.name === 'string' && entry.name.trim().length ? entry.name : value
+            const description =
+              typeof entry.parentName === 'string' && entry.parentName.trim().length ? entry.parentName : null
+            return { value, label, description }
+          })
+          .filter((option): option is FilterOption => !!option)
+        registerCategoryOptions(options)
+        return options
+      } catch {
+        return []
+      }
+    },
+    [registerCategoryOptions, t],
+  )
+
+  const loadTagOptions = React.useCallback(
+    async (term?: string): Promise<FilterOption[]> => {
+      try {
+        const params = new URLSearchParams({ pageSize: '100' })
+        if (term && term.trim().length) params.set('search', term.trim())
+        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; label?: string }> }>(
+          `/api/catalog/tags?${params.toString()}`,
+          undefined,
+          { errorMessage: t('catalog.products.filters.tagsLoadError', 'Failed to load tags') },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        const options = items
+          .map((entry) => {
+            const value = typeof entry.id === 'string' ? entry.id : null
+            if (!value) return null
+            const label = typeof entry.label === 'string' && entry.label.trim().length ? entry.label : value
+            return { value, label }
+          })
+          .filter((option): option is FilterOption => !!option)
+        registerTagOptions(options)
+        return options
+      } catch {
+        return []
+      }
+    },
+    [registerTagOptions, t],
   )
 
   const productTypeOptions = React.useMemo<FilterOption[]>(() => [
@@ -199,8 +295,45 @@ export default function ProductsDataTable() {
     { id: 'isActive', label: t('catalog.products.filters.active'), type: 'checkbox' },
     { id: 'configurable', label: t('catalog.products.filters.configurable'), type: 'checkbox' },
     { id: 'productType', label: t('catalog.products.filters.productType', 'Type'), type: 'select', options: productTypeOptions },
-    { id: 'channelIds', label: t('catalog.products.filters.channels'), type: 'tags', loadOptions: loadChannelOptions },
-  ], [loadChannelOptions, productTypeOptions, t])
+    {
+      id: 'channelIds',
+      label: t('catalog.products.filters.channels'),
+      type: 'tags',
+      loadOptions: loadChannelOptions,
+      options: channelOptions,
+      formatValue: (val) => channelOptionsCache[val]?.label ?? val,
+      formatDescription: (val) => channelOptionsCache[val]?.description ?? null,
+    },
+    {
+      id: 'categoryIds',
+      label: t('catalog.products.filters.categories', 'Categories'),
+      type: 'tags',
+      loadOptions: loadCategoryOptions,
+      options: categoryOptions,
+      formatValue: (val) => categoryOptionsCache[val]?.label ?? val,
+      formatDescription: (val) => categoryOptionsCache[val]?.description ?? null,
+    },
+    {
+      id: 'tagIds',
+      label: t('catalog.products.filters.tags', 'Tags'),
+      type: 'tags',
+      loadOptions: loadTagOptions,
+      options: tagOptions,
+      formatValue: (val) => tagOptionsCache[val]?.label ?? val,
+    },
+  ], [
+    categoryOptions,
+    categoryOptionsCache,
+    channelOptions,
+    channelOptionsCache,
+    loadCategoryOptions,
+    loadChannelOptions,
+    loadTagOptions,
+    productTypeOptions,
+    tagOptions,
+    tagOptionsCache,
+    t,
+  ])
 
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(() => {
     const base: ColumnDef<ProductRow>[] = [
@@ -345,6 +478,18 @@ export default function ProductsDataTable() {
         .map((value) => (typeof value === 'string' ? value : null))
         .filter((value): value is string => !!value)
       if (values.length) params.set('channelIds', values.join(','))
+    }
+    if (Array.isArray(filterValues.categoryIds) && filterValues.categoryIds.length) {
+      const values = filterValues.categoryIds
+        .map((value) => (typeof value === 'string' ? value : null))
+        .filter((value): value is string => !!value)
+      if (values.length) params.set('categoryIds', values.join(','))
+    }
+    if (Array.isArray(filterValues.tagIds) && filterValues.tagIds.length) {
+      const values = filterValues.tagIds
+        .map((value) => (typeof value === 'string' ? value : null))
+        .filter((value): value is string => !!value)
+      if (values.length) params.set('tagIds', values.join(','))
     }
     Object.entries(filterValues).forEach(([key, value]) => {
       if (!key.startsWith('cf_') || value == null) return

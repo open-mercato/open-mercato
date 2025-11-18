@@ -27,6 +27,7 @@ import {
 import { VariantBuilder } from '@open-mercato/core/modules/catalog/components/products/VariantBuilder'
 import type { ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
 
 type ProductResponse = {
   items?: Array<{
@@ -124,10 +125,28 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         if (!res.ok) throw new Error('load_failed')
         const record = Array.isArray(res.result?.items) ? res.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
+        const metadata = (record.metadata ?? {}) as Record<string, unknown>
+        const optionSchemaId =
+          typeof record.option_schema_id === 'string'
+            ? record.option_schema_id
+            : typeof (record as any).optionSchemaId === 'string'
+              ? (record as any).optionSchemaId
+              : null
+        let schemaSource: unknown = metadata.optionSchema ?? (metadata.option_schema as unknown)
+        if (optionSchemaId) {
+          const template = await fetchOptionSchemaTemplate(optionSchemaId)
+          if (template?.schema?.options) {
+            schemaSource = template.schema.options.map((option) => ({
+              code: option.code,
+              label: option.label,
+              values: Array.isArray(option.choices)
+                ? option.choices.map((choice) => ({ id: choice.code ?? undefined, label: choice.label ?? choice.code ?? '' }))
+                : [],
+            }))
+          }
+        }
         if (!cancelled) {
-          const metadata = (record.metadata ?? {}) as Record<string, unknown>
-          const schema = metadata.optionSchema ?? (metadata.option_schema as unknown)
-          setOptionDefinitions(normalizeOptionSchema(schema))
+          setOptionDefinitions(normalizeOptionSchema(schemaSource))
           setProductTitle(typeof record.title === 'string' ? record.title : '')
           const base = createVariantInitialValues()
           setInitialValues(base)

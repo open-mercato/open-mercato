@@ -157,7 +157,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * DELETE /attachments/library/{id}
+         * @description Requires features: attachments.manage
+         */
+        delete: operations["attachments_delete_attachments_library_id"];
         options?: never;
         head?: never;
         /**
@@ -884,6 +888,26 @@ export interface paths {
          * @description Requires features: catalog.products.manage
          */
         delete: operations["catalog_delete_catalog_products"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/tags
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_tags"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3316,11 +3340,13 @@ export interface components {
         DocPathsAttachmentsAttachmentsImageIdSlugGetParameters1Schema: string;
         DocPathsAttachmentsAttachmentsImageIdSlugGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchema: {
+            customFields?: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesCustomFields"];
             entityId: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesEntityId"];
             fieldKey?: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFieldKey"];
             file: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFile"];
             recordId: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesRecordId"];
         };
+        DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesCustomFields: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesEntityId: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFieldKey: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFile: string;
@@ -3331,6 +3357,7 @@ export interface components {
         };
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItem: {
             assignments?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignments"];
+            customFields?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesCustomFields"];
             fileName: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileName"];
             fileSize: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileSize"];
             id: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesId"];
@@ -3353,6 +3380,9 @@ export interface components {
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf0: null;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf1: string;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesType: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileName: string;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileSize: number;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesId: string;
@@ -3392,6 +3422,15 @@ export interface components {
             error: components["schemas"]["DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdDeleteParameters0Schema: string;
+        DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsAttachmentsLibraryIdPatchParameters0Schema: string;
         DocPathsAttachmentsLibraryIdPatchResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsAttachmentsLibraryIdPatchResponses401ContentApplicationJsonSchema: {
@@ -4634,6 +4673,15 @@ export interface components {
             error: components["schemas"]["DocPathsCatalogProductsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsCatalogProductsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogTagsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsCatalogVariantsDeleteResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsCatalogVariantsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -11007,9 +11055,10 @@ export interface components {
         DocPathsSalesChannelsGetParameters3Schema: string;
         DocPathsSalesChannelsGetParameters4Schema: string;
         DocPathsSalesChannelsGetParameters5Schema: string;
+        DocPathsSalesChannelsGetParameters6Schema: string;
         /** @enum {string} */
-        DocPathsSalesChannelsGetParameters6Schema: "asc" | "desc";
-        DocPathsSalesChannelsGetParameters7Schema: boolean;
+        DocPathsSalesChannelsGetParameters7Schema: "asc" | "desc";
+        DocPathsSalesChannelsGetParameters8Schema: boolean;
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchema: {
             items: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
             page: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
@@ -13000,6 +13049,54 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_delete_attachments_library_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -16484,6 +16581,54 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsCatalogProductsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_tags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogTagsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -25088,7 +25233,9 @@ export interface operations {
                 /** @example 00000000-0000-4000-8000-000000000000 */
                 id?: components["schemas"]["DocPathsSalesChannelsGetParameters3Schema"];
                 /** @example string */
-                isActive?: components["schemas"]["DocPathsSalesChannelsGetParameters4Schema"];
+                ids?: components["schemas"]["DocPathsSalesChannelsGetParameters4Schema"];
+                /** @example string */
+                isActive?: components["schemas"]["DocPathsSalesChannelsGetParameters5Schema"];
                 /** @example 1 */
                 page?: components["schemas"]["DocPathsSalesChannelsGetParameters0Schema"];
                 /** @example 1 */
@@ -25096,11 +25243,11 @@ export interface operations {
                 /** @example string */
                 search?: components["schemas"]["DocPathsSalesChannelsGetParameters2Schema"];
                 /** @example asc */
-                sortDir?: components["schemas"]["DocPathsSalesChannelsGetParameters6Schema"];
+                sortDir?: components["schemas"]["DocPathsSalesChannelsGetParameters7Schema"];
                 /** @example string */
-                sortField?: components["schemas"]["DocPathsSalesChannelsGetParameters5Schema"];
+                sortField?: components["schemas"]["DocPathsSalesChannelsGetParameters6Schema"];
                 /** @example true */
-                withDeleted?: components["schemas"]["DocPathsSalesChannelsGetParameters7Schema"];
+                withDeleted?: components["schemas"]["DocPathsSalesChannelsGetParameters8Schema"];
             };
             header?: never;
             path?: never;

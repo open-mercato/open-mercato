@@ -14,6 +14,7 @@ export const metadata = {
   pageTitleKey: 'catalog.categories.page.title',
   pageGroup: 'Catalog',
   pageGroupKey: 'catalog.nav.group',
+  pagePriority: 30,
   pageOrder: 90,
   icon: categoriesIcon,
   breadcrumb: [{ label: 'Categories', labelKey: 'catalog.categories.page.title' }],

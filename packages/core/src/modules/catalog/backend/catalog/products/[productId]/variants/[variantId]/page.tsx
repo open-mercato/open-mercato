@@ -27,6 +27,7 @@ import {
 import { VariantBuilder } from '@open-mercato/core/modules/catalog/components/products/VariantBuilder'
 import type { ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
 
 type VariantResponse = {
   items?: Array<Record<string, unknown>>
@@ -156,8 +157,31 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             const product = Array.isArray(productRes.result?.items) ? productRes.result?.items?.[0] : undefined
             if (product) {
               setProductTitle(typeof product.title === 'string' ? product.title : '')
-              const schema = (product.metadata as Record<string, unknown> | null)?.optionSchema
-              setOptionDefinitions(normalizeOptionSchema(schema))
+              const productMetadata = (product.metadata ?? {}) as Record<string, unknown>
+              const optionSchemaId =
+                typeof product.option_schema_id === 'string'
+                  ? product.option_schema_id
+                  : typeof (product as any).optionSchemaId === 'string'
+                    ? (product as any).optionSchemaId
+                    : null
+              let schemaSource: unknown =
+                productMetadata.optionSchema ?? (productMetadata.option_schema as unknown)
+              if (optionSchemaId) {
+                const template = await fetchOptionSchemaTemplate(optionSchemaId)
+                if (template?.schema?.options) {
+                  schemaSource = template.schema.options.map((option) => ({
+                    code: option.code,
+                    label: option.label,
+                    values: Array.isArray(option.choices)
+                      ? option.choices.map((choice) => ({
+                          id: choice.code ?? undefined,
+                          label: choice.label ?? choice.code ?? '',
+                        }))
+                      : [],
+                  }))
+                }
+              }
+              setOptionDefinitions(normalizeOptionSchema(schemaSource))
             }
           }
         }

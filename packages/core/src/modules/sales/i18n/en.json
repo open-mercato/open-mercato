@@ -87,6 +87,13 @@
         }
       },
       "offers": {
+        "listTitle": "Sales channel offers",
+        "listSubtitle": "Review product overrides across every sales channel.",
+        "filters": {
+          "channels": "Sales channels",
+          "channelsPlaceholder": "Filter by channels…",
+          "channelsLoadError": "Failed to load channels"
+        },
         "heading": "Offers for {{name}}",
         "subtitle": "Override product presentation and pricing per channel.",
         "actions": {
@@ -113,9 +120,12 @@
           "search": "Search offers…",
           "refresh": "Refresh",
           "empty": "No offers for this channel yet.",
+          "emptyAll": "No offers available yet.",
           "noOverrides": "No overrides",
           "price": "Price",
-          "emptyProduct": "Unlinked product"
+          "emptyProduct": "Unlinked product",
+          "channel": "Channel",
+          "channelUnassigned": "Unassigned"
         },
         "form": {
           "createTitle": "Create offer",
@@ -124,11 +134,36 @@
           "updateSubmit": "Save changes",
           "loading": "Loading offer…",
           "channel": "Channel",
+          "channelDetails": "Details",
+          "channelPlaceholder": "Select channel",
           "product": "Product",
+          "productGroup": "Product",
+          "productGroupHelp": "Search the catalog and pick the product you want to customize for this channel.",
+          "productSummaryTitle": "Product summary",
+          "productSummaryPlaceholder": "Select a product to preview its media, price, and variants.",
+          "productSearchPlaceholder": "Search by title, SKU, or ID…",
+          "productSearchLoading": "Searching products…",
+          "productSearchEmpty": "No products match your search.",
+          "productSearchHint": "Type at least 2 characters or paste a product ID.",
+          "productSearchIntro": "Search by name or paste the product id to find catalog items.",
+          "productSelectedHint": "Selected product ID: {{id}}",
+          "productClear": "Clear selection",
+          "productUntitled": "Untitled product",
+          "productPriceMissing": "No price",
+          "productPriceLabel": "Base price",
+          "productSelect": "Select",
+          "productSelected": "Selected",
           "defaultMedia": "Default media",
+          "mediaGroupTitle": "Default media override",
+          "mediaEmpty": "Select a product to load its media.",
+          "mediaHelp": "Choose the thumbnail that should represent this offer in the channel.",
+          "mediaInherit": "Use product default",
+          "mediaSelected": "Active",
           "title": "Title",
           "description": "Description",
           "active": "Active",
+          "variantsTitle": "Variants",
+          "variantsEmpty": "No variants available for this product.",
           "tabs": {
             "offers": "Offers"
           },
@@ -144,7 +179,11 @@
           "selectKind": "Select price kind",
           "amount": "Amount",
           "remove": "Remove",
-          "empty": "No overrides yet."
+          "empty": "No overrides yet.",
+          "basePriceLabel": "Channel price",
+          "basePriceMissing": "No price found",
+          "basePriceHelp": "Shown to shoppers when no override is configured.",
+          "overrideHint": "Overrides take precedence over the channel price."
         }
       }
     },
