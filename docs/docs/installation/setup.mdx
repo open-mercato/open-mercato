@@ -10,16 +10,22 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    git clone https://github.com/open-mercato/open-mercato.git
    cd open-mercato
    ```
-2. **Install workspace dependencies**
+2. **Start Docker services**
+   ```bash
+   docker compose up -d
+   ```
+   This starts PostgreSQL 15 with pgvector and Redis 7. The pgvector extension is automatically installed, enabling vector search features.
+
+3. **Install workspace dependencies**
    ```bash
    yarn install
    ```
-3. **Bootstrap everything with one command**
+4. **Bootstrap everything with one command**
    ```bash
    yarn mercato init
    ```
    This script prepares module registries, generates/applies migrations, seeds default roles, provisions an admin user, and loads demo CRM data (companies, people, deals, activities, todos). Add `--no-examples` if you prefer to skip the demo content while keeping core identities, `--stresstest` (optionally with `-n <count>`) to preload thousands of synthetic contacts, companies, deals, activities, and notes, or combine `--stresstest --lite` for high-volume contacts without the heavier extras when you need raw throughput.
-4. **Launch the app**
+5. **Launch the app**
    ```bash
    yarn dev
    ```
@@ -46,5 +52,29 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
 ![Open Mercato admin home](/screenshots/open-mercato-homepage.png)
 
 > 💡 Need a clean slate? Run `yarn mercato init --reinstall`. It wipes module migrations and **drops the database**, so only use it when you intentionally want to reset everything. Prefer `yarn mercato init --no-examples` if you just want an empty CRM without resetting the database.
+
+## Docker Management
+
+**Stop services:**
+```bash
+docker compose down
+```
+
+**View logs:**
+```bash
+docker compose logs -f
+```
+
+**Complete reset (deletes all data):**
+```bash
+docker compose down -v
+docker compose up -d
+yarn mercato init
+```
+
+**Verify pgvector installation:**
+```bash
+docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';"
+```
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
