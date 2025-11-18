@@ -819,10 +819,11 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.catalog.catalog_product,
         recordId: after.id,
         organizationId: after.organizationId,
@@ -830,6 +831,18 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
         values: resetValues,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: productCrudEvents,
+      indexer: productCrudIndexer,
+    })
   },
 }
 
@@ -1008,10 +1021,11 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.catalog.catalog_product,
         recordId: before.id,
         organizationId: before.organizationId,
@@ -1019,6 +1033,18 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         values: resetValues,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: productCrudEvents,
+      indexer: productCrudIndexer,
+    })
   },
 }
 
@@ -1056,11 +1082,12 @@ const deleteProductCommand: CommandHandler<
     }
     em.remove(record)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
-          dataEngine: ctx.container.resolve('dataEngine'),
+          dataEngine,
           entityId: E.catalog.catalog_product,
           recordId: id,
           organizationId: record.organizationId,
@@ -1069,6 +1096,18 @@ const deleteProductCommand: CommandHandler<
         })
       }
     }
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: productCrudEvents,
+      indexer: productCrudIndexer,
+    })
     return { productId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -1126,9 +1165,10 @@ const deleteProductCommand: CommandHandler<
     applyProductSnapshot(em, record, before)
     await restoreOffersFromSnapshot(em, record, before.offers)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.catalog.catalog_product,
         recordId: before.id,
         organizationId: before.organizationId,
@@ -1136,6 +1176,18 @@ const deleteProductCommand: CommandHandler<
         values: before.custom,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: productCrudEvents,
+      indexer: productCrudIndexer,
+    })
   },
 }
 
