@@ -52,43 +52,6 @@ const MarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
 }) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
 
-const createVariantDraft = (
-  productTaxRateId: string | null,
-  overrides: Partial<VariantDraft> = {},
-): VariantDraft => ({
-  id: createLocalId(),
-  title: 'Default variant',
-  sku: '',
-  isDefault: false,
-  taxRateId: productTaxRateId ?? null,
-  manageInventory: false,
-  allowBackorder: false,
-  hasInventoryKit: false,
-  optionValues: {},
-  prices: {},
-  ...overrides,
-})
-
-const buildOptionValuesKey = (optionValues?: Record<string, string>): string => {
-  if (!optionValues) return ''
-  return Object.keys(optionValues)
-    .sort()
-    .map((key) => `${key}:${optionValues[key] ?? ''}`)
-    .join('|')
-}
-
-const haveSameOptionValues = (
-  current: Record<string, string> | undefined,
-  next: Record<string, string>,
-): boolean => {
-  const a = current ?? {}
-  const keys = new Set([...Object.keys(a), ...Object.keys(next)])
-  for (const key of keys) {
-    if ((a[key] ?? '') !== (next[key] ?? '')) return false
-  }
-  return true
-}
-
 
 export default function CreateCatalogProductPage() {
   const t = useT()
@@ -1040,48 +1003,4 @@ function buildVariantCombinations(options: ProductOptionInput[]): Record<string,
     })
     return combos
   }, initial)
-}
-
-function normalizePriceKindSummary(input: PriceKindApiPayload | undefined | null): PriceKindSummary | null {
-  if (!input) return null
-  const getString = (value: unknown): string | null => {
-    if (typeof value === 'string' && value.trim().length) return value.trim()
-    if (typeof value === 'number' || typeof value === 'bigint') return String(value)
-    return null
-  }
-  const id = getString(input.id)
-  const code = getString(input.code)
-  const title = getString(input.title)
-  if (!id || !code || !title) return null
-  const currency = getString(input.currencyCode) ?? getString(input.currency_code)
-  const displayRaw = getString(input.displayMode) ?? getString(input.display_mode)
-  const displayMode: PriceKindSummary['displayMode'] =
-    displayRaw === 'including-tax' ? 'including-tax' : 'excluding-tax'
-  return {
-    id,
-    code,
-    title,
-    currencyCode: currency,
-    displayMode,
-  }
-}
-
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
-
-function formatTaxRateLabel(rate: TaxRateSummary): string {
-  const extras: string[] = []
-  if (typeof rate.rate === 'number' && Number.isFinite(rate.rate)) {
-    extras.push(`${rate.rate}%`)
-  }
-  if (rate.code) {
-    extras.push(rate.code.toUpperCase())
-  }
-  if (!extras.length) return rate.name
-  return `${rate.name} • ${extras.join(' · ')}`
 }

@@ -151,65 +151,65 @@ export default function SalesChannelsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">{t('sales.channels.nav.title', 'Sales channels')}</h1>
-            <p className="text-sm text-muted-foreground">
-              {t('sales.channels.table.subtitle', 'Organize catalog offers per marketplace or storefront.')}
-            </p>
-          </div>
-          <Button asChild>
-            <Link href="/backend/sales/channels/create">
-              {t('sales.channels.actions.create', 'Add channel')}
-            </Link>
-          </Button>
-        </div>
-        <div className="mt-6">
-          <DataTable<ChannelRow>
-            columns={columns}
-            data={rows}
-            sorting={sorting}
-            onSortingChange={setSorting}
-            isLoading={isLoading}
-            searchValue={search}
-            onSearchChange={handleSearchChange}
-            searchPlaceholder={t('sales.channels.table.search', 'Search channels…')}
-            pagination={{
-              page,
-              pageSize: PAGE_SIZE,
-              total,
-              totalPages,
-              onPageChange: setPage,
-            }}
-            refreshButton={{
-              label: t('sales.channels.table.refresh', 'Refresh'),
-              onRefresh: handleRefresh,
-              isRefreshing: isLoading,
-            }}
-            rowActions={(row) => (
-              <RowActions
-                items={[
-                  {
-                    id: 'edit',
-                    label: t('sales.channels.table.actions.edit', 'Edit'),
-                    href: `/backend/sales/channels/${row.id}/edit`,
-                  },
-                  {
-                    id: 'delete',
-                    label: t('sales.channels.table.actions.delete', 'Delete'),
-                    onSelect: () => handleDelete(row),
-                  },
-                ]}
-              />
-            )}
-            onRowClick={(row) => router.push(`/backend/sales/channels/${row.id}/edit`)}
-            emptyState={
-              <div className="py-10 text-center text-sm text-muted-foreground">
-                {t('sales.channels.table.empty', 'No channels yet.')}
-              </div>
-            }
-          />
-        </div>
+        <DataTable<ChannelRow>
+          title={(
+            <div className="flex flex-col">
+              <span className="text-xl font-semibold">{t('sales.channels.nav.title', 'Sales channels')}</span>
+              <span className="text-sm font-normal text-muted-foreground">
+                {t('sales.channels.table.subtitle', 'Organize catalog offers per marketplace or storefront.')}
+              </span>
+            </div>
+          )}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/sales/channels/create">
+                {t('sales.channels.actions.create', 'Add channel')}
+              </Link>
+            </Button>
+          )}
+          columns={columns}
+          data={rows}
+          sorting={sorting}
+          onSortingChange={setSorting}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder={t('sales.channels.table.search', 'Search channels…')}
+          pagination={{
+            page,
+            pageSize: PAGE_SIZE,
+            total,
+            totalPages,
+            onPageChange: setPage,
+          }}
+          refreshButton={{
+            label: t('sales.channels.table.refresh', 'Refresh'),
+            onRefresh: handleRefresh,
+            isRefreshing: isLoading,
+          }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('sales.channels.table.actions.edit', 'Edit'),
+                  href: `/backend/sales/channels/${row.id}/edit`,
+                },
+                {
+                  id: 'delete',
+                  label: t('sales.channels.table.actions.delete', 'Delete'),
+                  onSelect: () => handleDelete(row),
+                },
+              ]}
+            />
+          )}
+          onRowClick={(row) => router.push(`/backend/sales/channels/${row.id}/edit`)}
+          emptyState={
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              {t('sales.channels.table.empty', 'No channels yet.')}
+            </div>
+          }
+        />
       </PageBody>
     </Page>
   )

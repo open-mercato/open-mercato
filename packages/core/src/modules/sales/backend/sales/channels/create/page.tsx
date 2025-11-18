@@ -25,7 +25,7 @@ export default function CreateChannelPage() {
           fields={fields}
           groups={[
             ...groups,
-            { id: 'custom', kind: 'customFields' },
+            { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
           ]}
           initialValues={{ isActive: true }}
           submitLabel={t('sales.channels.form.createSubmit', 'Create channel')}

@@ -108,7 +108,7 @@ export default function EditChannelPage() {
             fields={fields}
             groups={[
               ...groups,
-              { id: 'custom', kind: 'customFields' },
+              { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
             ]}
             initialValues={initialValues ?? undefined}
             isLoading={loading}

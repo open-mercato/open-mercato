@@ -1,5 +1,3 @@
-"use server"
-
 export type AttachmentAssignment = {
   type: string
   id: string
@@ -95,4 +93,3 @@ export function upsertAssignment(
   map.set(key, entry)
   return Array.from(map.values())
 }
-
