@@ -15,11 +15,11 @@ export const metadata = {
   pageTitle: 'Sales channels',
   pageTitleKey: 'sales.channels.nav.title',
   pageGroup: 'Sales',
-  pageGroupKey: 'sales.nav.group',
+  pageGroupKey: 'customers~sales.nav.group',
   pageOrder: 120,
   icon: globeIcon,
   breadcrumb: [
-    { label: 'Sales', labelKey: 'sales.nav.group', href: '/backend/sales/channels' },
+    { label: 'Sales', labelKey: 'customers~sales.nav.group', href: '/backend/sales/channels' },
     { label: 'Channels', labelKey: 'sales.channels.nav.title' },
   ],
 } as const

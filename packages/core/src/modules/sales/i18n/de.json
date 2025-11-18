@@ -1,4 +1,9 @@
 {
+  "customers~sales": {
+    "nav": {
+      "group": "Sales"
+    }
+  },
   "sales": {
     "module": {
       "title": "Vertriebsmanagement",

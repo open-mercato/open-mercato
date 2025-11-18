@@ -1,5 +1,10 @@
 {
   "attachments": {
+    "storage": {
+      "nav": {
+        "title": "Speicher"
+      }
+    },
     "library": {
       "title": "Attachments",
       "description": "Browse, tag, and manage every file stored in this workspace.",
@@ -132,8 +137,15 @@
       "locked": {
         "title": "Partition settings locked",
         "description": "Attachment partitions are managed by environment defaults while demo or onboarding mode is enabled.",
-        "hint": "Update the environment variables below to re-enable in-app configuration."
+      "hint": "Update the environment variables below to re-enable in-app configuration."
+    }
+  },
+  "customers": {
+    "storage": {
+      "nav": {
+        "group": "Speicher"
       }
     }
   }
+}
 }

@@ -287,6 +287,20 @@ export const priceUpdateSchema = z
   })
   .merge(priceCreateSchema.partial())
 
+export const categoryCreateSchema = scoped.extend({
+  name: z.string().trim().min(1).max(255),
+  slug: slugSchema.optional().nullable(),
+  description: z.string().trim().max(2000).optional(),
+  parentId: uuid().optional().nullable(),
+  isActive: z.boolean().optional(),
+})
+
+export const categoryUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(categoryCreateSchema.partial())
+
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
@@ -301,6 +315,8 @@ export type PriceKindCreateInput = z.infer<typeof priceKindCreateSchema>
 export type PriceKindUpdateInput = z.infer<typeof priceKindUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
+export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>
+export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
 export type OfferCreateInput = z.infer<typeof offerCreateSchema>
 export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>

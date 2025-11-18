@@ -78,7 +78,7 @@ export default function EditChannelPage() {
     router.push('/backend/sales/channels')
   }, [channelId, router, t])
 
-  const tabButton = (value: 'settings' | 'offers', label: string) => (
+  const tabButton = React.useCallback((value: 'settings' | 'offers', label: string) => (
     <button
       key={value}
       type="button"
@@ -87,7 +87,14 @@ export default function EditChannelPage() {
     >
       {label}
     </button>
-  )
+  ), [activeTab, setActiveTab])
+
+  const renderTabs = React.useCallback(() => (
+    <div className="flex items-center gap-2 border-b mb-6">
+      {tabButton('settings', t('sales.channels.form.tabs.settings', 'Settings'))}
+      {tabButton('offers', t('sales.channels.form.tabs.offers', 'Offers'))}
+    </div>
+  ), [tabButton, t])
 
   return (
     <Page>
@@ -97,10 +104,6 @@ export default function EditChannelPage() {
             {error}
           </div>
         ) : null}
-        <div className="flex items-center gap-2 border-b mb-6">
-          {tabButton('settings', t('sales.channels.form.tabs.settings', 'Settings'))}
-          {tabButton('offers', t('sales.channels.form.tabs.offers', 'Offers'))}
-        </div>
         {activeTab === 'settings' ? (
           <CrudForm<ChannelFormValues>
             title={t('sales.channels.form.editTitle', 'Edit channel')}
@@ -115,13 +118,18 @@ export default function EditChannelPage() {
             loadingMessage={t('sales.channels.form.loading', 'Loading channel…')}
             submitLabel={t('sales.channels.form.updateSubmit', 'Save changes')}
             cancelHref="/backend/sales/channels"
+            backHref="/backend/sales/channels"
+            contentHeader={renderTabs()}
             onSubmit={handleSubmit}
             onDelete={handleDelete}
             deleteVisible
             deleteRedirect="/backend/sales/channels"
           />
         ) : (
-          <SalesChannelOffersPanel channelId={channelId} channelName={initialValues?.name ?? ''} />
+          <>
+            {renderTabs()}
+            <SalesChannelOffersPanel channelId={channelId} channelName={initialValues?.name ?? ''} />
+          </>
         )}
       </PageBody>
     </Page>

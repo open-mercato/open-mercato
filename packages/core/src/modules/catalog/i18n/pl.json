@@ -1,4 +1,9 @@
 {
+  "customers~catalog": {
+    "nav": {
+      "group": "Katalog"
+    }
+  },
   "catalog": {
     "module": {
       "title": "Katalog produktów",

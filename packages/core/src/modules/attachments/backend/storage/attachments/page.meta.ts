@@ -8,14 +8,15 @@ const attachmentIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['attachments.manage'],
-  pageTitle: 'Storage',
-  pageTitleKey: 'attachments.storage.nav.title',
-  pageGroup: 'Configuration',
-  pageGroupKey: 'backend.nav.configuration',
-  pageOrder: 360,
+  requireFeatures: ['attachments.view'],
+  pageTitle: 'Attachments',
+  pageTitleKey: 'attachments.library.title',
+  pageGroup: 'Storage',
+  pageGroupKey: 'customers.storage.nav.group',
+  pageOrder: 110,
   icon: attachmentIcon,
   breadcrumb: [
-    { label: 'Storage', labelKey: 'attachments.storage.nav.title' },
+    { label: 'Attachments', labelKey: 'attachments.library.title' },
   ],
 } as const
+

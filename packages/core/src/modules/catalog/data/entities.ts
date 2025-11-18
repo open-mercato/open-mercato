@@ -158,6 +158,109 @@ export class CatalogProduct {
   @OneToMany(() => CatalogOffer, (offer) => offer.product)
   offers = new Collection<CatalogOffer>(this)
 
+  @OneToMany(() => CatalogProductCategoryAssignment, (assignment) => assignment.product)
+  categoryAssignments = new Collection<CatalogProductCategoryAssignment>(this)
+
+}
+@Entity({ tableName: 'catalog_product_categories' })
+@Index({ name: 'catalog_product_categories_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'catalog_product_categories_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class CatalogProductCategory {
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  slug?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'parent_id', type: 'uuid', nullable: true })
+  parentId?: string | null
+
+  @Property({ name: 'root_id', type: 'uuid', nullable: true })
+  rootId?: string | null
+
+  @Property({ name: 'tree_path', type: 'text', nullable: true })
+  treePath?: string | null
+
+  @Property({ type: 'int', default: 0 })
+  depth: number = 0
+
+  @Property({ name: 'ancestor_ids', type: 'jsonb', default: [], nullable: false })
+  ancestorIds: string[] = []
+
+  @Property({ name: 'child_ids', type: 'jsonb', default: [], nullable: false })
+  childIds: string[] = []
+
+  @Property({ name: 'descendant_ids', type: 'jsonb', default: [], nullable: false })
+  descendantIds: string[] = []
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @OneToMany(() => CatalogProductCategoryAssignment, (assignment) => assignment.category)
+  assignments = new Collection<CatalogProductCategoryAssignment>(this)
+}
+
+@Entity({ tableName: 'catalog_product_category_assignments' })
+@Index({
+  name: 'catalog_product_category_assignments_scope_idx',
+  properties: ['organizationId', 'tenantId'],
+})
+@Unique({
+  name: 'catalog_product_category_assignments_unique',
+  properties: ['product', 'category'],
+})
+export class CatalogProductCategoryAssignment {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id', deleteRule: 'cascade' })
+  product!: CatalogProduct
+
+  @ManyToOne(() => CatalogProductCategory, { fieldName: 'category_id', deleteRule: 'cascade' })
+  category!: CatalogProductCategory
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'position', type: 'int', default: 0 })
+  position: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'catalog_product_offers' })

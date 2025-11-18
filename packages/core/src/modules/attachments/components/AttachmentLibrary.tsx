@@ -660,99 +660,91 @@ export function AttachmentLibrary() {
 
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 1
-
   return (
     <>
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold">{t('attachments.library.title', 'Attachments')}</h1>
-            <p className="text-sm text-muted-foreground">
-              {t('attachments.library.description', 'Browse, tag, and manage every file stored in this workspace.')}
-            </p>
+      <DataTable<AttachmentRow>
+        title={t('attachments.library.title', 'Attachments')}
+        refreshButton={{
+          label: t('attachments.library.actions.refresh', 'Refresh'),
+          onRefresh: () => { void refetch() },
+          isRefreshing: isLoading,
+        }}
+        actions={(
+          <Button onClick={() => setUploadDialogOpen(true)}>
+            {t('attachments.library.actions.upload', 'Upload')}
+          </Button>
+        )}
+        columns={columns}
+        data={items}
+        sorting={sorting}
+        onSortingChange={setSorting}
+        rowActions={(row) => (
+          <RowActions
+            items={[
+              {
+                label: t('attachments.library.actions.open', 'Open'),
+                onSelect: () => window.open(row.url, '_blank', 'noopener,noreferrer'),
+              },
+              {
+                label: t('attachments.library.actions.edit', 'Edit metadata'),
+                onSelect: () => openMetadataDialog(row),
+              },
+              {
+                label: t('attachments.library.actions.copyUrl', 'Copy URL'),
+                onSelect: () => {
+                  navigator.clipboard
+                    .writeText(row.url)
+                    .then(() =>
+                      flash(
+                        'attachments.library.actions.copied',
+                        t('attachments.library.actions.copied', 'Link copied.'),
+                        'success',
+                      ),
+                    )
+                    .catch(() =>
+                      flash(
+                        'attachments.library.actions.copyError',
+                        t('attachments.library.actions.copyError', 'Unable to copy link.'),
+                        'error',
+                      ),
+                    )
+                },
+              },
+            ]}
+          />
+        )}
+        onRowClick={(row) => openMetadataDialog(row)}
+        isLoading={isLoading}
+        error={error?.message}
+        emptyState={
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            {t('attachments.library.table.empty', 'No attachments found.')}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => refetch()}>
-              {t('attachments.library.actions.refresh', 'Refresh')}
-            </Button>
-            <Button onClick={() => setUploadDialogOpen(true)}>
-              {t('attachments.library.actions.upload', 'Upload')}
-            </Button>
-          </div>
-        </div>
-        <DataTable<AttachmentRow>
-          columns={columns}
-          data={items}
-          sorting={sorting}
-          onSortingChange={setSorting}
-          rowActions={(row) => (
-            <RowActions
-              items={[
-                {
-                  label: t('attachments.library.actions.open', 'Open'),
-                  onSelect: () => window.open(row.url, '_blank', 'noopener,noreferrer'),
-                },
-                {
-                  label: t('attachments.library.actions.edit', 'Edit metadata'),
-                  onSelect: () => openMetadataDialog(row),
-                },
-                {
-                  label: t('attachments.library.actions.copyUrl', 'Copy URL'),
-                  onSelect: () => {
-                    navigator.clipboard
-                      .writeText(row.url)
-                      .then(() =>
-                        flash(
-                          'attachments.library.actions.copied',
-                          t('attachments.library.actions.copied', 'Link copied.'),
-                          'success',
-                        ),
-                      )
-                      .catch(() =>
-                        flash(
-                          'attachments.library.actions.copyError',
-                          t('attachments.library.actions.copyError', 'Unable to copy link.'),
-                          'error',
-                        ),
-                      )
-                  },
-                },
-              ]}
-            />
-          )}
-          onRowClick={(row) => openMetadataDialog(row)}
-          isLoading={isLoading}
-          error={error?.message}
-          emptyState={
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              {t('attachments.library.table.empty', 'No attachments found.')}
-            </div>
-          }
-          searchValue={search}
-          onSearchChange={(value) => {
-            setPage(1)
-            setSearch(value)
-          }}
-          searchPlaceholder={t('attachments.library.table.search', 'Search files…')}
-          filters={filters}
-          filterValues={filterValues}
-          onFiltersApply={(values) => {
-            setFilterValues(values)
-            setPage(1)
-          }}
-          onFiltersClear={() => {
-            setFilterValues({})
-            setPage(1)
-          }}
-          pagination={{
-            page,
-            pageSize: PAGE_SIZE,
-            total,
-            totalPages,
-            onPageChange: (next) => setPage(next),
-          }}
-        />
-      </div>
+        }
+        searchValue={search}
+        onSearchChange={(value) => {
+          setPage(1)
+          setSearch(value)
+        }}
+        searchPlaceholder={t('attachments.library.table.search', 'Search files…')}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={(values) => {
+          setFilterValues(values)
+          setPage(1)
+        }}
+        onFiltersClear={() => {
+          setFilterValues({})
+          setPage(1)
+        }}
+        pagination={{
+          page,
+          pageSize: PAGE_SIZE,
+          total,
+          totalPages,
+          onPageChange: (next) => setPage(next),
+        }}
+      />
       <AttachmentMetadataDialog
         open={metadataDialogOpen}
         onOpenChange={setMetadataDialogOpen}

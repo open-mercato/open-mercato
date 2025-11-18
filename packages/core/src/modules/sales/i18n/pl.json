@@ -1,4 +1,9 @@
 {
+  "customers~sales": {
+    "nav": {
+      "group": "Sprzedaż"
+    }
+  },
   "sales": {
     "module": {
       "title": "Sprzedaż",

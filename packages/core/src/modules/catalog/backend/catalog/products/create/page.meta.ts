@@ -15,7 +15,7 @@ export const metadata = {
   pageTitle: 'Create product',
   pageTitleKey: 'catalog.products.create.title',
   pageGroup: 'Catalog',
-  pageGroupKey: 'catalog.nav.group',
+  pageGroupKey: 'customers~catalog.nav.group',
   icon: createPageIcon,
   breadcrumb: [
     { label: 'Products & services', labelKey: 'catalog.products.page.title', href: '/backend/catalog/products' },

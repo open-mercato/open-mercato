@@ -14,11 +14,11 @@ export const metadata = {
   pageTitle: 'Create channel',
   pageTitleKey: 'sales.channels.form.createTitle',
   pageGroup: 'Sales',
-  pageGroupKey: 'sales.nav.group',
+  pageGroupKey: 'customers~sales.nav.group',
   pageOrder: 121,
   icon: createIcon,
   breadcrumb: [
-    { label: 'Sales', labelKey: 'sales.nav.group', href: '/backend/sales/channels' },
+    { label: 'Sales', labelKey: 'customers~sales.nav.group', href: '/backend/sales/channels' },
     { label: 'Channels', labelKey: 'sales.channels.nav.title', href: '/backend/sales/channels' },
     { label: 'Create', labelKey: 'sales.channels.form.createTitle' },
   ],
