@@ -8,6 +8,14 @@ import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartition
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { storePartitionFile, deletePartitionFile } from '../lib/storage'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import {
+  mergeAttachmentMetadata,
+  normalizeAttachmentAssignments,
+  normalizeAttachmentTags,
+  readAttachmentMetadata,
+  upsertAssignment,
+  type AttachmentAssignment,
+} from '../lib/metadata'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -22,6 +30,13 @@ const attachmentQuerySchema = z.object({
   recordId: z.string().min(1).describe('Record identifier within the entity'),
 })
 
+const attachmentAssignmentSchema = z.object({
+  type: z.string().describe('Assignment type identifier'),
+  id: z.string().describe('Assignment record identifier'),
+  href: z.string().nullable().optional().describe('Optional link to the related record'),
+  label: z.string().nullable().optional().describe('Optional label for the assignment'),
+})
+
 const attachmentItemSchema = z.object({
   id: z.string().describe('Attachment identifier'),
   url: z.string().describe('Public path to the stored asset'),
@@ -30,6 +45,8 @@ const attachmentItemSchema = z.object({
   createdAt: z.string().describe('Upload timestamp (ISO 8601)'),
   thumbnailUrl: z.string().optional().describe('Helper route that renders a thumbnail'),
   partitionCode: z.string().optional().describe('Partition identifier'),
+  tags: z.array(z.string()).optional().describe('Tags assigned to the attachment'),
+  assignments: z.array(attachmentAssignmentSchema).optional().describe('Records that reference this attachment'),
 })
 
 const attachmentListResponseSchema = z.object({
@@ -55,12 +72,42 @@ const uploadResponseSchema = z.object({
     fileName: z.string(),
     fileSize: z.number().int().nonnegative(),
     thumbnailUrl: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+    assignments: z.array(attachmentAssignmentSchema).optional(),
   }),
 })
 
 const errorSchema = z.object({
   error: z.string(),
 })
+
+function parseFormTags(value: FormDataEntryValue | null): string[] {
+  if (!value) return []
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return []
+    try {
+      const parsed = JSON.parse(trimmed)
+      return normalizeAttachmentTags(parsed)
+    } catch {
+      return normalizeAttachmentTags(value)
+    }
+  }
+  return []
+}
+
+function parseFormAssignments(value: FormDataEntryValue | null): AttachmentAssignment[] {
+  if (!value) return []
+  if (typeof value !== 'string') return []
+  const trimmed = value.trim()
+  if (!trimmed) return []
+  try {
+    const parsed = JSON.parse(trimmed)
+    return normalizeAttachmentAssignments(parsed)
+  } catch {
+    return []
+  }
+}
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -78,19 +125,24 @@ export async function GET(req: Request) {
     { orderBy: { createdAt: 'desc' } as any }
   )
   return NextResponse.json({
-    items: items.map((a: any) => ({
-      id: a.id,
-      url: a.url,
-      fileName: a.fileName,
-      fileSize: a.fileSize,
-      createdAt: a.createdAt,
-      partitionCode: a.partitionCode,
-      thumbnailUrl: buildAttachmentImageUrl(a.id, {
-        width: 320,
-        height: 320,
-        slug: slugifyAttachmentFileName(a.fileName),
-      }),
-    })),
+    items: items.map((a: any) => {
+      const metadata = readAttachmentMetadata(a.storageMetadata)
+      return {
+        id: a.id,
+        url: a.url,
+        fileName: a.fileName,
+        fileSize: a.fileSize,
+        createdAt: a.createdAt,
+        partitionCode: a.partitionCode,
+        thumbnailUrl: buildAttachmentImageUrl(a.id, {
+          width: 320,
+          height: 320,
+          slug: slugifyAttachmentFileName(a.fileName),
+        }),
+        tags: metadata.tags ?? [],
+        assignments: metadata.assignments ?? [],
+      }
+    }),
   })
 }
 
@@ -111,6 +163,13 @@ export async function POST(req: Request) {
   const fieldKey = String(form.get('fieldKey') || '')
   const file = form.get('file') as unknown as File | null
   if (!entityId || !recordId || !file) return NextResponse.json({ error: 'entityId, recordId and file are required' }, { status: 400 })
+  const partitionOverrideRaw = form.get('partitionCode')
+  const partitionOverride =
+    typeof partitionOverrideRaw === 'string' && partitionOverrideRaw.trim().length > 0
+      ? sanitizePartitionCode(partitionOverrideRaw)
+      : null
+  const tags = parseFormTags(form.get('tags'))
+  const assignmentsFromForm = parseFormAssignments(form.get('assignments'))
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
@@ -146,10 +205,25 @@ export async function POST(req: Request) {
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
-  const resolvedPartitionCode = partitionFromField ?? resolveDefaultPartitionCode(entityId)
-  const partition =
-    (await em.findOne(AttachmentPartition, { code: partitionFromField ?? '' })) ??
-    (await em.findOne(AttachmentPartition, { code: resolvedPartitionCode }))
+  const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? resolveDefaultPartitionCode(entityId)
+  const partitionCodeCandidates = Array.from(
+    new Set(
+      [partitionOverride, partitionFromField, resolvedPartitionCode].filter(
+        (code): code is string => typeof code === 'string' && code.length > 0,
+      ),
+    ),
+  )
+  let partition: AttachmentPartition | null = null
+  for (const code of partitionCodeCandidates) {
+    const record = await em.findOne(AttachmentPartition, { code })
+    if (record) {
+      partition = record
+      break
+    }
+  }
+  if (!partition) {
+    partition = await em.findOne(AttachmentPartition, { code: resolveDefaultPartitionCode(entityId) })
+  }
   if (!partition) {
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
@@ -167,6 +241,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
+  let assignments = assignmentsFromForm.slice()
+  assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
+  const metadata = mergeAttachmentMetadata(null, { assignments, tags })
   const attachmentId = randomUUID()
   const att = em.create(Attachment, {
     id: attachmentId,
@@ -181,6 +258,7 @@ export async function POST(req: Request) {
     storageDriver: partition.storageDriver || 'local',
     storagePath: stored.storagePath,
     url: buildAttachmentFileUrl(attachmentId),
+    storageMetadata: metadata,
   })
   await em.persistAndFlush(att)
 
@@ -197,6 +275,8 @@ export async function POST(req: Request) {
         height: 320,
         slug: slugifyAttachmentFileName(safeName),
       }),
+      tags: metadata.tags ?? [],
+      assignments: metadata.assignments ?? [],
     },
   })
 }

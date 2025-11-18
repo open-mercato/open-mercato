@@ -1,5 +1,78 @@
 {
   "attachments": {
+    "library": {
+      "title": "Attachments",
+      "description": "Browse, tag, and manage every file stored in this workspace.",
+      "actions": {
+        "refresh": "Refresh",
+        "upload": "Upload",
+        "open": "Open",
+        "edit": "Edit metadata",
+        "copyUrl": "Copy URL",
+        "copied": "Link copied.",
+        "copyError": "Unable to copy link."
+      },
+      "table": {
+        "file": "File",
+        "tags": "Tags",
+        "assignments": "Assignments",
+        "partition": "Partition",
+        "created": "Created",
+        "empty": "No attachments found.",
+        "search": "Search files…"
+      },
+      "filters": {
+        "partition": "Partition",
+        "tags": "Tags",
+        "tagsPlaceholder": "Filter by tag"
+      },
+      "metadata": {
+        "title": "Edit attachment metadata",
+        "tagsPlaceholder": "Add tags",
+        "cancel": "Cancel",
+        "saving": "Saving…",
+        "save": "Save",
+        "noSelection": "Select an attachment to edit.",
+        "error": "Failed to update metadata.",
+        "success": "Attachment updated.",
+        "assignments": {
+          "title": "Assignments",
+          "description": "Add the records this attachment belongs to with optional links.",
+          "type": "Type",
+          "id": "Record ID",
+          "href": "Link",
+          "label": "Label",
+          "add": "Add assignment",
+          "remove": "Remove"
+        }
+      },
+      "upload": {
+        "title": "Upload attachment",
+        "file": "File",
+        "partition": "Partition",
+        "partitionDefault": "Default (private)",
+        "tagsPlaceholder": "Add tags",
+        "cancel": "Cancel",
+        "submitting": "Uploading…",
+        "submit": "Upload",
+        "failed": "Upload failed.",
+        "success": "Attachment uploaded.",
+        "fileRequired": "Select a file to upload.",
+        "assignments": {
+          "title": "Assignments",
+          "description": "Optionally link this file to existing records now or add them later.",
+          "type": "Type",
+          "id": "Record ID",
+          "href": "Link",
+          "label": "Label",
+          "add": "Add assignment",
+          "remove": "Remove"
+        }
+      },
+      "errors": {
+        "load": "Failed to load attachments."
+      }
+    },
     "partitions": {
       "nav": {
         "title": "Attachments"

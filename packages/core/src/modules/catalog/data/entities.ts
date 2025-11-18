@@ -190,6 +190,12 @@ export class CatalogOffer {
   @Property({ type: 'text', nullable: true })
   description?: string | null
 
+  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
+  defaultMediaId?: string | null
+
+  @Property({ name: 'default_media_url', type: 'text', nullable: true })
+  defaultMediaUrl?: string | null
+
   @Property({ name: 'localized_content', type: 'jsonb', nullable: true })
   localizedContent?: CatalogOfferLocalizedContent | null
 

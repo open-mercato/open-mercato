@@ -70,5 +70,7 @@ describe('attachments API', () => {
     expect(res.status).toBe(200)
     const j = await res.json()
     expect(j?.ok).toBe(true)
+    const payload = mockEm.create.mock.calls[mockEm.create.mock.calls.length - 1]?.[1]
+    expect(payload?.storageMetadata?.assignments).toEqual([{ type: 'example:todo', id: 'r1' }])
   })
 })

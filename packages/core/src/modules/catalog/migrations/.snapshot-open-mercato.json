@@ -662,6 +662,24 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "default_media_id": {
+          "name": "default_media_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "default_media_url": {
+          "name": "default_media_url",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "localized_content": {
           "name": "localized_content",
           "type": "jsonb",

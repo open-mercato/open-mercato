@@ -1,7 +1,8 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesChannel } from '../../data/entities'
 import { channelCreateSchema, channelUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
@@ -12,6 +13,7 @@ import {
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../openapi'
+import { CatalogOffer } from '@open-mercato/core/modules/catalog/data/entities'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -20,6 +22,7 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
+    id: z.string().uuid().optional(),
     isActive: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -48,12 +51,14 @@ const salesChannelItemSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   customFields: z.record(z.string(), z.unknown()).optional(),
+  offerCount: z.number().optional(),
 })
 
 const salesChannelListResponseSchema = createPagedListResponseSchema(salesChannelItemSchema)
 
 function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
+  if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
     const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
     filters.$or = [
@@ -101,6 +106,12 @@ const crud = makeCrudRoute({
     buildFilters: async (query) => buildSearchFilters(query),
     decorateCustomFields: { entityIds: [E.sales.sales_channel] },
     transformItem: (item: any) => {
+      const offerCount =
+        typeof item.offerCount === 'number'
+          ? item.offerCount
+          : typeof item.offer_count === 'number'
+            ? item.offer_count
+            : 0
       const base = {
         id: item.id,
         name: item.name,
@@ -112,6 +123,7 @@ const crud = makeCrudRoute({
         tenantId: item.tenant_id ?? null,
         createdAt: item.created_at,
         updatedAt: item.updated_at,
+        offerCount,
       }
       const { custom } = splitCustomFieldPayload(item)
       return Object.keys(custom).length ? { ...base, customFields: custom } : base
@@ -148,6 +160,11 @@ const crud = makeCrudRoute({
       response: () => ({ ok: true }),
     },
   },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      await decorateChannelsWithOfferCounts(payload, ctx)
+    },
+  },
 })
 
 export const openApi = createSalesCrudOpenApi({
@@ -165,3 +182,39 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+async function decorateChannelsWithOfferCounts(
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx,
+) {
+  const items = Array.isArray(payload.items) ? payload.items : []
+  if (!items.length) return
+  const channelIds = items
+    .map((item) => {
+      const value = item?.id
+      return typeof value === 'string' && value.length ? value : null
+    })
+    .filter((value): value is string => !!value)
+  if (!channelIds.length) return
+  try {
+    const em = ctx.container.resolve('em') as EntityManager
+    const offers = await em.find(
+      CatalogOffer,
+      { channelId: { $in: channelIds }, deletedAt: null },
+      { fields: ['id', 'channelId'] },
+    )
+    const countMap = new Map<string, number>()
+    offers.forEach((offer) => {
+      const channelId = offer.channelId
+      if (!channelId) return
+      countMap.set(channelId, (countMap.get(channelId) ?? 0) + 1)
+    })
+    items.forEach((item) => {
+      const id = typeof item.id === 'string' ? item.id : null
+      if (!id) return
+      ;(item as Record<string, unknown>).offerCount = countMap.get(id) ?? 0
+    })
+  } catch (err) {
+    console.warn('[sales.channels] failed to resolve channel offer counts', err)
+  }
+}

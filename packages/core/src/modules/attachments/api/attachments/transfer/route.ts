@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
+import { mergeAttachmentMetadata, readAttachmentMetadata } from '../../../lib/metadata'
 
 const transferSchema = z.object({
   entityId: z.string().min(1),
@@ -48,7 +49,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Attachments not found' }, { status: 404 })
   }
   for (const record of records) {
+    const previousRecordId = record.recordId
     record.recordId = toRecordId
+    const metadata = readAttachmentMetadata(record.storageMetadata)
+    const nextAssignments =
+      metadata.assignments?.map((assignment) => {
+        const matchesType = assignment.type === entityId
+        const matchesRecord = fromRecordId
+          ? assignment.id === fromRecordId
+          : assignment.id === previousRecordId
+        if (matchesType && matchesRecord) {
+          return { ...assignment, id: toRecordId }
+        }
+        return assignment
+      }) ?? []
+    record.storageMetadata = mergeAttachmentMetadata(record.storageMetadata, { assignments: nextAssignments })
   }
   await em.persistAndFlush(records)
   return NextResponse.json({ ok: true, updated: records.length })

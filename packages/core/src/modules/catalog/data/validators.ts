@@ -82,15 +82,38 @@ const offerContentSchema = z.object({
   description: z.string().trim().max(4000).optional(),
 })
 
-const offerInputSchema = z.object({
-  id: uuid().optional(),
+const offerBaseSchema = z.object({
   channelId: uuid(),
   title: z.string().trim().min(1).max(255),
   description: z.string().trim().max(4000).optional(),
+  defaultMediaId: uuid().optional().nullable(),
+  defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   localizedContent: z.record(z.string().trim().min(2).max(10), offerContentSchema).optional(),
   metadata: metadataSchema,
   isActive: z.boolean().optional(),
 })
+
+const offerInputSchema = offerBaseSchema.extend({
+  id: uuid().optional(),
+})
+
+export const offerCreateSchema = scoped.extend(
+  offerBaseSchema.extend({
+    productId: uuid(),
+  })
+)
+
+export const offerUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(
+    offerBaseSchema
+      .extend({
+        productId: uuid().optional(),
+      })
+      .partial()
+  )
 
 const productTypeSchema = z.enum(CATALOG_PRODUCT_TYPES)
 
@@ -279,3 +302,5 @@ export type PriceKindUpdateInput = z.infer<typeof priceKindUpdateSchema>
 export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
+export type OfferCreateInput = z.infer<typeof offerCreateSchema>
+export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>

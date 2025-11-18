@@ -3,7 +3,6 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -19,6 +18,25 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
+import {
+  PRODUCT_FORM_STEPS,
+  type PriceKindSummary,
+  type PriceKindApiPayload,
+  type TaxRateSummary,
+  type ProductOptionInput,
+  type VariantPriceValue,
+  type VariantDraft,
+  type ProductFormValues,
+  productFormSchema,
+  createInitialProductFormValues,
+  createVariantDraft,
+  buildOptionValuesKey,
+  haveSameOptionValues,
+  normalizePriceKindSummary,
+  formatTaxRateLabel,
+  slugify,
+  createLocalId,
+} from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 type UiMarkdownEditorProps = {
@@ -33,91 +51,6 @@ const MarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
   loading: () => <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">Loading editor…</div>,
 }) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
-type PriceKindSummary = {
-  id: string
-  code: string
-  title: string
-  currencyCode: string | null
-  displayMode: 'including-tax' | 'excluding-tax'
-}
-
-type PriceKindApiPayload = {
-  id?: string | number
-  code?: string
-  title?: string
-  currencyCode?: string | null
-  currency_code?: string | null
-  displayMode?: string | null
-  display_mode?: string | null
-}
-
-type TaxRateSummary = {
-  id: string
-  name: string
-  code: string | null
-  rate: number | null
-  isDefault: boolean
-}
-
-type ProductOptionInput = {
-  id: string
-  title: string
-  values: Array<{ id: string; label: string }>
-}
-
-type VariantPriceValue = {
-  amount: string
-}
-
-type VariantDraft = {
-  id: string
-  title: string
-  sku: string
-  isDefault: boolean
-  taxRateId: string | null
-  manageInventory: boolean
-  allowBackorder: boolean
-  hasInventoryKit: boolean
-  optionValues: Record<string, string>
-  prices: Record<string, VariantPriceValue>
-}
-
-type ProductFormValues = {
-  title: string
-  subtitle: string
-  handle: string
-  description: string
-  useMarkdown: boolean
-  taxRateId: string | null
-  mediaDraftId: string
-  mediaItems: ProductMediaItem[]
-  defaultMediaId: string | null
-  defaultMediaUrl: string
-  hasVariants: boolean
-  options: ProductOptionInput[]
-  variants: VariantDraft[]
-}
-
-const productFormSchema = z.object({
-  title: z.string().trim().min(1, 'Title is required'),
-  subtitle: z.string().optional(),
-  handle: z
-    .string()
-    .trim()
-    .regex(/^[a-z0-9\-_]*$/, 'Handle must include lowercase letters, digits, hyphen, or underscore')
-    .max(150)
-    .optional(),
-  description: z.string().optional(),
-  useMarkdown: z.boolean().optional(),
-  taxRateId: z.string().uuid().nullable().optional(),
-  hasVariants: z.boolean().optional(),
-  mediaDraftId: z.string().optional(),
-  mediaItems: z.any().optional(),
-  defaultMediaId: z.string().uuid().nullable().optional(),
-  defaultMediaUrl: z.string().trim().max(500).nullable().optional(),
-  options: z.any().optional(),
-  variants: z.any().optional(),
-})
 
 const createVariantDraft = (
   productTaxRateId: string | null,
@@ -156,28 +89,6 @@ const haveSameOptionValues = (
   return true
 }
 
-const BASE_INITIAL_VALUES: ProductFormValues = {
-  title: '',
-  subtitle: '',
-  handle: '',
-  description: '',
-  useMarkdown: false,
-  mediaDraftId: '',
-  mediaItems: [],
-  defaultMediaId: null,
-  defaultMediaUrl: '',
-  taxRateId: null,
-  hasVariants: false,
-  options: [],
-  variants: [createVariantDraft(null, { isDefault: true })],
-}
-
-const INITIAL_VALUES: ProductFormValues = {
-  ...BASE_INITIAL_VALUES,
-  mediaDraftId: createLocalId(),
-}
-
-const steps = ['general', 'organize', 'variants'] as const
 
 export default function CreateCatalogProductPage() {
   const t = useT()
@@ -282,7 +193,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          initialValues={INITIAL_VALUES}
+          initialValues={createInitialProductFormValues()}
           schema={productFormSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
           cancelHref="/backend/catalog/products"
@@ -446,6 +357,7 @@ type ProductMetaSectionProps = {
 
 function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: ProductBuilderProps) {
   const t = useT()
+  const steps = PRODUCT_FORM_STEPS
   const [currentStep, setCurrentStep] = React.useState(0)
   const defaultTaxRate = React.useMemo(
     () => (values.taxRateId ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null : null),
@@ -1173,9 +1085,3 @@ function formatTaxRateLabel(rate: TaxRateSummary): string {
   if (!extras.length) return rate.name
   return `${rate.name} • ${extras.join(' · ')}`
 }
-
-function createLocalId(): string {
-  return Math.random().toString(36).slice(2, 10)
-}
-
-const initialValues = { ...BASE_INITIAL_VALUES }

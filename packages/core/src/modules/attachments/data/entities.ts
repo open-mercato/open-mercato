@@ -72,7 +72,7 @@ export class Attachment {
   @Property({ name: 'storage_path', type: 'text' })
   storagePath!: string
 
-  @Property({ name: 'storage_metadata', type: 'json', nullable: true })
+  @Property({ name: 'storage_metadata', type: 'jsonb', nullable: true })
   storageMetadata?: Record<string, unknown> | null
 
   @Property({ name: 'url', type: 'text' })

@@ -4,6 +4,145 @@
       "title": "Gestión de ventas",
       "description": "Cotizaciones, pedidos, cumplimiento, facturación y pagos conectados al catálogo de productos."
     },
+    "nav": {
+      "group": "Sales",
+      "channels": "Channels"
+    },
+    "channels": {
+      "nav": {
+        "title": "Sales channels"
+      },
+      "table": {
+        "name": "Name",
+        "code": "Code",
+        "offers": "Product offers",
+        "active": "Active",
+        "updated": "Updated",
+        "search": "Search channels…",
+        "refresh": "Refresh",
+        "empty": "No channels yet.",
+        "errors": {
+          "load": "Failed to load channels.",
+          "delete": "Failed to delete channel."
+        },
+        "messages": {
+          "deleted": "Channel deleted."
+        },
+        "actions": {
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "subtitle": "Organize catalog offers per marketplace or storefront."
+      },
+      "actions": {
+        "create": "Add channel"
+      },
+      "form": {
+        "tabs": {
+          "settings": "Settings",
+          "offers": "Offers"
+        },
+        "groups": {
+          "general": "General",
+          "contact": "Contact",
+          "address": "Location"
+        },
+        "name": "Channel name",
+        "code": "Code",
+        "description": "Description",
+        "websiteUrl": "Website URL",
+        "contactEmail": "Contact email",
+        "contactPhone": "Contact phone",
+        "status": "Status entry ID",
+        "address1": "Address line 1",
+        "address2": "Address line 2",
+        "city": "City",
+        "region": "State / region",
+        "postalCode": "Postal code",
+        "country": "Country",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "isActive": "Active",
+        "createTitle": "Create sales channel",
+        "createSubmit": "Create channel",
+        "editTitle": "Edit channel",
+        "updateSubmit": "Save changes",
+        "createSuccess": "Channel created.",
+        "loading": "Loading channel…",
+        "errors": {
+          "create": "Failed to create channel.",
+          "update": "Failed to save channel.",
+          "delete": "Failed to delete channel.",
+          "load": "Failed to load channel."
+        },
+        "messages": {
+          "created": "Channel created.",
+          "updated": "Channel updated.",
+          "deleted": "Channel deleted."
+        }
+      },
+      "offers": {
+        "heading": "Offers for {{name}}",
+        "subtitle": "Override product presentation and pricing per channel.",
+        "actions": {
+          "create": "Add offer",
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "errors": {
+          "load": "Failed to load offers.",
+          "delete": "Failed to delete offer.",
+          "loadOffer": "Failed to load offer.",
+          "save": "Failed to save offer.",
+          "requiredFields": "Choose a channel and product."
+        },
+        "messages": {
+          "deleted": "Offer deleted.",
+          "saved": "Offer saved."
+        },
+        "table": {
+          "offer": "Offer",
+          "prices": "Price overrides",
+          "active": "Active",
+          "updated": "Updated",
+          "search": "Search offers…",
+          "refresh": "Refresh",
+          "empty": "No offers for this channel yet.",
+          "noOverrides": "No overrides",
+          "price": "Price",
+          "emptyProduct": "Unlinked product"
+        },
+        "form": {
+          "createTitle": "Create offer",
+          "editTitle": "Edit offer",
+          "createSubmit": "Create offer",
+          "updateSubmit": "Save changes",
+          "loading": "Loading offer…",
+          "channel": "Channel",
+          "product": "Product",
+          "defaultMedia": "Default media",
+          "title": "Title",
+          "description": "Description",
+          "active": "Active",
+          "tabs": {
+            "offers": "Offers"
+          },
+          "groups": {
+            "associations": "Associations",
+            "content": "Content",
+            "pricing": "Price overrides"
+          }
+        },
+        "pricing": {
+          "help": "Provide overrides for price kinds when this offer is active.",
+          "add": "Add price",
+          "selectKind": "Select price kind",
+          "amount": "Amount",
+          "remove": "Remove",
+          "empty": "No overrides yet."
+        }
+      }
+    },
     "navigation": {
       "quotes": "Cotizaciones",
       "orders": "Pedidos",
