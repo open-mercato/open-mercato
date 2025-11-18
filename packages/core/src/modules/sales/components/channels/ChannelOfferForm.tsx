@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -8,9 +9,11 @@ import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/uti
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Loader2, Search, Image as ImageIcon } from 'lucide-react'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 type PriceKindSummary = {
   id: string
@@ -55,8 +58,45 @@ type PriceResponse = {
 }
 
 type AttachmentsResponse = {
-  items?: Array<{ id?: string; fileName?: string; url?: string }>
+  items?: Array<{ id?: string; fileName?: string; url?: string; thumbnailUrl?: string | null }>
 }
+
+type ProductSummaryCacheEntry = {
+  title: string
+  description: string | null
+  defaultMediaId: string | null
+  defaultMediaUrl: string | null
+  sku: string | null
+  pricing: PricingSummary | null
+}
+
+type MediaOption = { id: string; label: string; fileName: string; thumbnailUrl?: string | null }
+
+type PricingSummary = {
+  currencyCode: string | null
+  unitPriceNet: string | null
+  unitPriceGross: string | null
+  displayMode: 'including-tax' | 'excluding-tax' | null
+}
+
+type ProductVariantPreview = {
+  id: string
+  name: string
+  sku: string | null
+  thumbnailUrl: string | null
+}
+
+type ProductSummary = ProductSummaryCacheEntry | null
+
+type ProductSearchResult = {
+  id: string
+  title: string
+  sku: string | null
+  defaultMediaUrl: string | null
+  pricing: PricingSummary | null
+}
+
+const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: ChannelOfferFormProps) {
   const t = useT()
@@ -76,9 +116,22 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const [error, setError] = React.useState<string | null>(null)
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [deletedPriceIds, setDeletedPriceIds] = React.useState<string[]>([])
-  const [mediaOptions, setMediaOptions] = React.useState<Array<{ id: string; label: string; fileName: string }>>([])
-  const attachmentCache = React.useRef<Map<string, Array<{ id: string; label: string; fileName: string }>>>(new Map())
-  const productCache = React.useRef<Map<string, { title: string; description: string | null; defaultMediaId: string | null }>>(new Map())
+  const [mediaOptions, setMediaOptions] = React.useState<MediaOption[]>([])
+  const attachmentCache = React.useRef<Map<string, MediaOption[]>>(new Map())
+  const productCache = React.useRef<Map<string, ProductSummaryCacheEntry>>(new Map())
+  const [productSummary, setProductSummary] = React.useState<ProductSummary>(null)
+  const [variantPreviews, setVariantPreviews] = React.useState<ProductVariantPreview[]>([])
+  const variantCache = React.useRef<Map<string, ProductVariantPreview[]>>(new Map())
+  const variantMediaCache = React.useRef<Map<string, string | null>>(new Map())
+  const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
+
+  React.useEffect(() => {
+    if (lockedChannelId) {
+      setSelectedChannelId(lockedChannelId)
+    } else if (initialValues?.channelId) {
+      setSelectedChannelId(initialValues.channelId)
+    }
+  }, [initialValues?.channelId, lockedChannelId])
 
   React.useEffect(() => {
     async function loadKinds() {
@@ -152,8 +205,12 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       component: ({ value, setValue }) => (
         <ChannelSelectInput
           value={(value as string | null) ?? lockedChannelId ?? null}
-          onChange={(next) => setValue(next ?? null)}
+          onChange={(next) => {
+            setValue(next ?? null)
+            setSelectedChannelId(next ?? null)
+          }}
           disabled={!!lockedChannelId}
+          showDetailsLink
         />
       ),
     },
@@ -166,6 +223,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         <ProductSelectInput
           value={(value as string | null) ?? null}
           onChange={(next) => setValue(next)}
+          channelId={selectedChannelId}
         />
       ),
     },
@@ -178,6 +236,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           value={(value as string | null) ?? null}
           onChange={(next) => setValue(next)}
           options={mediaOptions}
+          productThumbnail={productSummary?.defaultMediaUrl ?? null}
         />
       ),
     },
@@ -197,21 +256,39 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       label: t('sales.channels.offers.form.active', 'Active'),
       type: 'checkbox',
     },
-  ], [lockedChannelId, mediaOptions, t])
+  ], [lockedChannelId, mediaOptions, productSummary?.defaultMediaUrl, selectedChannelId, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'associations', title: t('sales.channels.offers.form.groups.associations', 'Associations'), column: 2, fields: ['channelId', 'productId', 'defaultMediaId'] },
-    { id: 'content', title: t('sales.channels.offers.form.groups.content', 'Content'), column: 2, fields: ['title', 'description', 'isActive'] },
+    { id: 'associations', title: t('sales.channels.offers.form.groups.associations', 'Associations'), fields: ['channelId'] },
+    {
+      id: 'product',
+      title: t('sales.channels.offers.form.productGroup', 'Product'),
+      description: t('sales.channels.offers.form.productGroupHelp', 'Search the catalog and pick the product you want to customize for this channel.'),
+      fields: ['productId'],
+    },
+    {
+      id: 'productSummary',
+      title: t('sales.channels.offers.form.productSummaryTitle', 'Product summary'),
+      component: () => (
+        <ProductOverviewCard summary={productSummary} variants={variantPreviews} />
+      ),
+    },
+    {
+      id: 'media',
+      title: t('sales.channels.offers.form.mediaGroupTitle', 'Default media override'),
+      fields: ['defaultMediaId'],
+    },
+    { id: 'content', title: t('sales.channels.offers.form.groups.content', 'Content'), fields: ['title', 'description', 'isActive'] },
     {
       id: 'pricing',
       title: t('sales.channels.offers.form.groups.pricing', 'Price overrides'),
-      column: 2,
       component: ({ values, setValue }) => (
         <PriceOverridesEditor
           values={Array.isArray(values.priceOverrides) ? values.priceOverrides as PriceOverrideDraft[] : []}
           onChange={(next) => setValue('priceOverrides', next)}
           priceKinds={priceKinds}
           onRemove={(priceId) => setDeletedPriceIds((prev) => [...prev, priceId])}
+          basePrice={productSummary?.pricing ?? null}
         />
       ),
     },
@@ -224,13 +301,20 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           productCache={productCache}
           attachmentCache={attachmentCache}
           setMediaOptions={setMediaOptions}
+          setProductSummary={setProductSummary}
+          setVariantPreviews={setVariantPreviews}
+          variantCache={variantCache}
+          variantMediaCache={variantMediaCache}
+          channelId={selectedChannelId}
         />
       ),
     },
-  ], [attachmentCache, priceKinds, productCache, setMediaOptions, t])
+  ], [attachmentCache, priceKinds, productCache, productSummary?.pricing, selectedChannelId, setMediaOptions, t, variantPreviews])
 
   const handleSubmit = React.useCallback(async (values: OfferFormValues) => {
-    const channelId = typeof values.channelId === 'string' ? values.channelId : lockedChannelId
+    const channelId = typeof values.channelId === 'string' && values.channelId.length
+      ? values.channelId
+      : selectedChannelId ?? lockedChannelId
     const productId = typeof values.productId === 'string' ? values.productId : null
     if (!channelId || !productId) {
       throw new Error(t('sales.channels.offers.errors.requiredFields', 'Choose a channel and product.'))
@@ -278,7 +362,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     flash(t('sales.channels.offers.messages.saved', 'Offer saved.'), 'success')
     router.push(`/backend/sales/channels/${channelId}/edit`)
-  }, [attachmentCache, deletedPriceIds, lockedChannelId, mode, offerId, router, t])
+  }, [attachmentCache, deletedPriceIds, lockedChannelId, mode, offerId, router, selectedChannelId, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!offerId) return
@@ -566,47 +650,57 @@ function OfferFormWatchers({
   productCache,
   attachmentCache,
   setMediaOptions,
+  setProductSummary,
+  setVariantPreviews,
+  variantCache,
+  variantMediaCache,
+  channelId,
 }: CrudFormGroupComponentProps & {
-  productCache: React.MutableRefObject<Map<string, { title: string; description: string | null; defaultMediaId: string | null }>>
-  attachmentCache: React.MutableRefObject<Map<string, Array<{ id: string; label: string; fileName: string }>>>
-  setMediaOptions: React.Dispatch<React.SetStateAction<Array<{ id: string; label: string; fileName: string }>>>
+  productCache: React.MutableRefObject<Map<string, ProductSummaryCacheEntry>>
+  attachmentCache: React.MutableRefObject<Map<string, MediaOption[]>>
+  setMediaOptions: React.Dispatch<React.SetStateAction<MediaOption[]>>
+  setProductSummary: React.Dispatch<React.SetStateAction<ProductSummary>>
+  setVariantPreviews: React.Dispatch<React.SetStateAction<ProductVariantPreview[]>>
+  variantCache: React.MutableRefObject<Map<string, ProductVariantPreview[]>>
+  variantMediaCache: React.MutableRefObject<Map<string, string | null>>
+  channelId: string | null
 }) {
   React.useEffect(() => {
     const productId = typeof values.productId === 'string' ? values.productId : null
     if (!productId) {
       setMediaOptions([])
+      setProductSummary(null)
+      setVariantPreviews([])
       return
     }
     let cancelled = false
     async function load() {
       try {
-        let summary = productCache.current.get(productId)
+        const cacheKey = channelId ? `${productId}:${channelId}` : productId
+        let summary = productCache.current.get(cacheKey)
         if (!summary) {
+          const params = new URLSearchParams({ id: productId, pageSize: '1' })
+          if (channelId) params.set('channelId', channelId)
           const payload = await readApiResultOrThrow<OfferResponse>(
-            `/api/catalog/products?id=${encodeURIComponent(productId)}&pageSize=1`,
+            `/api/catalog/products?${params.toString()}`,
             undefined,
             { fallback: { items: [] } },
           )
           const product = Array.isArray(payload.items) ? payload.items[0] : null
           if (product) {
-            summary = {
-              title: typeof product.title === 'string' ? product.title : '',
-              description: typeof product.description === 'string' ? product.description : null,
-              defaultMediaId: typeof product.defaultMediaId === 'string'
-                ? product.defaultMediaId
-                : typeof product.default_media_id === 'string'
-                  ? product.default_media_id
-                  : null,
-            }
-            productCache.current.set(productId, summary)
+            summary = mapProductSummary(product)
+            productCache.current.set(cacheKey, summary)
           }
         }
-        if (summary && !cancelled) {
-          if (!values.title?.trim() && summary.title) {
-            setValue('title', summary.title)
-          }
-          if (!values.description?.trim() && summary.description) {
-            setValue('description', summary.description)
+        if (!cancelled) {
+          setProductSummary(summary ?? null)
+          if (summary) {
+            if (!values.title?.trim() && summary.title) {
+              setValue('title', summary.title)
+            }
+            if (!values.description?.trim() && summary.description) {
+              setValue('description', summary.description)
+            }
           }
         }
         let attachments = attachmentCache.current.get(productId)
@@ -618,11 +712,20 @@ function OfferFormWatchers({
             ? attachmentPayload.result.items
             : []
           attachments = items
-            .filter((item): item is { id: string; fileName: string } => typeof item.id === 'string' && typeof item.fileName === 'string')
+            .filter((item): item is { id: string; fileName: string; thumbnailUrl?: string | null } => (
+              typeof item.id === 'string' && typeof item.fileName === 'string'
+            ))
             .map((item) => ({
               id: item.id,
               label: item.fileName,
               fileName: item.fileName,
+              thumbnailUrl: typeof item.thumbnailUrl === 'string'
+                ? item.thumbnailUrl
+                : buildAttachmentImageUrl(item.id, {
+                    width: 360,
+                    height: 360,
+                    slug: slugifyAttachmentFileName(item.fileName),
+                  }),
             }))
           attachmentCache.current.set(productId, attachments)
         }
@@ -632,13 +735,141 @@ function OfferFormWatchers({
             setValue('defaultMediaId', summary.defaultMediaId)
           }
         }
+        let variants = variantCache.current.get(productId)
+        if (!variants) {
+          const variantPayload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+            `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=200`,
+            undefined,
+            { fallback: { items: [] } },
+          )
+          const items = Array.isArray(variantPayload.items) ? variantPayload.items : []
+          variants = await Promise.all(
+            items.map(async (item) => {
+              const preview = mapVariantPreview(item)
+              const thumbnail = await resolveVariantThumbnail(preview.id, variantMediaCache)
+              return { ...preview, thumbnailUrl: thumbnail }
+            }),
+          )
+          variantCache.current.set(productId, variants)
+        }
+        if (!cancelled && variants) {
+          setVariantPreviews(variants)
+        }
       } catch (err) {
         console.error('sales.channels.offer.watchers', err)
       }
     }
     void load()
     return () => { cancelled = true }
-  }, [attachmentCache, productCache, setMediaOptions, setValue, values.defaultMediaId, values.description, values.productId, values.title])
+  }, [
+    attachmentCache,
+    channelId,
+    productCache,
+    setMediaOptions,
+    setProductSummary,
+    setValue,
+    setVariantPreviews,
+    values.defaultMediaId,
+    values.description,
+    values.productId,
+    values.title,
+    variantCache,
+    variantMediaCache,
+  ])
+  return null
+}
+
+function mapProductSummary(item: Record<string, unknown>): ProductSummaryCacheEntry {
+  const pricingSource = item.pricing && typeof item.pricing === 'object' ? item.pricing as Record<string, unknown> : null
+  return {
+    title: typeof item.title === 'string' ? item.title : '',
+    description: typeof item.description === 'string' ? item.description : null,
+    defaultMediaId: typeof item.defaultMediaId === 'string'
+      ? item.defaultMediaId
+      : typeof item.default_media_id === 'string'
+        ? item.default_media_id
+        : null,
+    defaultMediaUrl: typeof item.defaultMediaUrl === 'string'
+      ? item.defaultMediaUrl
+      : typeof item.default_media_url === 'string'
+        ? item.default_media_url
+        : null,
+    sku: typeof item.sku === 'string' ? item.sku : null,
+    pricing: normalizePricing(pricingSource),
+  }
+}
+
+function normalizePricing(source: Record<string, unknown> | null): PricingSummary | null {
+  if (!source) return null
+  const currencyCode = typeof source.currencyCode === 'string'
+    ? source.currencyCode
+    : typeof source.currency_code === 'string'
+      ? source.currency_code
+      : null
+  const unitPriceNet = typeof source.unitPriceNet === 'string'
+    ? source.unitPriceNet
+    : typeof source.unit_price_net === 'string'
+      ? source.unit_price_net
+      : null
+  const unitPriceGross = typeof source.unitPriceGross === 'string'
+    ? source.unitPriceGross
+    : typeof source.unit_price_gross === 'string'
+      ? source.unit_price_gross
+      : null
+  const displayMode = source.displayMode === 'including-tax' || source.display_mode === 'including-tax'
+    ? 'including-tax'
+    : source.displayMode === 'excluding-tax' || source.display_mode === 'excluding-tax'
+      ? 'excluding-tax'
+      : null
+  return { currencyCode, unitPriceNet, unitPriceGross, displayMode }
+}
+
+function mapVariantPreview(item: Record<string, unknown>): ProductVariantPreview {
+  return {
+    id: typeof item.id === 'string' ? item.id : '',
+    name: typeof item.name === 'string'
+      ? item.name
+      : typeof item.sku === 'string'
+        ? item.sku
+        : 'Variant',
+    sku: typeof item.sku === 'string' ? item.sku : null,
+    thumbnailUrl: typeof item.defaultMediaUrl === 'string'
+      ? item.defaultMediaUrl
+      : typeof item.default_media_url === 'string'
+        ? item.default_media_url
+        : null,
+  }
+}
+
+async function resolveVariantThumbnail(
+  variantId: string,
+  cache: React.MutableRefObject<Map<string, string | null>>,
+): Promise<string | null> {
+  if (!variantId) return null
+  if (cache.current.has(variantId)) {
+    return cache.current.get(variantId) ?? null
+  }
+  try {
+    const payload = await apiCall<AttachmentsResponse>(
+      `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variantId)}`,
+    )
+    const items = payload.ok && payload.result?.items ? payload.result.items : []
+    const first = items.find((item) => typeof item.id === 'string')
+    if (first?.id) {
+      const thumbnail = typeof first.thumbnailUrl === 'string'
+        ? first.thumbnailUrl
+        : buildAttachmentImageUrl(first.id, {
+            width: 360,
+            height: 360,
+            slug: slugifyAttachmentFileName(first.fileName ?? first.id),
+          })
+      cache.current.set(variantId, thumbnail ?? null)
+      return thumbnail ?? null
+    }
+  } catch (err) {
+    console.error('sales.channels.offer.variantMedia', err)
+  }
+  cache.current.set(variantId, null)
   return null
 }
 
@@ -647,11 +878,13 @@ function PriceOverridesEditor({
   onChange,
   priceKinds,
   onRemove,
+  basePrice,
 }: {
   values: PriceOverrideDraft[]
   onChange: (next: PriceOverrideDraft[]) => void
   priceKinds: PriceKindSummary[]
   onRemove: (priceId: string) => void
+  basePrice: PricingSummary | null
 }) {
   const t = useT()
   const addRow = React.useCallback(() => {

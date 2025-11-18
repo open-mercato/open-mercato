@@ -9,6 +9,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CategorySelect } from '../../../../components/categories/CategorySelect'
+import { slugify } from '../../../../components/products/productForm'
 
 type CategoryFormValues = {
   name: string
@@ -24,7 +25,9 @@ async function submitCategoryCreate(values: CategoryFormValues, t: (key: string,
     const message = t('catalog.categories.form.errors.name', 'Provide the category name.')
     throw createCrudFormError(message, { name: message })
   }
-  const slug = typeof values.slug === 'string' && values.slug.trim().length ? values.slug.trim() : undefined
+  const providedSlug = typeof values.slug === 'string' ? values.slug.trim() : ''
+  const generatedSlug = providedSlug.length ? providedSlug : slugify(name)
+  const slug = generatedSlug.length ? generatedSlug : undefined
   const description =
     typeof values.description === 'string' && values.description.trim().length
       ? values.description.trim()

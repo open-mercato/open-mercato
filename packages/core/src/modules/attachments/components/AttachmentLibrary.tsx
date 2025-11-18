@@ -11,6 +11,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
@@ -365,7 +366,6 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
     const height = sizeHeight ? Number(sizeHeight) : undefined
     if (!width && !height) {
       flash(
-        'attachments.library.metadata.resizeTool.missing',
         t('attachments.library.metadata.resizeTool.missing', 'Enter width or height to generate the URL.'),
         'error',
       )
@@ -380,13 +380,11 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
     try {
       await navigator.clipboard.writeText(absolute)
       flash(
-        'attachments.library.metadata.resizeTool.copied',
         t('attachments.library.metadata.resizeTool.copied', 'Image URL copied.'),
         'success',
       )
     } catch {
       flash(
-        'attachments.library.metadata.resizeTool.copyError',
         t('attachments.library.metadata.resizeTool.copyError', 'Unable to copy URL.'),
         'error',
       )
@@ -639,13 +637,13 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
         if (!call.ok) {
           const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
           setError(message)
-          flash('attachments.library.upload.failed', message, 'error')
+          flash(message, 'error')
           return
         }
         completed += 1
         setUploadProgress({ completed, total: files.length })
       }
-      flash('attachments.library.upload.success', t('attachments.library.upload.success', 'Attachment uploaded.'), 'success')
+      flash(t('attachments.library.upload.success', 'Attachment uploaded.'), 'success')
       onUploaded()
       onOpenChange(false)
       resetForm()
@@ -667,6 +665,10 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
     },
     [handleSubmit, onOpenChange],
   )
+
+  const uploadPercentage = uploadProgress.total
+    ? Math.min(100, Math.round((uploadProgress.completed / uploadProgress.total) * 100))
+    : 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -746,7 +748,7 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
                   <div
                     className="h-2 rounded bg-primary transition-all"
                     style={{
-                      width: `${Math.min(100, Math.round((uploadProgress.completed / uploadProgress.total) * 100))}%`,
+                      width: `${uploadPercentage}%`,
                     }}
                   />
                 </div>
@@ -804,6 +806,31 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
             </Button>
           </div>
         </form>
+        {isSubmitting ? (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border bg-card px-8 py-6 text-center shadow-xl">
+              <Spinner size="lg" className="border-primary/40 border-t-primary" />
+              <div className="w-full space-y-3">
+                <p className="text-base font-semibold">{t('attachments.library.upload.progressLabel', 'Uploading files')}</p>
+                {uploadProgress.total > 0 ? (
+                  <>
+                    <p className="text-sm text-muted-foreground">
+                      {uploadProgress.completed}/{uploadProgress.total}
+                    </p>
+                    <div className="h-2 w-full rounded bg-muted">
+                      <div
+                        className="h-2 rounded bg-primary transition-all"
+                        style={{
+                          width: `${uploadPercentage}%`,
+                        }}
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   )
@@ -1028,14 +1055,14 @@ export function AttachmentLibrary() {
         if (!call.ok) {
           const message =
             call.result?.error || t('attachments.library.metadata.error', 'Failed to update metadata.')
-          flash('attachments.library.metadata.error', message, 'error')
+          flash(message, 'error')
           return
         }
-        flash('attachments.library.metadata.success', t('attachments.library.metadata.success', 'Attachment updated.'), 'success')
+        flash(t('attachments.library.metadata.success', 'Attachment updated.'), 'success')
         await queryClient.invalidateQueries({ queryKey: ['attachments-library'], exact: false })
         setMetadataDialogOpen(false)
       } catch (err: any) {
-        flash('attachments.library.metadata.error', err?.message || 'Failed to update attachment.', 'error')
+        flash(err?.message || t('attachments.library.metadata.error', 'Failed to update metadata.'), 'error')
       }
     },
     [queryClient, t],
@@ -1084,14 +1111,12 @@ export function AttachmentLibrary() {
                       .writeText(absolute)
                     .then(() =>
                       flash(
-                        'attachments.library.actions.copied',
                         t('attachments.library.actions.copied', 'Link copied.'),
                         'success',
                       ),
                     )
                     .catch(() =>
                       flash(
-                        'attachments.library.actions.copyError',
                         t('attachments.library.actions.copyError', 'Unable to copy link.'),
                         'error',
                       ),

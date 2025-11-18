@@ -66,7 +66,8 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
       errorMessage: t('sales.channels.form.errors.update', 'Failed to save channel.'),
     })
     flash(t('sales.channels.form.messages.updated', 'Channel updated.'), 'success')
-  }, [channelId, t])
+    router.push('/backend/sales/channels')
+  }, [channelId, router, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!channelId) return
@@ -153,13 +154,25 @@ function mapChannelToFormValues(item: Record<string, unknown>): ChannelFormValue
     longitude: typeof item.longitude === 'number' ? item.longitude : typeof item.longitude === 'string' ? item.longitude : null,
     isActive: item.isActive === true || item.is_active === true,
   }
-  const customFields = item.customFields && typeof item.customFields === 'object'
-    ? item.customFields as Record<string, unknown>
+  const customEntries: Record<string, unknown> = {}
+  const customValues = item.customValues && typeof item.customValues === 'object' && !Array.isArray(item.customValues)
+    ? (item.customValues as Record<string, unknown>)
     : null
-  if (customFields) {
-    Object.entries(customFields).forEach(([key, value]) => {
-      values[`cf_${key}`] = value
+  if (customValues) {
+    Object.entries(customValues).forEach(([key, value]) => {
+      customEntries[`cf_${key}`] = value
+    })
+  } else if (Array.isArray((item as any).customFields)) {
+    for (const entry of (item as any).customFields as Array<Record<string, unknown>>) {
+      const key = typeof entry?.key === 'string' ? entry.key : null
+      if (!key) continue
+      customEntries[`cf_${key}`] = entry.value
+    }
+  } else if (item.customFields && typeof item.customFields === 'object') {
+    Object.entries(item.customFields as Record<string, unknown>).forEach(([key, value]) => {
+      customEntries[`cf_${key}`] = value
     })
   }
+  Object.assign(values, customEntries)
   return values
 }

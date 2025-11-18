@@ -325,6 +325,7 @@
   "sales.order-line-statuses.create": "Agregar estado de línea de pedido",
   "sales.order-line-statuses.update": "Actualizar estado de línea de pedido",
   "sales.order-line-statuses.delete": "Eliminar estado de línea de pedido",
+  "sales.channels.update": "Actualizar canal de ventas",
   "sales.tax-rates.create": "Crear tipo de impuesto",
   "sales.tax-rates.update": "Actualizar tipo de impuesto",
   "sales.tax-rates.delete": "Eliminar tipo de impuesto"

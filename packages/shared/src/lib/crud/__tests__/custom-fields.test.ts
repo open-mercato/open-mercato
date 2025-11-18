@@ -1,4 +1,4 @@
-import { buildCustomFieldFiltersFromQuery } from '../custom-fields'
+import { buildCustomFieldFiltersFromQuery, splitCustomFieldPayload } from '../custom-fields'
 
 const mockEntityManager = (defs: any[]) => ({
   find: jest.fn().mockResolvedValue(defs),
@@ -52,5 +52,39 @@ describe('buildCustomFieldFiltersFromQuery', () => {
       fieldset: 'tech',
     })
     expect(emptyFilters).toEqual({})
+  })
+})
+
+describe('splitCustomFieldPayload', () => {
+  it('pulls values from customValues map', () => {
+    const raw = {
+      name: 'Channel',
+      customValues: {
+        api_url: 'https://example.dev',
+        priority: 5,
+      },
+    }
+    expect(splitCustomFieldPayload(raw)).toEqual({
+      base: { name: 'Channel' },
+      custom: { api_url: 'https://example.dev', priority: 5 },
+    })
+  })
+
+  it('maps array based customFields entries', () => {
+    const raw = {
+      customFields: [
+        { key: 'api_url', value: 'https://example.dev' },
+        { key: '', value: 'ignored' },
+        { key: 'notes', value: null },
+      ],
+      code: 'demo',
+    }
+    expect(splitCustomFieldPayload(raw)).toEqual({
+      base: { code: 'demo' },
+      custom: {
+        api_url: 'https://example.dev',
+        notes: null,
+      },
+    })
   })
 })

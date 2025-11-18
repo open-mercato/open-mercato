@@ -325,6 +325,7 @@
   "sales.order-line-statuses.create": "Dodaj status pozycji zamówienia",
   "sales.order-line-statuses.update": "Zaktualizuj status pozycji zamówienia",
   "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia",
+  "sales.channels.update": "Zaktualizuj kanał sprzedaży",
   "sales.tax-rates.create": "Utwórz stawkę podatku",
   "sales.tax-rates.update": "Aktualizuj stawkę podatku",
   "sales.tax-rates.delete": "Usuń stawkę podatku"

@@ -203,7 +203,24 @@ export function splitCustomFieldPayload(raw: unknown): SplitCustomFieldPayload {
   const custom: Record<string, unknown> = {}
   if (!raw || typeof raw !== 'object') return { base, custom }
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (key === 'customFields' && value && typeof value === 'object') {
+    if (key === 'customFields') {
+      if (Array.isArray(value)) {
+        value.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return
+          const entryKey = typeof (entry as any).key === 'string' ? (entry as any).key.trim() : ''
+          if (!entryKey) return
+          custom[entryKey] = (entry as any).value
+        })
+        continue
+      }
+      if (value && typeof value === 'object') {
+        for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
+          custom[String(ck)] = cv
+        }
+        continue
+      }
+    }
+    if (key === 'customValues' && value && typeof value === 'object' && !Array.isArray(value)) {
       for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
         custom[String(ck)] = cv
       }
