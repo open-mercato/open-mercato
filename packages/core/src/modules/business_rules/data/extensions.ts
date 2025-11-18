@@ -7,4 +7,7 @@
  * Extensions will be added here as needed in future implementation steps
  */
 
-export const extensions: any[] = []
+const entityExtensions: any[] = []
+
+export const extensions = entityExtensions
+export default entityExtensions

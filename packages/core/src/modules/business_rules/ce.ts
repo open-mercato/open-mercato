@@ -6,4 +6,7 @@
  */
 
 // Will be populated as entities are created
-export const entities = []
+const systemEntities: any[] = []
+
+export const entities = systemEntities
+export default systemEntities
