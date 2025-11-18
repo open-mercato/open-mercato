@@ -14,8 +14,9 @@ import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
-import { Download, Plus, Upload, Trash2, Copy } from 'lucide-react'
-import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import type { LucideIcon } from 'lucide-react'
+import { Download, Plus, Upload, Trash2, Copy, File, FileText, FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode } from 'lucide-react'
+import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 type AttachmentAssignment = {
@@ -58,6 +59,11 @@ type AssignmentDraft = {
 
 const PAGE_SIZE = 25
 const ENV_APP_URL = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
+const LIBRARY_ENTITY_ID = 'attachments:library'
+
+function filterLibraryAssignments(assignments?: AttachmentAssignment[] | null): AttachmentAssignment[] {
+  return (assignments ?? []).filter((assignment) => assignment.type !== LIBRARY_ENTITY_ID)
+}
 
 function formatFileSize(value: number): string {
   if (!Number.isFinite(value)) return '—'
@@ -91,6 +97,85 @@ function resolveAbsoluteUrl(path: string): string {
   if (!base) return path
   const normalizedBase = base.replace(/\/$/, '')
   return `${normalizedBase}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+function resolveFileExtension(fileName?: string | null): string {
+  if (!fileName) return ''
+  const normalized = fileName.trim()
+  if (!normalized) return ''
+  const lastDot = normalized.lastIndexOf('.')
+  if (lastDot === -1 || lastDot === normalized.length - 1) return ''
+  return normalized.slice(lastDot + 1).toLowerCase()
+}
+
+const EXTENSION_ICON_MAP: Record<string, LucideIcon> = {
+  pdf: FileText,
+  doc: FileText,
+  docx: FileText,
+  txt: FileText,
+  md: FileText,
+  rtf: FileText,
+  xls: FileSpreadsheet,
+  xlsx: FileSpreadsheet,
+  csv: FileSpreadsheet,
+  ods: FileSpreadsheet,
+  ppt: FileText,
+  pptx: FileText,
+  zip: FileArchive,
+  gz: FileArchive,
+  rar: FileArchive,
+  tgz: FileArchive,
+  '7z': FileArchive,
+  tar: FileArchive,
+  json: FileCode,
+  js: FileCode,
+  ts: FileCode,
+  jsx: FileCode,
+  tsx: FileCode,
+  html: FileCode,
+  css: FileCode,
+  xml: FileCode,
+  yaml: FileCode,
+  yml: FileCode,
+  mp3: FileAudio,
+  wav: FileAudio,
+  flac: FileAudio,
+  ogg: FileAudio,
+  mp4: FileVideo,
+  mov: FileVideo,
+  avi: FileVideo,
+  webm: FileVideo,
+}
+
+const MIME_FALLBACK_ICONS: Record<string, LucideIcon> = {
+  audio: FileAudio,
+  video: FileVideo,
+  text: FileText,
+  application: FileText,
+}
+
+function resolveAttachmentPlaceholder(mimeType?: string | null, fileName?: string | null): { icon: LucideIcon; label: string } {
+  const extension = resolveFileExtension(fileName)
+  const normalizedMime = typeof mimeType === 'string' ? mimeType.toLowerCase() : ''
+  if (extension && EXTENSION_ICON_MAP[extension]) {
+    return { icon: EXTENSION_ICON_MAP[extension], label: extension.toUpperCase() }
+  }
+  if (!extension && normalizedMime.includes('pdf')) {
+    return { icon: FileText, label: 'PDF' }
+  }
+  if (!extension && normalizedMime.includes('zip')) {
+    return { icon: FileArchive, label: 'ZIP' }
+  }
+  if (!extension && normalizedMime.includes('json')) {
+    return { icon: FileCode, label: 'JSON' }
+  }
+  const mimeRoot = normalizedMime.split('/')[0] || ''
+  if (mimeRoot && MIME_FALLBACK_ICONS[mimeRoot]) {
+    return { icon: MIME_FALLBACK_ICONS[mimeRoot], label: mimeRoot.toUpperCase() }
+  }
+  const fallbackSource = extension || mimeRoot || 'file'
+  const fallbackLabel = fallbackSource.slice(0, 6).toUpperCase()
+  return { icon: File, label: fallbackLabel }
 }
 
 type AssignmentsEditorProps = {
@@ -224,8 +309,9 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
 
   React.useEffect(() => {
     setTags(item?.tags ?? [])
+    const initialAssignments = filterLibraryAssignments(item?.assignments)
     setAssignments(
-      (item?.assignments ?? []).map((assignment) => ({
+      initialAssignments.map((assignment) => ({
         type: assignment.type,
         id: assignment.id,
         href: assignment.href ?? '',
@@ -247,6 +333,11 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
         slug: slugifyAttachmentFileName(item.fileName),
       })
     )
+  }, [item])
+  const downloadUrl = React.useMemo(() => {
+    if (!item) return null
+    const original = buildAttachmentFileUrl(item.id, { download: true })
+    return resolveAbsoluteUrl(original)
   }, [item])
 
   const handleSubmit = React.useCallback(async () => {
@@ -316,11 +407,23 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
               void handleSubmit()
             }}
             >
-              <div className="space-y-1">
-                <div className="text-sm font-medium">{item.fileName}</div>
-                <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} • {item.partitionCode}
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1 min-w-0">
+                  <div className="truncate text-sm font-medium" title={item.fileName}>
+                    {item.fileName}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatFileSize(item.fileSize)} • {item.partitionCode}
+                  </div>
                 </div>
+                {downloadUrl ? (
+                  <Button variant="outline" size="sm" asChild className="shrink-0">
+                    <a href={downloadUrl} download>
+                      <Download className="mr-2 h-4 w-4" />
+                      {t('attachments.library.metadata.download', 'Download')}
+                    </a>
+                  </Button>
+                ) : null}
               </div>
             {isImage ? (
               <div className="space-y-3 rounded border p-3">
@@ -436,12 +539,17 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [isDragOver, setDragOver] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [uploadProgress, setUploadProgress] = React.useState<{ completed: number; total: number }>({
+    completed: 0,
+    total: 0,
+  })
   const resetForm = React.useCallback(() => {
     setFiles([])
     setPartitionCode('')
     setTags([])
     setAssignments([])
     setError(null)
+    setUploadProgress({ completed: 0, total: 0 })
   }, [])
 
   React.useEffect(() => {
@@ -503,12 +611,14 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
       setError(t('attachments.library.upload.fileRequired', 'Select at least one file to upload.'))
       return
     }
+    setUploadProgress({ completed: 0, total: files.length })
     setIsSubmitting(true)
     setError(null)
     try {
+      let completed = 0
       for (const file of files) {
         const fd = new FormData()
-        fd.set('entityId', 'attachments:library')
+        fd.set('entityId', LIBRARY_ENTITY_ID)
         fd.set('recordId', typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()))
         fd.set('file', file)
         if (partitionCode) fd.set('partitionCode', partitionCode)
@@ -532,6 +642,8 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
           flash('attachments.library.upload.failed', message, 'error')
           return
         }
+        completed += 1
+        setUploadProgress({ completed, total: files.length })
       }
       flash('attachments.library.upload.success', t('attachments.library.upload.success', 'Attachment uploaded.'), 'success')
       onUploaded()
@@ -622,6 +734,24 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
                 {t('attachments.library.upload.noFiles', 'No files selected yet.')}
               </p>
             )}
+            {isSubmitting && uploadProgress.total > 0 ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-medium">
+                  <span>{t('attachments.library.upload.progressLabel', 'Uploading files')}</span>
+                  <span>
+                    {uploadProgress.completed}/{uploadProgress.total}
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded bg-muted">
+                  <div
+                    className="h-2 rounded bg-primary transition-all"
+                    style={{
+                      width: `${Math.min(100, Math.round((uploadProgress.completed / uploadProgress.total) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
             {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
           </div>
           <div className="space-y-1">
@@ -764,9 +894,12 @@ export function AttachmentLibrary() {
               </div>
             )
           }
+          const placeholder = resolveAttachmentPlaceholder(value.mimeType, value.fileName)
+          const PlaceholderIcon = placeholder.icon
           return (
-            <div className="flex h-16 w-16 items-center justify-center rounded border bg-muted text-xs text-muted-foreground">
-              {value.mimeType?.split('/')[0] ?? 'file'}
+            <div className="flex h-16 w-16 flex-col items-center justify-center rounded border bg-muted text-[10px] font-semibold uppercase text-muted-foreground">
+              <PlaceholderIcon className="mb-1 h-5 w-5 text-muted-foreground" aria-hidden />
+              {placeholder.label}
             </div>
           )
         },
@@ -778,8 +911,10 @@ export function AttachmentLibrary() {
         cell: ({ row }) => {
           const value = row.original
           return (
-            <div className="space-y-1">
-              <div className="font-medium">{value.fileName}</div>
+            <div className="space-y-1 min-w-0 max-w-[280px]">
+              <div className="font-medium truncate" title={value.fileName}>
+                {value.fileName}
+              </div>
               <div className="text-xs text-muted-foreground">
                 {formatFileSize(value.fileSize)} • {value.mimeType || 'application/octet-stream'}
               </div>
@@ -812,7 +947,7 @@ export function AttachmentLibrary() {
         header: t('attachments.library.table.assignments', 'Assignments'),
         enableSorting: false,
         cell: ({ row }) => {
-          const assignments = row.original.assignments
+          const assignments = filterLibraryAssignments(row.original.assignments)
           if (!assignments.length) return <span className="text-xs text-muted-foreground">—</span>
           return (
             <div className="flex flex-col gap-1">
@@ -863,7 +998,8 @@ export function AttachmentLibrary() {
         header: t('attachments.library.table.download', 'Download'),
         enableSorting: false,
         cell: ({ row }) => {
-          const absolute = resolveAbsoluteUrl(row.original.url)
+          const downloadPath = buildAttachmentFileUrl(row.original.id, { download: true })
+          const absolute = resolveAbsoluteUrl(downloadPath)
           return (
             <Button variant="ghost" size="icon" asChild>
               <a href={absolute} download aria-label={t('attachments.library.table.download', 'Download')}>

@@ -5,7 +5,9 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useT } from '@/lib/i18n/context'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CategorySelect } from '../../../../components/categories/CategorySelect'
 
 type CategoryFormValues = {
@@ -31,13 +33,16 @@ async function submitCategoryCreate(values: CategoryFormValues, t: (key: string,
     typeof values.parentId === 'string' && values.parentId.trim().length
       ? values.parentId.trim()
       : null
-  await createCrud('catalog/categories', {
+  const customFields = collectCustomFieldValues(values as Record<string, unknown>)
+  const payload: Record<string, unknown> = {
     name,
     slug,
     description,
     parentId,
     isActive: values.isActive !== false,
-  })
+  }
+  if (Object.keys(customFields).length > 0) payload.customFields = customFields
+  await createCrud('catalog/categories', payload)
 }
 
 export default function CreateCatalogCategoryPage() {
@@ -89,6 +94,12 @@ export default function CreateCatalogCategoryPage() {
       column: 1,
       fields: ['name', 'slug', 'description', 'parentId', 'isActive'],
     },
+    {
+      id: 'custom',
+      title: t('catalog.categories.form.group.custom', 'Custom data'),
+      column: 2,
+      kind: 'customFields',
+    },
   ], [t])
 
   const successMessage = encodeURIComponent(t('catalog.categories.flash.created', 'Category created'))
@@ -101,6 +112,7 @@ export default function CreateCatalogCategoryPage() {
           backHref="/backend/catalog/categories"
           fields={fields}
           groups={groups}
+          entityId={E.catalog.catalog_product_category}
           initialValues={{ name: '', slug: '', description: '', parentId: '', isActive: true }}
           submitLabel={t('catalog.categories.form.action.create', 'Create')}
           cancelHref="/backend/catalog/categories"

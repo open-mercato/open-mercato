@@ -81,6 +81,8 @@ const errorSchema = z.object({
   error: z.string(),
 })
 
+const LIBRARY_ENTITY_ID = 'attachments:library'
+
 function parseFormTags(value: FormDataEntryValue | null): string[] {
   if (!value) return []
   if (typeof value === 'string') {
@@ -242,7 +244,9 @@ export async function POST(req: Request) {
   }
 
   let assignments = assignmentsFromForm.slice()
-  assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
+  if (entityId !== LIBRARY_ENTITY_ID) {
+    assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
+  }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
   const attachmentId = randomUUID()
   const att = em.create(Attachment, {

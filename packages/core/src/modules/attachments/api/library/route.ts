@@ -71,9 +71,7 @@ export async function GET(req: Request) {
     qb.andWhere({ partitionCode: partition.trim() })
   }
   if (tagList.length > 0) {
-    qb.andWhere(`coalesce(a.storage_metadata->'tags', '[]'::jsonb) @> :tagFilter`, {
-      tagFilter: JSON.stringify(tagList),
-    })
+    qb.andWhere(`coalesce(a.storage_metadata->'tags', '[]'::jsonb) @> ?::jsonb`, [JSON.stringify(tagList)])
   }
   const countQb = qb.clone()
   const orderMap: Record<string, string> = {

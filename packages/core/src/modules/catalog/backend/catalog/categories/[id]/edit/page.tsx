@@ -6,7 +6,9 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useT } from '@/lib/i18n/context'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CategorySelect } from '../../../../../components/categories/CategorySelect'
 
 type CategoryRow = {
@@ -56,14 +58,17 @@ async function submitCategoryUpdate(
     typeof values.parentId === 'string' && values.parentId.trim().length
       ? values.parentId.trim()
       : null
-  await updateCrud('catalog/categories', {
+  const customFields = collectCustomFieldValues(values as Record<string, unknown>)
+  const payload: Record<string, unknown> = {
     id: resolvedId,
     name,
     slug,
     description,
     parentId,
     isActive: values.isActive !== false,
-  })
+  }
+  if (Object.keys(customFields).length > 0) payload.customFields = customFields
+  await updateCrud('catalog/categories', payload)
 }
 
 export default function EditCatalogCategoryPage({ params }: { params?: { id?: string } }) {
@@ -88,6 +93,11 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
         const record = Array.isArray(result?.items) ? result.items?.[0] : null
         if (!record) throw new Error(t('catalog.categories.form.errors.notFound', 'Category not found'))
         if (cancelled) return
+        const customValues: Record<string, unknown> = {}
+        for (const [key, value] of Object.entries(record as Record<string, unknown>)) {
+          if (key.startsWith('cf_')) customValues[key] = value
+          else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
+        }
         setInitialValues({
           id: record.id,
           name: record.name,
@@ -95,6 +105,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           description: record.description ?? '',
           parentId: record.parentId ?? '',
           isActive: record.isActive,
+          ...customValues,
         })
         setPathLabel(record.pathLabel ?? '')
       } catch (err) {
@@ -160,6 +171,12 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
       column: 1,
       fields: ['name', 'slug', 'description', 'parentId', 'isActive'],
     },
+    {
+      id: 'custom',
+      title: t('catalog.categories.form.group.custom', 'Custom data'),
+      column: 2,
+      kind: 'customFields',
+    },
   ], [t])
 
   if (!categoryId) {
@@ -187,6 +204,7 @@ export default function EditCatalogCategoryPage({ params }: { params?: { id?: st
           backHref="/backend/catalog/categories"
           fields={fields}
           groups={groups}
+          entityId={E.catalog.catalog_product_category}
           initialValues={initialValues ?? { id: categoryId, name: '', slug: '', description: '', parentId: '', isActive: true }}
           isLoading={loading}
           loadingMessage={t('catalog.categories.form.loading', 'Loading category...')}

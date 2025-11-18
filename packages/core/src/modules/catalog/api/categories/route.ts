@@ -7,6 +7,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CatalogProductCategory } from '../../data/entities'
 import { categoryCreateSchema, categoryUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
@@ -221,11 +223,30 @@ export async function GET(req: Request) {
   const start = (page - 1) * pageSize
   const paged = rows.slice(start, start + pageSize)
 
+  const recordIds = paged.map((node) => node.id)
+  const tenantIdByRecord: Record<string, string | null> = {}
+  const organizationIdByRecord: Record<string, string | null> = {}
+  for (const id of recordIds) {
+    tenantIdByRecord[id] = tenantId
+    organizationIdByRecord[id] = organizationId
+  }
+  const cfValues = recordIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.catalog.catalog_product_category,
+        recordIds,
+        tenantIdByRecord,
+        organizationIdByRecord,
+        tenantFallbacks: tenantId ? [tenantId] : [],
+      })
+    : {}
+
   const items: ManageCategoryRow[] = paged.map((node) => {
     const category = categoryMap.get(node.id)
     const parentName = node.parentId ? hierarchy.map.get(node.parentId)?.name ?? null : null
+    const recordId = node.id
     return {
-      id: node.id,
+      id: recordId,
       name: node.name,
       slug: category?.slug ?? null,
       description: category?.description ?? null,
@@ -239,6 +260,7 @@ export async function GET(req: Request) {
       isActive: node.isActive,
       organizationId,
       tenantId,
+      ...(cfValues[recordId] ?? {}),
     }
   })
 

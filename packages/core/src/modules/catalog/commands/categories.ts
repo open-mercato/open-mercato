@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -13,6 +14,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 type CategorySnapshot = {
   id: string
@@ -31,6 +33,7 @@ type CategorySnapshot = {
   isActive: boolean
   createdAt: string
   updatedAt: string
+  custom?: Record<string, unknown> | null
 }
 
 type CategoryUndoPayload = {
@@ -51,6 +54,12 @@ const CATEGORY_CHANGE_KEYS = [
 async function loadCategorySnapshot(em: EntityManager, id: string): Promise<CategorySnapshot | null> {
   const record = await em.findOne(CatalogProductCategory, { id })
   if (!record) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_product_category,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -68,6 +77,7 @@ async function loadCategorySnapshot(em: EntityManager, id: string): Promise<Cate
     isActive: !!record.isActive,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    custom: custom && Object.keys(custom).length ? custom : null,
   }
 }
 
@@ -100,7 +110,7 @@ function normalizeSlug(slug?: string | null): string | null {
 const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: string }> = {
   id: 'catalog.categories.create',
   async execute(input, ctx) {
-    const parsed = categoryCreateSchema.parse(input)
+    const { parsed, custom } = parseWithCustomFields(categoryCreateSchema, input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -135,6 +145,14 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     em.persist(record)
     await em.flush()
     await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_product_category,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { categoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -171,6 +189,17 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     record.isActive = false
     await em.flush()
     await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_category,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -187,7 +216,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     return snapshot ? { before: snapshot } : {}
   },
   async execute(input, ctx) {
-    const parsed = categoryUpdateSchema.parse(input)
+    const { parsed, custom } = parseWithCustomFields(categoryUpdateSchema, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductCategory, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
@@ -233,6 +262,14 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
 
     await em.flush()
     await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_product_category,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { categoryId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -303,6 +340,17 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     }
     await em.flush()
     await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+    const resetValues = buildCustomFieldResetMap(payload?.after?.custom ?? undefined, before.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_category,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -325,10 +373,26 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
     if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const baseEm = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadCategorySnapshot(baseEm, id)
+
     record.deletedAt = new Date()
     record.isActive = false
     await em.flush()
     await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_product_category,
+          recordId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { categoryId: record.id }
   },
   buildLog: async ({ ctx, snapshots }) => {
@@ -391,6 +455,16 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
     }
     await em.flush()
     await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_category,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 
