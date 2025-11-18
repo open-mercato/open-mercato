@@ -1,10 +1,19 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import {
+  buildChanges,
+  requireId,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+} from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
@@ -68,6 +77,36 @@ type ProductSnapshot = {
 type ProductUndoPayload = {
   before?: ProductSnapshot | null
   after?: ProductSnapshot | null
+}
+
+const productCrudEvents: CrudEventsConfig<CatalogProduct> = {
+  module: 'catalog',
+  entity: 'product',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    tenantId: ctx.identifiers.tenantId,
+    organizationId: ctx.identifiers.organizationId,
+    productType: ctx.entity.productType,
+    statusEntryId: ctx.entity.statusEntryId ?? null,
+    isActive: ctx.entity.isActive,
+  }),
+}
+
+const productCrudIndexer: CrudIndexerConfig<CatalogProduct> = {
+  entityType: E.catalog.catalog_product,
+  buildUpsertPayload: (ctx) => ({
+    entityType: E.catalog.catalog_product,
+    recordId: ctx.identifiers.id,
+    tenantId: ctx.identifiers.tenantId,
+    organizationId: ctx.identifiers.organizationId,
+  }),
+  buildDeletePayload: (ctx) => ({
+    entityType: E.catalog.catalog_product,
+    recordId: ctx.identifiers.id,
+    tenantId: ctx.identifiers.tenantId,
+    organizationId: ctx.identifiers.organizationId,
+  }),
 }
 
 type OfferSnapshot = {
@@ -723,13 +762,26 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     } catch (error) {
       await rethrowProductUniqueConstraint(error)
     }
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await setCustomFieldsIfAny({
-      dataEngine: ctx.container.resolve('dataEngine'),
+      dataEngine,
       entityId: E.catalog.catalog_product,
       recordId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       values: custom,
+    })
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: productCrudEvents,
+      indexer: productCrudIndexer,
     })
     return { productId: record.id }
   },
@@ -803,6 +855,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     ensureTenantScope(ctx, tenantId)
     ensureOrganizationScope(ctx, organizationId)
     ensureSameScope(record, organizationId, tenantId)
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     record.organizationId = organizationId
     record.tenantId = tenantId
 
@@ -865,7 +918,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     }
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.catalog.catalog_product,
         recordId: record.id,
         organizationId: record.organizationId,
@@ -873,6 +926,18 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         values: custom,
       })
     }
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: productCrudEvents,
+      indexer: productCrudIndexer,
+    })
     return { productId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {

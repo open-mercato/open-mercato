@@ -149,26 +149,36 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
 
   React.useEffect(() => {
     async function loadKinds() {
+      const mapItems = (items: Array<Record<string, unknown>>) => items.map((item) => ({
+        id: typeof item.id === 'string' ? item.id : '',
+        code: typeof item.code === 'string' ? item.code : null,
+        title: typeof item.title === 'string' ? item.title : null,
+        currencyCode: typeof item.currencyCode === 'string'
+          ? item.currencyCode
+          : typeof item.currency_code === 'string'
+            ? item.currency_code
+            : null,
+        displayMode: item.displayMode === 'including-tax' || item.display_mode === 'including-tax'
+          ? 'including-tax'
+          : 'excluding-tax',
+      }))
+      const endpoints = ['/api/sales/price-kinds?pageSize=200', '/api/catalog/price-kinds?pageSize=200']
       try {
-        const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          '/api/sales/price-kinds?pageSize=200',
-          undefined,
-          { fallback: { items: [] } },
-        )
-        const items = Array.isArray(payload.items) ? payload.items : []
-        setPriceKinds(items.map((item) => ({
-          id: typeof item.id === 'string' ? item.id : '',
-          code: typeof item.code === 'string' ? item.code : null,
-          title: typeof item.title === 'string' ? item.title : null,
-          currencyCode: typeof item.currencyCode === 'string'
-            ? item.currencyCode
-            : typeof item.currency_code === 'string'
-              ? item.currency_code
-              : null,
-          displayMode: item.displayMode === 'including-tax' || item.display_mode === 'including-tax'
-            ? 'including-tax'
-            : 'excluding-tax',
-        })))
+        for (const endpoint of endpoints) {
+          try {
+            const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+              endpoint,
+              undefined,
+              { fallback: { items: [] } },
+            )
+            const items = Array.isArray(payload.items) ? payload.items : []
+            setPriceKinds(mapItems(items))
+            return
+          } catch (err) {
+            console.error('sales.channels.price-kinds.fetch', { endpoint, err })
+          }
+        }
+        setPriceKinds([])
       } catch (err) {
         console.error('catalog.price-kinds.list', err)
       }
@@ -969,28 +979,7 @@ function OfferFormWatchers({
         }
         let attachments = attachmentCache.current.get(productId)
         if (!attachments) {
-          const attachmentPayload = await apiCall<AttachmentsResponse>(
-            `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product)}&recordId=${encodeURIComponent(productId)}`,
-          )
-          const items = attachmentPayload.ok && attachmentPayload.result?.items
-            ? attachmentPayload.result.items
-            : []
-          attachments = items
-            .filter((item): item is { id: string; fileName: string; thumbnailUrl?: string | null } => (
-              typeof item.id === 'string' && typeof item.fileName === 'string'
-            ))
-            .map((item) => ({
-              id: item.id,
-              label: item.fileName,
-              fileName: item.fileName,
-              thumbnailUrl: typeof item.thumbnailUrl === 'string'
-                ? item.thumbnailUrl
-                : buildAttachmentImageUrl(item.id, {
-                    width: 360,
-                    height: 360,
-                    slug: slugifyAttachmentFileName(item.fileName),
-                  }),
-            }))
+          attachments = await loadProductMedia(productId)
           attachmentCache.current.set(productId, attachments)
         }
         if (!cancelled && attachments) {
@@ -1085,6 +1074,53 @@ function normalizePricing(source: Record<string, unknown> | null): PricingSummar
       ? 'excluding-tax'
       : null
   return { currencyCode, unitPriceNet, unitPriceGross, displayMode }
+}
+
+async function loadProductMedia(productId: string): Promise<MediaOption[]> {
+  if (!productId) return []
+  const normalize = (items: Array<{ id?: string; fileName?: string; thumbnailUrl?: string | null }>) => (
+    items
+      .filter((item): item is { id: string; fileName: string; thumbnailUrl?: string | null } => (
+        typeof item.id === 'string' && typeof item.fileName === 'string'
+      ))
+      .map((item) => ({
+        id: item.id,
+        label: item.fileName,
+        fileName: item.fileName,
+        thumbnailUrl: typeof item.thumbnailUrl === 'string'
+          ? item.thumbnailUrl
+          : buildAttachmentImageUrl(item.id, {
+              width: 360,
+              height: 360,
+              slug: slugifyAttachmentFileName(item.fileName),
+            }),
+      }))
+  )
+  try {
+    const primary = await apiCall<AttachmentsResponse>(
+      `/api/catalog/product-media?productId=${encodeURIComponent(productId)}`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    if (primary.ok && primary.result?.items) {
+      return normalize(primary.result.items)
+    }
+  } catch (err) {
+    console.error('catalog.product-media.lookup', err)
+  }
+  try {
+    const fallback = await apiCall<AttachmentsResponse>(
+      `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product)}&recordId=${encodeURIComponent(productId)}`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    if (fallback.ok && fallback.result?.items) {
+      return normalize(fallback.result.items)
+    }
+  } catch (err) {
+    console.error('attachments.lookup', err)
+  }
+  return []
 }
 
 function mapVariantPreview(item: Record<string, unknown>): ProductVariantPreview {
