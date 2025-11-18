@@ -55,12 +55,31 @@ type AttachmentLibraryResponse = {
   error?: string
 }
 
+type AttachmentMetadataResponse = {
+  item: {
+    id: string
+    fileName?: string
+    fileSize?: number
+    mimeType?: string | null
+    partitionCode?: string
+    tags?: string[]
+    assignments?: AttachmentAssignment[]
+    customFields?: Record<string, unknown>
+  }
+}
+
 type AssignmentDraft = {
   type: string
   id: string
   href?: string
   label?: string
 }
+
+type AttachmentMetadataFormValues = {
+  id: string
+  tags?: string[]
+  assignments?: AssignmentDraft[]
+} & Record<string, unknown>
 
 const PAGE_SIZE = 25
 const ENV_APP_URL = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '')
@@ -189,6 +208,32 @@ function normalizeCustomFieldSubmitValue(value: unknown): unknown {
   }
   if (value === undefined) return null
   return value
+}
+
+function prepareAssignmentsForForm(assignments?: AttachmentAssignment[] | null): AssignmentDraft[] {
+  return filterLibraryAssignments(assignments).map((assignment) => ({
+    type: assignment.type,
+    id: assignment.id,
+    href: assignment.href ?? '',
+    label: assignment.label ?? '',
+  }))
+}
+
+function prefixCustomFieldValues(values?: Record<string, unknown> | null): Record<string, unknown> {
+  if (!values) return {}
+  const prefixed: Record<string, unknown> = {}
+  Object.entries(values).forEach(([key, value]) => {
+    if (!key) return
+    if (key.startsWith('cf_')) {
+      prefixed[key] = value
+    } else if (key.startsWith('cf:')) {
+      const normalized = key.slice(3)
+      if (normalized) prefixed[`cf_${normalized}`] = value
+    } else {
+      prefixed[`cf_${key}`] = value
+    }
+  })
+  return prefixed
 }
 
 type AttachmentUploadFormValues = {
@@ -712,31 +757,69 @@ type MetadataDialogProps = {
   onOpenChange: (next: boolean) => void
   item: AttachmentRow | null
   availableTags: string[]
-  onSave: (id: string, payload: { tags: string[]; assignments: AssignmentDraft[] }) => Promise<void>
-  saving?: boolean
+  onSave: (
+    id: string,
+    payload: { tags: string[]; assignments: AssignmentDraft[]; customFields?: Record<string, unknown> },
+  ) => Promise<void>
 }
 
-function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onSave, saving }: MetadataDialogProps) {
+function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onSave }: MetadataDialogProps) {
   const t = useT()
-  const [tags, setTags] = React.useState<string[]>([])
-  const [assignments, setAssignments] = React.useState<AssignmentDraft[]>([])
   const [sizeWidth, setSizeWidth] = React.useState<string>('')
   const [sizeHeight, setSizeHeight] = React.useState<string>('')
+  const [initialValues, setInitialValues] = React.useState<Partial<AttachmentMetadataFormValues> | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    setTags(item?.tags ?? [])
-    const initialAssignments = filterLibraryAssignments(item?.assignments)
-    setAssignments(
-      initialAssignments.map((assignment) => ({
-        type: assignment.type,
-        id: assignment.id,
-        href: assignment.href ?? '',
-        label: assignment.label ?? '',
-      })),
-    )
+    if (!open || !item) {
+      setInitialValues(null)
+      setLoadError(null)
+      setLoading(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setLoadError(null)
     setSizeWidth('')
     setSizeHeight('')
-  }, [item])
+    setInitialValues({
+      id: item.id,
+      tags: item.tags ?? [],
+      assignments: prepareAssignmentsForForm(item.assignments),
+    })
+    const loadDetails = async () => {
+      try {
+        const call = await apiCall<AttachmentMetadataResponse>(`/api/attachments/library/${encodeURIComponent(item.id)}`)
+        if (!call.ok || !call.result?.item) {
+          const message = call.result?.error || t('attachments.library.metadata.error', 'Failed to update metadata.')
+          throw new Error(message)
+        }
+        const payload = call.result.item
+        const prefixedCustom = prefixCustomFieldValues(payload.customFields)
+        if (!cancelled) {
+          setInitialValues({
+            id: payload.id,
+            tags: Array.isArray(payload.tags) ? payload.tags : [],
+            assignments: prepareAssignmentsForForm(payload.assignments ?? item.assignments),
+            ...prefixedCustom,
+          })
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          const message =
+            err?.message || t('attachments.library.metadata.loadError', 'Failed to load attachment metadata.')
+          setLoadError(message)
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    void loadDetails()
+    return () => {
+      cancelled = true
+    }
+  }, [item, open, t])
 
   const isImage = React.useMemo(() => Boolean(item?.mimeType?.toLowerCase().startsWith('image/')), [item])
   const previewUrl = React.useMemo(() => {
@@ -756,23 +839,132 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
     return resolveAbsoluteUrl(original)
   }, [item])
 
-  const handleSubmit = React.useCallback(async () => {
-    if (!item) return
-    await onSave(item.id, { tags, assignments })
-  }, [assignments, item, onSave, tags])
+  const assignmentLabels = React.useMemo(
+    () => ({
+      title: t('attachments.library.metadata.assignments.title', 'Assignments'),
+      description: t(
+        'attachments.library.metadata.assignments.description',
+        'Add the records this attachment belongs to with optional links.',
+      ),
+      type: t('attachments.library.metadata.assignments.type', 'Type'),
+      id: t('attachments.library.metadata.assignments.id', 'Record ID'),
+      href: t('attachments.library.metadata.assignments.href', 'Link'),
+      label: t('attachments.library.metadata.assignments.label', 'Label'),
+      add: t('attachments.library.metadata.assignments.add', 'Add assignment'),
+      remove: t('attachments.library.metadata.assignments.remove', 'Remove'),
+    }),
+    [t],
+  )
+
+  const metadataFields = React.useMemo<CrudField[]>(() => {
+    return [
+      {
+        id: 'tags',
+        label: t('attachments.library.table.tags', 'Tags'),
+        type: 'custom',
+        component: ({ value, setValue, disabled }) => (
+          <TagsInput
+            value={Array.isArray(value) ? (value as string[]) : []}
+            onChange={(next) => setValue(next)}
+            suggestions={availableTags}
+            placeholder={t('attachments.library.metadata.tagsPlaceholder', 'Add tags')}
+            disabled={Boolean(disabled) || loading}
+          />
+        ),
+      },
+      {
+        id: 'assignments',
+        label: '',
+        type: 'custom',
+        component: ({ value, setValue, disabled }) => (
+          <AttachmentAssignmentsEditor
+            value={Array.isArray(value) ? (value as AssignmentDraft[]) : []}
+            onChange={(next) => setValue(next)}
+            labels={assignmentLabels}
+            disabled={Boolean(disabled) || loading}
+          />
+        ),
+      },
+    ]
+  }, [assignmentLabels, availableTags, loading, t])
+
+  const metadataGroups = React.useMemo<CrudFormGroup[]>(() => {
+    return [
+      {
+        id: 'details',
+        title: t('attachments.library.metadata.details', 'Details'),
+        column: 1,
+        fields: ['tags', 'assignments'],
+      },
+      {
+        id: 'customFields',
+        title: t('entities.customFields.title', 'Custom attributes'),
+        column: 2,
+        kind: 'customFields',
+      },
+    ]
+  }, [t])
+
+  const metadataSchema = React.useMemo(
+    () =>
+      z
+        .object({
+          id: z.string().min(1),
+          tags: z.array(z.string()).optional(),
+          assignments: z
+            .array(
+              z.object({
+                type: z.string().min(1),
+                id: z.string().min(1),
+                href: z.string().nullable().optional(),
+                label: z.string().nullable().optional(),
+              }),
+            )
+            .optional(),
+        })
+        .passthrough(),
+    [],
+  )
+
+  const handleSubmit = React.useCallback(
+    async (values: AttachmentMetadataFormValues) => {
+      if (!item) return
+      const tags = Array.isArray(values.tags)
+        ? values.tags.map((tag) => (typeof tag === 'string' ? tag.trim() : '')).filter((tag) => tag.length > 0)
+        : []
+      const assignments = Array.isArray(values.assignments)
+        ? values.assignments
+            .map((assignment) => ({
+              type: assignment.type?.trim() ?? '',
+              id: assignment.id?.trim() ?? '',
+              href: assignment.href?.trim() || undefined,
+              label: assignment.label?.trim() || undefined,
+            }))
+            .filter((assignment) => assignment.type && assignment.id)
+        : []
+      const customFields = collectCustomFieldValues(values, {
+        transform: (value) => normalizeCustomFieldSubmitValue(value),
+      })
+      const payload: { tags: string[]; assignments: AssignmentDraft[]; customFields?: Record<string, unknown> } = {
+        tags,
+        assignments,
+      }
+      if (Object.keys(customFields).length) {
+        payload.customFields = customFields
+      }
+      await onSave(item.id, payload)
+    },
+    [item, onSave],
+  )
 
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        void handleSubmit()
-      }
       if (event.key === 'Escape') {
         event.preventDefault()
         onOpenChange(false)
       }
     },
-    [handleSubmit, onOpenChange],
+    [onOpenChange],
   )
 
   const handleCopyResizedUrl = React.useCallback(async () => {
@@ -806,6 +998,8 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
     }
   }, [item, sizeHeight, sizeWidth, t])
 
+  const loadMessage = t('attachments.library.metadata.loading', 'Loading attachment details…')
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl" onKeyDown={handleKeyDown}>
@@ -813,31 +1007,25 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
           <DialogTitle>{t('attachments.library.metadata.title', 'Edit attachment metadata')}</DialogTitle>
         </DialogHeader>
         {item ? (
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void handleSubmit()
-            }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1 min-w-0">
-                  <div className="truncate text-sm font-medium" title={item.fileName}>
-                    {item.fileName}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatFileSize(item.fileSize)} • {item.partitionCode}
-                  </div>
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1 min-w-0">
+                <div className="truncate text-sm font-medium" title={item.fileName}>
+                  {item.fileName}
                 </div>
-                {downloadUrl ? (
-                  <Button variant="outline" size="sm" asChild className="shrink-0">
-                    <a href={downloadUrl} download>
-                      <Download className="mr-2 h-4 w-4" />
-                      {t('attachments.library.metadata.download', 'Download')}
-                    </a>
-                  </Button>
-                ) : null}
+                <div className="text-xs text-muted-foreground">
+                  {formatFileSize(item.fileSize)} • {item.partitionCode}
+                </div>
               </div>
+              {downloadUrl ? (
+                <Button variant="outline" size="sm" asChild className="shrink-0">
+                  <a href={downloadUrl} download>
+                    <Download className="mr-2 h-4 w-4" />
+                    {t('attachments.library.metadata.download', 'Download')}
+                  </a>
+                </Button>
+              ) : null}
+            </div>
             {isImage ? (
               <div className="space-y-3 rounded border p-3">
                 <div className="text-sm font-medium">{t('attachments.library.metadata.preview', 'Preview')}</div>
@@ -859,7 +1047,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
                         min={0}
                         value={sizeWidth}
                         onChange={(event) => setSizeWidth(event.target.value)}
-                        disabled={saving}
+                        disabled={loading}
                       />
                     </div>
                     <div className="space-y-1">
@@ -872,7 +1060,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
                         min={0}
                         value={sizeHeight}
                         onChange={(event) => setSizeHeight(event.target.value)}
-                        disabled={saving}
+                        disabled={loading}
                       />
                     </div>
                   </div>
@@ -882,7 +1070,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
                     size="sm"
                     className="inline-flex items-center gap-2"
                     onClick={() => void handleCopyResizedUrl()}
-                    disabled={saving}
+                    disabled={loading}
                   >
                     <Copy className="h-4 w-4" />
                     {t('attachments.library.metadata.resizeTool.copy', 'Copy URL')}
@@ -890,40 +1078,29 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
                 </div>
               </div>
             ) : null}
-            <TagsInput
-              value={tags}
-              onChange={(next) => setTags(next)}
-              suggestions={availableTags}
-              placeholder={t('attachments.library.metadata.tagsPlaceholder', 'Add tags')}
-              disabled={saving}
+            {loadError ? (
+              <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {loadError}
+              </div>
+            ) : null}
+            <CrudForm<AttachmentMetadataFormValues>
+              embedded
+              schema={metadataSchema}
+              entityId={E.attachments.attachment}
+              fields={metadataFields}
+              groups={metadataGroups}
+              initialValues={initialValues ?? undefined}
+              isLoading={!initialValues || loading}
+              loadingMessage={loadMessage}
+              submitLabel={t('attachments.library.metadata.save', 'Save')}
+              extraActions={
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  {t('attachments.library.metadata.cancel', 'Cancel')}
+                </Button>
+              }
+              onSubmit={handleSubmit}
             />
-            <AttachmentAssignmentsEditor
-              value={assignments}
-              onChange={setAssignments}
-              disabled={saving}
-              labels={{
-                title: t('attachments.library.metadata.assignments.title', 'Assignments'),
-                description: t(
-                  'attachments.library.metadata.assignments.description',
-                  'Add the records this attachment belongs to with optional links.',
-                ),
-                type: t('attachments.library.metadata.assignments.type', 'Type'),
-                id: t('attachments.library.metadata.assignments.id', 'Record ID'),
-                href: t('attachments.library.metadata.assignments.href', 'Link'),
-                label: t('attachments.library.metadata.assignments.label', 'Label'),
-                add: t('attachments.library.metadata.assignments.add', 'Add assignment'),
-                remove: t('attachments.library.metadata.assignments.remove', 'Remove'),
-              }}
-            />
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-                {t('attachments.library.metadata.cancel', 'Cancel')}
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? t('attachments.library.metadata.saving', 'Saving…') : t('attachments.library.metadata.save', 'Save')}
-              </Button>
-            </div>
-          </form>
+          </div>
         ) : (
           <div className="py-8 text-center text-sm text-muted-foreground">
             {t('attachments.library.metadata.noSelection', 'Select an attachment to edit.')}
@@ -944,308 +1121,40 @@ type UploadDialogProps = {
 
 function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags, onUploaded }: UploadDialogProps) {
   const t = useT()
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
-  const [files, setFiles] = React.useState<File[]>([])
-  const [partitionCode, setPartitionCode] = React.useState<string>('')
-  const [tags, setTags] = React.useState<string[]>([])
-  const [assignments, setAssignments] = React.useState<AssignmentDraft[]>([])
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [isDragOver, setDragOver] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const [uploadProgress, setUploadProgress] = React.useState<{ completed: number; total: number }>({
-    completed: 0,
-    total: 0,
-  })
-  const resetForm = React.useCallback(() => {
-    setFiles([])
-    setPartitionCode('')
-    setTags([])
-    setAssignments([])
-    setError(null)
-    setUploadProgress({ completed: 0, total: 0 })
-  }, [])
+  const [formResetKey, setFormResetKey] = React.useState(0)
+  const previousOpen = React.useRef(open)
 
   React.useEffect(() => {
-    if (!open) {
-      resetForm()
+    if (previousOpen.current && !open) {
+      setFormResetKey((prev) => prev + 1)
     }
-  }, [open, resetForm])
+    previousOpen.current = open
+  }, [open])
 
-  const acceptFiles = React.useCallback(
-    (list: FileList | null) => {
-      if (!list || !list.length) return
-      setError(null)
-      setFiles((prev) => {
-        const dedupe = new Map(prev.map((file) => [`${file.name}:${file.size}`, file]))
-        for (const file of Array.from(list)) {
-          dedupe.set(`${file.name}:${file.size}`, file)
-        }
-        return Array.from(dedupe.values())
-      })
+  const handleDialogChange = React.useCallback(
+    (next: boolean) => {
+      onOpenChange(next)
     },
-    [],
+    [onOpenChange],
   )
 
-  const handleDrop = React.useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-      setDragOver(false)
-      acceptFiles(event.dataTransfer?.files ?? null)
-    },
-    [acceptFiles],
-  )
-
-  const handleDragOver = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setDragOver(true)
-  }, [])
-
-  const handleDragLeave = React.useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    setDragOver(false)
-  }, [])
-
-  const pickFiles = React.useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
-
-  const removeFile = React.useCallback(
-    (name: string, size: number) => {
-      setFiles((prev) => prev.filter((file) => !(file.name === name && file.size === size)))
-    },
-    [],
-  )
-
-  const handleSubmit = React.useCallback(async () => {
-    if (!files.length) {
-      setError(t('attachments.library.upload.fileRequired', 'Select at least one file to upload.'))
-      return
-    }
-    setUploadProgress({ completed: 0, total: files.length })
-    setIsSubmitting(true)
-    setError(null)
-    try {
-      let completed = 0
-      for (const file of files) {
-        const fd = new FormData()
-        fd.set('entityId', LIBRARY_ENTITY_ID)
-        fd.set('recordId', typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()))
-        fd.set('file', file)
-        if (partitionCode) fd.set('partitionCode', partitionCode)
-        if (tags.length) fd.set('tags', JSON.stringify(tags))
-        const cleanedAssignments = assignments
-          .map((assignment) => ({
-            type: assignment.type?.trim() ?? '',
-            id: assignment.id?.trim() ?? '',
-            href: assignment.href?.trim() || undefined,
-            label: assignment.label?.trim() || undefined,
-          }))
-          .filter((assignment) => assignment.type && assignment.id)
-        if (cleanedAssignments.length) fd.set('assignments', JSON.stringify(cleanedAssignments))
-        const call = await apiCall<{ error?: string }>('/api/attachments', {
-          method: 'POST',
-          body: fd,
-        })
-        if (!call.ok) {
-          const message = call.result?.error || t('attachments.library.upload.failed', 'Upload failed.')
-          setError(message)
-          flash(message, 'error')
-          return
-        }
-        completed += 1
-        setUploadProgress({ completed, total: files.length })
-      }
-      flash(t('attachments.library.upload.success', 'Attachment uploaded.'), 'success')
-      onUploaded()
-      onOpenChange(false)
-      resetForm()
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [assignments, files, onOpenChange, onUploaded, partitionCode, resetForm, t, tags])
-
-  const handleKeyDown = React.useCallback(
-    (event: React.KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-        event.preventDefault()
-        void handleSubmit()
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onOpenChange(false)
-      }
-    },
-    [handleSubmit, onOpenChange],
-  )
-
-  const uploadPercentage = uploadProgress.total
-    ? Math.min(100, Math.round((uploadProgress.completed / uploadProgress.total) * 100))
-    : 0
+  const handleUploaded = React.useCallback(() => {
+    onUploaded()
+  }, [onUploaded])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="relative sm:max-w-lg" onKeyDown={handleKeyDown}>
+    <Dialog open={open} onOpenChange={handleDialogChange}>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('attachments.library.upload.title', 'Upload attachment')}</DialogTitle>
         </DialogHeader>
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void handleSubmit()
-          }}
-        >
-          <div className="space-y-2">
-            <label className="text-sm font-medium">{t('attachments.library.upload.file', 'Files')}</label>
-            <div
-              className={cn(
-                'flex flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center transition-colors',
-                isDragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/30',
-              )}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              role="presentation"
-            >
-              <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t('attachments.library.upload.dropHint', 'Drag and drop files here or click to upload.')}
-              </p>
-              <Button type="button" variant="outline" size="sm" className="mt-4" onClick={pickFiles} disabled={isSubmitting}>
-                {isSubmitting ? t('attachments.library.upload.submitting', 'Uploading…') : t('attachments.library.upload.choose', 'Choose files')}
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                multiple
-                onChange={(event) => acceptFiles(event.target.files)}
-                disabled={isSubmitting}
-              />
-            </div>
-            {files.length ? (
-              <div className="space-y-2">
-                {files.map((candidate) => (
-                  <div key={`${candidate.name}-${candidate.size}`} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
-                    <div>
-                      <div className="font-medium">{candidate.name}</div>
-                      <div className="text-xs text-muted-foreground">{formatFileSize(candidate.size)}</div>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeFile(candidate.name, candidate.size)}
-                      disabled={isSubmitting}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {t('attachments.library.upload.noFiles', 'No files selected yet.')}
-              </p>
-            )}
-            {isSubmitting && uploadProgress.total > 0 ? (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <span>{t('attachments.library.upload.progressLabel', 'Uploading files')}</span>
-                  <span>
-                    {uploadProgress.completed}/{uploadProgress.total}
-                  </span>
-                </div>
-                <div className="h-2 w-full rounded bg-muted">
-                  <div
-                    className="h-2 rounded bg-primary transition-all"
-                    style={{
-                      width: `${uploadPercentage}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            ) : null}
-            {error ? <p className="text-xs font-medium text-red-600">{error}</p> : null}
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium">{t('attachments.library.upload.partition', 'Partition')}</label>
-            <select
-              className="w-full rounded border px-2 py-1 text-sm"
-              value={partitionCode}
-              disabled={isSubmitting}
-              onChange={(event) => setPartitionCode(event.target.value)}
-            >
-              <option value="">{t('attachments.library.upload.partitionDefault', 'Default (private)')}</option>
-              {partitions.map((partition) => (
-                <option key={partition.code} value={partition.code}>
-                  {partition.title || partition.code}
-                </option>
-              ))}
-            </select>
-          </div>
-          <TagsInput
-            value={tags}
-            onChange={(next) => setTags(next)}
-            suggestions={availableTags}
-            placeholder={t('attachments.library.upload.tagsPlaceholder', 'Add tags')}
-            disabled={isSubmitting}
-          />
-          <AttachmentAssignmentsEditor
-            value={assignments}
-            onChange={setAssignments}
-            disabled={isSubmitting}
-            labels={{
-              title: t('attachments.library.upload.assignments.title', 'Assignments'),
-              description: t(
-                'attachments.library.upload.assignments.description',
-                'Optionally link this file to existing records now or add them later.',
-              ),
-              type: t('attachments.library.upload.assignments.type', 'Type'),
-              id: t('attachments.library.upload.assignments.id', 'Record ID'),
-              href: t('attachments.library.upload.assignments.href', 'Link'),
-              label: t('attachments.library.upload.assignments.label', 'Label'),
-              add: t('attachments.library.upload.assignments.add', 'Add assignment'),
-              remove: t('attachments.library.upload.assignments.remove', 'Remove'),
-            }}
-          />
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => onOpenChange(false)}>
-              {t('attachments.library.upload.cancel', 'Cancel')}
-            </Button>
-            <Button type="submit" disabled={isSubmitting || !files.length}>
-              {isSubmitting ? t('attachments.library.upload.submitting', 'Uploading…') : t('attachments.library.upload.submit', 'Upload')}
-            </Button>
-          </div>
-        </form>
-        {isSubmitting ? (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/95 px-6 text-center backdrop-blur">
-            <div className="flex w-full max-w-sm flex-col items-center gap-4 rounded-xl border border-border/50 bg-card/95 px-6 py-8 shadow-2xl">
-              <Spinner size="lg" className="border-primary/50 border-t-primary" />
-              <div className="w-full space-y-3">
-                <p className="text-base font-semibold">{t('attachments.library.upload.progressLabel', 'Uploading files')}</p>
-                {uploadProgress.total > 0 ? (
-                  <>
-                    <p className="text-sm text-muted-foreground">
-                      {uploadProgress.completed}/{uploadProgress.total}
-                    </p>
-                    <div className="h-2 w-full rounded bg-muted">
-                      <div
-                        className="h-2 rounded bg-primary transition-all"
-                        style={{
-                          width: `${uploadPercentage}%`,
-                        }}
-                      />
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        ) : null}
+        <AttachmentUploadForm
+          key={formResetKey}
+          partitions={partitions}
+          availableTags={availableTags}
+          onUploaded={handleUploaded}
+          onCancel={() => handleDialogChange(false)}
+        />
       </DialogContent>
     </Dialog>
   )
@@ -1460,12 +1369,19 @@ export function AttachmentLibrary() {
   }, [])
 
   const handleMetadataSave = React.useCallback(
-    async (id: string, payload: { tags: string[]; assignments: AssignmentDraft[] }) => {
+    async (id: string, payload: { tags: string[]; assignments: AssignmentDraft[]; customFields?: Record<string, unknown> }) => {
       try {
+        const body: Record<string, unknown> = {
+          tags: payload.tags,
+          assignments: payload.assignments,
+        }
+        if (payload.customFields && Object.keys(payload.customFields).length) {
+          body.customFields = payload.customFields
+        }
         const call = await apiCall<{ error?: string }>(`/api/attachments/library/${encodeURIComponent(id)}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(body),
         })
         if (!call.ok) {
           const message =

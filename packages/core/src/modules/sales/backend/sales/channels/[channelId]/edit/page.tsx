@@ -152,27 +152,38 @@ function mapChannelToFormValues(item: Record<string, unknown>): ChannelFormValue
     country: typeof item.country === 'string' ? item.country : null,
     latitude: typeof item.latitude === 'number' ? item.latitude : typeof item.latitude === 'string' ? item.latitude : null,
     longitude: typeof item.longitude === 'number' ? item.longitude : typeof item.longitude === 'string' ? item.longitude : null,
+    statusEntryId: typeof item.statusEntryId === 'string'
+      ? item.statusEntryId
+      : typeof item.status_entry_id === 'string'
+        ? item.status_entry_id
+        : null,
     isActive: item.isActive === true || item.is_active === true,
   }
-  const customEntries: Record<string, unknown> = {}
-  const customValues = item.customValues && typeof item.customValues === 'object' && !Array.isArray(item.customValues)
-    ? (item.customValues as Record<string, unknown>)
-    : null
-  if (customValues) {
-    Object.entries(customValues).forEach(([key, value]) => {
-      customEntries[`cf_${key}`] = value
-    })
-  } else if (Array.isArray((item as any).customFields)) {
-    for (const entry of (item as any).customFields as Array<Record<string, unknown>>) {
-      const key = typeof entry?.key === 'string' ? entry.key : null
+  const mergeCustomObject = (source: unknown) => {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return
+    for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
       if (!key) continue
-      customEntries[`cf_${key}`] = entry.value
+      values[`cf_${key}`] = value
     }
-  } else if (item.customFields && typeof item.customFields === 'object') {
-    Object.entries(item.customFields as Record<string, unknown>).forEach(([key, value]) => {
-      customEntries[`cf_${key}`] = value
+  }
+  const mergeCustomArray = (source: unknown) => {
+    if (!Array.isArray(source)) return
+    source.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const key = typeof (entry as Record<string, unknown>).key === 'string'
+        ? (entry as Record<string, unknown>).key
+        : null
+      if (!key) return
+      values[`cf_${key}`] = (entry as Record<string, unknown>).value
     })
   }
-  Object.assign(values, customEntries)
+  mergeCustomObject(item.customValues)
+  mergeCustomObject((item as Record<string, unknown>).custom_values)
+  mergeCustomObject(item.customFields)
+  mergeCustomObject((item as Record<string, unknown>).custom_fields)
+  mergeCustomArray(item.customFields)
+  mergeCustomArray((item as Record<string, unknown>).custom_fields)
+  mergeCustomArray((item as Record<string, unknown>).customFieldEntries)
+  mergeCustomArray((item as Record<string, unknown>).custom_field_entries)
   return values
 }

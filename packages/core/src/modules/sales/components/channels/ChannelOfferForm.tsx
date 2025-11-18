@@ -38,7 +38,7 @@ export type OfferFormValues = {
   productId: string | null
   title: string
   description: string
-  defaultMediaId: string | null
+  defaultMediaId?: string | null
   isActive: boolean
   priceOverrides: PriceOverrideDraft[]
 } & Record<string, unknown>
@@ -124,6 +124,8 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const variantCache = React.useRef<Map<string, ProductVariantPreview[]>>(new Map())
   const variantMediaCache = React.useRef<Map<string, string | null>>(new Map())
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
+  const manualMediaSelections = React.useRef<Set<string>>(new Set())
+  const [currentProductId, setCurrentProductId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (lockedChannelId) {
@@ -134,10 +136,22 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   }, [initialValues?.channelId, lockedChannelId])
 
   React.useEffect(() => {
+    if (typeof initialValues?.productId === 'string') {
+      setCurrentProductId(initialValues.productId)
+    }
+  }, [initialValues?.productId])
+
+  React.useEffect(() => {
+    if (typeof initialValues?.productId === 'string' && initialValues?.defaultMediaId === null) {
+      manualMediaSelections.current.add(initialValues.productId)
+    }
+  }, [initialValues?.defaultMediaId, initialValues?.productId])
+
+  React.useEffect(() => {
     async function loadKinds() {
       try {
         const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          '/api/catalog/price-kinds?pageSize=200',
+          '/api/sales/price-kinds?pageSize=200',
           undefined,
           { fallback: { items: [] } },
         )
@@ -233,8 +247,16 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       type: 'custom',
       component: ({ value, setValue }) => (
         <DefaultMediaSelect
-          value={(value as string | null) ?? null}
-          onChange={(next) => setValue(next)}
+          value={(value as string | null | undefined) ?? null}
+          onChange={(next) => {
+            setValue(next)
+            if (!currentProductId) return
+            if (next === null || next === undefined) {
+              manualMediaSelections.current.add(currentProductId)
+            } else {
+              manualMediaSelections.current.delete(currentProductId)
+            }
+          }}
           options={mediaOptions}
           productThumbnail={productSummary?.defaultMediaUrl ?? null}
         />
@@ -256,18 +278,20 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       label: t('sales.channels.offers.form.active', 'Active'),
       type: 'checkbox',
     },
-  ], [lockedChannelId, mediaOptions, productSummary?.defaultMediaUrl, selectedChannelId, t])
+  ], [lockedChannelId, mediaOptions, productSummary?.defaultMediaUrl, selectedChannelId, t, currentProductId])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'associations', title: t('sales.channels.offers.form.groups.associations', 'Associations'), fields: ['channelId'] },
+    { id: 'associations', column: 1, title: t('sales.channels.offers.form.groups.associations', 'Associations'), fields: ['channelId'] },
     {
       id: 'product',
+      column: 1,
       title: t('sales.channels.offers.form.productGroup', 'Product'),
       description: t('sales.channels.offers.form.productGroupHelp', 'Search the catalog and pick the product you want to customize for this channel.'),
       fields: ['productId'],
     },
     {
       id: 'productSummary',
+      column: 2,
       title: t('sales.channels.offers.form.productSummaryTitle', 'Product summary'),
       component: () => (
         <ProductOverviewCard summary={productSummary} variants={variantPreviews} />
@@ -275,12 +299,14 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     },
     {
       id: 'media',
+      column: 1,
       title: t('sales.channels.offers.form.mediaGroupTitle', 'Default media override'),
       fields: ['defaultMediaId'],
     },
-    { id: 'content', title: t('sales.channels.offers.form.groups.content', 'Content'), fields: ['title', 'description', 'isActive'] },
+    { id: 'content', column: 1, title: t('sales.channels.offers.form.groups.content', 'Content'), fields: ['title', 'description', 'isActive'] },
     {
       id: 'pricing',
+      column: 1,
       title: t('sales.channels.offers.form.groups.pricing', 'Price overrides'),
       component: ({ values, setValue }) => (
         <PriceOverridesEditor
@@ -293,7 +319,14 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       ),
     },
     {
+      id: 'customFields',
+      column: 2,
+      title: t('entities.customFields.title', 'Custom attributes'),
+      kind: 'customFields',
+    },
+    {
       id: 'watchers',
+      column: 1,
       component: ({ values, setValue }) => (
         <OfferFormWatchers
           values={values}
@@ -306,10 +339,12 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           variantCache={variantCache}
           variantMediaCache={variantMediaCache}
           channelId={selectedChannelId}
+          manualMediaSelections={manualMediaSelections}
+          setCurrentProductId={setCurrentProductId}
         />
       ),
     },
-  ], [attachmentCache, priceKinds, productCache, productSummary?.pricing, selectedChannelId, setMediaOptions, t, variantPreviews])
+  ], [attachmentCache, manualMediaSelections, priceKinds, productCache, productSummary?.pricing, selectedChannelId, setMediaOptions, setCurrentProductId, t, variantPreviews])
 
   const handleSubmit = React.useCallback(async (values: OfferFormValues) => {
     const channelId = typeof values.channelId === 'string' && values.channelId.length
@@ -319,23 +354,30 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     if (!channelId || !productId) {
       throw new Error(t('sales.channels.offers.errors.requiredFields', 'Choose a channel and product.'))
     }
+    const resolvedDefaultMediaId = typeof values.defaultMediaId === 'string' && values.defaultMediaId.trim().length
+      ? values.defaultMediaId
+      : values.defaultMediaId === null
+        ? null
+        : undefined
     const basePayload: Record<string, unknown> = {
       channelId,
       productId,
       title: values.title?.trim() || undefined,
       description: values.description?.trim() || undefined,
-      defaultMediaId: typeof values.defaultMediaId === 'string' && values.defaultMediaId.trim().length
-        ? values.defaultMediaId
-        : undefined,
       isActive: values.isActive !== false,
+    }
+    if (resolvedDefaultMediaId !== undefined) {
+      basePayload.defaultMediaId = resolvedDefaultMediaId
     }
     const attachmentLookup = attachmentCache.current.get(productId) ?? []
     const mediaMap = new Map(attachmentLookup.map((entry) => [entry.id, entry.fileName]))
-    if (basePayload.defaultMediaId && mediaMap.has(basePayload.defaultMediaId as string)) {
-      const fileName = mediaMap.get(basePayload.defaultMediaId as string) ?? null
-      basePayload.defaultMediaUrl = buildAttachmentImageUrl(basePayload.defaultMediaId as string, {
+    if (typeof resolvedDefaultMediaId === 'string' && mediaMap.has(resolvedDefaultMediaId)) {
+      const fileName = mediaMap.get(resolvedDefaultMediaId) ?? null
+      basePayload.defaultMediaUrl = buildAttachmentImageUrl(resolvedDefaultMediaId, {
         slug: slugifyAttachmentFileName(fileName),
       })
+    } else if (resolvedDefaultMediaId === null) {
+      basePayload.defaultMediaUrl = null
     }
     const customFields = collectCustomFieldValues(values)
     if (Object.keys(customFields).length) basePayload.customFields = customFields
@@ -514,7 +556,11 @@ function ChannelSelectInput({
   showDetailsLink?: boolean
 }) {
   const t = useT()
-  const [options, setOptions] = React.useState<Array<{ id: string; name: string }>>([])
+  const [options, setOptions] = React.useState<Array<{ id: string; name: string; code: string | null }>>([])
+  const selectedOption = React.useMemo(
+    () => (value ? options.find((opt) => opt.id === value) ?? null : null),
+    [options, value],
+  )
   React.useEffect(() => {
     async function load() {
       try {
@@ -527,6 +573,7 @@ function ChannelSelectInput({
         setOptions(items.map((item) => ({
           id: typeof item.id === 'string' ? item.id : '',
           name: typeof item.name === 'string' ? item.name : '',
+          code: typeof item.code === 'string' ? item.code : null,
         })))
       } catch (err) {
         console.error('sales.channels.options', err)
@@ -534,14 +581,45 @@ function ChannelSelectInput({
     }
     void load()
   }, [])
+  React.useEffect(() => {
+    if (!value || selectedOption) return
+    let cancelled = false
+    async function loadSingle() {
+      try {
+        const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+          `/api/sales/channels?id=${encodeURIComponent(value)}&pageSize=1`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        const item = Array.isArray(payload.items) ? payload.items[0] : null
+        if (!item || cancelled) return
+        const entry = {
+          id: typeof item.id === 'string' ? item.id : value,
+          name: typeof item.name === 'string' ? item.name : value,
+          code: typeof item.code === 'string' ? item.code : null,
+        }
+        setOptions((prev) => {
+          if (prev.some((opt) => opt.id === entry.id)) return prev
+          return [...prev, entry]
+        })
+      } catch (err) {
+        console.error('sales.channels.lookup', err)
+      }
+    }
+    void loadSingle()
+    return () => { cancelled = true }
+  }, [selectedOption, value])
 
   if (disabled && value) {
-    const label = options.find((opt) => opt.id === value)?.name ?? value
+    const label = selectedOption?.name ?? value
+    const detail = selectedOption?.code ?? null
     return (
       <div className="flex items-center justify-between gap-3 rounded border bg-muted px-3 py-2 text-sm">
         <div className="min-w-0">
           <div className="font-medium truncate">{label}</div>
-          <div className="text-xs text-muted-foreground truncate">{value}</div>
+          {detail ? (
+            <div className="text-xs text-muted-foreground truncate">{detail}</div>
+          ) : null}
         </div>
         {showDetailsLink ? (
           <Link href={`/backend/sales/channels/${value}/edit`} className="text-xs font-medium text-primary hover:underline">
@@ -560,7 +638,7 @@ function ChannelSelectInput({
       <option value="">{t('sales.channels.offers.form.channelPlaceholder', 'Select channel')}</option>
       {options.map((opt) => (
         <option key={opt.id} value={opt.id}>
-          {opt.name}
+          {opt.code ? `${opt.name} (${opt.code})` : opt.name}
         </option>
       ))}
     </select>
@@ -823,6 +901,8 @@ function OfferFormWatchers({
   variantCache,
   variantMediaCache,
   channelId,
+  manualMediaSelections,
+  setCurrentProductId,
 }: CrudFormGroupComponentProps & {
   productCache: React.MutableRefObject<Map<string, ProductSummaryCacheEntry>>
   attachmentCache: React.MutableRefObject<Map<string, MediaOption[]>>
@@ -832,14 +912,27 @@ function OfferFormWatchers({
   variantCache: React.MutableRefObject<Map<string, ProductVariantPreview[]>>
   variantMediaCache: React.MutableRefObject<Map<string, string | null>>
   channelId: string | null
+  manualMediaSelections: React.MutableRefObject<Set<string>>
+  setCurrentProductId: React.Dispatch<React.SetStateAction<string | null>>
 }) {
+  const previousProductIdRef = React.useRef<string | null>(null)
+  const initializedProductRef = React.useRef(false)
   React.useEffect(() => {
     const productId = typeof values.productId === 'string' ? values.productId : null
+    setCurrentProductId(productId)
     if (!productId) {
       setMediaOptions([])
       setProductSummary(null)
       setVariantPreviews([])
+      previousProductIdRef.current = null
       return
+    }
+    if (!initializedProductRef.current) {
+      previousProductIdRef.current = productId
+      initializedProductRef.current = true
+    } else if (previousProductIdRef.current !== productId) {
+      previousProductIdRef.current = productId
+      setValue('defaultMediaId', undefined)
     }
     let cancelled = false
     async function load() {
@@ -868,6 +961,9 @@ function OfferFormWatchers({
             }
             if (!values.description?.trim() && summary.description) {
               setValue('description', summary.description)
+            }
+            if (!values.defaultMediaId && summary.defaultMediaId && !manualMediaSelections.current.has(productId)) {
+              setValue('defaultMediaId', summary.defaultMediaId)
             }
           }
         }
@@ -899,9 +995,6 @@ function OfferFormWatchers({
         }
         if (!cancelled && attachments) {
           setMediaOptions(attachments)
-          if (!values.defaultMediaId && summary?.defaultMediaId) {
-            setValue('defaultMediaId', summary.defaultMediaId)
-          }
         }
         let variants = variantCache.current.get(productId)
         if (!variants) {
@@ -932,6 +1025,7 @@ function OfferFormWatchers({
   }, [
     attachmentCache,
     channelId,
+    manualMediaSelections,
     productCache,
     setMediaOptions,
     setProductSummary,
@@ -943,6 +1037,7 @@ function OfferFormWatchers({
     values.title,
     variantCache,
     variantMediaCache,
+    setCurrentProductId,
   ])
   return null
 }
@@ -1144,19 +1239,33 @@ function PriceOverridesEditor({
                 <option value="">{t('sales.channels.offers.pricing.selectKind', 'Select price kind')}</option>
                 {priceKinds.map((kind) => (
                   <option key={kind.id} value={kind.id}>
-                    {kind.title ?? kind.code ?? kind.id}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="rounded border px-2 py-2 text-sm"
-                type="number"
-                placeholder={t('sales.channels.offers.pricing.amount', 'Amount')}
-                value={row.amount ?? ''}
-                onChange={(event) => updateRow(row.tempId, { amount: event.target.value })}
-              />
-              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>{row.currencyCode ?? '—'}</span>
+                  {kind.title ?? kind.code ?? kind.id}
+                </option>
+              ))}
+            </select>
+              <div className="relative">
+                {(row.currencyCode ?? basePrice?.currencyCode) ? (
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
+                    {row.currencyCode ?? basePrice?.currencyCode}
+                  </span>
+                ) : null}
+                <input
+                  className={cn(
+                    'w-full rounded border py-2 text-sm',
+                    row.currencyCode || basePrice?.currencyCode ? 'pl-16 pr-2' : 'px-2',
+                  )}
+                  type="number"
+                  placeholder={t('sales.channels.offers.pricing.amount', 'Amount')}
+                  value={row.amount ?? ''}
+                  onChange={(event) => updateRow(row.tempId, { amount: event.target.value })}
+                />
+              </div>
+              <div className="flex flex-col justify-between gap-2 text-xs text-muted-foreground sm:flex-row sm:items-center">
+                <span>
+                  {row.displayMode === 'including-tax'
+                    ? t('sales.channels.offers.pricing.includingTax', 'Including tax')
+                    : t('sales.channels.offers.pricing.excludingTax', 'Excluding tax')}
+                </span>
                 <Button type="button" variant="ghost" size="sm" onClick={() => removeRow(row)}>
                   {t('sales.channels.offers.pricing.remove', 'Remove')}
                 </Button>

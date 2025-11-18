@@ -160,10 +160,57 @@ async function decorateOffersWithDetails(
     })
     priceMap.set(offerId, bucket)
   })
+  const channelId = typeof ctx.query.channelId === 'string' ? ctx.query.channelId : null
+  const productChannelEntries =
+    channelId && productIds.length
+      ? await em.find(
+          CatalogProductPrice,
+          {
+            product: { $in: productIds },
+            offer: null,
+            channelId: { $in: [channelId, null] },
+          },
+          { populate: ['priceKind'] },
+        )
+      : []
+  const productChannelPriceMap = new Map<string, { payload: Record<string, unknown>; priority: number }>()
+  productChannelEntries.forEach((entry) => {
+    const productRef =
+      typeof entry.product === 'string'
+        ? entry.product
+        : entry.product && typeof entry.product === 'object' && 'id' in entry.product
+          ? (entry.product as { id?: string }).id ?? null
+          : null
+    if (!productRef) return
+    const isChannelSpecific =
+      typeof entry.channelId === 'string' ? entry.channelId === channelId : entry.channelId === channelId
+    const priority = isChannelSpecific ? 2 : 1
+    const current = productChannelPriceMap.get(productRef)
+    if (current && current.priority >= priority) return
+    const priceKind = entry.priceKind && typeof entry.priceKind === 'object'
+      ? (entry.priceKind as Record<string, unknown>)
+      : null
+    const displayMode = typeof priceKind?.displayMode === 'string'
+      ? priceKind.displayMode
+      : typeof priceKind?.display_mode === 'string'
+        ? priceKind.display_mode
+        : null
+    productChannelPriceMap.set(productRef, {
+      payload: {
+        currencyCode: entry.currencyCode ?? null,
+        unitPriceNet: entry.unitPriceNet ?? null,
+        unitPriceGross: entry.unitPriceGross ?? null,
+        displayMode,
+      },
+      priority,
+    })
+  })
   items.forEach((item) => {
     const productId = String(item?.productId ?? '')
     item.product = productId ? productMap.get(productId) ?? null : null
     item.prices = priceMap.get(String(item?.id ?? '')) ?? []
+    const fallbackPrice = productChannelPriceMap.get(productId)?.payload ?? null
+    item.productChannelPrice = fallbackPrice
   })
 }
 

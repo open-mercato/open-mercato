@@ -154,7 +154,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * GET /attachments/library/{id}
+         * @description Requires features: attachments.manage
+         */
+        get: operations["attachments_get_attachments_library_id"];
         put?: never;
         post?: never;
         /**
@@ -3431,6 +3435,16 @@ export interface components {
             error: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdGetParameters0Schema: string;
+        DocPathsAttachmentsLibraryIdGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsAttachmentsLibraryIdPatchParameters0Schema: string;
         DocPathsAttachmentsLibraryIdPatchResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsAttachmentsLibraryIdPatchResponses401ContentApplicationJsonSchema: {
@@ -13049,6 +13063,56 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_library_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsLibraryIdGetParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

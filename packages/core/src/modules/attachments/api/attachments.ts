@@ -19,8 +19,9 @@ import {
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
-import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -90,6 +91,19 @@ const errorSchema = z.object({
 })
 
 const LIBRARY_ENTITY_ID = 'attachments:library'
+const attachmentCrudEvents: CrudEventsConfig<Attachment> = {
+  module: 'attachments',
+  entity: 'attachment',
+  persistent: false,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+const attachmentCrudIndexer: CrudIndexerConfig<Attachment> = {
+  entityType: E.attachments.attachment,
+}
 
 function parseCustomFieldsEntry(value: FormDataEntryValue | null): Record<string, unknown> {
   if (!value) return {}
@@ -322,6 +336,19 @@ export async function POST(req: Request) {
       console.error('[attachments] failed to persist custom attributes', error)
       return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
     }
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: att,
+      identifiers: {
+        id: att.id,
+        organizationId: att.organizationId ?? null,
+        tenantId: att.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
   }
 
   return NextResponse.json({
@@ -352,6 +379,7 @@ export async function DELETE(req: Request) {
   if (!id) return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  const dataEngine = resolve('dataEngine')
   const record = await em.findOne(Attachment, {
     id,
     organizationId: auth.orgId!,
@@ -364,6 +392,21 @@ export async function DELETE(req: Request) {
   })
   if (record.storagePath) {
     await deletePartitionFile(record.partitionCode, record.storagePath, record.storageDriver)
+  }
+  if (dataEngine) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId ?? null,
+        tenantId: record.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
   }
   return NextResponse.json({ ok: true })
 }

@@ -1,4 +1,4 @@
-import { buildCustomFieldFiltersFromQuery, splitCustomFieldPayload } from '../custom-fields'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '../custom-fields'
 
 const mockEntityManager = (defs: any[]) => ({
   find: jest.fn().mockResolvedValue(defs),
@@ -85,6 +85,37 @@ describe('splitCustomFieldPayload', () => {
         api_url: 'https://example.dev',
         notes: null,
       },
+    })
+  })
+})
+
+describe('extractAllCustomFieldEntries', () => {
+  it('merges entries from customValues maps and customFields objects', () => {
+    const item = {
+      customValues: { api_url: 'https://fws1.api', priority: 5 },
+      customFields: { notes: 'memo' },
+      other: 'value',
+    }
+    expect(extractAllCustomFieldEntries(item)).toEqual({
+      cf_api_url: 'https://fws1.api',
+      cf_priority: 5,
+      cf_notes: 'memo',
+    })
+  })
+
+  it('reads entries from customFields arrays and keeps existing cf_* keys', () => {
+    const item = {
+      customFields: [
+        { key: 'api_url', value: 'https://onet.pl' },
+        { key: '', value: 'skip-me' },
+        { key: 'notes' },
+      ],
+      cf_existing: 'foo',
+    }
+    expect(extractAllCustomFieldEntries(item)).toEqual({
+      cf_api_url: 'https://onet.pl',
+      cf_notes: undefined,
+      cf_existing: 'foo',
     })
   })
 })

@@ -23,6 +23,7 @@ export type OfferRow = {
   productSku: string | null
   productMediaUrl: string | null
   prices: OfferPriceRow[]
+  productChannelPrice: OfferPriceRow | null
   isActive: boolean
   updatedAt: string | null
 }
@@ -32,6 +33,12 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
     ? item.product as Record<string, unknown>
     : null
   const prices = Array.isArray(item.prices) ? item.prices as Array<Record<string, unknown>> : []
+  const productChannelPriceSource =
+    item.productChannelPrice && typeof item.productChannelPrice === 'object'
+      ? item.productChannelPrice
+      : item.product_channel_price && typeof item.product_channel_price === 'object'
+        ? item.product_channel_price
+        : null
   return {
     id: typeof item.id === 'string' ? item.id : '',
     channelId: typeof item.channelId === 'string'
@@ -91,6 +98,7 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
           ? row.display_mode
           : null,
     })),
+    productChannelPrice: mapPriceSummary(productChannelPriceSource),
     isActive: item.isActive === true || item.is_active === true,
     updatedAt: typeof item.updatedAt === 'string'
       ? item.updatedAt
@@ -105,6 +113,15 @@ export function renderOfferPriceSummary(
   t: Translator,
 ): React.ReactNode {
   if (!row.prices.length) {
+    if (row.productChannelPrice) {
+      return (
+        <span className="text-xs text-muted-foreground">
+          {t('sales.channels.offers.table.channelPrice', 'Channel price {{price}}', {
+            price: formatPriceValue(row.productChannelPrice),
+          })}
+        </span>
+      )
+    }
     return <span className="text-xs text-muted-foreground">{t('sales.channels.offers.table.noOverrides', 'No overrides')}</span>
   }
   return (
@@ -125,4 +142,39 @@ export function renderOfferPriceSummary(
       })}
     </div>
   )
+}
+
+function mapPriceSummary(source: Record<string, unknown> | null): OfferPriceRow | null {
+  if (!source) return null
+  return {
+    currencyCode: typeof source.currencyCode === 'string'
+      ? source.currencyCode
+      : typeof source.currency_code === 'string'
+        ? source.currency_code
+        : null,
+    unitPriceNet: typeof source.unitPriceNet === 'string'
+      ? source.unitPriceNet
+      : typeof source.unit_price_net === 'string'
+        ? source.unit_price_net
+        : null,
+    unitPriceGross: typeof source.unitPriceGross === 'string'
+      ? source.unitPriceGross
+      : typeof source.unit_price_gross === 'string'
+        ? source.unit_price_gross
+        : null,
+    displayMode: typeof source.displayMode === 'string'
+      ? source.displayMode
+      : typeof source.display_mode === 'string'
+        ? source.display_mode
+        : null,
+  }
+}
+
+function formatPriceValue(price: OfferPriceRow | null): string {
+  if (!price) return '—'
+  const amount = price.displayMode === 'including-tax'
+    ? price.unitPriceGross ?? price.unitPriceNet
+    : price.unitPriceNet ?? price.unitPriceGross
+  if (!amount) return price.currencyCode ?? '—'
+  return `${price.currencyCode ?? ''} ${amount}`
 }

@@ -88,12 +88,36 @@ export function extractCustomFieldsFromItem(item: Record<string, unknown>, keys:
 export function extractAllCustomFieldEntries(item: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (!item || typeof item !== 'object') return out
+  const assignBareKey = (rawKey: unknown, rawValue: unknown) => {
+    if (typeof rawKey !== 'string') return
+    const trimmed = rawKey.trim()
+    if (!trimmed) return
+    out[`cf_${trimmed}`] = normalizeCustomFieldValue(rawValue)
+  }
   for (const [rawKey, rawValue] of Object.entries(item)) {
     if (rawKey.startsWith('cf_')) {
       if (rawKey.endsWith('__is_multi')) continue
       out[rawKey] = normalizeCustomFieldValue(rawValue)
     } else if (rawKey.startsWith('cf:')) {
-      out[`cf_${rawKey.slice(3)}`] = normalizeCustomFieldValue(rawValue)
+      assignBareKey(rawKey.slice(3), rawValue)
+    }
+  }
+  const customValues = (item as any).customValues
+  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
+    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
+      assignBareKey(key, value)
+    }
+  }
+  const customFields = (item as any).customFields
+  if (Array.isArray(customFields)) {
+    for (const entry of customFields as Array<Record<string, unknown>>) {
+      const key = entry && typeof entry.key === 'string' ? entry.key : null
+      if (!key) continue
+      assignBareKey(key, 'value' in entry ? (entry as any).value : undefined)
+    }
+  } else if (customFields && typeof customFields === 'object') {
+    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
+      assignBareKey(key, value)
     }
   }
   return out
