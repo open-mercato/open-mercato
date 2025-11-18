@@ -396,5 +396,60 @@
         "catalog": "Catalog"
       }
     }
+    ,
+    "variants": {
+      "form": {
+        "createTitle": "Create variant",
+        "createTitleFor": "Create variant for {{title}}",
+        "editTitle": "Edit variant",
+        "editTitleFor": "Edit variant • {{title}}",
+        "loading": "Loading form...",
+        "createAction": "Create variant",
+        "save": "Save changes",
+        "customFields": "Custom attributes",
+        "nameLabel": "Name",
+        "nameRequired": "Provide the variant name.",
+        "namePlaceholder": "e.g., Blue / Small",
+        "skuLabel": "SKU",
+        "skuPlaceholder": "Unique identifier",
+        "barcodeLabel": "Barcode",
+        "barcodePlaceholder": "EAN, UPC, etc.",
+        "options": "Option values",
+        "optionPlaceholder": "Select value",
+        "dimensions": "Dimensions & weight",
+        "width": "Width",
+        "height": "Height",
+        "depth": "Depth",
+        "dimensionUnit": "Size unit",
+        "weight": "Weight",
+        "weightUnit": "Weight unit",
+        "prices": "Prices",
+        "pricesHint": "Populate list prices per price kind.",
+        "pricesTaxNone": "No tax override",
+        "priceMissingCurrency": "No currency configured",
+        "pricesEmpty": "No price kinds configured yet.",
+        "media": "Media",
+        "variants": "Variants",
+        "variantsAdd": "Add variant",
+        "variantsDefault": "Default",
+        "variantsEmpty": "No variants defined yet.",
+        "isDefault": "Default variant",
+        "isDefaultHint": "Used in storefronts",
+        "isActive": "Active",
+        "isActiveHint": "Inactive variants stay hidden",
+        "errors": {
+          "productMissing": "Product identifier is missing.",
+          "variantMissing": "Variant identifier is missing.",
+          "nameRequired": "Provide the variant name.",
+          "idMissing": "Variant id missing after create.",
+          "notFound": "Variant not found.",
+          "load": "Failed to load variant.",
+          "deleteError": "Failed to delete variant."
+        },
+        "createSuccess": "Variant created.",
+        "updated": "Variant updated.",
+        "deleted": "Variant deleted."
+      }
+    }
   }
 }

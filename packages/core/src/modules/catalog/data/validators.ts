@@ -97,7 +97,7 @@ const offerInputSchema = offerBaseSchema.extend({
   id: uuid().optional(),
 })
 
-export const offerCreateSchema = scoped.extend(
+export const offerCreateSchema = scoped.merge(
   offerBaseSchema.extend({
     productId: uuid(),
   })

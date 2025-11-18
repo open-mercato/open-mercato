@@ -280,6 +280,8 @@ async function ensureDefaultRoleAcls(
       'auth.*',
       'entities.*',
       'attachments.*',
+      'attachments.view',
+      'attachments.manage',
       'query_index.*',
       'vector.*',
       'configs.system_status.view',
