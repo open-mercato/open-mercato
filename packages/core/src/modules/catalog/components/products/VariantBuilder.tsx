@@ -61,15 +61,15 @@ export function VariantBuilder({
     <div className="grid gap-4 md:grid-cols-2">
       <label className="flex items-center justify-between gap-2 rounded border px-3 py-2">
         <div>
-          <p className="text-sm font-medium">{t('catalog.variants.form.isDefault', 'Default variant')}</p>
-          <p className="text-xs text-muted-foreground">{t('catalog.variants.form.isDefault.hint', 'Used in storefronts')}</p>
+          <p className="text-sm font-medium">{t('catalog.variants.form.isDefaultLabel', 'Default variant')}</p>
+          <p className="text-xs text-muted-foreground">{t('catalog.variants.form.isDefaultHint', 'Used in storefronts')}</p>
         </div>
         <Switch checked={values.isDefault} onCheckedChange={(next) => setValue('isDefault', next)} />
       </label>
       <label className="flex items-center justify-between gap-2 rounded border px-3 py-2">
         <div>
-          <p className="text-sm font-medium">{t('catalog.variants.form.isActive', 'Active')}</p>
-          <p className="text-xs text-muted-foreground">{t('catalog.variants.form.isActive.hint', 'Inactive variants stay hidden')}</p>
+          <p className="text-sm font-medium">{t('catalog.variants.form.isActiveLabel', 'Active')}</p>
+          <p className="text-xs text-muted-foreground">{t('catalog.variants.form.isActiveHint', 'Inactive variants stay hidden')}</p>
         </div>
         <Switch checked={values.isActive !== false} onCheckedChange={(next) => setValue('isActive', next)} />
       </label>
@@ -211,9 +211,9 @@ function VariantPricesTable({ values, priceKinds, taxRates, setValue, onPriceCha
     <div className="space-y-4 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold">{t('catalog.variants.form.prices', 'Prices')}</h3>
+          <h3 className="text-sm font-semibold">{t('catalog.variants.form.pricesLabel', 'Prices')}</h3>
           <p className="text-xs text-muted-foreground">
-            {t('catalog.variants.form.prices.hint', 'Populate list prices per price kind.')}
+            {t('catalog.variants.form.pricesHint', 'Populate list prices per price kind.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -222,7 +222,7 @@ function VariantPricesTable({ values, priceKinds, taxRates, setValue, onPriceCha
             value={values.taxRateId ?? ''}
             onChange={(event) => setValue('taxRateId', event.target.value || null)}
           >
-            <option value="">{t('catalog.variants.form.prices.taxNone', 'No tax override')}</option>
+            <option value="">{t('catalog.variants.form.pricesTaxNone', 'No tax override')}</option>
             {taxRates.map((rate) => (
               <option key={rate.id} value={rate.id}>
                 {formatTaxRateLabel(rate)}
@@ -257,7 +257,7 @@ function VariantPricesTable({ values, priceKinds, taxRates, setValue, onPriceCha
             )
           })
         ) : (
-          <p className="text-xs text-muted-foreground">{t('catalog.variants.form.prices.empty', 'No price kinds configured yet.')}</p>
+          <p className="text-xs text-muted-foreground">{t('catalog.variants.form.pricesEmpty', 'No price kinds configured yet.')}</p>
         )}
       </div>
     </div>
