@@ -12,7 +12,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { CrudEventAction, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -107,6 +107,46 @@ const productCrudIndexer: CrudIndexerConfig<CatalogProduct> = {
     tenantId: ctx.identifiers.tenantId,
     organizationId: ctx.identifiers.organizationId,
   }),
+}
+
+function buildProductCrudIdentifiers(product: CatalogProduct) {
+  return {
+    id: product.id,
+    organizationId: product.organizationId,
+    tenantId: product.tenantId,
+  }
+}
+
+async function emitProductCrudChange(opts: {
+  dataEngine: DataEngine
+  action: CrudEventAction
+  product: CatalogProduct
+}) {
+  const { dataEngine, action, product } = opts
+  await emitCrudSideEffects({
+    dataEngine,
+    action,
+    entity: product,
+    identifiers: buildProductCrudIdentifiers(product),
+    events: productCrudEvents,
+    indexer: productCrudIndexer,
+  })
+}
+
+async function emitProductCrudUndoChange(opts: {
+  dataEngine: DataEngine
+  action: CrudEventAction
+  product: CatalogProduct
+}) {
+  const { dataEngine, action, product } = opts
+  await emitCrudUndoSideEffects({
+    dataEngine,
+    action,
+    entity: product,
+    identifiers: buildProductCrudIdentifiers(product),
+    events: productCrudEvents,
+    indexer: productCrudIndexer,
+  })
 }
 
 type OfferSnapshot = {
@@ -771,17 +811,10 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       tenantId: record.tenantId,
       values: custom,
     })
-    await emitCrudSideEffects({
+    await emitProductCrudChange({
       dataEngine,
       action: 'created',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      events: productCrudEvents,
-      indexer: productCrudIndexer,
+      product: record,
     })
     return { productId: record.id }
   },
@@ -831,17 +864,10 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
         values: resetValues,
       })
     }
-    await emitCrudUndoSideEffects({
+    await emitProductCrudUndoChange({
       dataEngine,
       action: 'deleted',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      events: productCrudEvents,
-      indexer: productCrudIndexer,
+      product: record,
     })
   },
 }
@@ -939,17 +965,10 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         values: custom,
       })
     }
-    await emitCrudSideEffects({
+    await emitProductCrudChange({
       dataEngine,
       action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      events: productCrudEvents,
-      indexer: productCrudIndexer,
+      product: record,
     })
     return { productId: record.id }
   },
@@ -1033,17 +1052,10 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         values: resetValues,
       })
     }
-    await emitCrudUndoSideEffects({
+    await emitProductCrudUndoChange({
       dataEngine,
       action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      events: productCrudEvents,
-      indexer: productCrudIndexer,
+      product: record,
     })
   },
 }
@@ -1096,17 +1108,10 @@ const deleteProductCommand: CommandHandler<
         })
       }
     }
-    await emitCrudSideEffects({
+    await emitProductCrudChange({
       dataEngine,
       action: 'deleted',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      events: productCrudEvents,
-      indexer: productCrudIndexer,
+      product: record,
     })
     return { productId: id }
   },
@@ -1176,17 +1181,10 @@ const deleteProductCommand: CommandHandler<
         values: before.custom,
       })
     }
-    await emitCrudUndoSideEffects({
+    await emitProductCrudUndoChange({
       dataEngine,
       action: 'created',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      events: productCrudEvents,
-      indexer: productCrudIndexer,
+      product: record,
     })
   },
 }

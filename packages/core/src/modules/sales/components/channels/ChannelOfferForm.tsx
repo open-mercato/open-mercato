@@ -269,6 +269,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           }}
           options={mediaOptions}
           productThumbnail={productSummary?.defaultMediaUrl ?? null}
+          hasProduct={Boolean(productSummary)}
         />
       ),
     },
@@ -830,17 +831,21 @@ function DefaultMediaSelect({
   options,
   onChange,
   productThumbnail,
+  hasProduct,
 }: {
   value: string | null
   options: MediaOption[]
   onChange: (next: string | null) => void
   productThumbnail: string | null
+  hasProduct: boolean
 }) {
   const t = useT()
-  if (!options.length) {
+  const hasAttachmentOptions = options.length > 0
+  const showPlaceholder = !hasAttachmentOptions && !productThumbnail && !hasProduct
+  if (showPlaceholder) {
     return (
       <p className="text-xs text-muted-foreground">
-        {t('sales.channels.offers.form.mediaEmpty', 'Select a product to load its media.')}
+        {t('sales.channels.offers.form.mediaSelectProduct', 'Select a product to load its media.')}
       </p>
     )
   }
@@ -862,9 +867,16 @@ function DefaultMediaSelect({
   ]
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {t('sales.channels.offers.form.mediaHelp', 'Choose the thumbnail that should represent this offer in the channel.')}
-      </p>
+      <div className="text-xs text-muted-foreground">
+        <p>
+          {t('sales.channels.offers.form.mediaHelp', 'Choose the thumbnail that should represent this offer in the channel.')}
+        </p>
+        {!hasAttachmentOptions && hasProduct ? (
+          <p className="mt-1">
+            {t('sales.channels.offers.form.mediaEmpty', 'This product has no uploaded media yet; the product default will be used.')}
+          </p>
+        ) : null}
+      </div>
       <div className="grid gap-3 sm:grid-cols-3">
         {tiles.map((tile) => (
           <button
