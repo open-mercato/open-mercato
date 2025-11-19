@@ -187,16 +187,6 @@ function slugifyCode(input: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-function randomSuffix(): string {
-  return Math.random().toString(36).slice(2, 8)
-}
-
-function generateOptionSchemaCode(base?: string | null): string {
-  const slug = slugifyCode(base ?? '')
-  const prefix = slug.length ? slug : 'product-option-schema'
-  return `${prefix}-${randomSuffix()}`
-}
-
 function normalizeCatalogOptionSchema(
   input?: CatalogProductOptionSchema | null
 ): CatalogProductOptionSchema | null {
@@ -343,7 +333,6 @@ function assignOptionSchemaTemplate(
       organizationId: product.organizationId,
       tenantId: product.tenantId,
       name: resolvedName,
-      code: generateOptionSchemaCode(resolvedName),
       description: schema.description ?? null,
       schema: cloneJson(schema),
       metadata: { source: 'product' },
@@ -352,9 +341,6 @@ function assignOptionSchemaTemplate(
     em.persist(template)
   } else {
     template.name = resolvedName
-    if (!template.code) {
-      template.code = generateOptionSchemaCode(resolvedName)
-    }
     template.description = schema.description ?? template.description ?? null
     template.schema = cloneJson(schema)
   }

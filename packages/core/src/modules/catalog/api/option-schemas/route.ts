@@ -51,7 +51,6 @@ export async function buildOptionSchemaFilters(
     const like = `%${term}%`
     filters.$or = [
       { name: { $ilike: like } },
-      { code: { $ilike: like } },
       { description: { $ilike: like } },
     ]
   }
@@ -91,7 +90,6 @@ const crud = makeCrudRoute({
     fields: [
       FO.id,
       FO.name,
-      FO.code,
       FO.description,
       FO.schema,
       FO.metadata,
@@ -101,7 +99,6 @@ const crud = makeCrudRoute({
     ],
     sortFieldMap: {
       name: FO.name,
-      code: FO.code,
       createdAt: FO.created_at,
       updatedAt: FO.updated_at,
     },
