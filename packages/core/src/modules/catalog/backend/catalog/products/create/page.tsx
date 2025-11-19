@@ -187,6 +187,15 @@ export default function CreateCatalogProductPage() {
         />
       ),
     },
+    {
+      id: 'product-categorize',
+      column: 2,
+      title: t('catalog.products.create.organize.title', 'Categorize'),
+      description: t('catalog.products.create.organize.description', 'Assign categories, sales channels, and tags.'),
+      component: ({ values, setValue, errors }: CrudFormGroupComponentProps) => (
+        <ProductCategorizeSection values={values as ProductFormValues} setValue={setValue} errors={errors} />
+      ),
+    },
   ], [priceKinds, taxRates, t])
 
   return (
@@ -656,7 +665,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             onClick={() => setCurrentStep(index)}
           >
             {step === 'general' && t('catalog.products.create.steps.general', 'General data')}
-            {step === 'organize' && t('catalog.products.create.steps.organize', 'Organize')}
             {step === 'variants' && t('catalog.products.create.steps.variants', 'Variants')}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
               <span className="absolute -right-2 top-0 h-2 w-2 rounded-full bg-destructive" aria-hidden="true" />
@@ -751,7 +759,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
                 </Button>
               </div>
               {(Array.isArray(values.options) ? values.options : []).map((option) => (
-                <div key={option.id} className="rounded-md border p-4">
+                <div key={option.id} className="rounded-md bg-muted/40 p-4">
                   <div className="flex items-center gap-2">
                     <Input
                       value={option.title}

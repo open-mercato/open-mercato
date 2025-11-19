@@ -126,6 +126,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
   const manualMediaSelections = React.useRef<Set<string>>(new Set())
   const initialPriceIdsRef = React.useRef<Set<string>>(new Set())
+  const removedPriceIdsRef = React.useRef<Set<string>>(new Set())
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(null)
   React.useEffect(() => {
     if (initialValues) {
@@ -133,6 +134,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     } else {
       initialPriceIdsRef.current = new Set()
     }
+    removedPriceIdsRef.current = new Set()
   }, [initialValues])
   const channelOffersHref = React.useMemo(
     () => buildChannelOffersHref(lockedChannelId),
@@ -158,6 +160,33 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       manualMediaSelections.current.add(initialValues.productId)
     }
   }, [initialValues?.defaultMediaId, initialValues?.productId])
+
+  React.useEffect(() => {
+    const productId = typeof initialValues?.productId === 'string' ? initialValues.productId : null
+    if (!productId) return
+    let cancelled = false
+    async function preloadMedia() {
+      try {
+        let attachments = attachmentCache.current.get(productId) ?? []
+        if (!attachments.length) {
+          attachments = dedupeMediaOptions(await loadProductMedia(productId))
+          attachmentCache.current.set(productId, attachments)
+        } else {
+          attachments = dedupeMediaOptions(attachments)
+          attachmentCache.current.set(productId, attachments)
+        }
+        if (!cancelled) {
+          setMediaOptions(attachments)
+        }
+      } catch (err) {
+        console.error('sales.channels.offer.initialMedia', err)
+      }
+    }
+    void preloadMedia()
+    return () => {
+      cancelled = true
+    }
+  }, [attachmentCache, initialValues?.productId, setMediaOptions])
 
   React.useEffect(() => {
     async function loadKinds() {
@@ -285,6 +314,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           options={mediaOptions}
           productThumbnail={productSummary?.defaultMediaUrl ?? null}
           hasProduct={Boolean(productSummary)}
+          productDefaultMediaId={productSummary?.defaultMediaId ?? null}
         />
       ),
     },
@@ -305,6 +335,12 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       type: 'checkbox',
     },
   ], [lockedChannelId, mediaOptions, productSummary?.defaultMediaUrl, selectedChannelId, t, currentProductId])
+
+  const handleOverrideRemove = React.useCallback((draft: PriceOverrideDraft) => {
+    if (typeof draft?.priceId === 'string' && draft.priceId.length > 0) {
+      removedPriceIdsRef.current.add(draft.priceId)
+    }
+  }, [])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'associations', column: 1, title: t('sales.channels.offers.form.groups.associations', 'Associations'), fields: ['channelId'] },
@@ -340,6 +376,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           onChange={(next) => setValue('priceOverrides', next)}
           priceKinds={priceKinds}
           basePrice={productSummary?.pricing ?? null}
+          onRemoveDraft={handleOverrideRemove}
         />
       ),
     },
@@ -370,7 +407,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         />
       ),
     },
-  ], [attachmentCache, manualMediaSelections, priceKinds, productCache, productSummary?.pricing, selectedChannelId, setMediaOptions, setCurrentProductId, t, variantPreviews])
+  ], [attachmentCache, handleOverrideRemove, manualMediaSelections, priceKinds, productCache, productSummary?.pricing, selectedChannelId, setMediaOptions, setCurrentProductId, t, variantPreviews])
 
   const handleSubmit = React.useCallback(async (values: OfferFormValues) => {
     const channelId = typeof values.channelId === 'string' && values.channelId.length
@@ -409,10 +446,14 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     if (Object.keys(customFields).length) basePayload.customFields = customFields
     const overrides = Array.isArray(values.priceOverrides) ? values.priceOverrides as PriceOverrideDraft[] : []
     const submittedPriceIds = collectPriceIds(overrides)
-    const deletedIds: string[] = []
+    const deletedIdSet = new Set<string>()
     initialPriceIdsRef.current.forEach((id) => {
-      if (!submittedPriceIds.has(id)) deletedIds.push(id)
+      if (!submittedPriceIds.has(id)) deletedIdSet.add(id)
     })
+    removedPriceIdsRef.current.forEach((id) => {
+      if (!submittedPriceIds.has(id)) deletedIdSet.add(id)
+    })
+    const deletedIds = Array.from(deletedIdSet)
     let savedId = offerId ?? null
     if (mode === 'create') {
       const res = await createCrud<{ id?: string; offerId?: string }>('catalog/offers', basePayload, {
@@ -434,10 +475,15 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         productId,
       })
       initialPriceIdsRef.current = submittedPriceIds
+      const leftover = new Set<string>()
+      removedPriceIdsRef.current.forEach((id) => {
+        if (!deletedIdSet.has(id)) leftover.add(id)
+      })
+      removedPriceIdsRef.current = leftover
     }
     flash(t('sales.channels.offers.messages.saved', 'Offer saved.'), 'success')
     router.push(buildChannelOffersHref(channelId))
-  }, [attachmentCache, initialPriceIdsRef, lockedChannelId, mode, offerId, router, selectedChannelId, t])
+  }, [attachmentCache, initialPriceIdsRef, lockedChannelId, mode, offerId, removedPriceIdsRef, router, selectedChannelId, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!offerId) return
@@ -928,15 +974,21 @@ function DefaultMediaSelect({
   onChange,
   productThumbnail,
   hasProduct,
+  productDefaultMediaId,
 }: {
   value: string | null
   options: MediaOption[]
   onChange: (next: string | null) => void
   productThumbnail: string | null
   hasProduct: boolean
+  productDefaultMediaId?: string | null
 }) {
   const t = useT()
-  const hasAttachmentOptions = options.length > 0
+  const filteredOptions = React.useMemo(() => {
+    if (!productDefaultMediaId) return options
+    return options.filter((opt) => opt.id !== productDefaultMediaId)
+  }, [options, productDefaultMediaId])
+  const hasAttachmentOptions = filteredOptions.length > 0
   const showPlaceholder = !hasAttachmentOptions && !productThumbnail && !hasProduct
   if (showPlaceholder) {
     return (
@@ -953,7 +1005,7 @@ function DefaultMediaSelect({
       selected: value == null,
       onClick: () => onChange(null),
     },
-    ...options.map((opt) => ({
+    ...filteredOptions.map((opt) => ({
       id: opt.id,
       label: opt.label,
       thumbnail: opt.thumbnailUrl ?? null,
@@ -1085,12 +1137,15 @@ function OfferFormWatchers({
             }
           }
         }
-        let attachments = attachmentCache.current.get(productId)
-        if (!attachments) {
-          attachments = await loadProductMedia(productId)
+        let attachments = attachmentCache.current.get(productId) ?? []
+        if (!attachments.length) {
+          attachments = dedupeMediaOptions(await loadProductMedia(productId))
+          attachmentCache.current.set(productId, attachments)
+        } else {
+          attachments = dedupeMediaOptions(attachments)
           attachmentCache.current.set(productId, attachments)
         }
-        if (!cancelled && attachments) {
+        if (!cancelled) {
           setMediaOptions(attachments)
         }
         let variants = variantCache.current.get(productId)
@@ -1231,6 +1286,19 @@ async function loadProductMedia(productId: string): Promise<MediaOption[]> {
   return []
 }
 
+function dedupeMediaOptions(entries: MediaOption[] | null | undefined): MediaOption[] {
+  if (!Array.isArray(entries)) return []
+  const seen = new Set<string>()
+  const result: MediaOption[] = []
+  for (const entry of entries) {
+    if (!entry || typeof entry.id !== 'string') continue
+    if (seen.has(entry.id)) continue
+    seen.add(entry.id)
+    result.push(entry)
+  }
+  return result
+}
+
 function mapVariantPreview(item: Record<string, unknown>): ProductVariantPreview {
   return {
     id: typeof item.id === 'string' ? item.id : '',
@@ -1310,11 +1378,13 @@ function PriceOverridesEditor({
   onChange,
   priceKinds,
   basePrice,
+  onRemoveDraft,
 }: {
   values: PriceOverrideDraft[]
   onChange: (next: PriceOverrideDraft[]) => void
   priceKinds: PriceKindSummary[]
   basePrice: PricingSummary | null
+  onRemoveDraft?: (draft: PriceOverrideDraft) => void
 }) {
   const t = useT()
   const baseAmount = React.useMemo(() => {
@@ -1351,8 +1421,9 @@ function PriceOverridesEditor({
   }, [onChange, values])
 
   const removeRow = React.useCallback((row: PriceOverrideDraft) => {
+    onRemoveDraft?.(row)
     onChange(values.filter((entry) => entry.tempId !== row.tempId))
-  }, [onChange, values])
+  }, [onChange, onRemoveDraft, values])
 
   return (
     <div className="space-y-4">

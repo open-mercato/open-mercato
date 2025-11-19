@@ -4,7 +4,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogProductVariant } from '../../data/entities'
+import { CatalogProduct, CatalogProductVariant } from '../../data/entities'
 import { variantCreateSchema, variantUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -135,7 +135,28 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(variantCreateSchema, raw ?? {}, ctx, translate)
+        const payload =
+          raw && typeof raw === 'object'
+            ? { ...(raw as Record<string, unknown>) }
+            : ({} as Record<string, unknown>)
+        const productId = typeof payload.productId === 'string' ? payload.productId : null
+        if (productId) {
+          try {
+            const em = ctx.container.resolve('em') as EntityManager
+            const product = await em.findOne(
+              CatalogProduct,
+              { id: productId, deletedAt: null },
+              { fields: ['id', 'organizationId', 'tenantId'] }
+            )
+            if (product) {
+              payload.organizationId = product.organizationId
+              payload.tenantId = product.tenantId
+            }
+          } catch {
+            // Scope hints are best-effort; command will enforce access
+          }
+        }
+        return parseScopedCommandInput(variantCreateSchema, payload, ctx, translate)
       },
       response: ({ result }) => ({ id: result?.variantId ?? result?.id ?? null }),
       status: 201,
@@ -145,7 +166,28 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(variantUpdateSchema, raw ?? {}, ctx, translate)
+        const payload =
+          raw && typeof raw === 'object'
+            ? { ...(raw as Record<string, unknown>) }
+            : ({} as Record<string, unknown>)
+        const variantId = typeof payload.id === 'string' ? payload.id : null
+        if (variantId) {
+          try {
+            const em = ctx.container.resolve('em') as EntityManager
+            const variant = await em.findOne(
+              CatalogProductVariant,
+              { id: variantId, deletedAt: null },
+              { fields: ['id', 'organizationId', 'tenantId'] }
+            )
+            if (variant) {
+              payload.organizationId = variant.organizationId
+              payload.tenantId = variant.tenantId
+            }
+          } catch {
+            // Ignore prefetch failures; command layer validates access
+          }
+        }
+        return parseScopedCommandInput(variantUpdateSchema, payload, ctx, translate)
       },
       response: () => ({ ok: true }),
     },

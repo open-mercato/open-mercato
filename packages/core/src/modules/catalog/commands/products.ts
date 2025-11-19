@@ -45,6 +45,8 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   requireOptionSchemaTemplate,
+  resolveOptionSchemaCode,
+  randomSuffix,
 } from './shared'
 
 type ProductSnapshot = {
@@ -327,12 +329,18 @@ function assignOptionSchemaTemplate(
   preferredName?: string | null
 ): CatalogOptionSchemaTemplate {
   const resolvedName = ensureSchemaName(schema.name, preferredName ?? product.title)
+  const templateCode = resolveOptionSchemaCode({
+    name: schema.name ?? resolvedName,
+    fallback: `${resolvedName}-${product.id}`,
+    uniqueHint: product.id?.slice(0, 8),
+  })
   let template = product.optionSchemaTemplate
   if (!template) {
     template = em.create(CatalogOptionSchemaTemplate, {
       organizationId: product.organizationId,
       tenantId: product.tenantId,
       name: resolvedName,
+      code: templateCode,
       description: schema.description ?? null,
       schema: cloneJson(schema),
       metadata: { source: 'product' },

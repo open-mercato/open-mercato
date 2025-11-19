@@ -22,6 +22,10 @@ import type {
   name: 'catalog_product_option_schemas_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
+@Unique({
+  name: 'catalog_product_option_schemas_code_unique',
+  properties: ['organizationId', 'tenantId', 'code'],
+})
 export class CatalogOptionSchemaTemplate {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -36,6 +40,9 @@ export class CatalogOptionSchemaTemplate {
 
   @Property({ type: 'text' })
   name!: string
+
+  @Property({ name: 'code', type: 'text' })
+  code!: string
 
   @Property({ type: 'text', nullable: true })
   description?: string | null

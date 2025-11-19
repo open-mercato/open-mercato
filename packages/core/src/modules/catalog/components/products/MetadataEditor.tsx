@@ -145,7 +145,7 @@ export function MetadataEditor({
             </p>
           ) : null}
           {entries.map((entry) => (
-            <div key={entry.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center">
+            <div key={entry.id} className="flex flex-col gap-2 rounded-md bg-muted/40 p-3 sm:flex-row sm:items-center">
               <div className="flex flex-1 flex-col gap-2 sm:flex-row">
                 <Input
                   value={entry.key}

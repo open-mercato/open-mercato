@@ -180,6 +180,7 @@ export const variantUpdateSchema = z
 
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
+  code: slugSchema.optional(),
   description: z.string().trim().max(4000).optional(),
   schema: optionSchema,
   metadata: metadataSchema,

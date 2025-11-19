@@ -17,6 +17,7 @@ import {
   ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
+  resolveOptionSchemaCode,
 } from './shared'
 
 type OptionSchemaSnapshot = {
@@ -24,6 +25,7 @@ type OptionSchemaSnapshot = {
   organizationId: string
   tenantId: string
   name: string
+  code: string
   description: string | null
   schema: CatalogProductOptionSchema
   metadata: Record<string, unknown> | null
@@ -48,6 +50,7 @@ async function loadOptionSchemaSnapshot(
     organizationId: record.organizationId,
     tenantId: record.tenantId,
     name: record.name,
+    code: record.code,
     description: record.description ?? null,
     schema: cloneJson(record.schema),
     metadata: record.metadata ? cloneJson(record.metadata) : null,
@@ -64,6 +67,7 @@ function applyOptionSchemaSnapshot(
   record.organizationId = snapshot.organizationId
   record.tenantId = snapshot.tenantId
   record.name = snapshot.name
+  record.code = snapshot.code
   record.description = snapshot.description ?? null
   record.schema = cloneJson(snapshot.schema)
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
@@ -82,11 +86,16 @@ const createOptionSchemaCommand: CommandHandler<
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const code = resolveOptionSchemaCode({
+      code: parsed.code,
+      name: parsed.name,
+    })
     const now = new Date()
     const record = em.create(CatalogOptionSchemaTemplate, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       name: parsed.name,
+      code,
       description: parsed.description ?? null,
       schema: cloneJson(parsed.schema) as CatalogProductOptionSchema,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
@@ -163,6 +172,12 @@ const updateOptionSchemaCommand: CommandHandler<
     record.organizationId = organizationId
     record.tenantId = tenantId
     if (parsed.name !== undefined) record.name = parsed.name
+    if (parsed.code !== undefined) {
+      record.code = resolveOptionSchemaCode({
+        code: parsed.code,
+        name: parsed.name ?? record.name,
+      })
+    }
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.schema !== undefined) {
       record.schema = cloneJson(parsed.schema) as CatalogProductOptionSchema
@@ -209,6 +224,7 @@ const updateOptionSchemaCommand: CommandHandler<
         organizationId: before.organizationId,
         tenantId: before.tenantId,
         name: before.name,
+        code: before.code,
         description: before.description ?? null,
         schema: cloneJson(before.schema),
         metadata: before.metadata ? cloneJson(before.metadata) : null,
@@ -276,6 +292,7 @@ const deleteOptionSchemaCommand: CommandHandler<{ id: string }, { schemaId: stri
         organizationId: before.organizationId,
         tenantId: before.tenantId,
         name: before.name,
+        code: before.code,
         description: before.description ?? null,
         schema: cloneJson(before.schema),
         metadata: before.metadata ? cloneJson(before.metadata) : null,

@@ -69,6 +69,47 @@ export function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+const OPTION_SCHEMA_CODE_MAX_LENGTH = 150
+
+export function randomSuffix(length = 6): string {
+  return Math.random().toString(36).slice(2, 2 + length)
+}
+
+export function normalizeOptionSchemaCode(value?: string | null): string {
+  if (!value || typeof value !== 'string') return ''
+  const ascii = value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+  const slug = ascii
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\-_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug.slice(0, OPTION_SCHEMA_CODE_MAX_LENGTH)
+}
+
+export function resolveOptionSchemaCode(opts: {
+  code?: string | null
+  name?: string | null
+  fallback?: string | null
+  uniqueHint?: string | null
+}): string {
+  const baseCandidate =
+    normalizeOptionSchemaCode(opts.code) ||
+    normalizeOptionSchemaCode(opts.name) ||
+    normalizeOptionSchemaCode(opts.fallback)
+  let resolved = baseCandidate || ''
+  if (!resolved) {
+    resolved = `schema-${randomSuffix()}`
+  }
+  if (opts.uniqueHint) {
+    const hinted = normalizeOptionSchemaCode(`${resolved}-${opts.uniqueHint}`)
+    if (hinted) {
+      resolved = hinted
+    }
+  }
+  return resolved || `schema-${randomSuffix()}`
+}
+
 export function toNumericString(value: number | null | undefined): string | null {
   if (value === undefined || value === null) return null
   return value.toString()

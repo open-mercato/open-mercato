@@ -18,7 +18,6 @@ export type OptionDefinitionRecord = {
 export type OptionSchemaTemplateSummary = {
   id?: string
   name?: string | null
-  code?: string | null
   description?: string | null
   schema?: OptionSchemaRecord | null
 }
