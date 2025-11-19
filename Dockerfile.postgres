@@ -1,0 +1,11 @@
+FROM postgres:15
+
+# Install pgvector extension
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    postgresql-15-pgvector && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy initialization script to enable vector extension
+COPY --chmod=755 docker/postgres-init.sh /docker-entrypoint-initdb.d/01-init-vector.sh

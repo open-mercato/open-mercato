@@ -19,6 +19,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Open Mercato",
   description: "AI‑supportive, modular ERP foundation for product & service companies",
+  icons: {
+    icon: "/open-mercato.svg",
+  },
 };
 
 export default async function RootLayout({
