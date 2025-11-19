@@ -717,13 +717,7 @@ const deletePriceCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductPrice, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
-    const variant = record.variant as CatalogProductVariant | string
-    const variantEntity =
-      typeof variant === 'string' ? await requireVariant(em, variant) : variant
-    const product =
-      typeof variantEntity.product === 'string'
-        ? await requireProduct(em, variantEntity.product)
-        : variantEntity.product
+    const { product } = await resolvePriceRecordAssociations(em, record)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
 
@@ -822,3 +816,44 @@ const deletePriceCommand: CommandHandler<
 registerCommand(createPriceCommand)
 registerCommand(updatePriceCommand)
 registerCommand(deletePriceCommand)
+
+async function resolvePriceRecordAssociations(
+  em: EntityManager,
+  record: CatalogProductPrice,
+): Promise<{ product: CatalogProduct; variant: CatalogProductVariant | null }> {
+  const variant = record.variant
+    ? (typeof record.variant === 'string'
+        ? await requireVariant(em, record.variant)
+        : record.variant)
+    : null
+  if (record.product) {
+    const product =
+      typeof record.product === 'string'
+        ? await requireProduct(em, record.product)
+        : record.product
+    return { product, variant }
+  }
+  if (variant?.product) {
+    const productRef = variant.product
+    const product =
+      typeof productRef === 'string'
+        ? await requireProduct(em, productRef)
+        : productRef
+    return { product, variant }
+  }
+  if (record.offer) {
+    const offer =
+      typeof record.offer === 'string'
+        ? await requireOffer(em, record.offer)
+        : record.offer
+    const productRef = offer?.product ?? null
+    if (productRef) {
+      const product =
+        typeof productRef === 'string'
+          ? await requireProduct(em, productRef)
+          : productRef
+      return { product, variant }
+    }
+  }
+  throw new CrudHttpError(400, { error: 'Catalog price is not linked to a product.' })
+}

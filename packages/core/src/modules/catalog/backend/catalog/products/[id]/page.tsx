@@ -211,7 +211,9 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
 
   const loadVariants = React.useCallback(async (id: string) => {
     try {
-      const res = await apiCall<VariantListResponse>(`/api/catalog/variants?productId=${encodeURIComponent(id)}&page=1&pageSize=200`)
+      const res = await apiCall<VariantListResponse>(
+        `/api/catalog/variants?productId=${encodeURIComponent(id)}&page=1&pageSize=100`
+      )
       if (!res.ok) {
         setVariants([])
         return

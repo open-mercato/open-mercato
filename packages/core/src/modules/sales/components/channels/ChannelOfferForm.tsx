@@ -126,7 +126,6 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
   const manualMediaSelections = React.useRef<Set<string>>(new Set())
   const initialPriceIdsRef = React.useRef<Set<string>>(new Set())
-  const removedPriceIdsRef = React.useRef<Set<string>>(new Set())
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(null)
   React.useEffect(() => {
     if (initialValues) {
@@ -134,7 +133,6 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     } else {
       initialPriceIdsRef.current = new Set()
     }
-    removedPriceIdsRef.current = new Set()
   }, [initialValues])
   const channelOffersHref = React.useMemo(
     () => buildChannelOffersHref(lockedChannelId),
@@ -252,7 +250,24 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         )
         const priceItems = Array.isArray(pricePayload.items) ? pricePayload.items : []
         values.priceOverrides = priceItems.map(mapPriceRow)
-        if (!cancelled) setInitialValues(values)
+        let preloadedMedia: MediaOption[] = []
+        const productId = typeof values.productId === 'string' ? values.productId : null
+        if (productId) {
+          try {
+            preloadedMedia = dedupeMediaOptions(await loadProductMedia(productId))
+            if (preloadedMedia.length) {
+              attachmentCache.current.set(productId, preloadedMedia)
+            }
+          } catch (err) {
+            console.error('sales.channels.offer.media.preload', err)
+          }
+        }
+        if (!cancelled) {
+          setInitialValues(values)
+          if (preloadedMedia.length) {
+            setMediaOptions(preloadedMedia)
+          }
+        }
       } catch (err) {
         console.error('sales.channels.offer.load', err)
         if (!cancelled) setError(t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.'))
@@ -262,7 +277,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     void loadOffer()
     return () => { cancelled = true }
-  }, [mode, offerId, lockedChannelId, t])
+  }, [attachmentCache, lockedChannelId, mode, offerId, setMediaOptions, t])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -336,11 +351,22 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     },
   ], [lockedChannelId, mediaOptions, productSummary?.defaultMediaUrl, selectedChannelId, t, currentProductId])
 
-  const handleOverrideRemove = React.useCallback((draft: PriceOverrideDraft) => {
-    if (typeof draft?.priceId === 'string' && draft.priceId.length > 0) {
-      removedPriceIdsRef.current.add(draft.priceId)
+  const handleOverrideRemove = React.useCallback(async (draft: PriceOverrideDraft) => {
+    const priceId = typeof draft?.priceId === 'string' ? draft.priceId : null
+    if (!priceId) return true
+    if (mode !== 'edit') return true
+    try {
+      await deleteCrud('catalog/prices', priceId, {
+        errorMessage: t('sales.channels.offers.errors.removePrice', 'Failed to remove price override.'),
+      })
+      initialPriceIdsRef.current.delete(priceId)
+      return true
+    } catch (err) {
+      console.error('sales.channels.pricing.remove', err)
+      flash(t('sales.channels.offers.errors.removePrice', 'Failed to remove price override.'), 'error')
+      return false
     }
-  }, [])
+  }, [mode, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'associations', column: 1, title: t('sales.channels.offers.form.groups.associations', 'Associations'), fields: ['channelId'] },
@@ -450,9 +476,6 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     initialPriceIdsRef.current.forEach((id) => {
       if (!submittedPriceIds.has(id)) deletedIdSet.add(id)
     })
-    removedPriceIdsRef.current.forEach((id) => {
-      if (!submittedPriceIds.has(id)) deletedIdSet.add(id)
-    })
     const deletedIds = Array.from(deletedIdSet)
     let savedId = offerId ?? null
     if (mode === 'create') {
@@ -475,15 +498,10 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         productId,
       })
       initialPriceIdsRef.current = submittedPriceIds
-      const leftover = new Set<string>()
-      removedPriceIdsRef.current.forEach((id) => {
-        if (!deletedIdSet.has(id)) leftover.add(id)
-      })
-      removedPriceIdsRef.current = leftover
     }
     flash(t('sales.channels.offers.messages.saved', 'Offer saved.'), 'success')
     router.push(buildChannelOffersHref(channelId))
-  }, [attachmentCache, initialPriceIdsRef, lockedChannelId, mode, offerId, removedPriceIdsRef, router, selectedChannelId, t])
+  }, [attachmentCache, initialPriceIdsRef, lockedChannelId, mode, offerId, router, selectedChannelId, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!offerId) return
@@ -1384,7 +1402,7 @@ function PriceOverridesEditor({
   onChange: (next: PriceOverrideDraft[]) => void
   priceKinds: PriceKindSummary[]
   basePrice: PricingSummary | null
-  onRemoveDraft?: (draft: PriceOverrideDraft) => void
+  onRemoveDraft?: (draft: PriceOverrideDraft) => Promise<boolean> | boolean
 }) {
   const t = useT()
   const baseAmount = React.useMemo(() => {
@@ -1420,8 +1438,9 @@ function PriceOverridesEditor({
     onChange(values.map((row) => (row.tempId === tempId ? { ...row, ...patch } : row)))
   }, [onChange, values])
 
-  const removeRow = React.useCallback((row: PriceOverrideDraft) => {
-    onRemoveDraft?.(row)
+  const removeRow = React.useCallback(async (row: PriceOverrideDraft) => {
+    const allowRemoval = await onRemoveDraft?.(row)
+    if (allowRemoval === false) return
     onChange(values.filter((entry) => entry.tempId !== row.tempId))
   }, [onChange, onRemoveDraft, values])
 
@@ -1505,7 +1524,7 @@ function PriceOverridesEditor({
                   variant="ghost"
                   size="sm"
                   className="gap-1 px-2 font-normal text-destructive hover:text-destructive focus-visible:text-destructive"
-                  onClick={() => removeRow(row)}
+                  onClick={() => { void removeRow(row) }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   {t('sales.channels.offers.pricing.remove', 'Remove')}

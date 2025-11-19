@@ -100,7 +100,7 @@ export const productFormSchema = z.object({
   optionSchemaId: z.string().uuid().nullable().optional(),
 })
 
-export const PRODUCT_FORM_STEPS = ['general', 'variants'] as const
+export const PRODUCT_FORM_STEPS = ['general', 'organize', 'variants'] as const
 
 export const BASE_INITIAL_VALUES: ProductFormValues = {
   title: '',
