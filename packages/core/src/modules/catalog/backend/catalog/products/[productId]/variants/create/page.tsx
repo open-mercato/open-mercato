@@ -24,7 +24,14 @@ import {
   type TaxRateSummary,
   normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
-import { VariantBuilder } from '@open-mercato/core/modules/catalog/components/products/VariantBuilder'
+import {
+  VariantBasicsSection,
+  VariantOptionValuesSection,
+  VariantDimensionsSection,
+  VariantMetadataSection,
+  VariantPricesSection,
+  VariantMediaSection,
+} from '@open-mercato/core/modules/catalog/components/products/VariantBuilder'
 import type { ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
@@ -165,28 +172,85 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
     return () => { cancelled = true }
   }, [productId, t])
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => [
-    {
-      id: 'builder',
-      column: 1,
-      component: ({ values, setValue, errors }) => (
-        <VariantBuilder
-          values={values as VariantFormValues}
-          setValue={setValue}
-          errors={errors}
-          optionDefinitions={optionDefinitions}
-          priceKinds={priceKinds}
-          taxRates={taxRates}
-        />
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const list: CrudFormGroup[] = [
+      {
+        id: 'general',
+        column: 1,
+        title: t('catalog.variants.form.nameLabel', 'Name'),
+        component: ({ values, setValue, errors }) => (
+          <VariantBasicsSection values={values as VariantFormValues} setValue={setValue} errors={errors} />
+        ),
+      },
+      {
+        id: 'metadata',
+        column: 1,
+        title: t('catalog.products.edit.metadata.title', 'Metadata'),
+        description: t('catalog.products.edit.metadata.hint', 'Attach structured key/value pairs for integrations.'),
+        component: ({ values, setValue }) => (
+          <VariantMetadataSection values={values as VariantFormValues} setValue={setValue} showIntro={false} embedded />
+        ),
+      },
+      {
+        id: 'prices',
+        column: 1,
+        title: t('catalog.variants.form.pricesLabel', 'Prices'),
+        description: t('catalog.variants.form.pricesHint', 'Populate list prices per price kind.'),
+        component: ({ values, setValue }) => (
+          <VariantPricesSection
+            values={values as VariantFormValues}
+            setValue={setValue}
+            priceKinds={priceKinds}
+            taxRates={taxRates}
+            showHeader={false}
+            embedded
+          />
+        ),
+      },
+      {
+        id: 'media',
+        column: 1,
+        title: t('catalog.variants.form.media', 'Media'),
+        component: ({ values, setValue }) => (
+          <VariantMediaSection values={values as VariantFormValues} setValue={setValue} showLabel={false} />
+        ),
+      },
+    ]
+
+    if (optionDefinitions.length) {
+      list.push({
+        id: 'options',
+        column: 2,
+        title: t('catalog.variants.form.options', 'Option values'),
+        component: ({ values, setValue }) => (
+          <VariantOptionValuesSection
+            values={values as VariantFormValues}
+            setValue={setValue}
+            optionDefinitions={optionDefinitions}
+            showHeading={false}
+          />
+        ),
+      })
+    }
+
+    list.push({
+      id: 'dimensions',
+      column: 2,
+      title: t('catalog.variants.form.dimensions', 'Dimensions & weight'),
+      component: ({ values, setValue }) => (
+        <VariantDimensionsSection values={values as VariantFormValues} setValue={setValue} showHeading={false} />
       ),
-    },
-    {
+    })
+
+    list.push({
       id: 'custom',
       column: 2,
       title: t('catalog.variants.form.customFields', 'Custom attributes'),
       kind: 'customFields',
-    },
-  ], [optionDefinitions, priceKinds, t, taxRates])
+    })
+
+    return list
+  }, [optionDefinitions, priceKinds, t, taxRates])
 
   if (!productId) {
     return (

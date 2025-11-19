@@ -920,7 +920,7 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
       const kind = price.priceKindId ? priceKindLookup.get(price.priceKindId) : null
       if (kind?.title) return kind.title
       if (kind?.code) return kind.code.toUpperCase()
-      return t('catalog.products.edit.variants.priceFallback', 'Price')
+      return t('catalog.products.edit.variantList.priceFallback', 'Price')
     },
     [priceKindLookup, t],
   )
@@ -935,7 +935,7 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
   const handleDeleteVariant = React.useCallback(
     async (variant: VariantSummary) => {
       const label = variant.name || variant.sku || variant.id
-      const confirmMessage = t('catalog.products.edit.variants.deleteConfirm', 'Delete variant "{{name}}"?').replace(
+      const confirmMessage = t('catalog.products.edit.variantList.deleteConfirm', 'Delete variant "{{name}}"?').replace(
         '{{name}}',
         label,
       )
@@ -977,9 +977,13 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
               <tr>
                 <th className="px-3 py-2 font-normal">{t('catalog.products.form.variants', 'Variant')}</th>
                 <th className="px-3 py-2 font-normal">SKU</th>
-                <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.pricesHeading', 'Prices')}</th>
+                <th className="px-3 py-2 font-normal">
+                  {t('catalog.products.edit.variantList.pricesHeading', 'Prices')}
+                </th>
                 <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.default', 'Default')}</th>
-                <th className="px-3 py-2 font-normal text-right">{t('catalog.products.edit.variants.actions', 'Actions')}</th>
+                <th className="px-3 py-2 font-normal text-right">
+                  {t('catalog.products.edit.variantList.actions', 'Actions')}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1003,7 +1007,7 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
                       </ul>
                     ) : (
                       <span className="text-xs text-muted-foreground">
-                        {t('catalog.products.edit.variants.pricesEmpty', 'No prices yet.')}
+                        {t('catalog.products.edit.variantList.pricesEmpty', 'No prices yet.')}
                       </span>
                     )}
                   </td>
@@ -1024,7 +1028,7 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
                         onClick={() => { void handleDeleteVariant(variant) }}
                       >
                         {deletingId === variant.id
-                          ? t('catalog.products.edit.variants.deleting', 'Deleting…')
+                          ? t('catalog.products.edit.variantList.deleting', 'Deleting…')
                           : t('catalog.products.list.actions.delete', 'Delete')}
                       </Button>
                     </div>

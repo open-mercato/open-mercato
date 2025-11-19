@@ -383,6 +383,16 @@
         "selectPlaceholder": "Selecciona un valor"
       }
     },
+    "edit": {
+      "variantList": {
+        "pricesHeading": "Precios",
+        "actions": "Acciones",
+        "pricesEmpty": "Sin precios aún.",
+        "deleteConfirm": "¿Eliminar la variante \"{{name}}\"?",
+        "deleting": "Eliminando…",
+        "priceFallback": "Precio"
+      }
+    },
     "options": {
       "list": {
         "title": "Opciones"
