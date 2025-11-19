@@ -8,7 +8,7 @@ services:
     command: >
       sh -c "yarn install --frozen-lockfile &&
              yarn mercato init --no-examples &&
-             yarn dev"
+             yarn start"
     working_dir: /app
     ports:
       - "3000:3000"
@@ -19,13 +19,9 @@ services:
       APP_URL: http://localhost:3000
       CACHE_REDIS_URL: redis://redis:6379
       SELF_SERVICE_ONBOARDING_ENABLED: "false"
-      OPENAI_API_KEY:$
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       DEMO_MODE: "true"
       CACHE_STRATEGY: redis
-    volumes:
-      - ./:/app
-      - app_node_modules:/app/node_modules
-      - app_next:/app/.next
     depends_on:
       db:
         condition: service_healthy
@@ -57,7 +53,7 @@ services:
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 5s
+      timeout: 6s
       retries: 5
 
 volumes:
