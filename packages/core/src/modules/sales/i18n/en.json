@@ -384,6 +384,7 @@
   },
   "sales.order-statuses": {},
   "sales.order-line-statuses": {},
+  "sales.channels.create": "Create sales channel",
   "sales.channels.update": "Update sales channel",
   "sales.tax-rates.create": "Create tax rate",
   "sales.tax-rates.update": "Update tax rate",

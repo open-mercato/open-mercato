@@ -4,6 +4,7 @@
 - Catalog UI pages - create products page, product price kind settings
 - Shifted catalog product attributes onto custom-field fieldsets so vertical-specific definitions travel through CRUD forms, filters, and APIs without bespoke schema code.
 - Product edit view now lists variant prices with inline edit/delete controls for quicker maintenance.
+- Fixed product edit validation crashes and restricted variant actions to the proper ACL feature to avoid forced re-auth on delete.
 - Added variant auto-generation and lighter edit page cards, and fixed the edit link routing for catalog variants.
 - Channel offer form now surfaces a validation error if a price override is missing its price kind selection.
 - `mercato init` seeds default USD regular and sale price kinds configured as tax-inclusive overrides.

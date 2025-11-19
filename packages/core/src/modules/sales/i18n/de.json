@@ -365,6 +365,7 @@
   "sales.order-line-statuses.create": "Positionsstatus hinzufügen",
   "sales.order-line-statuses.update": "Positionsstatus aktualisieren",
   "sales.order-line-statuses.delete": "Positionsstatus löschen",
+  "sales.channels.create": "Vertriebskanal erstellen",
   "sales.channels.update": "Vertriebskanal aktualisieren",
   "sales.tax-rates.create": "Steuersatz erstellen",
   "sales.tax-rates.update": "Steuersatz aktualisieren",

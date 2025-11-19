@@ -557,7 +557,6 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
           initialValues={initialValues ?? undefined}
           isLoading={loading}
           loadingMessage={t('catalog.products.edit.loading', 'Loading product')}
-          schema={productFormSchema}
           submitLabel={t('catalog.products.edit.save', 'Save changes')}
           cancelHref="/backend/catalog/products"
           onSubmit={handleSubmit}
@@ -953,6 +952,8 @@ function ProductVariantsSection({
   const t = useT()
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
   const [generating, setGenerating] = React.useState(false)
+  const [checkingVariantFeature, setCheckingVariantFeature] = React.useState(true)
+  const [canManageVariants, setCanManageVariants] = React.useState(false)
   const optionDefinitions = React.useMemo(
     () => (Array.isArray(values.options) ? values.options : []),
     [values.options],
@@ -982,6 +983,38 @@ function ProductVariantsSection({
     }
     return map
   }, [priceKinds])
+  React.useEffect(() => {
+    let cancelled = false
+    async function checkVariantFeature() {
+      try {
+        const payload = await readApiResultOrThrow<{ ok?: boolean; granted?: unknown }>(
+          '/api/auth/feature-check',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ features: ['catalog.variants.manage'] }),
+          },
+          { allowNullResult: true },
+        )
+        if (cancelled) return
+        const sourceGranted = Array.isArray(payload?.granted) ? payload?.granted : []
+        const granted = (sourceGranted as unknown[]).filter(
+          (entry): entry is string => typeof entry === 'string' && entry.length > 0,
+        )
+        const hasFeature = payload?.ok === true || granted.includes('catalog.variants.manage')
+        setCanManageVariants(hasFeature)
+      } catch {
+        if (!cancelled) setCanManageVariants(false)
+      } finally {
+        if (!cancelled) setCheckingVariantFeature(false)
+      }
+    }
+    checkVariantFeature().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const allowVariantActions = canManageVariants && !checkingVariantFeature
   const formatPriceLabel = React.useCallback(
     (price: VariantPriceSummary): string => {
       const kind = price.priceKindId ? priceKindLookup.get(price.priceKindId) : null
@@ -999,6 +1032,7 @@ function ProductVariantsSection({
   }, [])
   const handleDeleteVariant = React.useCallback(
     async (variant: VariantSummary) => {
+      if (!allowVariantActions) return
       const label = variant.name || variant.sku || variant.id
       const confirmMessage = t('catalog.products.edit.variantList.deleteConfirm', 'Delete variant "{{name}}"?').replace(
         '{{name}}',
@@ -1021,10 +1055,10 @@ function ProductVariantsSection({
         setDeletingId(null)
       }
     },
-    [onVariantDeleted, t],
+    [allowVariantActions, onVariantDeleted, t],
   )
   const handleGenerateVariants = React.useCallback(async () => {
-    if (!productId) return
+    if (!productId || !allowVariantActions) return
     if (!missingCombos.length) {
       flash(
         t('catalog.products.edit.variantList.generateEmpty', 'All option combinations already exist.'),
@@ -1056,9 +1090,9 @@ function ProductVariantsSection({
     } finally {
       setGenerating(false)
     }
-  }, [missingCombos, onVariantsReload, productId, t])
+  }, [allowVariantActions, missingCombos, onVariantsReload, productId, t])
 
-  const showGenerateButton = optionDefinitions.length > 0
+  const showGenerateButton = optionDefinitions.length > 0 && allowVariantActions
 
   return (
     <div className="space-y-3 rounded-lg bg-card p-4">
@@ -1072,12 +1106,14 @@ function ProductVariantsSection({
                 : t('catalog.products.edit.variantList.generate', 'Generate variants')}
             </Button>
           ) : null}
-          <Button asChild size="sm">
-            <Link href={`/backend/catalog/products/${productId}/variants/create`}>
-              <Plus className="mr-2 h-4 w-4" />
-              {t('catalog.products.edit.variants.add', 'Add variant')}
-            </Link>
-          </Button>
+          {allowVariantActions ? (
+            <Button asChild size="sm">
+              <Link href={`/backend/catalog/products/${productId}/variants/create`}>
+                <Plus className="mr-2 h-4 w-4" />
+                {t('catalog.products.edit.variants.add', 'Add variant')}
+              </Link>
+            </Button>
+          ) : null}
         </div>
       </div>
       {variants.length ? (
@@ -1132,18 +1168,20 @@ function ProductVariantsSection({
                           {t('catalog.products.list.actions.edit', 'Edit')}
                         </Link>
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        disabled={deletingId === variant.id}
-                        onClick={() => { void handleDeleteVariant(variant) }}
-                      >
-                        {deletingId === variant.id
-                          ? t('catalog.products.edit.variantList.deleting', 'Deleting…')
-                          : t('catalog.products.list.actions.delete', 'Delete')}
-                      </Button>
+                      {allowVariantActions ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          disabled={deletingId === variant.id}
+                          onClick={() => { void handleDeleteVariant(variant) }}
+                        >
+                          {deletingId === variant.id
+                            ? t('catalog.products.edit.variantList.deleting', 'Deleting…')
+                            : t('catalog.products.list.actions.delete', 'Delete')}
+                        </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
