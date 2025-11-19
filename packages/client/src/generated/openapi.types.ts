@@ -156,7 +156,7 @@ export interface paths {
         };
         /**
          * GET /attachments/library/{id}
-         * @description Requires features: attachments.manage
+         * @description Requires features: attachments.view
          */
         get: operations["attachments_get_attachments_library_id"];
         put?: never;
@@ -860,6 +860,26 @@ export interface paths {
          * @description Requires features: catalog.pricing.manage
          */
         delete: operations["catalog_delete_catalog_prices"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/product-media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/product-media
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_product_media"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2915,6 +2935,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/price-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /sales/price-kinds
+         * @description Requires features: sales.channels.manage
+         */
+        get: operations["sales_get_sales_price_kinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/shipping-methods": {
         parameters: {
             query?: never;
@@ -4652,6 +4692,15 @@ export interface components {
             error: components["schemas"]["DocPathsCatalogPricesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsCatalogPricesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductMediaGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsCatalogProductsDeleteResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsCatalogProductsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -11913,6 +11962,15 @@ export interface components {
             error: components["schemas"]["DocPathsSalesPaymentMethodsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesPaymentMethodsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -16455,6 +16513,54 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsCatalogPricesDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_product_media: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogProductMediaGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -26614,6 +26720,54 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesPaymentMethodsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

@@ -51,16 +51,6 @@ export class Migration20251117181353 extends Migration {
     this.addSql(`alter table "attachments" alter column "partition_code" set not null;`)
     this.addSql(`alter table "attachments" alter column "storage_path" set not null;`)
 
-    this.addSql(`
-      update "catalog_products"
-        set "default_media_url" = '/api/attachments/image/' || cast("default_media_id" as text)
-        where coalesce(cast("default_media_id" as text), '') <> '';
-    `)
-    this.addSql(`
-      update "catalog_product_variants"
-        set "default_media_url" = '/api/attachments/image/' || cast("default_media_id" as text)
-        where coalesce(cast("default_media_id" as text), '') <> '';
-    `)
   }
 
   override async down(): Promise<void> {

@@ -1144,7 +1144,7 @@ function AttachmentUploadDialog({ open, onOpenChange, partitions, availableTags,
 
   return (
     <Dialog open={open} onOpenChange={handleDialogChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-[54.6rem]">
         <DialogHeader>
           <DialogTitle>{t('attachments.library.upload.title', 'Upload attachment')}</DialogTitle>
         </DialogHeader>
