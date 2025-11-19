@@ -78,29 +78,8 @@ docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname
 ```
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
+If you want to deploy the application together with the redis and postgresql you can run: 
 
-## Docker-based setup
-
-Prefer containers? The repo ships with a multi-stage `Dockerfile`, `.dockerignore`, and `docker-compose.yml` to boot the app plus PostgreSQL + Redis while keeping hot reload for development.
-
-### Prerequisites
-
-- **Docker Engine 24+** with the Compose plugin (`docker compose` CLI).
-- Access to pull public images from Docker Hub (`node:20-bookworm-slim`, `pgvector/pgvector:pg15`, `redis:7-alpine`). Run `docker login` if your daemon requires credentials.
-- **OPENAI_API_KEY** already exported in your shell (e.g. `export OPENAI_API_KEY=sk-…`) so Docker Compose inherits it. Keeping the key outside tracked files avoids accidental leaks; Compose automatically passes through any existing shell variables unless overridden.
-
-### Run the stack
-
-1. Copy the sample env and tweak non-sensitive secrets for Docker:
-   Export `OPENAI_API_KEY` separately from your shell so it never lands in the file:
-   ```bash
-   export OPENAI_API_KEY=sk-your-key
-   ```
-   Run `docker compose` from the same terminal so the container inherits the secret. Alternatively, pass it inline with `OPENAI_API_KEY=… docker compose up --build`.
-2. Build and start everything (first run also installs dependencies and seeds the DB):
-   ```bash
-   docker compose up --build
-   ```
-   The `app` service runs `yarn install --frozen-lockfile`, `yarn mercato init --no-examples`, then `yarn dev`. Postgres (with pgvector enabled) and Redis start automatically.
-3. Visit `http://localhost:3000` once the logs show `ready - started server on 0.0.0.0:3000`. The admin credentials appear in the `app` logs during `yarn mercato init`.
-4. Stop containers with `Ctrl+C` or `docker compose down`. Add `-v` to wipe the database volume when you need a clean slate.
+```bash
+docker compose -f docker-compose.fullapp.yml up --build
+```

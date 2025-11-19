@@ -1,62 +1,46 @@
-
-
 services:
-  app:
-    build:
-      context: .
-    image: open-mercato/app:dev
-    command: >
-      sh -c "yarn install --frozen-lockfile &&
-             yarn mercato init --no-examples &&
-             yarn start"
-    working_dir: /app
-    ports:
-      - "3000:3000"
-    environment:
-      NODE_ENV: development
-      DATABASE_URL: postgres://postgres:secret@db:5432/mercato
-      JWT_SECRET: dev-local-jwt-secret
-      APP_URL: http://localhost:3000
-      CACHE_REDIS_URL: redis://redis:6379
-      SELF_SERVICE_ONBOARDING_ENABLED: "false"
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      DEMO_MODE: "true"
-      CACHE_STRATEGY: redis
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
-  db:
+  postgres:
     image: pgvector/pgvector:pg17-trixie
+    container_name: mercato-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: mercato
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: secret
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-open_mercato}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d mercato -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mercato-network
 
   redis:
     image: redis:7-alpine
-    restart: unless-stopped
+    container_name: mercato-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 6s
+      timeout: 5s
       retries: 5
+    networks:
+      - mercato-network
 
 volumes:
-  pg_data:
-  app_node_modules:
-  app_next:
+  postgres_data:
+    name: mercato-postgres-data
+  redis_data:
+    name: mercato-redis-data
+
+networks:
+  mercato-network:
+    name: mercato-network
+    driver: bridge
