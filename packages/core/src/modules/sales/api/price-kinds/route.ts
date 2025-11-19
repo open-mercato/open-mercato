@@ -5,12 +5,11 @@ import { sanitizeSearchTerm, parseBooleanFlag } from '@open-mercato/core/modules
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_price_kind'
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 const listSchema = z
   .object({
@@ -22,7 +21,7 @@ const listSchema = z
   .passthrough()
 
 const crud = makeCrudRoute({
-  metadata,
+  metadata: routeMetadata,
   orm: {
     entity: CatalogPriceKind,
     idField: 'id',

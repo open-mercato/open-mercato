@@ -9,15 +9,14 @@ import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_price_kind'
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
   POST: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -34,7 +33,7 @@ const listSchema = z
   .passthrough()
 
 const crud = makeCrudRoute({
-  metadata,
+  metadata: routeMetadata,
   orm: {
     entity: CatalogPriceKind,
     idField: 'id',

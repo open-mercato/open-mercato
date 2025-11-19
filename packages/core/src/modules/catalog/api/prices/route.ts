@@ -35,15 +35,14 @@ const listSchema = z
 
 type PriceQuery = z.infer<typeof listSchema>
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
   POST: { requireAuth: true, requireFeatures: ['catalog.pricing.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['catalog.pricing.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['catalog.pricing.manage'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 export async function buildPriceFilters(
   query: PriceQuery
@@ -78,7 +77,7 @@ export async function buildPriceFilters(
 }
 
 const crud = makeCrudRoute({
-  metadata,
+  metadata: routeMetadata,
   orm: {
     entity: CatalogProductPrice,
     idField: 'id',

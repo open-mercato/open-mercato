@@ -49,15 +49,14 @@ const listSchema = z
 
 type VariantQuery = z.infer<typeof listSchema>
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
   POST: { requireAuth: true, requireFeatures: ['catalog.variants.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['catalog.variants.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['catalog.variants.manage'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 export async function buildVariantFilters(
   query: VariantQuery
@@ -86,7 +85,7 @@ export async function buildVariantFilters(
 }
 
 const crud = makeCrudRoute({
-  metadata,
+  metadata: routeMetadata,
   orm: {
     entity: CatalogProductVariant,
     idField: 'id',

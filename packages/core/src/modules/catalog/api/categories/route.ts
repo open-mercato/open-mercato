@@ -14,15 +14,14 @@ import { categoryCreateSchema, categoryUpdateSchema } from '../../data/validator
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { computeHierarchyForCategories } from '../../lib/categoryHierarchy'
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.categories.view'] },
   POST: { requireAuth: true, requireFeatures: ['catalog.categories.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['catalog.categories.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['catalog.categories.manage'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -40,7 +39,7 @@ const viewSchema = z
 type QueryShape = z.infer<typeof viewSchema>
 
 const crud = makeCrudRoute({
-  metadata,
+  metadata: routeMetadata,
   orm: {
     entity: CatalogProductCategory,
     idField: 'id',

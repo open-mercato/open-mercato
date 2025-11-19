@@ -31,15 +31,14 @@ const listSchema = z
 
 type OfferListQuery = z.infer<typeof listSchema>
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
   POST: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 function normalizeSearch(term?: string | null): string | null {
   if (!term) return null
@@ -216,7 +215,7 @@ async function decorateOffersWithDetails(
 }
 
 const crud = makeCrudRoute({
-  metadata,
+  metadata: routeMetadata,
   orm: {
     entity: CatalogOffer,
     idField: 'id',

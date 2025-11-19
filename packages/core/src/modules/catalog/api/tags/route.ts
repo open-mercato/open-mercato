@@ -7,12 +7,11 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductTag } from '../../data/entities'
 
-const metadata = {
+const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
 }
 
-export const routeMetadata = metadata
-export { metadata }
+export const metadata = routeMetadata
 
 const querySchema = z
   .object({
