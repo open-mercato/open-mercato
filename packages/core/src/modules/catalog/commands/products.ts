@@ -19,7 +19,6 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   CatalogOffer,
   CatalogProduct,
-  CatalogProductOption,
   CatalogProductVariant,
   CatalogOptionSchemaTemplate,
   CatalogProductCategory,
@@ -1087,10 +1086,6 @@ const deleteProductCommand: CommandHandler<
     const variantCount = await em.count(CatalogProductVariant, { product: record })
     if (variantCount > 0) {
       throw new CrudHttpError(400, { error: 'Remove product variants before deleting the product.' })
-    }
-    const optionCount = await em.count(CatalogProductOption, { product: record })
-    if (optionCount > 0) {
-      throw new CrudHttpError(400, { error: 'Remove product options before deleting the product.' })
     }
     em.remove(record)
     await em.flush()

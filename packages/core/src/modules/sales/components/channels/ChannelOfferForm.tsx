@@ -9,7 +9,7 @@ import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/uti
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Loader2, Search, Image as ImageIcon } from 'lucide-react'
+import { Loader2, Search, Image as ImageIcon, Trash2 } from 'lucide-react'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
@@ -116,7 +116,6 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const [loading, setLoading] = React.useState(mode === 'edit')
   const [error, setError] = React.useState<string | null>(null)
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
-  const [deletedPriceIds, setDeletedPriceIds] = React.useState<string[]>([])
   const [mediaOptions, setMediaOptions] = React.useState<MediaOption[]>([])
   const attachmentCache = React.useRef<Map<string, MediaOption[]>>(new Map())
   const productCache = React.useRef<Map<string, ProductSummaryCacheEntry>>(new Map())
@@ -126,7 +125,15 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const variantMediaCache = React.useRef<Map<string, string | null>>(new Map())
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
   const manualMediaSelections = React.useRef<Set<string>>(new Set())
+  const initialPriceIdsRef = React.useRef<Set<string>>(new Set())
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (initialValues) {
+      initialPriceIdsRef.current = collectPriceIds(initialValues.priceOverrides)
+    } else {
+      initialPriceIdsRef.current = new Set()
+    }
+  }, [initialValues])
   const channelOffersHref = React.useMemo(
     () => buildChannelOffersHref(lockedChannelId),
     [lockedChannelId],
@@ -332,7 +339,6 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           values={Array.isArray(values.priceOverrides) ? values.priceOverrides as PriceOverrideDraft[] : []}
           onChange={(next) => setValue('priceOverrides', next)}
           priceKinds={priceKinds}
-          onRemove={(priceId) => setDeletedPriceIds((prev) => [...prev, priceId])}
           basePrice={productSummary?.pricing ?? null}
         />
       ),
@@ -346,6 +352,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     {
       id: 'watchers',
       column: 1,
+      bare: true,
       component: ({ values, setValue }) => (
         <OfferFormWatchers
           values={values}
@@ -400,6 +407,12 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     const customFields = collectCustomFieldValues(values)
     if (Object.keys(customFields).length) basePayload.customFields = customFields
+    const overrides = Array.isArray(values.priceOverrides) ? values.priceOverrides as PriceOverrideDraft[] : []
+    const submittedPriceIds = collectPriceIds(overrides)
+    const deletedIds: string[] = []
+    initialPriceIdsRef.current.forEach((id) => {
+      if (!submittedPriceIds.has(id)) deletedIds.push(id)
+    })
     let savedId = offerId ?? null
     if (mode === 'create') {
       const res = await createCrud<{ id?: string; offerId?: string }>('catalog/offers', basePayload, {
@@ -414,16 +427,17 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     if (savedId) {
       await syncPriceOverrides({
-        overrides: Array.isArray(values.priceOverrides) ? values.priceOverrides : [],
-        deletedIds: deletedPriceIds,
+        overrides,
+        deletedIds,
         offerId: savedId,
         channelId,
         productId,
       })
+      initialPriceIdsRef.current = submittedPriceIds
     }
     flash(t('sales.channels.offers.messages.saved', 'Offer saved.'), 'success')
     router.push(buildChannelOffersHref(channelId))
-  }, [attachmentCache, deletedPriceIds, lockedChannelId, mode, offerId, router, selectedChannelId, t])
+  }, [attachmentCache, initialPriceIdsRef, lockedChannelId, mode, offerId, router, selectedChannelId, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!offerId) return
@@ -526,6 +540,14 @@ function mapPriceRow(row: Record<string, unknown>): PriceOverrideDraft {
   }
 }
 
+function collectPriceIds(source: PriceOverrideDraft[] | null | undefined): Set<string> {
+  if (!Array.isArray(source)) return new Set()
+  const ids = source
+    .map((entry) => (typeof entry?.priceId === 'string' ? entry.priceId : null))
+    .filter((id): id is string => Boolean(id))
+  return new Set(ids)
+}
+
 function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<string, unknown> | null | undefined) {
   if (!source || typeof source !== 'object') return
   const assign = (key: string | null | undefined, value: unknown) => {
@@ -616,7 +638,10 @@ async function syncPriceOverrides(params: {
       await createCrud('catalog/prices', payload)
     }
   }
-  for (const id of deletedIds) {
+  const uniqueDeletedIds = Array.from(new Set(
+    deletedIds.filter((id): id is string => typeof id === 'string' && id.length > 0),
+  ))
+  for (const id of uniqueDeletedIds) {
     if (!id) continue
     try {
       await deleteCrud('catalog/prices', id)
@@ -1284,31 +1309,50 @@ function PriceOverridesEditor({
   values,
   onChange,
   priceKinds,
-  onRemove,
   basePrice,
 }: {
   values: PriceOverrideDraft[]
   onChange: (next: PriceOverrideDraft[]) => void
   priceKinds: PriceKindSummary[]
-  onRemove: (priceId: string) => void
   basePrice: PricingSummary | null
 }) {
   const t = useT()
+  const baseAmount = React.useMemo(() => {
+    if (!basePrice) return ''
+    const net = basePrice.unitPriceNet ?? null
+    const gross = basePrice.unitPriceGross ?? null
+    if (basePrice.displayMode === 'including-tax') {
+      return gross ?? net ?? ''
+    }
+    if (basePrice.displayMode === 'excluding-tax') {
+      return net ?? gross ?? ''
+    }
+    return net ?? gross ?? ''
+  }, [basePrice])
+  const baseDefaults = React.useMemo(() => ({
+    amount: baseAmount,
+    currencyCode: basePrice?.currencyCode ?? null,
+    displayMode: basePrice?.displayMode ?? null,
+  }), [baseAmount, basePrice?.currencyCode, basePrice?.displayMode])
   const addRow = React.useCallback(() => {
     onChange([
       ...values,
-      { tempId: crypto.randomUUID?.() ?? Math.random().toString(36).slice(2), amount: '' },
+      {
+        tempId: crypto.randomUUID?.() ?? Math.random().toString(36).slice(2),
+        amount: baseDefaults.amount,
+        currencyCode: baseDefaults.currencyCode,
+        displayMode: baseDefaults.displayMode,
+      },
     ])
-  }, [onChange, values])
+  }, [baseDefaults, onChange, values])
 
   const updateRow = React.useCallback((tempId: string, patch: Partial<PriceOverrideDraft>) => {
     onChange(values.map((row) => (row.tempId === tempId ? { ...row, ...patch } : row)))
   }, [onChange, values])
 
   const removeRow = React.useCallback((row: PriceOverrideDraft) => {
-    if (row.priceId) onRemove(row.priceId)
     onChange(values.filter((entry) => entry.tempId !== row.tempId))
-  }, [onChange, onRemove, values])
+  }, [onChange, values])
 
   return (
     <div className="space-y-4">
@@ -1385,7 +1429,14 @@ function PriceOverridesEditor({
                     ? t('sales.channels.offers.pricing.includingTax', 'Including tax')
                     : t('sales.channels.offers.pricing.excludingTax', 'Excluding tax')}
                 </span>
-                <Button type="button" variant="ghost" size="sm" onClick={() => removeRow(row)}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1 px-2 font-normal text-destructive hover:text-destructive focus-visible:text-destructive"
+                  onClick={() => removeRow(row)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                   {t('sales.channels.offers.pricing.remove', 'Remove')}
                 </Button>
               </div>
@@ -1395,6 +1446,16 @@ function PriceOverridesEditor({
       ) : (
         <p className="text-xs text-muted-foreground">
           {t('sales.channels.offers.pricing.empty', 'No overrides yet.')}
+          {basePrice ? (
+            <>
+              {' '}
+              {t(
+                'sales.channels.offers.pricing.emptyFallback',
+                'Using {price} from the product until you add overrides.',
+                { price: formatPriceDisplay(basePrice) },
+              )}
+            </>
+          ) : null}
         </p>
       )}
     </div>

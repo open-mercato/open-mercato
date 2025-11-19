@@ -35,15 +35,6 @@ const skuSchema = z
   .regex(/^[A-Za-z0-9\-_\.]+$/, 'SKU may include letters, numbers, hyphen, underscore, or period')
   .max(191)
 
-const optionConfigurationSchema = z
-  .array(
-    z.object({
-      optionId: uuid(),
-      optionValueIds: z.array(uuid()).min(1),
-    })
-  )
-  .optional()
-
 const variantOptionValuesSchema = z
   .record(
     z
@@ -177,7 +168,6 @@ export const variantCreateSchema = scoped.extend({
     })
     .optional(),
   metadata: metadataSchema,
-  optionConfiguration: optionConfigurationSchema,
   optionValues: variantOptionValuesSchema,
   customFieldsetCode: slugSchema.nullable().optional(),
 })
@@ -187,50 +177,6 @@ export const variantUpdateSchema = z
     id: uuid(),
   })
   .merge(variantCreateSchema.partial())
-
-export const optionCreateSchema = scoped.extend({
-  productId: uuid(),
-  code: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9\-_]+$/)
-    .max(150),
-  label: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
-  position: z.coerce.number().int().min(0).max(1000).optional(),
-  isRequired: z.boolean().optional(),
-  isMultiple: z.boolean().optional(),
-  inputType: z.enum(['select', 'text', 'textarea', 'number']).optional(),
-  inputConfig: z.record(z.string(), z.unknown()).optional(),
-  metadata: metadataSchema,
-})
-
-export const optionUpdateSchema = z
-  .object({
-    id: uuid(),
-  })
-  .merge(optionCreateSchema.partial())
-
-export const optionValueCreateSchema = scoped.extend({
-  optionId: uuid(),
-  code: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9\-_]+$/)
-    .max(150),
-  label: z.string().trim().min(1).max(255),
-  description: z.string().trim().max(2000).optional(),
-  position: z.coerce.number().int().min(0).max(1000).optional(),
-  metadata: metadataSchema,
-})
-
-export const optionValueUpdateSchema = z
-  .object({
-    id: uuid(),
-  })
-  .merge(optionValueCreateSchema.partial())
 
 export const optionSchemaTemplateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -310,10 +256,6 @@ export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
 export type VariantUpdateInput = z.infer<typeof variantUpdateSchema>
-export type OptionCreateInput = z.infer<typeof optionCreateSchema>
-export type OptionUpdateInput = z.infer<typeof optionUpdateSchema>
-export type OptionValueCreateInput = z.infer<typeof optionValueCreateSchema>
-export type OptionValueUpdateInput = z.infer<typeof optionValueUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
 export type OptionSchemaTemplateUpdateInput = z.infer<typeof optionSchemaTemplateUpdateSchema>
 export type PriceKindCreateInput = z.infer<typeof priceKindCreateSchema>

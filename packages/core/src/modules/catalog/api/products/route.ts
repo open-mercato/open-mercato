@@ -20,6 +20,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_product'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import {
   resolvePriceChannelId,
   resolvePriceOfferId,
@@ -30,6 +31,7 @@ import {
 } from '../../lib/pricing'
 import type { CatalogPricingService } from '../../services/catalogPricingService'
 import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
+import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -277,15 +279,47 @@ async function decorateProductsAfterList(
     { product: { $in: productIds }, deletedAt: null },
     { orderBy: { createdAt: 'asc' } }
   )
+  const channelIds = Array.from(
+    new Set(
+      offers
+        .map((offer) => offer.channelId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  )
+  const channelLookup = new Map<string, { name?: string | null; code?: string | null }>()
+  if (channelIds.length) {
+    const scopedChannelsWhere = buildScopedWhere(
+      { id: { $in: channelIds } },
+      {
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        organizationIds: Array.isArray(ctx.organizationIds) ? ctx.organizationIds : undefined,
+        tenantId: ctx.auth?.tenantId ?? null,
+      }
+    )
+    const channels = await em.find(
+      SalesChannel,
+      scopedChannelsWhere,
+      { fields: ['id', 'name', 'code'] }
+    )
+    for (const channel of channels) {
+      channelLookup.set(channel.id, {
+        name: channel.name,
+        code: channel.code ?? null,
+      })
+    }
+  }
   const offersByProduct = new Map<string, Array<Record<string, unknown>>>()
   for (const offer of offers) {
     const productId =
       typeof offer.product === 'string' ? offer.product : offer.product?.id ?? null
     if (!productId) continue
+    const channelInfo = channelLookup.get(offer.channelId)
     const entry = offersByProduct.get(productId) ?? []
     entry.push({
       id: offer.id,
       channelId: offer.channelId,
+      channelName: channelInfo?.name ?? null,
+      channelCode: channelInfo?.code ?? null,
       title: offer.title,
       description: offer.description ?? null,
       isActive: offer.isActive,

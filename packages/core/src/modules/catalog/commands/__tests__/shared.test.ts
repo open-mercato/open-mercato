@@ -8,8 +8,6 @@ import {
   toNumericString,
   requireProduct,
   requireVariant,
-  requireOption,
-  requireOptionValue,
   requireOffer,
   requireOptionSchemaTemplate,
 } from '../shared'
@@ -99,8 +97,6 @@ describe('catalog command shared helpers', () => {
   }> = [
     { label: 'requireProduct', fn: (em) => requireProduct(em, 'prod'), expectedArgs: [{ id: 'prod', deletedAt: null }] },
     { label: 'requireVariant', fn: (em) => requireVariant(em, 'variant'), expectedArgs: [{ id: 'variant', deletedAt: null }] },
-    { label: 'requireOption', fn: (em) => requireOption(em, 'option'), expectedArgs: [{ id: 'option' }] },
-    { label: 'requireOptionValue', fn: (em) => requireOptionValue(em, 'value'), expectedArgs: [{ id: 'value' }] },
     { label: 'requireOffer', fn: (em) => requireOffer(em, 'offer'), expectedArgs: [{ id: 'offer' }] },
     {
       label: 'requireOptionSchemaTemplate',

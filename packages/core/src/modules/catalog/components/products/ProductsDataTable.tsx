@@ -45,6 +45,8 @@ type PricingInfo = {
 type OfferInfo = {
   id: string
   channelId: string
+  channelName?: string | null
+  channelCode?: string | null
   title: string
   description?: string | null
   isActive: boolean
@@ -94,16 +96,27 @@ function renderOffers(offers: OfferInfo[] | undefined): React.ReactNode {
   const visible = offers.slice(0, 3)
   return (
     <div className="flex flex-wrap gap-1">
-      {visible.map((offer) => (
-        <span
-          key={offer.id}
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${
-            offer.isActive ? 'bg-secondary/80 text-secondary-foreground' : 'bg-muted text-muted-foreground'
-          }`}
-        >
-          {offer.title}
-        </span>
-      ))}
+      {visible.map((offer) => {
+        const label =
+          typeof offer.channelName === 'string' && offer.channelName.trim().length
+            ? offer.channelName.trim()
+            : typeof offer.title === 'string' && offer.title.trim().length
+              ? offer.title.trim()
+              : offer.channelId
+        const badgeTitle =
+          typeof offer.channelCode === 'string' && offer.channelCode.trim().length ? offer.channelCode : undefined
+        return (
+          <span
+            key={offer.id}
+            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs ${
+              offer.isActive ? 'bg-secondary/80 text-secondary-foreground' : 'bg-muted text-muted-foreground'
+            }`}
+            title={badgeTitle}
+          >
+            {label}
+          </span>
+        )
+      })}
       {offers.length > visible.length ? (
         <span className="text-xs text-muted-foreground">+{offers.length - visible.length}</span>
       ) : null}
@@ -591,6 +604,7 @@ export default function ProductsDataTable() {
     <DataTable<ProductRow>
       title={t('catalog.products.page.title', 'Products & services')}
       entityId={ENTITY_ID}
+      customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
       refreshButton={{
         label: t('catalog.products.actions.refresh', 'Refresh'),
         onRefresh: handleRefresh,

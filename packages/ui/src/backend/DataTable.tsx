@@ -131,6 +131,7 @@ export type DataTableProps<T> = {
   perspective?: DataTablePerspectiveConfig
   embedded?: boolean
   onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
+  customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -491,6 +492,7 @@ export function DataTable<T>({
   perspective,
   embedded = false,
   onCustomFieldFilterFieldsetChange,
+  customFieldFilterKeyExtras,
 }: DataTableProps<T>) {
   const router = useRouter()
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
@@ -1200,6 +1202,10 @@ export function DataTable<T>({
     return []
   }, [entityId, entityIds])
   const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
+  const customFieldFilterExtrasSignature = React.useMemo(
+    () => JSON.stringify(customFieldFilterKeyExtras ?? []),
+    [customFieldFilterKeyExtras]
+  )
 
   const [cfFilterFieldsetsByEntity, setCfFilterFieldsetsByEntity] = React.useState<Record<string, CustomFieldsetDto[]>>({})
   const [cfFilterFieldsetSelection, setCfFilterFieldsetSelection] = React.useState<Record<string, string | null>>({})
@@ -1257,7 +1263,7 @@ export function DataTable<T>({
     return () => {
       cancelled = true
     }
-  }, [entityKey, onCustomFieldFilterFieldsetChange, resolvedEntityIds])
+  }, [customFieldFilterExtrasSignature, entityKey, onCustomFieldFilterFieldsetChange, resolvedEntityIds])
 
   const supportsCustomFieldFilterFieldsets =
     resolvedEntityIds.length === 1 &&
@@ -1285,6 +1291,7 @@ export function DataTable<T>({
   const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], {
     enabled: !!entityKey,
     fieldset: supportsCustomFieldFilterFieldsets ? activeCustomFieldFilterFieldset ?? undefined : undefined,
+    keyExtras: customFieldFilterKeyExtras,
   })
 
   const builtToolbar = React.useMemo(() => {

@@ -21,17 +21,6 @@ describe('catalog command registration', () => {
       expected: ['catalog.variants.create', 'catalog.variants.update', 'catalog.variants.delete'],
     },
     {
-      path: '../options',
-      expected: [
-        'catalog.options.create',
-        'catalog.options.update',
-        'catalog.options.delete',
-        'catalog.option-values.create',
-        'catalog.option-values.update',
-        'catalog.option-values.delete',
-      ],
-    },
-    {
       path: '../prices',
       expected: ['catalog.prices.create', 'catalog.prices.update', 'catalog.prices.delete'],
     },

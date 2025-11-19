@@ -173,6 +173,8 @@ export type CrudFormGroup = {
   component?: (ctx: CrudFormGroupComponentProps) => React.ReactNode
   // When kind === 'customFields', the group renders form-editable custom fields
   kind?: 'customFields'
+  // When true, render component output inline without wrapping group chrome
+  bare?: boolean
 }
 
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -1334,6 +1336,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           return nodes
         }
 
+        const componentNode = g.component ? g.component({ values, setValue, errors }) : null
+        if (g.bare) {
+          return componentNode ? (
+            <React.Fragment key={g.id}>
+              {componentNode}
+            </React.Fragment>
+          ) : null
+        }
         const groupFields = resolveGroupFields(g)
         return [
           <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
@@ -1341,8 +1351,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <div className="text-sm font-medium">{g.title}</div>
             ) : null}
             {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
-            {g.component ? (
-              <div>{g.component({ values, setValue, errors })}</div>
+            {componentNode ? (
+              <div>{componentNode}</div>
             ) : null}
             <DataLoader
               isLoading={false}

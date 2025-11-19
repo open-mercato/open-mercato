@@ -6,14 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import {
-  CatalogProduct,
-  CatalogProductOption,
-  CatalogProductOptionValue,
-  CatalogProductVariant,
-  CatalogVariantOptionValue,
-  CatalogProductPrice,
-} from '../data/entities'
+import { CatalogProduct, CatalogProductVariant, CatalogProductPrice } from '../data/entities'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -23,11 +16,8 @@ import {
 import {
   cloneJson,
   ensureOrganizationScope,
-  ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
-  requireOption,
-  requireOptionValue,
   requireProduct,
   toNumericString,
 } from './shared'
@@ -51,7 +41,6 @@ type VariantSnapshot = {
   metadata: Record<string, unknown> | null
   optionValues: Record<string, string> | null
   customFieldsetCode: string | null
-  optionValueIds: string[]
   createdAt: string
   updatedAt: string
   custom: Record<string, unknown> | null
@@ -79,14 +68,6 @@ const VARIANT_CHANGE_KEYS = [
   'metadata',
 ] as const satisfies readonly string[]
 
-type VariantOptionConfiguration =
-  | {
-      optionId: string
-      optionValueIds: string[]
-    }[]
-  | undefined
-  | null
-
 async function loadVariantSnapshot(
   em: EntityManager,
   id: string
@@ -99,14 +80,6 @@ async function loadVariantSnapshot(
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
-  const variantOptionValues = await em.find(
-    CatalogVariantOptionValue,
-    { variant: record },
-    { populate: ['optionValue'] }
-  )
-  const optionValueIds = variantOptionValues.map((link) =>
-    typeof link.optionValue === 'string' ? link.optionValue : link.optionValue.id
-  )
   const productId = typeof record.product === 'string' ? record.product : record.product.id
   return {
     id: record.id,
@@ -127,7 +100,6 @@ async function loadVariantSnapshot(
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     optionValues: record.optionValues ? cloneJson(record.optionValues) : null,
     customFieldsetCode: record.customFieldsetCode ?? null,
-    optionValueIds,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
@@ -153,96 +125,6 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
-}
-
-async function syncVariantOptionValues(
-  em: EntityManager,
-  variant: CatalogProductVariant,
-  configuration: VariantOptionConfiguration
-): Promise<void> {
-  if (configuration === undefined) return
-  await em.nativeDelete(CatalogVariantOptionValue, { variant: variant.id })
-  if (!configuration || configuration.length === 0) return
-
-  const grouped = new Map<string, Set<string>>()
-  for (const entry of configuration) {
-    if (!entry || !entry.optionId) continue
-    const set = grouped.get(entry.optionId) ?? new Set<string>()
-    for (const valueId of entry.optionValueIds ?? []) {
-      if (valueId) set.add(valueId)
-    }
-    if (set.size) grouped.set(entry.optionId, set)
-  }
-  if (!grouped.size) return
-
-  const productId = typeof variant.product === 'string' ? variant.product : variant.product.id
-
-  for (const [optionId, valueIds] of grouped.entries()) {
-    const option = await requireOption(
-      em,
-      optionId,
-      'Catalog option not found for variant configuration'
-    )
-    const optionProductId =
-      typeof option.product === 'string' ? option.product : option.product.id
-    if (optionProductId !== productId) {
-      throw new CrudHttpError(400, { error: 'Option does not belong to the same product.' })
-    }
-    ensureSameScope(option, variant.organizationId, variant.tenantId)
-    if (!valueIds.size) continue
-    const values = await em.find(CatalogProductOptionValue, {
-      id: { $in: Array.from(valueIds) },
-      option,
-    })
-    if (values.length !== valueIds.size) {
-      throw new CrudHttpError(400, { error: 'One or more option values not found for configuration.' })
-    }
-    for (const value of values) {
-      ensureSameScope(value, variant.organizationId, variant.tenantId)
-      const link = em.create(CatalogVariantOptionValue, {
-        variant,
-        optionValue: value,
-        organizationId: variant.organizationId,
-        tenantId: variant.tenantId,
-      })
-      em.persist(link)
-    }
-  }
-}
-
-async function restoreVariantOptionValues(
-  em: EntityManager,
-  variant: CatalogProductVariant,
-  optionValueIds: string[]
-): Promise<void> {
-  await em.nativeDelete(CatalogVariantOptionValue, { variant: variant.id })
-  if (!optionValueIds.length) return
-  const values = await em.find(CatalogProductOptionValue, { id: { $in: optionValueIds } })
-  if (values.length !== optionValueIds.length) {
-    throw new CrudHttpError(400, { error: 'Unable to restore variant configuration.' })
-  }
-  const productId = typeof variant.product === 'string' ? variant.product : variant.product.id
-  for (const value of values) {
-    const option = value.option as CatalogProductOption | string
-    const optionId = typeof option === 'string' ? option : option.id
-    const optionEntity =
-      typeof option === 'string'
-        ? await em.findOne(CatalogProductOption, { id: optionId })
-        : option
-    if (!optionEntity) continue
-    const optionProductId =
-      typeof optionEntity.product === 'string'
-        ? optionEntity.product
-        : optionEntity.product.id
-    if (optionProductId !== productId) continue
-    const link = em.create(CatalogVariantOptionValue, {
-      variant,
-      optionValue: value,
-      organizationId: variant.organizationId,
-      tenantId: variant.tenantId,
-    })
-    em.persist(link)
-  }
 }
 
 type MetadataSplitResult = {
@@ -322,7 +204,6 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     })
     em.persist(record)
     await em.flush()
-    await syncVariantOptionValues(em, record, parsed.optionConfiguration)
     await em.flush()
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -366,7 +247,6 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -433,10 +313,6 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     }
     if (parsed.customFieldsetCode !== undefined) {
       record.customFieldsetCode = parsed.customFieldsetCode ?? null
-    }
-
-    if (parsed.optionConfiguration !== undefined) {
-      await syncVariantOptionValues(em, record, parsed.optionConfiguration)
     }
 
     await em.flush()
@@ -517,7 +393,6 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
-    await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
@@ -569,7 +444,6 @@ const deleteVariantCommand: CommandHandler<
     if (priceCount > 0) {
       throw new CrudHttpError(400, { error: 'Remove variant prices before deleting the variant.' })
     }
-    await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
@@ -637,7 +511,6 @@ const deleteVariantCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
-    await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

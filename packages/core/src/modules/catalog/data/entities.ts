@@ -22,10 +22,6 @@ import type {
   name: 'catalog_product_option_schemas_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
-@Unique({
-  name: 'catalog_product_option_schemas_code_unique',
-  properties: ['organizationId', 'tenantId', 'code'],
-})
 export class CatalogOptionSchemaTemplate {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -40,9 +36,6 @@ export class CatalogOptionSchemaTemplate {
 
   @Property({ type: 'text' })
   name!: string
-
-  @Property({ type: 'text' })
-  code!: string
 
   @Property({ type: 'text', nullable: true })
   description?: string | null
@@ -151,9 +144,6 @@ export class CatalogProduct {
 
   @OneToMany(() => CatalogProductVariant, (variant) => variant.product)
   variants = new Collection<CatalogProductVariant>(this)
-
-  @OneToMany(() => CatalogProductOption, (option) => option.product)
-  options = new Collection<CatalogProductOption>(this)
 
   @OneToMany(() => CatalogOffer, (offer) => offer.product)
   offers = new Collection<CatalogOffer>(this)
@@ -457,8 +447,6 @@ export class CatalogProductVariant {
   @OneToMany(() => CatalogProductPrice, (price) => price.variant)
   prices = new Collection<CatalogProductPrice>(this)
 
-  @OneToMany(() => CatalogVariantOptionValue, (optionValue) => optionValue.variant)
-  optionValueLinks = new Collection<CatalogVariantOptionValue>(this)
 
   @OneToMany(() => CatalogProductVariantRelation, (relation) => relation.parentVariant)
   componentRelations = new Collection<CatalogProductVariantRelation>(this)
@@ -527,139 +515,6 @@ export class CatalogProductVariantRelation {
 
   @Property({ type: 'integer', default: 0 })
   position: number = 0
-
-  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown> | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-}
-
-@Entity({ tableName: 'catalog_product_options' })
-@Index({ name: 'catalog_product_options_scope_idx', properties: ['product', 'organizationId', 'tenantId'] })
-export class CatalogProductOption {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @ManyToOne(() => CatalogProduct, { fieldName: 'product_id' })
-  product!: CatalogProduct
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ type: 'text' })
-  code!: string
-
-  @Property({ type: 'text' })
-  label!: string
-
-  @Property({ type: 'text', nullable: true })
-  description?: string | null
-
-  @Property({ type: 'integer', default: 0 })
-  position: number = 0
-
-  @Property({ name: 'is_required', type: 'boolean', default: false })
-  isRequired: boolean = false
-
-  @Property({ name: 'is_multiple', type: 'boolean', default: false })
-  isMultiple: boolean = false
-
-  @Property({ name: 'input_type', type: 'text', default: 'select' })
-  inputType: 'select' | 'text' | 'textarea' | 'number' = 'select'
-
-  @Property({ name: 'input_config', type: 'jsonb', nullable: true })
-  inputConfig?: Record<string, unknown> | null
-
-  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown> | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-
-  @OneToMany(() => CatalogProductOptionValue, (value) => value.option)
-  values = new Collection<CatalogProductOptionValue>(this)
-}
-
-@Entity({ tableName: 'catalog_product_option_values' })
-@Index({ name: 'catalog_product_option_values_scope_idx', properties: ['option', 'organizationId', 'tenantId'] })
-@Unique({
-  name: 'catalog_product_option_values_code_unique',
-  properties: ['organizationId', 'tenantId', 'option', 'code'],
-})
-export class CatalogProductOptionValue {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @ManyToOne(() => CatalogProductOption, { fieldName: 'option_id' })
-  option!: CatalogProductOption
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ type: 'text' })
-  code!: string
-
-  @Property({ type: 'text' })
-  label!: string
-
-  @Property({ type: 'text', nullable: true })
-  description?: string | null
-
-  @Property({ type: 'integer', default: 0 })
-  position: number = 0
-
-  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
-  metadata?: Record<string, unknown> | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-
-  @OneToMany(() => CatalogVariantOptionValue, (link) => link.optionValue)
-  variantLinks = new Collection<CatalogVariantOptionValue>(this)
-}
-
-@Entity({ tableName: 'catalog_product_variant_option_values' })
-@Unique({
-  name: 'catalog_product_variant_option_values_unique',
-  properties: ['variant', 'optionValue'],
-})
-export class CatalogVariantOptionValue {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @ManyToOne(() => CatalogProductVariant, { fieldName: 'variant_id' })
-  variant!: CatalogProductVariant
-
-  @ManyToOne(() => CatalogProductOptionValue, { fieldName: 'option_value_id' })
-  optionValue!: CatalogProductOptionValue
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null

@@ -1,6 +1,5 @@
 import './products'
 import './variants'
-import './options'
 import './prices'
 import './optionSchemas'
 import './priceKinds'

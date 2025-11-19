@@ -2,8 +2,6 @@ import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entit
 import {
   CatalogProduct,
   CatalogOffer,
-  CatalogProductOption,
-  CatalogProductOptionValue,
   CatalogProductVariant,
   CatalogOptionSchemaTemplate,
   CatalogPriceKind,
@@ -12,6 +10,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
+type QueryIndexCrudAction = 'created' | 'updated' | 'deleted'
 type UndoEnvelope<T> = {
   undo?: T
   value?: { undo?: T }
@@ -95,26 +94,6 @@ export async function requireVariant(
   return variant
 }
 
-export async function requireOption(
-  em: EntityManager,
-  id: string,
-  message = 'Catalog option not found'
-): Promise<CatalogProductOption> {
-  const option = await em.findOne(CatalogProductOption, { id })
-  if (!option) throw new CrudHttpError(404, { error: message })
-  return option
-}
-
-export async function requireOptionValue(
-  em: EntityManager,
-  id: string,
-  message = 'Catalog option value not found'
-): Promise<CatalogProductOptionValue> {
-  const value = await em.findOne(CatalogProductOptionValue, { id })
-  if (!value) throw new CrudHttpError(404, { error: message })
-  return value
-}
-
 export async function requireOffer(
   em: EntityManager,
   id: string,
@@ -143,4 +122,46 @@ export async function requireOptionSchemaTemplate(
   const schema = await em.findOne(CatalogOptionSchemaTemplate, { id, deletedAt: null })
   if (!schema) throw new CrudHttpError(404, { error: message })
   return schema
+}
+
+export async function emitCatalogQueryIndexEvent(
+  ctx: CommandRuntimeContext,
+  params: {
+    entityType: string
+    recordId: string
+    organizationId?: string | null
+    tenantId?: string | null
+    action: QueryIndexCrudAction
+    coverageBaseDelta?: number
+  },
+): Promise<void> {
+  const entityType = String(params.entityType || '')
+  const recordId = String(params.recordId || '')
+  if (!entityType || !recordId) return
+
+  let bus: { emitEvent: (event: string, payload: any, options?: any) => Promise<void> } | null = null
+  try {
+    bus = ctx.container.resolve('eventBus')
+  } catch {
+    bus = null
+  }
+  if (!bus?.emitEvent) return
+
+  const payload: Record<string, unknown> = {
+    entityType,
+    recordId,
+    organizationId: params.organizationId ?? null,
+    tenantId: params.tenantId ?? null,
+    crudAction: params.action,
+  }
+  if (params.coverageBaseDelta !== undefined) {
+    payload.coverageBaseDelta = params.coverageBaseDelta
+  } else if (params.action === 'created') {
+    payload.coverageBaseDelta = 1
+  } else if (params.action === 'deleted') {
+    payload.coverageBaseDelta = -1
+  }
+
+  const eventName = params.action === 'deleted' ? 'query_index.delete_one' : 'query_index.upsert_one'
+  await bus.emitEvent(eventName, payload).catch(() => undefined)
 }

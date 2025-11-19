@@ -93,22 +93,7 @@ Highlights from `variantCreateSchema`:
 - Required: `organizationId`, `tenantId`, `productId`.
 - Optional: `name`, `sku`, `barcode`, `statusEntryId`, `isDefault`, `isActive`.
 - Dimensions and weight via nested objects (`dimensions.width/height/depth/unit`, `weightValue`, `weightUnit`).
-- `optionConfiguration` array linking option ids to option value selections.
-
-## Option & option value commands — `catalog.options.*`
-
-Both option and option value handlers are colocated in `packages/core/src/modules/catalog/commands/options.ts`.
-
-| Command id | Purpose | Schema |
-| --- | --- | --- |
-| `catalog.options.create` | Add a configurable product option | `optionCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:78`) |
-| `catalog.options.update` | Update option properties or custom fields | `optionUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:95`) |
-| `catalog.options.delete` | Remove an option after clearing variant links | n/a |
-| `catalog.option-values.create` | Persist an option value for a product option | `optionValueCreateSchema` (`packages/core/src/modules/catalog/data/validators.ts:107`) |
-| `catalog.option-values.update` | Patch an option value | `optionValueUpdateSchema` (`packages/core/src/modules/catalog/data/validators.ts:125`) |
-| `catalog.option-values.delete` | Remove an option value and unlink affected variants | n/a |
-
-`optionValueCreateSchema` mirrors option fields but scopes them to a single option (`optionId`) and maintains ordering via `position`. Deletions automatically clean up `CatalogVariantOptionValue` links so variants remain consistent (`packages/core/src/modules/catalog/commands/options.ts:430`).
+- `optionValues` map keyed by option code to capture selections directly on the variant payload (also extracted from `metadata.optionValues` for backward compatibility).
 
 ## Price commands — `catalog.prices.*`
 
@@ -214,7 +199,6 @@ RBAC gates for REST/UX surfaces are declared in `packages/core/src/modules/catal
 
 - `catalog.products.view` / `catalog.products.manage`
 - `catalog.variants.manage`
-- `catalog.options.manage`
 - `catalog.pricing.manage`
 - `catalog.settings.manage`
 

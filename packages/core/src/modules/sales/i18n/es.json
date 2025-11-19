@@ -181,6 +181,7 @@
           "amount": "Amount",
           "remove": "Remove",
           "empty": "No overrides yet.",
+          "emptyFallback": "Se usará {price} del producto hasta que añadas reemplazos.",
           "basePriceLabel": "Precio del canal",
           "basePriceMissing": "No se encontró precio",
           "basePriceHelp": "Se muestra cuando no hay anulaciones.",

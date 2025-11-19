@@ -181,6 +181,7 @@
           "amount": "Amount",
           "remove": "Remove",
           "empty": "No overrides yet.",
+          "emptyFallback": "Do czasu dodania nadpisania użyta będzie cena {price} z produktu.",
           "basePriceLabel": "Cena kanału",
           "basePriceMissing": "Brak ceny",
           "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",

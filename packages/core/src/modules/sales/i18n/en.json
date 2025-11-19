@@ -181,6 +181,7 @@
           "amount": "Amount",
           "remove": "Remove",
           "empty": "No overrides yet.",
+          "emptyFallback": "Using {price} from the product until you add overrides.",
           "basePriceLabel": "Channel price",
           "basePriceMissing": "No price found",
           "basePriceHelp": "Shown to shoppers when no override is configured.",

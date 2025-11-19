@@ -16,6 +16,7 @@ import {
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
+  emitCatalogQueryIndexEvent,
   extractUndoPayload,
   requireOffer,
   requireProduct,
@@ -143,6 +144,13 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
       tenantId: record.tenantId,
       values: custom,
     })
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_offer,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'created',
+    })
     return { offerId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -267,6 +275,13 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
       tenantId: record.tenantId,
       values: custom,
     })
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_offer,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'updated',
+    })
     return { offerId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -373,6 +388,13 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
     const snapshot = await loadOfferSnapshot(baseEm, parsed.id)
     em.remove(record)
     await em.flush()
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_offer,
+      recordId: parsed.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'deleted',
+    })
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
