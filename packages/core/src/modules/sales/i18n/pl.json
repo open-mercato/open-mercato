@@ -114,6 +114,7 @@
         },
         "table": {
           "offer": "Offer",
+          "pricing": "Prices",
           "prices": "Price overrides",
           "active": "Active",
           "updated": "Updated",

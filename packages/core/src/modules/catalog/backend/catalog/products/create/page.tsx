@@ -52,6 +52,47 @@ const MarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
   loading: () => <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">Loading editor…</div>,
 }) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
+type ProductFormStep = (typeof PRODUCT_FORM_STEPS)[number]
+
+const TRUE_BOOLEAN_VALUES = new Set(['true', '1', 'yes', 'y', 't'])
+
+const matchField = (fieldId: string) => (value: string) =>
+  value === fieldId || value.startsWith(`${fieldId}.`) || value.startsWith(`${fieldId}[`)
+const matchPrefix = (prefix: string) => (value: string) => value.startsWith(prefix)
+
+const STEP_FIELD_MATCHERS: Record<ProductFormStep, ((value: string) => boolean)[]> = {
+  general: [
+    matchField('title'),
+    matchField('description'),
+    matchField('mediaItems'),
+    matchField('mediaDraftId'),
+    matchPrefix('defaultMedia'),
+  ],
+  organize: [matchField('categoryIds'), matchField('channelIds'), matchField('tags')],
+  variants: [matchField('hasVariants'), matchPrefix('options'), matchPrefix('variants')],
+}
+
+function resolveStepForField(fieldId: string): ProductFormStep | null {
+  const normalized = fieldId?.trim()
+  if (!normalized) return null
+  for (const step of PRODUCT_FORM_STEPS) {
+    const matchers = STEP_FIELD_MATCHERS[step]
+    if (matchers.some((matcher) => matcher(normalized))) return step
+  }
+  return null
+}
+
+function resolveBooleanFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) return false
+    if (TRUE_BOOLEAN_VALUES.has(normalized)) return true
+    if (['false', '0', 'no', 'n', 'f'].includes(normalized)) return false
+  }
+  if (typeof value === 'number') return value !== 0
+  return false
+}
 
 
 export default function CreateCatalogProductPage() {
@@ -101,12 +142,8 @@ export default function CreateCatalogProductPage() {
                   : t('catalog.products.create.taxRates.unnamed', 'Untitled tax rate'),
               code: typeof item.code === 'string' && item.code.trim().length ? item.code : null,
               rate: Number.isFinite(rawRate) ? rawRate : null,
-              isDefault: Boolean(
-                typeof item.isDefault === 'boolean'
-                  ? item.isDefault
-                  : typeof item.is_default === 'boolean'
-                    ? item.is_default
-                    : false,
+              isDefault: resolveBooleanFlag(
+                typeof item.isDefault !== 'undefined' ? item.isDefault : item.is_default,
               ),
             }
           }),
@@ -520,6 +557,32 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     () => taxRates.find((rate) => rate.isDefault) ?? null,
     [taxRates],
   )
+  const stepErrors = React.useMemo(() => {
+    const map: Record<ProductFormStep, string[]> = {
+      general: [],
+      organize: [],
+      variants: [],
+    }
+    Object.entries(errors).forEach(([fieldId, message]) => {
+      const step = resolveStepForField(fieldId)
+      if (!step) return
+      const text = typeof message === 'string' && message.trim().length ? message.trim() : null
+      if (text) map[step] = [...map[step], text]
+    })
+    return map
+  }, [errors])
+  const errorSignature = React.useMemo(() => Object.keys(errors).sort().join('|'), [errors])
+  const lastErrorSignatureRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (!errorSignature || errorSignature === lastErrorSignatureRef.current) return
+    lastErrorSignatureRef.current = errorSignature
+    const currentStepKey = steps[currentStep]
+    if (currentStepKey && stepErrors[currentStepKey]?.length) return
+    const fallbackIndex = steps.findIndex((step) => (stepErrors[step] ?? []).length > 0)
+    if (fallbackIndex >= 0 && fallbackIndex !== currentStep) {
+      setCurrentStep(fallbackIndex)
+    }
+  }, [currentStep, errorSignature, setCurrentStep, stepErrors, steps])
   const hasResolvedProductTaxRateRef = React.useRef(false)
   React.useEffect(() => {
     if (values.taxRateId && !hasResolvedProductTaxRateRef.current) {
@@ -750,6 +813,9 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             {step === 'general' && t('catalog.products.create.steps.general', 'General data')}
             {step === 'organize' && t('catalog.products.create.steps.organize', 'Organize')}
             {step === 'variants' && t('catalog.products.create.steps.variants', 'Variants')}
+            {(stepErrors[step]?.length ?? 0) > 0 ? (
+              <span className="absolute -right-2 top-0 h-2 w-2 rounded-full bg-destructive" aria-hidden="true" />
+            ) : null}
             {currentStep === index ? (
               <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground rounded-full" />
             ) : null}
@@ -835,6 +901,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             <p className="text-xs text-muted-foreground">
               {t('catalog.products.create.organize.categoriesHelp', 'Assign products to one or more taxonomy nodes.')}
             </p>
+            {errors.categoryIds ? <p className="text-xs text-red-600">{errors.categoryIds}</p> : null}
           </div>
 
           <div className="space-y-2">
@@ -852,6 +919,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             <p className="text-xs text-muted-foreground">
               {t('catalog.products.create.organize.channelsHelp', 'Selected channels will receive default offers for this product.')}
             </p>
+            {errors.channelIds ? <p className="text-xs text-red-600">{errors.channelIds}</p> : null}
           </div>
 
           <div className="space-y-2">
@@ -867,6 +935,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             <p className="text-xs text-muted-foreground">
               {t('catalog.products.create.organize.tagsHelp', 'Describe products with shared labels to build quick filters.')}
             </p>
+            {errors.tags ? <p className="text-xs text-red-600">{errors.tags}</p> : null}
           </div>
         </div>
       ) : null}
@@ -882,6 +951,12 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             />
             {t('catalog.products.create.variantsBuilder.toggle', 'Yes, this is a product with variants')}
           </label>
+
+          {(stepErrors.variants?.length ?? 0) > 0 ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {stepErrors.variants?.[0]}
+            </div>
+          ) : null}
 
           {values.hasVariants ? (
             <div className="space-y-4 rounded-lg border p-4">
@@ -1222,6 +1297,7 @@ function ProductMetaSection({ values, setValue, errors, taxRates }: ProductMetaS
             ? t('catalog.products.create.taxRates.help', 'Applied to new prices unless overridden per variant.')
             : t('catalog.products.create.taxRates.empty', 'Define tax classes under Sales → Configuration.')}
         </p>
+        {errors.taxRateId ? <p className="text-xs text-red-600">{errors.taxRateId}</p> : null}
       </div>
     </div>
   )

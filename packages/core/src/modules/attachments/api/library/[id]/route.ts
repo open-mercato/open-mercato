@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Attachment } from '../../../data/entities'
+import { Attachment, AttachmentPartition } from '../../../data/entities'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -74,6 +74,9 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   }
   const metadata = readAttachmentMetadata(record.storageMetadata)
+  const partition = record.partitionCode
+    ? await em.findOne(AttachmentPartition, { code: record.partitionCode })
+    : null
   const customFieldValues = await loadCustomFieldValues({
     em,
     entityId: E.attachments.attachment,
@@ -90,6 +93,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       fileSize: record.fileSize,
       mimeType: record.mimeType,
       partitionCode: record.partitionCode,
+      partitionTitle: partition?.title ?? null,
       tags: metadata.tags ?? [],
       assignments: metadata.assignments ?? [],
       customFields,

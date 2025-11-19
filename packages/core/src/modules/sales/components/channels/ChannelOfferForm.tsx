@@ -97,6 +97,7 @@ type ProductSearchResult = {
 }
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+const MAX_LIST_PAGE_SIZE = 100
 
 export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: ChannelOfferFormProps) {
   const t = useT()
@@ -162,7 +163,10 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           ? 'including-tax'
           : 'excluding-tax',
       }))
-      const endpoints = ['/api/sales/price-kinds?pageSize=200', '/api/catalog/price-kinds?pageSize=200']
+      const endpoints = [
+        `/api/sales/price-kinds?pageSize=${MAX_LIST_PAGE_SIZE}`,
+        `/api/catalog/price-kinds?pageSize=${MAX_LIST_PAGE_SIZE}`,
+      ]
       try {
         for (const endpoint of endpoints) {
           try {
@@ -202,7 +206,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         if (!offer) throw new Error('not_found')
         const values = mapOfferToFormValues(offer, lockedChannelId)
         const pricePayload = await readApiResultOrThrow<PriceResponse>(
-          `/api/catalog/prices?offerId=${encodeURIComponent(offer.id as string)}&pageSize=200`,
+          `/api/catalog/prices?offerId=${encodeURIComponent(offer.id as string)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
           undefined,
           { fallback: { items: [] } },
         )
@@ -576,7 +580,7 @@ function ChannelSelectInput({
     async function load() {
       try {
         const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          '/api/sales/channels?pageSize=200',
+          `/api/sales/channels?pageSize=${MAX_LIST_PAGE_SIZE}`,
           undefined,
           { fallback: { items: [] } },
         )
@@ -1000,7 +1004,7 @@ function OfferFormWatchers({
         let variants = variantCache.current.get(productId)
         if (!variants) {
           const variantPayload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-            `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=200`,
+            `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
             undefined,
             { fallback: { items: [] } },
           )

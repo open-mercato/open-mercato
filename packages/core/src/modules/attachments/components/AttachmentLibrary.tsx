@@ -37,6 +37,7 @@ type AttachmentRow = {
   fileSize: number
   mimeType: string | null
   partitionCode: string
+  partitionTitle?: string | null
   url: string
   createdAt: string
   tags: string[]
@@ -62,6 +63,7 @@ type AttachmentMetadataResponse = {
     fileSize?: number
     mimeType?: string | null
     partitionCode?: string
+    partitionTitle?: string | null
     tags?: string[]
     assignments?: AttachmentAssignment[]
     customFields?: Record<string, unknown>
@@ -1014,7 +1016,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
                   {item.fileName}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {formatFileSize(item.fileSize)} • {item.partitionCode}
+                  {formatFileSize(item.fileSize)} • {item.partitionTitle ?? item.partitionCode}
                 </div>
               </div>
               {downloadUrl ? (
@@ -1329,8 +1331,8 @@ export function AttachmentLibrary() {
         accessorKey: 'partitionCode',
         header: t('attachments.library.table.partition', 'Partition'),
         cell: ({ row }) => (
-          <div className="text-sm">
-            {row.original.partitionCode}
+          <div className="text-sm text-muted-foreground">
+            {row.original.partitionTitle ?? row.original.partitionCode}
           </div>
         ),
       },

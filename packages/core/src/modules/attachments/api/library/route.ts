@@ -83,7 +83,16 @@ export async function GET(req: Request) {
   qb.orderBy({ [orderColumn]: sortDir === 'asc' ? 'asc' : 'desc' })
   qb.limit(pageSize).offset(offset)
 
-  const [records, total] = await Promise.all([qb.getResultList(), countQb.count('a.id', true)])
+  const partitionsPromise = em.find(
+    AttachmentPartition,
+    {},
+    { orderBy: { title: 'asc' }, fields: ['code', 'title', 'description'] as any },
+  )
+  const [records, total, partitions] = await Promise.all([qb.getResultList(), countQb.count('a.id', true), partitionsPromise])
+  const partitionTitleByCode = partitions.reduce<Record<string, string>>((acc, entry) => {
+    if (entry.code) acc[entry.code] = entry.title ?? entry.code
+    return acc
+  }, {})
   const items = records.map((record) => {
     const metadata = readAttachmentMetadata(record.storageMetadata)
     const fileName = record.fileName || ''
@@ -101,6 +110,7 @@ export async function GET(req: Request) {
       fileSize: record.fileSize,
       mimeType: record.mimeType,
       partitionCode: record.partitionCode,
+      partitionTitle: partitionTitleByCode[record.partitionCode] ?? null,
       url: record.url,
       createdAt: formatDateValue(record.createdAt),
       tags: metadata.tags ?? [],
@@ -110,11 +120,6 @@ export async function GET(req: Request) {
   })
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const partitions = await em.find(
-    AttachmentPartition,
-    {},
-    { orderBy: { title: 'asc' }, fields: ['code', 'title', 'description'] as any },
-  )
   const knex = (em as any).getConnection().getKnex()
   const tagRows: Array<{ tag?: string | null }> = await knex
     .select(
