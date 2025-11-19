@@ -11,19 +11,18 @@ Before cloning the repository make sure the following tools are installed:
   corepack enable
   corepack prepare yarn@stable --activate
   ```
-- **PostgreSQL 14+** – the default database. A quick local instance can be started with Docker:
-  ```bash
-  docker run --name mercato-postgres -p 5432:5432 -e POSTGRES_PASSWORD=secret -d postgres:15
-  ```
-- **Redis (optional)** – only required when you want durable event queues; otherwise the file-backed driver works.
+- **Docker & Docker Compose** – required for running PostgreSQL with pgvector and Redis.
 - **OpenSSL** – handy for generating random secrets while configuring `.env`.
 
 Copy `.env.example` to `.env` and configure at least:
 
 ```bash
-DATABASE_URL=postgres://postgres:secret@localhost:5432/mercato
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
 JWT_SECRET=$(openssl rand -hex 32)
+REDIS_URL=redis://localhost:6379
 ```
+
+The pgvector extension is automatically installed in all databases, enabling vector search features out of the box.
 
 Need a refresher on what each environment toggle controls? Review the [System status variables](../framework/operations/system-status#managing-variables) directory for descriptions and defaults before you customize additional flags.
 
