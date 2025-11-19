@@ -390,7 +390,13 @@
         "pricesEmpty": "Noch keine Preise.",
         "deleteConfirm": "Variante \"{{name}}\" löschen?",
         "deleting": "Wird gelöscht…",
-        "priceFallback": "Preis"
+        "priceFallback": "Preis",
+        "generate": "Varianten generieren",
+        "generating": "Wird generiert…",
+        "generateSuccess": "Fehlende Varianten wurden erstellt.",
+        "generateError": "Varianten konnten nicht generiert werden.",
+        "generateEmpty": "Alle Optionskombinationen sind bereits vorhanden.",
+        "defaultTitle": "Variante"
       }
     },
     "options": {

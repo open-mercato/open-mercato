@@ -61,6 +61,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const t = useT()
   const productId = params?.productId ? String(params.productId) : null
   const variantId = params?.variantId ? String(params.variantId) : null
+  const isCreateSentinel = variantId === 'create'
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   const [optionDefinitions, setOptionDefinitions] = React.useState<OptionDefinition[]>([])
@@ -70,6 +71,12 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [error, setError] = React.useState<string | null>(null)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
+
+  React.useEffect(() => {
+    if (isCreateSentinel && productId) {
+      router.replace(`/backend/catalog/products/${productId}/variants/create`)
+    }
+  }, [isCreateSentinel, productId, router])
 
   React.useEffect(() => {
     const loadPriceKinds = async () => {
@@ -128,7 +135,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   }, [t])
 
   React.useEffect(() => {
-    if (!variantId) return
+    if (!variantId || isCreateSentinel) return
     let cancelled = false
     async function load() {
       setLoading(true)
@@ -329,6 +336,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     return list
   }, [optionDefinitions, priceKinds, t, taxRates])
 
+  if (isCreateSentinel) return null
+
   if (!variantId || !currentProductId) {
     return (
       <Page>
@@ -435,49 +444,56 @@ async function fetchVariantAttachments(variantId: string): Promise<ProductMediaI
 }
 
 async function loadVariantPrices(variantId: string): Promise<Record<string, VariantPriceDraft>> {
+  const drafts: Record<string, VariantPriceDraft> = {}
+  const pageSize = 100
+  let page = 1
   try {
-    const res = await apiCall<PriceListResponse>(`/api/catalog/prices?variantId=${encodeURIComponent(variantId)}&pageSize=200`)
-    if (!res.ok) return {}
-    const items = Array.isArray(res.result?.items) ? res.result?.items : []
-    const drafts: Record<string, VariantPriceDraft> = {}
-    for (const item of items) {
-      const kindId =
-        typeof item.price_kind_id === 'string'
-          ? item.price_kind_id
-          : typeof item.priceKindId === 'string'
-            ? item.priceKindId
-            : null
-      if (!kindId) continue
-      const unitNet =
-        typeof item.unit_price_net === 'string'
-          ? item.unit_price_net
-          : typeof item.unitPriceNet === 'string'
-            ? item.unitPriceNet
-            : null
-      const unitGross =
-        typeof item.unit_price_gross === 'string'
-          ? item.unit_price_gross
-          : typeof item.unitPriceGross === 'string'
-            ? item.unitPriceGross
-            : null
-      drafts[kindId] = {
-        priceKindId: kindId,
-        priceId: typeof item.id === 'string' ? item.id : undefined,
-        amount: unitNet ?? unitGross ?? '',
-        currencyCode:
-          typeof item.currency_code === 'string'
-            ? item.currency_code
-            : typeof item.currencyCode === 'string'
-              ? item.currencyCode
-              : null,
-        displayMode: unitGross ? 'including-tax' : 'excluding-tax',
+    while (true) {
+      const res = await apiCall<PriceListResponse>(
+        `/api/catalog/prices?variantId=${encodeURIComponent(variantId)}&page=${page}&pageSize=${pageSize}`,
+      )
+      if (!res.ok) break
+      const items = Array.isArray(res.result?.items) ? res.result?.items : []
+      for (const item of items) {
+        const kindId =
+          typeof item.price_kind_id === 'string'
+            ? item.price_kind_id
+            : typeof item.priceKindId === 'string'
+              ? item.priceKindId
+              : null
+        if (!kindId) continue
+        const unitNet =
+          typeof item.unit_price_net === 'string'
+            ? item.unit_price_net
+            : typeof item.unitPriceNet === 'string'
+              ? item.unitPriceNet
+              : null
+        const unitGross =
+          typeof item.unit_price_gross === 'string'
+            ? item.unit_price_gross
+            : typeof item.unitPriceGross === 'string'
+              ? item.unitPriceGross
+              : null
+        drafts[kindId] = {
+          priceKindId: kindId,
+          priceId: typeof item.id === 'string' ? item.id : undefined,
+          amount: unitNet ?? unitGross ?? '',
+          currencyCode:
+            typeof item.currency_code === 'string'
+              ? item.currency_code
+              : typeof item.currencyCode === 'string'
+                ? item.currencyCode
+                : null,
+          displayMode: unitGross ? 'including-tax' : 'excluding-tax',
+        }
       }
+      if (items.length < pageSize) break
+      page += 1
     }
-    return drafts
   } catch (err) {
     console.error('catalog.variants.prices.load', err)
-    return {}
   }
+  return drafts
 }
 
 function extractCustomFieldValues(record: Record<string, unknown>): Record<string, unknown> {

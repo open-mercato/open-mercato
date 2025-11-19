@@ -1326,7 +1326,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const nodes: React.ReactNode[] = []
           if (g.component) {
             nodes.push(
-              <div key={`${g.id}-component`} className="rounded-lg border bg-card p-4">
+              <div key={`${g.id}-component`} className="rounded-lg border bg-card px-4 py-3">
                 {g.component({ values, setValue, errors })}
               </div>,
             )
@@ -1346,7 +1346,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         }
         const groupFields = resolveGroupFields(g)
         return [
-          <div key={g.id} className="rounded-lg border bg-card p-4 space-y-3">
+          <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
             {g.title ? (
               <div className="text-sm font-medium">{g.title}</div>
             ) : null}
@@ -1411,8 +1411,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         >
           <form id={formId} onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
-              <div className="space-y-4">{col1Content}</div>
-              <div className="space-y-4">{col2Content}</div>
+              <div className="space-y-3">{col1Content}</div>
+              <div className="space-y-3">{col2Content}</div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
             <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2`}>

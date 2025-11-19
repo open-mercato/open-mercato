@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -471,6 +472,14 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     const customFields = collectCustomFieldValues(values)
     if (Object.keys(customFields).length) basePayload.customFields = customFields
     const overrides = Array.isArray(values.priceOverrides) ? values.priceOverrides as PriceOverrideDraft[] : []
+    const priceWithoutKind = overrides.find((entry) => {
+      const amount = typeof entry.amount === 'string' ? entry.amount.trim() : entry.amount
+      const hasAmount = typeof amount === 'string' ? amount.length > 0 : amount !== undefined && amount !== null
+      return hasAmount && !entry.priceKindId
+    })
+    if (priceWithoutKind) {
+      throw createCrudFormError(t('sales.channels.offers.errors.priceKindRequired', 'Select a price kind for each override.'), {})
+    }
     const submittedPriceIds = collectPriceIds(overrides)
     const deletedIdSet = new Set<string>()
     initialPriceIdsRef.current.forEach((id) => {

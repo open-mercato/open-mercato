@@ -390,7 +390,13 @@
         "pricesEmpty": "No prices yet.",
         "deleteConfirm": "Delete variant \"{{name}}\"?",
         "deleting": "Deleting…",
-        "priceFallback": "Price"
+        "priceFallback": "Price",
+        "generate": "Generate variants",
+        "generating": "Generating…",
+        "generateSuccess": "Missing variants generated.",
+        "generateError": "Failed to generate variants.",
+        "generateEmpty": "All option combinations already exist.",
+        "defaultTitle": "Variant"
       }
     },
     "options": {

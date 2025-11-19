@@ -930,9 +930,39 @@ function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps
   )
 }
 
-function ProductVariantsSection({ productId, variants, priceKinds, onVariantDeleted }: ProductVariantsSectionProps) {
+function ProductVariantsSection({
+  values,
+  productId,
+  variants,
+  priceKinds,
+  onVariantDeleted,
+  onVariantsReload,
+}: ProductVariantsSectionProps) {
   const t = useT()
   const [deletingId, setDeletingId] = React.useState<string | null>(null)
+  const [generating, setGenerating] = React.useState(false)
+  const optionDefinitions = React.useMemo(
+    () => (Array.isArray(values.options) ? values.options : []),
+    [values.options],
+  )
+  const combos = React.useMemo(() => buildVariantCombinations(optionDefinitions), [optionDefinitions])
+  const existingKeys = React.useMemo(() => {
+    const set = new Set<string>()
+    variants.forEach((variant) => {
+      const key = buildOptionValuesKey(variant.optionValues ?? undefined)
+      if (key) set.add(key)
+    })
+    return set
+  }, [variants])
+  const missingCombos = React.useMemo(
+    () =>
+      combos.filter((combo) => {
+        const key = buildOptionValuesKey(combo)
+        if (!key) return false
+        return !existingKeys.has(key)
+      }),
+    [combos, existingKeys],
+  )
   const priceKindLookup = React.useMemo(() => {
     const map = new Map<string, PriceKindSummary>()
     for (const kind of priceKinds) {
@@ -940,7 +970,6 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
     }
     return map
   }, [priceKinds])
-
   const formatPriceLabel = React.useCallback(
     (price: VariantPriceSummary): string => {
       const kind = price.priceKindId ? priceKindLookup.get(price.priceKindId) : null
@@ -950,14 +979,12 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
     },
     [priceKindLookup, t],
   )
-
   const formatPriceAmount = React.useCallback((price: VariantPriceSummary): string => {
     const amount = typeof price.amount === 'string' && price.amount.trim().length ? price.amount.trim() : ''
     if (!amount) return '—'
     if (!price.currencyCode) return amount
     return `${price.currencyCode.toUpperCase()} ${amount}`
   }, [])
-
   const handleDeleteVariant = React.useCallback(
     async (variant: VariantSummary) => {
       const label = variant.name || variant.sku || variant.id
@@ -984,17 +1011,62 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
     },
     [onVariantDeleted, t],
   )
+  const handleGenerateVariants = React.useCallback(async () => {
+    if (!productId) return
+    if (!missingCombos.length) {
+      flash(
+        t('catalog.products.edit.variantList.generateEmpty', 'All option combinations already exist.'),
+        'info',
+      )
+      return
+    }
+    setGenerating(true)
+    try {
+      for (const combo of missingCombos) {
+        const title =
+          Object.values(combo)
+            .map((value) => value?.trim())
+            .filter((value) => value && value.length)
+            .join(' / ') || t('catalog.products.edit.variantList.defaultTitle', 'Variant')
+        await createCrud('catalog/variants', {
+          productId,
+          name: title,
+          optionValues: combo,
+          isDefault: false,
+          isActive: true,
+        })
+      }
+      flash(t('catalog.products.edit.variantList.generateSuccess', 'Missing variants generated.'), 'success')
+      if (onVariantsReload) await onVariantsReload()
+    } catch (err) {
+      console.error('catalog.products.edit.variantList.generate', err)
+      flash(t('catalog.products.edit.variantList.generateError', 'Failed to generate variants.'), 'error')
+    } finally {
+      setGenerating(false)
+    }
+  }, [missingCombos, onVariantsReload, productId, t])
+
+  const showGenerateButton = optionDefinitions.length > 0
 
   return (
     <div className="space-y-3 rounded-lg bg-card p-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{t('catalog.products.edit.variants', 'Variants')}</h3>
-        <Button asChild size="sm">
-          <Link href={`/backend/catalog/products/${productId}/variants/create`}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('catalog.products.edit.variants.add', 'Add variant')}
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {showGenerateButton ? (
+            <Button type="button" size="sm" variant="outline" disabled={generating} onClick={() => { void handleGenerateVariants() }}>
+              {generating
+                ? t('catalog.products.edit.variantList.generating', 'Generating…')
+                : t('catalog.products.edit.variantList.generate', 'Generate variants')}
+            </Button>
+          ) : null}
+          <Button asChild size="sm">
+            <Link href={`/backend/catalog/products/${productId}/variants/create`}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('catalog.products.edit.variants.add', 'Add variant')}
+            </Link>
+          </Button>
+        </div>
       </div>
       {variants.length ? (
         <div className="overflow-hidden rounded-md border">
@@ -1016,7 +1088,10 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
               {variants.map((variant) => (
                 <tr key={variant.id} className="border-t hover:bg-muted/40">
                   <td className="px-3 py-2">
-                    <Link href={`/backend/catalog/variants/${variant.id}`} className="text-sm font-medium hover:underline">
+                    <Link
+                      href={`/backend/catalog/products/${productId}/variants/${variant.id}`}
+                      className="text-sm font-medium hover:underline"
+                    >
                       {variant.name || variant.id}
                     </Link>
                   </td>
@@ -1041,7 +1116,7 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap justify-end gap-2">
                       <Button asChild size="sm" variant="outline">
-                        <Link href={`/backend/catalog/variants/${variant.id}`}>
+                        <Link href={`/backend/catalog/products/${productId}/variants/${variant.id}`}>
                           {t('catalog.products.list.actions.edit', 'Edit')}
                         </Link>
                       </Button>

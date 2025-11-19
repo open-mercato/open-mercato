@@ -390,7 +390,13 @@
         "pricesEmpty": "Brak cen.",
         "deleteConfirm": "Usunąć wariant \"{{name}}\"?",
         "deleting": "Usuwanie…",
-        "priceFallback": "Cena"
+        "priceFallback": "Cena",
+        "generate": "Generuj warianty",
+        "generating": "Generowanie…",
+        "generateSuccess": "Brakujące warianty zostały utworzone.",
+        "generateError": "Nie udało się wygenerować wariantów.",
+        "generateEmpty": "Wszystkie kombinacje opcji już istnieją.",
+        "defaultTitle": "Wariant"
       }
     },
     "options": {

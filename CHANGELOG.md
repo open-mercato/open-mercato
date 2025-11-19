@@ -4,6 +4,7 @@
 - Catalog UI pages - create products page, product price kind settings
 - Shifted catalog product attributes onto custom-field fieldsets so vertical-specific definitions travel through CRUD forms, filters, and APIs without bespoke schema code.
 - Product edit view now lists variant prices with inline edit/delete controls for quicker maintenance.
+- Added variant auto-generation and lighter edit page cards, and fixed the edit link routing for catalog variants.
 
 # 0.3.0 (2025-10-31)
 
