@@ -475,7 +475,9 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     const priceWithoutKind = overrides.find((entry) => {
       const amount = typeof entry.amount === 'string' ? entry.amount.trim() : entry.amount
       const hasAmount = typeof amount === 'string' ? amount.length > 0 : amount !== undefined && amount !== null
-      return hasAmount && !entry.priceKindId
+      const hasExistingPrice = typeof entry.priceId === 'string' && entry.priceId.length > 0
+      const hasCurrency = typeof entry.currencyCode === 'string' && entry.currencyCode.length > 0
+      return !entry.priceKindId && (hasAmount || hasExistingPrice || hasCurrency)
     })
     if (priceWithoutKind) {
       throw createCrudFormError(t('sales.channels.offers.errors.priceKindRequired', 'Select a price kind for each override.'), {})

@@ -225,7 +225,7 @@ export function buildOptionSchemaDefinition(
   const schemaOptions = list
     .map((option) => {
       const title = option.title?.trim() || ''
-      const code = slugify(title || option.id || createLocalId())
+      const code = resolveOptionCode(option)
       const values = Array.isArray(option.values) ? option.values : []
       return {
         code: code || slugify(createLocalId()),
@@ -269,17 +269,27 @@ export function convertSchemaToProductOptions(
   }))
 }
 
+function resolveOptionCode(option: ProductOptionInput): string {
+  const base = option.title?.trim() || option.id?.trim() || ''
+  const slugged = slugify(base)
+  if (slugged.length) return slugged
+  if (base.length) return base
+  return createLocalId()
+}
+
 export function buildVariantCombinations(options: ProductOptionInput[]): Record<string, string>[] {
   if (!options.length) return []
   const [first, ...rest] = options
   if (!first || !Array.isArray(first.values) || !first.values.length) return []
-  const initial = first.values.map((value) => ({ [first.id]: value.label }))
+  const firstKey = resolveOptionCode(first)
+  const initial = first.values.map((value) => ({ [firstKey]: value.label }))
   return rest.reduce<Record<string, string>[]>((acc, option) => {
     if (!Array.isArray(option.values) || !option.values.length) return []
+    const optionKey = resolveOptionCode(option)
     const combos: Record<string, string>[] = []
     acc.forEach((partial) => {
       option.values.forEach((value) => {
-        combos.push({ ...partial, [option.id]: value.label })
+        combos.push({ ...partial, [optionKey]: value.label })
       })
     })
     return combos

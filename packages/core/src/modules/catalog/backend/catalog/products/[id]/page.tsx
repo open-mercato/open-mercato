@@ -474,18 +474,30 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     if (!productId) {
       throw createCrudFormError(t('catalog.products.edit.errors.idMissing', 'Product identifier is missing.'))
     }
-    const title = formValues.title?.trim()
+    const parsed = productFormSchema.safeParse(formValues)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+      const fieldErrors: Record<string, string> = {}
+      issues.forEach((issue) => {
+        const path = issue.path.join('.') || 'form'
+        if (!fieldErrors[path]) fieldErrors[path] = issue.message
+      })
+      const message = issues[0]?.message ?? t('catalog.products.edit.errors.validation', 'Fix highlighted fields.')
+      throw createCrudFormError(message, fieldErrors)
+    }
+    const values = parsed.data
+    const title = values.title?.trim()
     if (!title) {
       const message = t('catalog.products.create.errors.title', 'Provide a product title.')
       throw createCrudFormError(message, { title: message })
     }
-    const handle = formValues.handle?.trim() || undefined
-    const description = formValues.description?.trim() || undefined
-    const metadata = buildMetadataPayload(formValues)
-    const defaultMediaId = typeof formValues.defaultMediaId === 'string' && formValues.defaultMediaId.trim().length
-      ? formValues.defaultMediaId
+    const handle = values.handle?.trim() || undefined
+    const description = values.description?.trim() || undefined
+    const metadata = buildMetadataPayload(values)
+    const defaultMediaId = typeof values.defaultMediaId === 'string' && values.defaultMediaId.trim().length
+      ? values.defaultMediaId
       : null
-    const defaultMediaEntry = defaultMediaId ? formValues.mediaItems.find((item) => item.id === defaultMediaId) : null
+    const defaultMediaEntry = defaultMediaId ? values.mediaItems.find((item) => item.id === defaultMediaId) : null
     const defaultMediaUrl = defaultMediaEntry
       ? buildAttachmentImageUrl(defaultMediaEntry.id, {
           slug: slugifyAttachmentFileName(defaultMediaEntry.fileName),
@@ -494,22 +506,22 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     const payload: Record<string, unknown> = {
       id: productId,
       title,
-      subtitle: formValues.subtitle?.trim() || undefined,
+      subtitle: values.subtitle?.trim() || undefined,
       description,
       handle,
-      isConfigurable: Boolean(formValues.hasVariants),
+      isConfigurable: Boolean(values.hasVariants),
       metadata,
       defaultMediaId: defaultMediaId ?? undefined,
       defaultMediaUrl: defaultMediaUrl ?? undefined,
-      customFieldsetCode: formValues.customFieldsetCode?.trim().length ? formValues.customFieldsetCode : undefined,
+      customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
     }
-    const optionSchemaDefinition = buildOptionSchemaDefinition(formValues.options, title)
+    const optionSchemaDefinition = buildOptionSchemaDefinition(values.options, title)
     if (optionSchemaDefinition) {
       payload.optionSchema = optionSchemaDefinition
-    } else if (formValues.optionSchemaId) {
+    } else if (values.optionSchemaId) {
       payload.optionSchemaId = null
     }
-    const customFields = collectCustomFieldValues(formValues)
+    const customFields = collectCustomFieldValues(values)
     if (Object.keys(customFields).length) {
       payload.customFields = customFields
     }

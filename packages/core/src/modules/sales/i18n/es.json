@@ -106,7 +106,8 @@
           "delete": "Failed to delete offer.",
           "loadOffer": "Failed to load offer.",
           "save": "Failed to save offer.",
-          "requiredFields": "Choose a channel and product."
+          "requiredFields": "Choose a channel and product.",
+          "priceKindRequired": "Selecciona un tipo de precio para cada precio personalizado."
         },
         "messages": {
           "deleted": "Offer deleted.",

@@ -35,6 +35,7 @@ import {
 import type { ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
+import CreateVariantPage from '../create/page'
 
 type VariantResponse = {
   items?: Array<Record<string, unknown>>
@@ -71,12 +72,6 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [error, setError] = React.useState<string | null>(null)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
-
-  React.useEffect(() => {
-    if (isCreateSentinel && productId) {
-      router.replace(`/backend/catalog/products/${productId}/variants/create`)
-    }
-  }, [isCreateSentinel, productId, router])
 
   React.useEffect(() => {
     const loadPriceKinds = async () => {
@@ -163,6 +158,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         })
         setExistingPriceIds(priceIdMap)
         const customDefaults = extractCustomFieldValues(record)
+        let loadedOptionDefinitions: OptionDefinition[] = []
         if (resolvedProductId) {
           const productRes = await apiCall<ProductResponse>(
             `/api/catalog/products?id=${encodeURIComponent(resolvedProductId)}&page=1&pageSize=1`,
@@ -195,7 +191,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                   }))
                 }
               }
-              setOptionDefinitions(normalizeOptionSchema(schemaSource))
+              loadedOptionDefinitions = normalizeOptionSchema(schemaSource)
+              setOptionDefinitions(loadedOptionDefinitions)
             }
           }
         }
@@ -206,6 +203,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               : typeof record.optionValues === 'object' && record.optionValues
                 ? { ...(record.optionValues as Record<string, string>) }
                 : {}
+          const normalizedOptionValues = reconcileOptionValues(optionValues, loadedOptionDefinitions)
           const defaultMediaId =
             typeof record.default_media_id === 'string'
               ? record.default_media_id
@@ -227,7 +225,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             barcode: typeof record.barcode === 'string' ? record.barcode : '',
             isDefault: record.is_default === true || record.isDefault === true,
             isActive: record.is_active !== false && record.isActive !== false,
-            optionValues,
+            optionValues: normalizedOptionValues,
             metadata,
             mediaItems: attachments,
             defaultMediaId,
@@ -336,7 +334,20 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     return list
   }, [optionDefinitions, priceKinds, t, taxRates])
 
-  if (isCreateSentinel) return null
+  if (isCreateSentinel) {
+    if (!productId) {
+      return (
+        <Page>
+          <PageBody>
+            <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {t('catalog.variants.form.errors.productMissing', 'Product identifier is missing.')}
+            </div>
+          </PageBody>
+        </Page>
+      )
+    }
+    return <CreateVariantPage params={{ productId }} />
+  }
 
   if (!variantId || !currentProductId) {
     return (
@@ -428,6 +439,60 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
       </PageBody>
     </Page>
   )
+}
+
+function reconcileOptionValues(
+  optionValues: Record<string, string>,
+  optionDefinitions: OptionDefinition[],
+): Record<string, string> {
+  if (!optionValues || !optionDefinitions.length) {
+    return optionValues ?? {}
+  }
+  const remaining = new Map(Object.entries(optionValues))
+  const normalized: Record<string, string> = {}
+
+  for (const option of optionDefinitions) {
+    const code = option.code?.trim()
+    if (!code) continue
+    if (remaining.has(code)) {
+      const value = remaining.get(code)
+      if (value !== undefined) {
+        normalized[code] = value
+      }
+      remaining.delete(code)
+      continue
+    }
+    const matchKey = findOptionKeyByValue(remaining, option.values)
+    if (matchKey) {
+      const value = remaining.get(matchKey)
+      if (value !== undefined) {
+        normalized[code] = value
+      }
+      remaining.delete(matchKey)
+    }
+  }
+
+  remaining.forEach((value, key) => {
+    if (normalized[key] === undefined) {
+      normalized[key] = value
+    }
+  })
+
+  return normalized
+}
+
+function findOptionKeyByValue(
+  candidates: Map<string, string>,
+  optionValues: { id: string; label: string }[],
+): string | null {
+  if (!optionValues.length) return null
+  const matches: string[] = []
+  candidates.forEach((value, key) => {
+    if (optionValues.some((entry) => entry.label === value)) {
+      matches.push(key)
+    }
+  })
+  return matches.length === 1 ? matches[0] : null
 }
 
 async function fetchVariantAttachments(variantId: string): Promise<ProductMediaItem[]> {
