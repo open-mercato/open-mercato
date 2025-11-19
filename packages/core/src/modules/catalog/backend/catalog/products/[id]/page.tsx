@@ -702,9 +702,9 @@ function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentPr
   const weightValues = normalizeWeight(metadata)
 
   return (
-    <div className="rounded-lg bg-card p-4">
+    <div className="space-y-4">
       <h3 className="text-sm font-semibold">{t('catalog.products.edit.dimensions', 'Dimensions & weight')}</h3>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.width', 'Width')}</Label>
           <Input type="number" value={dimensionValues.width ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'width', event.target.value))} placeholder="0" />
@@ -841,7 +841,7 @@ function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps
 
   return (
     <>
-      <div className="space-y-4 rounded-lg bg-card p-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('catalog.products.create.optionsBuilder.title', 'Product options')}</h3>
           <div className="flex items-center gap-2">
@@ -1095,7 +1095,7 @@ function ProductVariantsSection({
   const showGenerateButton = optionDefinitions.length > 0 && allowVariantActions
 
   return (
-    <div className="space-y-3 rounded-lg bg-card p-4">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{t('catalog.products.edit.variants', 'Variants')}</h3>
         <div className="flex flex-wrap items-center gap-2">
