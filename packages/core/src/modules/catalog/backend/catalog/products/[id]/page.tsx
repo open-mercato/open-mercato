@@ -29,15 +29,19 @@ import {
   type ProductFormValues,
   type TaxRateSummary,
   type ProductOptionInput,
+  type PriceKindSummary,
+  type PriceKindApiPayload,
   productFormSchema,
   createLocalId,
   slugify,
   formatTaxRateLabel,
   buildOptionSchemaDefinition,
   convertSchemaToProductOptions,
+  normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { MetadataEditor } from '@open-mercato/core/modules/catalog/components/products/MetadataEditor'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { ProductCategorizeSection } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
 import { AlignLeft, BookMarked, ExternalLink, FileText, Layers, Plus, Save, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 
@@ -82,6 +86,34 @@ type VariantSummary = {
   name: string
   sku: string
   isDefault: boolean
+  prices: VariantPriceSummary[]
+}
+
+type VariantPriceListResponse = {
+  items?: VariantPriceSummaryApi[]
+}
+
+type VariantPriceSummaryApi = {
+  id?: string
+  variant_id?: string | null
+  variantId?: string | null
+  price_kind_id?: string | null
+  priceKindId?: string | null
+  currency_code?: string | null
+  currencyCode?: string | null
+  unit_price_net?: string | null
+  unitPriceNet?: string | null
+  unit_price_gross?: string | null
+  unitPriceGross?: string | null
+}
+
+type VariantPriceSummary = {
+  id: string
+  variantId: string
+  priceKindId: string | null
+  currencyCode: string | null
+  amount: string | null
+  displayMode: 'including-tax' | 'excluding-tax'
 }
 
 export default function EditCatalogProductPage({ params }: { params?: { id?: string } }) {
@@ -89,6 +121,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
   const t = useT()
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   const [variants, setVariants] = React.useState<VariantSummary[]>([])
+  const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [initialValues, setInitialValues] = React.useState<Partial<ProductFormValues> | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -209,16 +242,65 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
     return () => { cancelled = true }
   }, [productId, t])
 
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadPriceKinds() {
+      try {
+        const payload = await readApiResultOrThrow<{ items?: PriceKindApiPayload[] }>(
+          '/api/catalog/price-kinds?pageSize=100',
+          undefined,
+          { fallback: { items: [] } },
+        )
+        const items = Array.isArray(payload.items) ? payload.items : []
+        const summaries = items
+          .map((item) => normalizePriceKindSummary(item))
+          .filter((entry): entry is PriceKindSummary => !!entry)
+        if (!cancelled) {
+          setPriceKinds(summaries)
+        }
+      } catch (err) {
+        console.error('catalog.price-kinds.fetch failed', err)
+        if (!cancelled) {
+          setPriceKinds([])
+        }
+      }
+    }
+    loadPriceKinds().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const loadVariants = React.useCallback(async (id: string) => {
     try {
-      const res = await apiCall<VariantListResponse>(
-        `/api/catalog/variants?productId=${encodeURIComponent(id)}&page=1&pageSize=100`
-      )
-      if (!res.ok) {
+      const [variantsRes, pricesRes] = await Promise.all([
+        apiCall<VariantListResponse>(`/api/catalog/variants?productId=${encodeURIComponent(id)}&page=1&pageSize=100`),
+        apiCall<VariantPriceListResponse>(`/api/catalog/prices?productId=${encodeURIComponent(id)}&page=1&pageSize=100`),
+      ])
+      if (!variantsRes.ok) {
         setVariants([])
         return
       }
-      const items = Array.isArray(res.result?.items) ? res.result?.items : []
+      const priceMap: Record<string, VariantPriceSummary[]> = {}
+      if (pricesRes.ok) {
+        const priceItems = Array.isArray(pricesRes.result?.items) ? pricesRes.result?.items : []
+        for (const item of priceItems) {
+          const summary = mapVariantPriceSummary(item)
+          if (!summary) continue
+          if (!priceMap[summary.variantId]) {
+            priceMap[summary.variantId] = []
+          }
+          priceMap[summary.variantId].push(summary)
+        }
+        Object.keys(priceMap).forEach((key) => {
+          priceMap[key].sort((a, b) => {
+            const left = (a.priceKindId ?? '') + (a.currencyCode ?? '')
+            const right = (b.priceKindId ?? '') + (b.currencyCode ?? '')
+            return left.localeCompare(right)
+          })
+        })
+      }
+      const items = Array.isArray(variantsRes.result?.items) ? variantsRes.result?.items : []
       setVariants(
         items
           .map((variant) => {
@@ -229,6 +311,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
               name: typeof variant.name === 'string' && variant.name.trim().length ? variant.name : variant.sku ?? variantId,
               sku: typeof variant.sku === 'string' ? variant.sku : '',
               isDefault: Boolean(variant.is_default ?? variant.isDefault),
+              prices: priceMap[variantId] ?? [],
             }
           })
           .filter((entry): entry is VariantSummary => !!entry),
@@ -256,6 +339,35 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
       console.error('attachments.fetch failed', err)
       return []
     }
+  }, [])
+
+function mapVariantPriceSummary(item: VariantPriceSummaryApi | undefined): VariantPriceSummary | null {
+  if (!item) return null
+  const getString = (value: unknown): string | null => {
+    if (typeof value === 'string' && value.trim().length) return value.trim()
+    if (typeof value === 'number' || typeof value === 'bigint') return String(value)
+    return null
+  }
+  const variantId = getString(item.variant_id ?? item.variantId)
+  const id = getString(item.id)
+  if (!variantId || !id) return null
+  const priceKindId = getString(item.price_kind_id ?? item.priceKindId)
+  const currencyCode = getString(item.currency_code ?? item.currencyCode)
+  const unitGross = getString(item.unit_price_gross ?? item.unitPriceGross)
+  const unitNet = getString(item.unit_price_net ?? item.unitPriceNet)
+  const amount = unitGross ?? unitNet ?? null
+  return {
+    id,
+    variantId,
+    priceKindId,
+    currencyCode,
+    amount,
+    displayMode: unitGross ? 'including-tax' : 'excluding-tax',
+  }
+}
+
+  const handleVariantDeleted = React.useCallback((variantId: string) => {
+    setVariants((prev) => prev.filter((variant) => variant.id !== variantId))
   }, [])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
@@ -302,6 +414,8 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           errors={errors}
           productId={productId ?? ''}
           variants={variants}
+          priceKinds={priceKinds}
+          onVariantDeleted={handleVariantDeleted}
         />
       ),
     },
@@ -315,12 +429,21 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
       ),
     },
     {
+      id: 'categorize',
+      column: 2,
+      title: t('catalog.products.create.organize.title', 'Categorize'),
+      description: t('catalog.products.create.organize.description', 'Assign categories, sales channels, and tags.'),
+      component: ({ values, setValue, errors }) => (
+        <ProductCategorizeSection values={values as ProductFormValues} setValue={setValue} errors={errors} />
+      ),
+    },
+    {
       id: 'custom-fields',
       column: 2,
       title: t('catalog.products.edit.custom.title', 'Custom attributes'),
       kind: 'customFields',
     },
-  ], [productId, t, taxRates, variants])
+  ], [handleVariantDeleted, priceKinds, productId, t, taxRates, variants])
 
   const handleSubmit = React.useCallback(async (formValues: ProductFormValues) => {
     if (!productId) {
@@ -425,6 +548,8 @@ type ProductMetaSectionProps = {
 type ProductVariantsSectionProps = CrudFormGroupComponentProps<ProductFormValues> & {
   productId: string
   variants: VariantSummary[]
+  priceKinds: PriceKindSummary[]
+  onVariantDeleted: (variantId: string) => void
 }
 
 function ProductDetailsSection({ values, setValue, errors, productId }: ProductDetailsSectionProps) {
@@ -779,8 +904,60 @@ function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps
   )
 }
 
-function ProductVariantsSection({ productId, variants }: ProductVariantsSectionProps) {
+function ProductVariantsSection({ productId, variants, priceKinds, onVariantDeleted }: ProductVariantsSectionProps) {
   const t = useT()
+  const [deletingId, setDeletingId] = React.useState<string | null>(null)
+  const priceKindLookup = React.useMemo(() => {
+    const map = new Map<string, PriceKindSummary>()
+    for (const kind of priceKinds) {
+      map.set(kind.id, kind)
+    }
+    return map
+  }, [priceKinds])
+
+  const formatPriceLabel = React.useCallback(
+    (price: VariantPriceSummary): string => {
+      const kind = price.priceKindId ? priceKindLookup.get(price.priceKindId) : null
+      if (kind?.title) return kind.title
+      if (kind?.code) return kind.code.toUpperCase()
+      return t('catalog.products.edit.variants.priceFallback', 'Price')
+    },
+    [priceKindLookup, t],
+  )
+
+  const formatPriceAmount = React.useCallback((price: VariantPriceSummary): string => {
+    const amount = typeof price.amount === 'string' && price.amount.trim().length ? price.amount.trim() : ''
+    if (!amount) return '—'
+    if (!price.currencyCode) return amount
+    return `${price.currencyCode.toUpperCase()} ${amount}`
+  }, [])
+
+  const handleDeleteVariant = React.useCallback(
+    async (variant: VariantSummary) => {
+      const label = variant.name || variant.sku || variant.id
+      const confirmMessage = t('catalog.products.edit.variants.deleteConfirm', 'Delete variant "{{name}}"?').replace(
+        '{{name}}',
+        label,
+      )
+      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) {
+        return
+      }
+      setDeletingId(variant.id)
+      try {
+        await deleteCrud('catalog/variants', variant.id, {
+          errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
+        })
+        flash(t('catalog.variants.form.deleted', 'Variant deleted.'), 'success')
+        onVariantDeleted(variant.id)
+      } catch (err) {
+        console.error('catalog.products.edit.variants.delete', err)
+        flash(t('catalog.variants.form.deleteError', 'Failed to delete variant.'), 'error')
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    [onVariantDeleted, t],
+  )
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
@@ -800,7 +977,9 @@ function ProductVariantsSection({ productId, variants }: ProductVariantsSectionP
               <tr>
                 <th className="px-3 py-2 font-normal">{t('catalog.products.form.variants', 'Variant')}</th>
                 <th className="px-3 py-2 font-normal">SKU</th>
+                <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.pricesHeading', 'Prices')}</th>
                 <th className="px-3 py-2 font-normal">{t('catalog.products.edit.variants.default', 'Default')}</th>
+                <th className="px-3 py-2 font-normal text-right">{t('catalog.products.edit.variants.actions', 'Actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -812,7 +991,44 @@ function ProductVariantsSection({ productId, variants }: ProductVariantsSectionP
                     </Link>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{variant.sku || '—'}</td>
+                  <td className="px-3 py-2">
+                    {variant.prices.length ? (
+                      <ul className="space-y-1">
+                        {variant.prices.map((price) => (
+                          <li key={price.id} className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">{formatPriceLabel(price)}</span>{' '}
+                            <span>{formatPriceAmount(price)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {t('catalog.products.edit.variants.pricesEmpty', 'No prices yet.')}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">{variant.isDefault ? t('common.yes', 'Yes') : '—'}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/backend/catalog/variants/${variant.id}`}>
+                          {t('catalog.products.list.actions.edit', 'Edit')}
+                        </Link>
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={deletingId === variant.id}
+                        onClick={() => { void handleDeleteVariant(variant) }}
+                      >
+                        {deletingId === variant.id
+                          ? t('catalog.products.edit.variants.deleting', 'Deleting…')
+                          : t('catalog.products.list.actions.delete', 'Delete')}
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

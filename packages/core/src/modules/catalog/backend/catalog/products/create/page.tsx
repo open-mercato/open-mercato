@@ -11,13 +11,13 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus, Trash2, FileText, AlignLeft, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
+import { ProductCategorizeSection } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
 import {
   PRODUCT_FORM_STEPS,
   type PriceKindSummary,
@@ -397,70 +397,10 @@ type ProductMetaSectionProps = {
   taxRates: TaxRateSummary[]
 }
 
-type PickerOption = {
-  value: string
-  label: string
-  description?: string | null
-}
-
 function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: ProductBuilderProps) {
   const t = useT()
   const steps = PRODUCT_FORM_STEPS
   const [currentStep, setCurrentStep] = React.useState(0)
-  const [categoryOptionsMap, setCategoryOptionsMap] = React.useState<Record<string, PickerOption>>({})
-  const [channelOptionsMap, setChannelOptionsMap] = React.useState<Record<string, PickerOption>>({})
-  const [tagOptionsMap, setTagOptionsMap] = React.useState<Record<string, PickerOption>>({})
-
-  const registerPickerOptions = React.useCallback(
-    (
-      setter: React.Dispatch<React.SetStateAction<Record<string, PickerOption>>>,
-      options: PickerOption[],
-    ) => {
-      setter((prev) => {
-        const next = { ...prev }
-        options.forEach((option) => {
-          if (option.value) next[option.value] = option
-        })
-        return next
-      })
-    },
-    [],
-  )
-
-  const registerCategoryOptions = React.useCallback(
-    (options: PickerOption[]) => registerPickerOptions(setCategoryOptionsMap, options),
-    [registerPickerOptions],
-  )
-  const registerChannelOptions = React.useCallback(
-    (options: PickerOption[]) => registerPickerOptions(setChannelOptionsMap, options),
-    [registerPickerOptions],
-  )
-  const registerTagOptions = React.useCallback(
-    (options: PickerOption[]) => registerPickerOptions(setTagOptionsMap, options),
-    [registerPickerOptions],
-  )
-
-  const categorySuggestions = React.useMemo(() => Object.values(categoryOptionsMap), [categoryOptionsMap])
-  const channelSuggestions = React.useMemo(() => Object.values(channelOptionsMap), [channelOptionsMap])
-  const tagSuggestions = React.useMemo(() => Object.values(tagOptionsMap), [tagOptionsMap])
-
-  const resolveCategoryLabel = React.useCallback(
-    (id: string) => categoryOptionsMap[id]?.label ?? id,
-    [categoryOptionsMap],
-  )
-  const resolveCategoryDescription = React.useCallback(
-    (id: string) => categoryOptionsMap[id]?.description ?? null,
-    [categoryOptionsMap],
-  )
-  const resolveChannelLabel = React.useCallback(
-    (id: string) => channelOptionsMap[id]?.label ?? id,
-    [channelOptionsMap],
-  )
-  const resolveChannelDescription = React.useCallback(
-    (id: string) => channelOptionsMap[id]?.description ?? null,
-    [channelOptionsMap],
-  )
-  const resolveTagLabel = React.useCallback((id: string) => tagOptionsMap[id]?.label ?? id, [tagOptionsMap])
   const defaultTaxRate = React.useMemo(
     () => (values.taxRateId ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null : null),
     [taxRates, values.taxRateId],
@@ -511,96 +451,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
 
   const mediaItems = Array.isArray(values.mediaItems) ? values.mediaItems : []
 
-  const loadCategorySuggestions = React.useCallback(
-    async (term?: string) => {
-      try {
-        const params = new URLSearchParams({ pageSize: '200', view: 'manage' })
-        if (term && term.trim().length) params.set('search', term.trim())
-        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; name?: string; parentName?: string | null }> }>(
-          `/api/catalog/categories?${params.toString()}`,
-          undefined,
-          { errorMessage: t('catalog.products.filters.categoriesLoadError', 'Failed to load categories') },
-        )
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const options = items
-          .map((entry) => {
-            const value = typeof entry.id === 'string' ? entry.id : null
-            if (!value) return null
-            const label = typeof entry.name === 'string' && entry.name.trim().length ? entry.name : value
-            const description =
-              typeof entry.parentName === 'string' && entry.parentName.trim().length ? entry.parentName : null
-            return { value, label, description }
-          })
-          .filter((option): option is PickerOption => !!option)
-        registerCategoryOptions(options)
-        return options
-      } catch {
-        return []
-      }
-    },
-    [registerCategoryOptions, t],
-  )
-
-  const loadChannelSuggestions = React.useCallback(
-    async (term?: string) => {
-      try {
-        const params = new URLSearchParams({ pageSize: '100', isActive: 'true' })
-        if (term && term.trim().length) params.set('search', term.trim())
-        const payload = await readApiResultOrThrow<{ items?: Array<{ id?: string; name?: string; code?: string }> }>(
-          `/api/sales/channels?${params.toString()}`,
-          undefined,
-          { errorMessage: t('catalog.products.filters.channelsLoadError', 'Failed to load channels') },
-        )
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const options = items
-          .map((entry) => {
-            const value = typeof entry.id === 'string' ? entry.id : null
-            if (!value) return null
-            const label =
-              typeof entry.name === 'string' && entry.name.trim().length
-                ? entry.name
-                : typeof entry.code === 'string' && entry.code.trim().length
-                  ? entry.code
-                  : value
-            const description = typeof entry.code === 'string' && entry.code.trim().length ? entry.code : null
-            return { value, label, description }
-          })
-          .filter((option): option is PickerOption => !!option)
-        registerChannelOptions(options)
-        return options
-      } catch {
-        return []
-      }
-    },
-    [registerChannelOptions, t],
-  )
-
-  const loadTagSuggestions = React.useCallback(
-    async (term?: string) => {
-      try {
-        const params = new URLSearchParams({ pageSize: '100' })
-        if (term && term.trim().length) params.set('search', term.trim())
-        const payload = await readApiResultOrThrow<{ items?: Array<{ label?: string }> }>(
-          `/api/catalog/tags?${params.toString()}`,
-          undefined,
-          { errorMessage: t('catalog.products.filters.tagsLoadError', 'Failed to load tags') },
-        )
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const options = items
-          .map((entry) => {
-            const rawLabel = typeof entry.label === 'string' ? entry.label.trim() : ''
-            if (!rawLabel) return null
-            return { value: rawLabel, label: rawLabel }
-          })
-          .filter((option): option is PickerOption => !!option)
-        registerTagOptions(options)
-        return options
-      } catch {
-        return []
-      }
-    },
-    [registerTagOptions, t],
-  )
 
   const handleMediaItemsChange = React.useCallback(
     (nextItems: ProductMediaItem[]) => {
@@ -796,6 +646,7 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             onClick={() => setCurrentStep(index)}
           >
             {step === 'general' && t('catalog.products.create.steps.general', 'General data')}
+            {step === 'organize' && t('catalog.products.create.steps.organize', 'Organize')}
             {step === 'variants' && t('catalog.products.create.steps.variants', 'Variants')}
             {(stepErrors[step]?.length ?? 0) > 0 ? (
               <span className="absolute -right-2 top-0 h-2 w-2 rounded-full bg-destructive" aria-hidden="true" />
@@ -869,59 +720,11 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
       ) : null}
 
       {currentStepKey === 'organize' ? (
-        <div className="space-y-6">
-          <div className="space-y-2">
-            <Label>{t('catalog.products.create.organize.categoriesLabel', 'Categories')}</Label>
-            <TagsInput
-              value={Array.isArray(values.categoryIds) ? values.categoryIds : []}
-              onChange={(next) => setValue('categoryIds', next)}
-              suggestions={categorySuggestions}
-              loadSuggestions={loadCategorySuggestions}
-              allowCustomValues={false}
-              resolveLabel={resolveCategoryLabel}
-              resolveDescription={resolveCategoryDescription}
-              placeholder={t('catalog.products.create.organize.categoriesPlaceholder', 'Search categories')}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t('catalog.products.create.organize.categoriesHelp', 'Assign products to one or more taxonomy nodes.')}
-            </p>
-            {errors.categoryIds ? <p className="text-xs text-red-600">{errors.categoryIds}</p> : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t('catalog.products.create.organize.channelsLabel', 'Sales channels')}</Label>
-            <TagsInput
-              value={Array.isArray(values.channelIds) ? values.channelIds : []}
-              onChange={(next) => setValue('channelIds', next)}
-              suggestions={channelSuggestions}
-              loadSuggestions={loadChannelSuggestions}
-              allowCustomValues={false}
-              resolveLabel={resolveChannelLabel}
-              resolveDescription={resolveChannelDescription}
-              placeholder={t('catalog.products.create.organize.channelsPlaceholder', 'Pick channels')}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t('catalog.products.create.organize.channelsHelp', 'Selected channels will receive default offers for this product.')}
-            </p>
-            {errors.channelIds ? <p className="text-xs text-red-600">{errors.channelIds}</p> : null}
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t('catalog.products.create.organize.tagsLabel', 'Tags')}</Label>
-            <TagsInput
-              value={Array.isArray(values.tags) ? values.tags : []}
-              onChange={(next) => setValue('tags', next)}
-              suggestions={tagSuggestions}
-              loadSuggestions={loadTagSuggestions}
-              resolveLabel={resolveTagLabel}
-              placeholder={t('catalog.products.create.organize.tagsPlaceholder', 'Add tag and press Enter')}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t('catalog.products.create.organize.tagsHelp', 'Describe products with shared labels to build quick filters.')}
-            </p>
-            {errors.tags ? <p className="text-xs text-red-600">{errors.tags}</p> : null}
-          </div>
-        </div>
+        <ProductCategorizeSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+        />
       ) : null}
 
       {currentStepKey === 'variants' ? (
@@ -1148,16 +951,20 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
           <ChevronLeft className="h-4 w-4" />
           {t('catalog.products.create.steps.previous', 'Previous')}
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setCurrentStep(Math.min(steps.length - 1, currentStep + 1))}
-          className="gap-2"
-        >
-          {t('catalog.products.create.steps.continue', 'Continue')}
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+        {currentStepKey !== 'variants' ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentStep(Math.min(steps.length - 1, currentStep + 1))}
+            className="gap-2"
+          >
+            {t('catalog.products.create.steps.continue', 'Continue')}
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        ) : (
+          <span />
+        )}
       </div>
     </div>
   )

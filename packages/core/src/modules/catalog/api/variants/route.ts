@@ -13,6 +13,15 @@ import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 
 const rawBodySchema = z.object({}).passthrough()
 
+const SENTINEL_ID_VALUES = new Set(['', 'create', 'new', 'null', 'undefined'])
+
+function stripPlaceholderId(source: Record<string, unknown>): void {
+  const raw = typeof source.id === 'string' ? source.id.trim() : ''
+  if (!raw || SENTINEL_ID_VALUES.has(raw.toLowerCase())) {
+    delete source.id
+  }
+}
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
@@ -139,6 +148,7 @@ const crud = makeCrudRoute({
           raw && typeof raw === 'object'
             ? { ...(raw as Record<string, unknown>) }
             : ({} as Record<string, unknown>)
+        stripPlaceholderId(payload)
         const productId = typeof payload.productId === 'string' ? payload.productId : null
         if (productId) {
           try {
@@ -170,6 +180,7 @@ const crud = makeCrudRoute({
           raw && typeof raw === 'object'
             ? { ...(raw as Record<string, unknown>) }
             : ({} as Record<string, unknown>)
+        stripPlaceholderId(payload)
         const variantId = typeof payload.id === 'string' ? payload.id : null
         if (variantId) {
           try {

@@ -19,6 +19,7 @@ type MetadataEditorProps = {
   defaultCollapsed?: boolean
   title?: string
   description?: string
+  embedded?: boolean
 }
 
 const toEntries = (value?: Record<string, unknown> | null): MetadataEntry[] => {
@@ -64,25 +65,35 @@ export function MetadataEditor({
   defaultCollapsed = true,
   title,
   description,
+  embedded = false,
 }: MetadataEditorProps) {
   const t = useT()
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [entries, setEntries] = React.useState<MetadataEntry[]>(() => toEntries(value))
+  const skipSyncRef = React.useRef(false)
 
   React.useEffect(() => {
+    if (skipSyncRef.current) {
+      skipSyncRef.current = false
+      return
+    }
     setEntries(toEntries(value))
   }, [value])
 
-  const emitChange = React.useCallback((nextEntries: MetadataEntry[]) => {
-    setEntries(nextEntries)
-    const next: Record<string, unknown> = {}
-    nextEntries.forEach(({ key, value }) => {
-      const normalizedKey = key.trim()
-      if (!normalizedKey.length) return
-      next[normalizedKey] = parseMetadataValue(value)
-    })
-    onChange(next)
-  }, [onChange])
+  const emitChange = React.useCallback(
+    (nextEntries: MetadataEntry[]) => {
+      skipSyncRef.current = true
+      setEntries(nextEntries)
+      const next: Record<string, unknown> = {}
+      nextEntries.forEach(({ key, value }) => {
+        const normalizedKey = key.trim()
+        if (!normalizedKey.length) return
+        next[normalizedKey] = parseMetadataValue(value)
+      })
+      onChange(next)
+    },
+    [onChange],
+  )
 
   const updateEntry = React.useCallback(
     (id: string, field: 'key' | 'value', nextValue: string) => {
@@ -105,18 +116,18 @@ export function MetadataEditor({
     [emitChange, entries],
   )
 
-  return (
-    <div className="rounded-lg border p-4">
+  const resolvedTitle = title ?? t('catalog.products.edit.metadata.title', 'Metadata')
+  const resolvedDescription =
+    description ?? t('catalog.products.edit.metadata.hint', 'Attach structured key/value pairs for integrations.')
+  const hasTitle = typeof resolvedTitle === 'string' && resolvedTitle.trim().length > 0
+  const hasDescription = typeof resolvedDescription === 'string' && resolvedDescription.trim().length > 0
+
+  const content = (
+    <>
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium">{title ?? t('catalog.products.edit.metadata.title', 'Metadata')}</p>
-          {description ? (
-            <p className="text-xs text-muted-foreground">{description}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              {t('catalog.products.edit.metadata.hint', 'Attach structured key/value pairs for integrations.')}
-            </p>
-          )}
+        <div className="flex-1">
+          {hasTitle ? <p className="text-sm font-medium">{resolvedTitle}</p> : null}
+          {hasDescription ? <p className="text-xs text-muted-foreground">{resolvedDescription}</p> : null}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -168,6 +179,12 @@ export function MetadataEditor({
           ))}
         </div>
       ) : null}
-    </div>
+    </>
   )
+
+  if (embedded) {
+    return <div className="space-y-3">{content}</div>
+  }
+
+  return <div className="rounded-lg border p-4">{content}</div>
 }
