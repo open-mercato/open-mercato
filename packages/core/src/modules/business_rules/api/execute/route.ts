@@ -56,7 +56,7 @@ export async function POST(req: Request) {
 
   const parsed = executeRequestSchema.safeParse(body)
   if (!parsed.success) {
-    const errors = parsed.error?.errors?.map(e => `${e.path.join('.')}: ${e.message}`) ?? ['Unknown validation error']
+    const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
     user: {
       id: auth.sub,
       email: auth.email,
-      role: auth.role,
+      role: (auth.role as string) ?? undefined,
     },
     tenantId: auth.tenantId ?? '',
     organizationId: auth.orgId ?? '',
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
   const validation = ruleEngineContextSchema.safeParse(context)
   if (!validation.success) {
-    const errors = validation.error?.errors?.map(e => `${e.path.join('.')}: ${e.message}`) ?? ['Context validation failed']
+    const errors = validation.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Invalid execution context: ${errors.join(', ')}` }, { status: 400 })
   }
 
