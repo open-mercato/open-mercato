@@ -553,10 +553,19 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     () => (values.taxRateId ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null : null),
     [taxRates, values.taxRateId],
   )
-  const fallbackTaxRate = React.useMemo(
-    () => taxRates.find((rate) => rate.isDefault) ?? null,
-    [taxRates],
-  )
+  const autoAppliedProductTaxRef = React.useRef(false)
+  React.useEffect(() => {
+    if (autoAppliedProductTaxRef.current) return
+    if (!taxRates.length) return
+    if (values.taxRateId) {
+      autoAppliedProductTaxRef.current = true
+      return
+    }
+    const fallback = taxRates.find((rate) => rate.isDefault)
+    if (!fallback) return
+    setValue('taxRateId', fallback.id)
+    autoAppliedProductTaxRef.current = true
+  }, [taxRates, setValue, values.taxRateId])
   const stepErrors = React.useMemo(() => {
     const map: Record<ProductFormStep, string[]> = {
       general: [],
@@ -583,28 +592,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
       setCurrentStep(fallbackIndex)
     }
   }, [currentStep, errorSignature, setCurrentStep, stepErrors, steps])
-  const hasResolvedProductTaxRateRef = React.useRef(false)
-  React.useEffect(() => {
-    if (values.taxRateId && !hasResolvedProductTaxRateRef.current) {
-      hasResolvedProductTaxRateRef.current = true
-    }
-  }, [values.taxRateId])
-  React.useEffect(() => {
-    if (!fallbackTaxRate) return
-    if (hasResolvedProductTaxRateRef.current) return
-    hasResolvedProductTaxRateRef.current = true
-    setValue('taxRateId', fallbackTaxRate.id)
-    const variants = Array.isArray(values.variants) ? values.variants : []
-    let changed = false
-    const updatedVariants = variants.map((variant) => {
-      if (variant.taxRateId) return variant
-      changed = true
-      return { ...variant, taxRateId: fallbackTaxRate.id }
-    })
-    if (changed) {
-      setValue('variants', updatedVariants)
-    }
-  }, [fallbackTaxRate, setValue, values.variants])
   const defaultTaxRateLabel = defaultTaxRate ? formatTaxRateLabel(defaultTaxRate) : null
   const inventoryDisabledHint = t(
     'catalog.products.create.variantsBuilder.inventoryDisabled',
@@ -951,12 +938,6 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             />
             {t('catalog.products.create.variantsBuilder.toggle', 'Yes, this is a product with variants')}
           </label>
-
-          {(stepErrors.variants?.length ?? 0) > 0 ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {stepErrors.variants?.[0]}
-            </div>
-          ) : null}
 
           {values.hasVariants ? (
             <div className="space-y-4 rounded-lg border p-4">

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -20,12 +20,22 @@ type ChannelApiResponse = {
 export default function EditChannelPage({ params }: { params?: { channelId?: string } }) {
   const channelId = params?.channelId ?? ''
   const router = useRouter()
+  const searchParams = useSearchParams()
   const t = useT()
   const { fields, groups } = useChannelFields()
   const [initialValues, setInitialValues] = React.useState<ChannelFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<'settings' | 'offers'>('settings')
+
+  React.useEffect(() => {
+    const tabParam = (searchParams?.get('tab') ?? '').toLowerCase()
+    if (tabParam === 'offers') {
+      setActiveTab('offers')
+    } else if (tabParam === 'settings') {
+      setActiveTab('settings')
+    }
+  }, [searchParams])
 
   React.useEffect(() => {
     if (!channelId) return
@@ -78,16 +88,24 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
     router.push('/backend/sales/channels')
   }, [channelId, router, t])
 
+  const handleTabSelect = React.useCallback((value: 'settings' | 'offers') => {
+    setActiveTab(value)
+    if (!channelId) return
+    const basePath = `/backend/sales/channels/${channelId}/edit`
+    const nextUrl = value === 'offers' ? `${basePath}?tab=offers` : basePath
+    router.replace(nextUrl)
+  }, [channelId, router])
+
   const tabButton = React.useCallback((value: 'settings' | 'offers', label: string) => (
     <button
       key={value}
       type="button"
       className={`px-4 py-2 text-sm font-medium border-b-2 ${activeTab === value ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'}`}
-      onClick={() => setActiveTab(value)}
+      onClick={() => handleTabSelect(value)}
     >
       {label}
     </button>
-  ), [activeTab, setActiveTab])
+  ), [activeTab, handleTabSelect])
 
   const renderTabs = React.useCallback(() => (
     <div className="flex items-center gap-2 border-b mb-6">

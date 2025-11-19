@@ -56,11 +56,17 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
                 {row.original.productTitle ?? t('sales.channels.offers.table.emptyProduct', 'Unlinked product')}
               </div>
             </div>
-            <div>{renderOfferPriceSummary(row.original, t)}</div>
           </div>
         </div>
       ),
       meta: { sticky: true },
+    },
+    {
+      accessorKey: 'pricing',
+      header: t('sales.channels.offers.table.pricing', 'Prices'),
+      cell: ({ row }) => (
+        <div className="text-sm">{renderOfferPriceSummary(row.original, t)}</div>
+      ),
     },
     {
       accessorKey: 'isActive',

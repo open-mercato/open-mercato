@@ -127,7 +127,7 @@ export function renderOfferPriceSummary(
   return (
     <div className="flex flex-wrap gap-2">
       {row.prices.map((price) => {
-        const label = price.priceKindCode || price.priceKindTitle || t('sales.channels.offers.table.price', 'Price')
+        const label = price.priceKindTitle || price.priceKindCode || t('sales.channels.offers.table.price', 'Price')
         const numeric = price.displayMode === 'including-tax'
           ? price.unitPriceGross ?? price.unitPriceNet
           : price.unitPriceNet ?? price.unitPriceGross

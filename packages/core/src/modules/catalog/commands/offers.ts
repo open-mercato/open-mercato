@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -20,6 +20,8 @@ import {
   requireOffer,
   requireProduct,
 } from './shared'
+import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 type OfferSnapshot = {
   id: string
@@ -36,6 +38,7 @@ type OfferSnapshot = {
   isActive: boolean
   createdAt: string
   updatedAt: string
+  custom: Record<string, unknown> | null
 }
 
 type OfferUndoPayload = {
@@ -64,6 +67,12 @@ async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSn
   const productId =
     typeof record.product === 'string' ? record.product : record.product?.id ?? null
   if (!productId) return null
+  const custom = await loadCustomFieldSnapshot(em, {
+    entityId: E.catalog.catalog_offer,
+    recordId: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+  })
   return {
     id: record.id,
     productId,
@@ -79,13 +88,14 @@ async function loadOfferSnapshot(em: EntityManager, id: string): Promise<OfferSn
     isActive: record.isActive,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
+    custom: Object.keys(custom).length ? custom : null,
   }
 }
 
 const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> = {
   id: 'catalog.offers.create',
-  async execute(input, ctx) {
-    const parsed = offerCreateSchema.parse(input)
+  async execute(rawInput, ctx) {
+    const { parsed, custom } = parseWithCustomFields(offerCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -125,6 +135,14 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     })
     em.persist(record)
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_offer,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { offerId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -159,6 +177,17 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_offer,
+        recordId: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -174,8 +203,8 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     }
     return snapshot ? { before: snapshot } : {}
   },
-  async execute(input, ctx) {
-    const parsed = offerUpdateSchema.parse(input)
+  async execute(rawInput, ctx) {
+    const { parsed, custom } = parseWithCustomFields(offerUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogOffer, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog offer not found' })
@@ -230,6 +259,14 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
       record.isActive = parsed.isActive
     }
     await em.flush()
+    await setCustomFieldsIfAny({
+      dataEngine: ctx.container.resolve('dataEngine'),
+      entityId: E.catalog.catalog_offer,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      values: custom,
+    })
     return { offerId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -300,6 +337,17 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
       record.updatedAt = new Date(before.updatedAt)
     }
     await em.flush()
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    if (Object.keys(resetValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_offer,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: resetValues,
+      })
+    }
   },
 }
 
@@ -321,8 +369,23 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
     const record = await requireOffer(em, parsed.id)
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const baseEm = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadOfferSnapshot(baseEm, parsed.id)
     em.remove(record)
     await em.flush()
+    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
+      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
+      if (Object.keys(resetValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: ctx.container.resolve('dataEngine'),
+          entityId: E.catalog.catalog_offer,
+          recordId: parsed.id,
+          organizationId: snapshot.organizationId,
+          tenantId: snapshot.tenantId,
+          values: resetValues,
+        })
+      }
+    }
     return { offerId: parsed.id }
   },
   buildLog: async ({ snapshots, ctx }) => {
@@ -368,6 +431,16 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
     })
     em.persist(restored)
     await em.flush()
+    if (before.custom && Object.keys(before.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_offer,
+        recordId: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        values: before.custom,
+      })
+    }
   },
 }
 

@@ -9,6 +9,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_offer'
 import { parseIdList } from '../products/route'
+import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -250,7 +251,8 @@ const crud = makeCrudRoute({
     buildFilters: async (query) => buildOfferFilters(query),
     transformItem: (item: any) => {
       if (!item) return item
-      return {
+      const cfEntries = extractAllCustomFieldEntries(item)
+      const base = {
         id: item.id,
         productId: item.product_id ?? null,
         organizationId: item.organization_id ?? null,
@@ -266,6 +268,7 @@ const crud = makeCrudRoute({
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       }
+      return Object.keys(cfEntries).length ? { ...base, ...cfEntries } : base
     },
   },
   actions: {

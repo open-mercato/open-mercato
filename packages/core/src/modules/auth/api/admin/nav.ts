@@ -242,6 +242,26 @@ export async function GET(req: Request) {
       items: bucket.entries.map((entry) => toItem(entry)),
     }
   })
+  const defaultGroupOrder = [
+    'customers.nav.group',
+    'catalog.nav.group',
+    'customers~sales.nav.group',
+    'entities.nav.group',
+    'directory.nav.group',
+    'customers.storage.nav.group',
+  ]
+  const groupOrderIndex = new Map(defaultGroupOrder.map((id, index) => [id, index]))
+  groups.sort((a, b) => {
+    const aIndex = groupOrderIndex.get(a.id)
+    const bIndex = groupOrderIndex.get(b.id)
+    if (aIndex !== undefined || bIndex !== undefined) {
+      if (aIndex === undefined) return 1
+      if (bIndex === undefined) return -1
+      if (aIndex !== bIndex) return aIndex - bIndex
+    }
+    if (a.weight !== b.weight) return a.weight - b.weight
+    return a.name.localeCompare(b.name)
+  })
 
   let rolePreference = null
   if (Array.isArray(auth.roles) && auth.roles.length) {

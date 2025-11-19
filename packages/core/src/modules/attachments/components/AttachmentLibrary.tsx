@@ -338,11 +338,12 @@ function AttachmentAssignmentsEditor({ value, onChange, labels, disabled }: Assi
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  className="text-red-600"
+                  variant="outline"
                   disabled={disabled}
                   onClick={() => handleRemove(index)}
+                  className="inline-flex items-center gap-1 text-muted-foreground"
                 >
+                  <Trash2 className="h-4 w-4" />
                   {labels.remove}
                 </Button>
               </div>
@@ -769,6 +770,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
   const t = useT()
   const [sizeWidth, setSizeWidth] = React.useState<string>('')
   const [sizeHeight, setSizeHeight] = React.useState<string>('')
+  const [imageTab, setImageTab] = React.useState<'preview' | 'resize'>('preview')
   const [initialValues, setInitialValues] = React.useState<Partial<AttachmentMetadataFormValues> | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -778,6 +780,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
       setInitialValues(null)
       setLoadError(null)
       setLoading(false)
+      setImageTab('preview')
       return
     }
     let cancelled = false
@@ -785,6 +788,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
     setLoadError(null)
     setSizeWidth('')
     setSizeHeight('')
+    setImageTab('preview')
     setInitialValues({
       id: item.id,
       tags: item.tags ?? [],
@@ -1029,54 +1033,84 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
               ) : null}
             </div>
             {isImage ? (
-              <div className="space-y-3 rounded border p-3">
-                <div className="text-sm font-medium">{t('attachments.library.metadata.preview', 'Preview')}</div>
-                {previewUrl ? (
-                  <img src={previewUrl} alt={item.fileName} className="h-48 w-full rounded-md object-contain bg-muted" />
-                ) : null}
-                <div className="space-y-2">
-                  <div className="text-sm font-medium">
-                    {t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium" htmlFor="resize-width">
-                        {t('attachments.library.metadata.resizeTool.width', 'Width (px)')}
-                      </label>
-                      <Input
-                        id="resize-width"
-                        type="number"
-                        min={0}
-                        value={sizeWidth}
-                        onChange={(event) => setSizeWidth(event.target.value)}
-                        disabled={loading}
+              <div className="rounded border">
+                <div className="flex flex-wrap gap-4 border-b px-3 py-2 text-sm font-medium" role="tablist">
+                  {(['preview', 'resize'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={imageTab === tab}
+                      onClick={() => setImageTab(tab)}
+                      className={cn(
+                        'border-b-2 px-0 py-1 transition-colors',
+                        imageTab === tab
+                          ? 'border-primary text-foreground'
+                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {tab === 'preview'
+                        ? t('attachments.library.metadata.preview', 'Preview')
+                        : t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-3 p-3">
+                  {imageTab === 'preview' ? (
+                    previewUrl ? (
+                      <img
+                        src={previewUrl}
+                        alt={item.fileName}
+                        className="h-48 w-full rounded-md bg-muted object-contain"
                       />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium" htmlFor="resize-height">
-                        {t('attachments.library.metadata.resizeTool.height', 'Height (px)')}
-                      </label>
-                      <Input
-                        id="resize-height"
-                        type="number"
-                        min={0}
-                        value={sizeHeight}
-                        onChange={(event) => setSizeHeight(event.target.value)}
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        {t('attachments.library.metadata.previewUnavailable', 'Preview unavailable.')}
+                      </div>
+                    )
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium" htmlFor="resize-width">
+                            {t('attachments.library.metadata.resizeTool.width', 'Width (px)')}
+                          </label>
+                          <Input
+                            id="resize-width"
+                            type="number"
+                            min={0}
+                            value={sizeWidth}
+                            onChange={(event) => setSizeWidth(event.target.value)}
+                            disabled={loading}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium" htmlFor="resize-height">
+                            {t('attachments.library.metadata.resizeTool.height', 'Height (px)')}
+                          </label>
+                          <Input
+                            id="resize-height"
+                            type="number"
+                            min={0}
+                            value={sizeHeight}
+                            onChange={(event) => setSizeHeight(event.target.value)}
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="inline-flex items-center gap-2"
+                        onClick={() => void handleCopyResizedUrl()}
                         disabled={loading}
-                      />
+                      >
+                        <Copy className="h-4 w-4" />
+                        {t('attachments.library.metadata.resizeTool.copy', 'Copy URL')}
+                      </Button>
                     </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="inline-flex items-center gap-2"
-                    onClick={() => void handleCopyResizedUrl()}
-                    disabled={loading}
-                  >
-                    <Copy className="h-4 w-4" />
-                    {t('attachments.library.metadata.resizeTool.copy', 'Copy URL')}
-                  </Button>
+                  )}
                 </div>
               </div>
             ) : null}

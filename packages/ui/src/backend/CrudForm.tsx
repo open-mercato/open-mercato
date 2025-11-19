@@ -872,6 +872,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (empty) requiredErrors[field.id] = requiredMessage
     }
     if (Object.keys(requiredErrors).length) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug('[crud-form] Required field errors prevented submit', requiredErrors)
+      }
       setErrors(requiredErrors)
       flash(highlightedMessage, 'error')
       return
@@ -922,6 +925,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         res.error.issues.forEach((issue) => {
           if (issue.path && issue.path.length) fieldErrors[String(issue.path[0])] = issue.message
         })
+        if (process.env.NODE_ENV !== 'production') {
+          console.debug('[crud-form] Schema validation failed', res.error.issues)
+        }
         setErrors(fieldErrors)
         flash(highlightedMessage, 'error')
         return
@@ -949,6 +955,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         : null
       if (hasFieldErrors) {
         setErrors(combinedFieldErrors)
+        if (process.env.NODE_ENV !== 'production') {
+          console.debug('[crud-form] Submission failed with field errors', combinedFieldErrors)
+        }
       }
 
       let displayMessage = typeof helperMessage === 'string' && helperMessage.trim() ? helperMessage.trim() : ''

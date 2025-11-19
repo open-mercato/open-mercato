@@ -127,6 +127,10 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
   const manualMediaSelections = React.useRef<Set<string>>(new Set())
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(null)
+  const channelOffersHref = React.useMemo(
+    () => buildChannelOffersHref(lockedChannelId),
+    [lockedChannelId],
+  )
 
   React.useEffect(() => {
     if (lockedChannelId) {
@@ -418,7 +422,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       })
     }
     flash(t('sales.channels.offers.messages.saved', 'Offer saved.'), 'success')
-    router.push(`/backend/sales/channels/${channelId}/edit`)
+    router.push(buildChannelOffersHref(channelId))
   }, [attachmentCache, deletedPriceIds, lockedChannelId, mode, offerId, router, selectedChannelId, t])
 
   const handleDelete = React.useCallback(async () => {
@@ -428,7 +432,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     })
     flash(t('sales.channels.offers.messages.deleted', 'Offer deleted.'), 'success')
     const targetChannel = initialValues?.channelId ?? lockedChannelId ?? ''
-    router.push(`/backend/sales/channels/${targetChannel}/edit`)
+    router.push(buildChannelOffersHref(targetChannel))
   }, [initialValues?.channelId, lockedChannelId, offerId, router, t])
 
   return (
@@ -451,18 +455,19 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         submitLabel={mode === 'create'
           ? t('sales.channels.offers.form.createSubmit', 'Create offer')
           : t('sales.channels.offers.form.updateSubmit', 'Save changes')}
-        cancelHref={lockedChannelId ? `/backend/sales/channels/${lockedChannelId}/edit` : '/backend/sales/channels'}
+        cancelHref={channelOffersHref}
+        backHref={channelOffersHref}
         onSubmit={handleSubmit}
         onDelete={mode === 'edit' ? handleDelete : undefined}
         deleteVisible={mode === 'edit'}
-        deleteRedirect={`/backend/sales/channels/${lockedChannelId ?? ''}/edit`}
+        deleteRedirect={channelOffersHref}
       />
     </div>
   )
 }
 
 function mapOfferToFormValues(item: Record<string, unknown>, lockedChannelId?: string | null): OfferFormValues {
-  return {
+  const values: OfferFormValues = {
     channelId: typeof item.channelId === 'string'
       ? item.channelId
       : typeof item.channel_id === 'string'
@@ -483,6 +488,8 @@ function mapOfferToFormValues(item: Record<string, unknown>, lockedChannelId?: s
     isActive: item.isActive === true || item.is_active === true,
     priceOverrides: [],
   }
+  mergeCustomFieldValues(values, item)
+  return values
 }
 
 function mapPriceRow(row: Record<string, unknown>): PriceOverrideDraft {
@@ -517,6 +524,66 @@ function mapPriceRow(row: Record<string, unknown>): PriceOverrideDraft {
             ? row.unit_price_gross
             : '',
   }
+}
+
+function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<string, unknown> | null | undefined) {
+  if (!source || typeof source !== 'object') return
+  const assign = (key: string | null | undefined, value: unknown) => {
+    if (!key) return
+    target[`cf_${key}`] = value
+  }
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    if (rawKey.startsWith('cf_')) {
+      if (rawKey.endsWith('__is_multi')) continue
+      target[rawKey] = rawValue
+    } else if (rawKey.startsWith('cf:')) {
+      assign(rawKey.slice(3), rawValue)
+    }
+  }
+  const customValues =
+    (source as Record<string, unknown>).customValues ??
+    (source as Record<string, unknown>).custom_values
+  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
+    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
+      assign(key, value)
+    }
+  }
+  const customFields =
+    (source as Record<string, unknown>).customFields ??
+    (source as Record<string, unknown>).custom_fields
+  if (Array.isArray(customFields)) {
+    customFields.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const key = typeof (entry as Record<string, unknown>).key === 'string'
+        ? (entry as Record<string, unknown>).key
+        : null
+      if (!key) return
+      assign(key, (entry as Record<string, unknown>).value)
+    })
+  } else if (customFields && typeof customFields === 'object') {
+    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
+      assign(key, value)
+    }
+  }
+  const customEntries =
+    (source as Record<string, unknown>).customFieldEntries ??
+    (source as Record<string, unknown>).custom_field_entries
+  if (Array.isArray(customEntries)) {
+    customEntries.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') return
+      const key = typeof (entry as Record<string, unknown>).key === 'string'
+        ? (entry as Record<string, unknown>).key
+        : null
+      if (!key) return
+      assign(key, (entry as Record<string, unknown>).value)
+    })
+  }
+}
+
+function buildChannelOffersHref(channelId?: string | null): string {
+  return channelId && channelId.length
+    ? `/backend/sales/channels/${channelId}/edit?tab=offers`
+    : '/backend/sales/channels/offers'
 }
 
 async function syncPriceOverrides(params: {
