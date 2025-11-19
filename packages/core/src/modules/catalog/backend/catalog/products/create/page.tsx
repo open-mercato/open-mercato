@@ -98,6 +98,10 @@ function resolveBooleanFlag(value: unknown): boolean {
 export default function CreateCatalogProductPage() {
   const t = useT()
   const router = useRouter()
+  const initialValuesRef = React.useRef<ProductFormValues | null>(null)
+  if (!initialValuesRef.current) {
+    initialValuesRef.current = createInitialProductFormValues()
+  }
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   React.useEffect(() => {
@@ -194,7 +198,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
-          initialValues={createInitialProductFormValues()}
+          initialValues={initialValuesRef.current ?? createInitialProductFormValues()}
           schema={productFormSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
           cancelHref="/backend/catalog/products"
@@ -553,18 +557,12 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
     () => (values.taxRateId ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null : null),
     [taxRates, values.taxRateId],
   )
-  const autoAppliedProductTaxRef = React.useRef(false)
   React.useEffect(() => {
-    if (autoAppliedProductTaxRef.current) return
+    if (values.taxRateId) return
     if (!taxRates.length) return
-    if (values.taxRateId) {
-      autoAppliedProductTaxRef.current = true
-      return
-    }
     const fallback = taxRates.find((rate) => rate.isDefault)
     if (!fallback) return
     setValue('taxRateId', fallback.id)
-    autoAppliedProductTaxRef.current = true
   }, [taxRates, setValue, values.taxRateId])
   const stepErrors = React.useMemo(() => {
     const map: Record<ProductFormStep, string[]> = {

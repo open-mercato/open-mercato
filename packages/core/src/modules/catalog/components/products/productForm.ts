@@ -93,7 +93,7 @@ export const productFormSchema = z.object({
   options: z.any().optional(),
   variants: z.any().optional(),
   metadata: z.record(z.unknown()).nullable().optional(),
-  customFieldsetCode: z.string().optional(),
+  customFieldsetCode: z.string().optional().nullable(),
   categoryIds: z.array(z.string().uuid()).optional(),
   channelIds: z.array(z.string().uuid()).optional(),
   tags: z.array(z.string().trim().min(1).max(100)).optional(),

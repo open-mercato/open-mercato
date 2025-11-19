@@ -262,6 +262,15 @@ export async function GET(req: Request) {
     if (a.weight !== b.weight) return a.weight - b.weight
     return a.name.localeCompare(b.name)
   })
+  const defaultGroupCount = defaultGroupOrder.length
+  groups.forEach((group, index) => {
+    const rank = groupOrderIndex.get(group.id)
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const normalized =
+      (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
+      Math.min(Math.max(fallbackWeight, 0), 999_999)
+    group.weight = normalized
+  })
 
   let rolePreference = null
   if (Array.isArray(auth.roles) && auth.roles.length) {

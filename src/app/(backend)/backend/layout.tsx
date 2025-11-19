@@ -199,6 +199,15 @@ export default async function BackendLayout({ children, params }: { children: Re
     if (a.weight !== b.weight) return a.weight - b.weight
     return a.name.localeCompare(b.name)
   })
+  const defaultGroupCount = defaultGroupOrder.length
+  baseGroups.forEach((group, index) => {
+    const rank = groupOrderIndex.get(group.id)
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const normalized =
+      (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
+      Math.min(Math.max(fallbackWeight, 0), 999_999)
+    group.weight = normalized
+  })
 
   let rolePreference: SidebarPreferencesSettings | null = null
   let sidebarPreference: SidebarPreferencesSettings | null = null
