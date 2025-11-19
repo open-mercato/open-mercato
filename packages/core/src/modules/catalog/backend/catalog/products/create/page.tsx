@@ -37,6 +37,7 @@ import {
   slugify,
   createLocalId,
   buildOptionSchemaDefinition,
+  buildVariantCombinations,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
@@ -1086,20 +1087,4 @@ function ProductMetaSection({ values, setValue, errors, taxRates }: ProductMetaS
       </div>
     </div>
   )
-}
-
-
-function buildVariantCombinations(options: ProductOptionInput[]): Record<string, string>[] {
-  if (!options.length) return []
-  const [first, ...rest] = options
-  const initial = first.values.map((value) => ({ [first.id]: value.label }))
-  return rest.reduce<Record<string, string>[]>((acc, option) => {
-    const combos: Record<string, string>[] = []
-    acc.forEach((partial) => {
-      option.values.forEach((value) => {
-        combos.push({ ...partial, [option.id]: value.label })
-      })
-    })
-    return combos
-  }, initial)
 }

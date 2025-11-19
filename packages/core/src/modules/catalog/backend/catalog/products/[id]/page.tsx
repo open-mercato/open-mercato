@@ -38,6 +38,8 @@ import {
   buildOptionSchemaDefinition,
   convertSchemaToProductOptions,
   normalizePriceKindSummary,
+  buildOptionValuesKey,
+  buildVariantCombinations,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { MetadataEditor } from '@open-mercato/core/modules/catalog/components/products/MetadataEditor'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
@@ -87,6 +89,7 @@ type VariantSummary = {
   sku: string
   isDefault: boolean
   prices: VariantPriceSummary[]
+  optionValues: Record<string, string> | null
 }
 
 type VariantPriceListResponse = {
@@ -306,12 +309,17 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           .map((variant) => {
             const variantId = typeof variant.id === 'string' ? variant.id : null
             if (!variantId) return null
+            const variantRecord = variant as Record<string, unknown>
+            const optionValues =
+              normalizeVariantOptionValues(variantRecord?.['option_values']) ??
+              normalizeVariantOptionValues(variantRecord?.optionValues)
             return {
               id: variantId,
               name: typeof variant.name === 'string' && variant.name.trim().length ? variant.name : variant.sku ?? variantId,
               sku: typeof variant.sku === 'string' ? variant.sku : '',
               isDefault: Boolean(variant.is_default ?? variant.isDefault),
               prices: priceMap[variantId] ?? [],
+              optionValues,
             }
           })
           .filter((entry): entry is VariantSummary => !!entry),
@@ -321,6 +329,11 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
       setVariants([])
     }
   }, [])
+
+  const refreshVariants = React.useCallback(async () => {
+    if (!productId) return
+    await loadVariants(productId)
+  }, [loadVariants, productId])
 
   const fetchAttachments = React.useCallback(async (id: string): Promise<ProductMediaItem[]> => {
     try {
@@ -364,6 +377,17 @@ function mapVariantPriceSummary(item: VariantPriceSummaryApi | undefined): Varia
     amount,
     displayMode: unitGross ? 'including-tax' : 'excluding-tax',
   }
+}
+
+function normalizeVariantOptionValues(input: unknown): Record<string, string> | null {
+  if (!input || typeof input !== 'object') return null
+  const result: Record<string, string> = {}
+  Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
+    if (typeof key === 'string' && typeof value === 'string' && key.trim().length) {
+      result[key] = value
+    }
+  })
+  return Object.keys(result).length ? result : null
 }
 
   const handleVariantDeleted = React.useCallback((variantId: string) => {
@@ -416,6 +440,7 @@ function mapVariantPriceSummary(item: VariantPriceSummaryApi | undefined): Varia
           variants={variants}
           priceKinds={priceKinds}
           onVariantDeleted={handleVariantDeleted}
+          onVariantsReload={refreshVariants}
         />
       ),
     },
@@ -550,6 +575,7 @@ type ProductVariantsSectionProps = CrudFormGroupComponentProps<ProductFormValues
   variants: VariantSummary[]
   priceKinds: PriceKindSummary[]
   onVariantDeleted: (variantId: string) => void
+  onVariantsReload?: () => Promise<void> | void
 }
 
 function ProductDetailsSection({ values, setValue, errors, productId }: ProductDetailsSectionProps) {
@@ -665,7 +691,7 @@ function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentPr
   const weightValues = normalizeWeight(metadata)
 
   return (
-    <div className="rounded-lg border p-4">
+    <div className="rounded-lg bg-card p-4">
       <h3 className="text-sm font-semibold">{t('catalog.products.edit.dimensions', 'Dimensions & weight')}</h3>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -703,7 +729,7 @@ function ProductMetadataSection({ values, setValue }: CrudFormGroupComponentProp
     setValue('metadata', next)
   }, [setValue])
 
-  return <MetadataEditor value={metadata} onChange={handleMetadataChange} />
+  return <MetadataEditor value={metadata} onChange={handleMetadataChange} embedded />
 }
 
 function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
@@ -804,7 +830,7 @@ function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps
 
   return (
     <>
-      <div className="space-y-4 rounded-lg border p-4">
+      <div className="space-y-4 rounded-lg bg-card p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('catalog.products.create.optionsBuilder.title', 'Product options')}</h3>
           <div className="flex items-center gap-2">
@@ -839,7 +865,7 @@ function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps
           </div>
         </div>
         {(Array.isArray(values.options) ? values.options : []).map((option) => (
-          <div key={option.id} className="rounded-md border p-4">
+          <div key={option.id} className="rounded-md bg-muted/40 p-4">
             <div className="flex items-center gap-2">
               <Input
                 value={option.title}
@@ -960,7 +986,7 @@ function ProductVariantsSection({ productId, variants, priceKinds, onVariantDele
   )
 
   return (
-    <div className="space-y-3 rounded-lg border p-4">
+    <div className="space-y-3 rounded-lg bg-card p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">{t('catalog.products.edit.variants', 'Variants')}</h3>
         <Button asChild size="sm">

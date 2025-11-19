@@ -268,3 +268,20 @@ export function convertSchemaToProductOptions(
       : [],
   }))
 }
+
+export function buildVariantCombinations(options: ProductOptionInput[]): Record<string, string>[] {
+  if (!options.length) return []
+  const [first, ...rest] = options
+  if (!first || !Array.isArray(first.values) || !first.values.length) return []
+  const initial = first.values.map((value) => ({ [first.id]: value.label }))
+  return rest.reduce<Record<string, string>[]>((acc, option) => {
+    if (!Array.isArray(option.values) || !option.values.length) return []
+    const combos: Record<string, string>[] = []
+    acc.forEach((partial) => {
+      option.values.forEach((value) => {
+        combos.push({ ...partial, [option.id]: value.label })
+      })
+    })
+    return combos
+  }, initial)
+}

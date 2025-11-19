@@ -314,10 +314,8 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               defaultMediaUrl: defaultMediaUrl ?? undefined,
               customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
             }
-            // CrudForm injects a sentinel `id` ("create") to mark new records; commands shouldn't receive it.
-            if ('id' in payload) {
-              delete payload.id
-            }
+            // CrudForm injects a sentinel `id` ("create") while the record is new; never send it to the API.
+            Reflect.deleteProperty(payload, 'id')
             const customFields = collectCustomFieldValues(values)
             if (Object.keys(customFields).length) payload.customFields = customFields
 
