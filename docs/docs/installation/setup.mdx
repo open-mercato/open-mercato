@@ -78,3 +78,8 @@ docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname
 ```
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
+If you want to deploy the application together with the redis and postgresql you can run: 
+
+```bash
+docker compose -f docker-compose.fullapp.yml up --build
+```
