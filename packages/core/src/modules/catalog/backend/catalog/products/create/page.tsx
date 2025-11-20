@@ -42,6 +42,16 @@ import {
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
+type VariantPriceRequest = {
+  variantDraftId: string
+  priceKindId: string
+  currencyCode: string
+  amount: number
+  displayMode: PriceKindSummary['displayMode']
+  taxRateId: string | null
+  taxRateValue: number | null
+}
+
 type UiMarkdownEditorProps = {
   value?: string
   height?: number
@@ -276,51 +286,25 @@ export default function CreateCatalogProductPage() {
               }))
             }
 
-            const { result: created } = await createCrud<{ id?: string }>('catalog/products', productPayload)
-            const productId = created?.id
-            if (!productId) {
-              throw createCrudFormError(t('catalog.products.create.errors.id', 'Product id missing after create.'))
+            const variantDrafts =
+              (Array.isArray(formValues.variants) && formValues.variants.length
+                ? formValues.variants
+                : [createVariantDraft(formValues.taxRateId ?? null, { isDefault: true })]) ?? []
+            const resolveTaxRateValue = (taxRateId?: string | null) => {
+              if (!taxRateId) return null
+              const match = taxRates.find((rate) => rate.id === taxRateId)
+              return typeof match?.rate === 'number' ? match.rate : null
             }
-
-            const variantDrafts = Array.isArray(formValues.variants) && formValues.variants.length
-              ? formValues.variants
-              : [createVariantDraft(formValues.taxRateId ?? null, { isDefault: true })]
-            const variantIdMap: Record<string, string> = {}
-            for (const variant of variantDrafts) {
-              const variantPayload: Record<string, unknown> = {
-                productId,
-                name: variant.title?.trim() || Object.values(variant.optionValues).join(' / ') || 'Variant',
-                sku: variant.sku?.trim() || undefined,
-                isDefault: Boolean(variant.isDefault),
-                isActive: true,
-                optionValues: Object.keys(variant.optionValues).length ? variant.optionValues : undefined,
-              }
-              const { result: variantResult } = await createCrud<{ id?: string; variantId?: string }>(
-                'catalog/variants',
-                variantPayload,
-              )
-              const variantId = variantResult?.variantId ?? variantResult?.id
-              if (!variantId) {
-                throw createCrudFormError(t('catalog.products.create.errors.variant', 'Failed to create variant.'))
-              }
-              variantIdMap[variant.id] = variantId
-            }
-
             const productLevelTaxRateId = formValues.taxRateId ?? null
+            const priceRequests: VariantPriceRequest[] = []
             for (const variant of variantDrafts) {
-              const variantId = variantIdMap[variant.id]
-              if (!variantId) continue
               const resolvedVariantTaxRateId = variant.taxRateId ?? productLevelTaxRateId
-              const resolvedVariantTaxRate =
-                resolvedVariantTaxRateId
-                  ? taxRates.find((rate) => rate.id === resolvedVariantTaxRateId)?.rate ?? null
-                  : null
+              const resolvedVariantTaxRate = resolveTaxRateValue(resolvedVariantTaxRateId)
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim()
                 if (!value) continue
                 const numeric = Number(value)
-                if (Number.isNaN(numeric)) continue
-                if (numeric < 0) {
+                if (Number.isNaN(numeric) || !Number.isFinite(numeric) || numeric < 0) {
                   throw createCrudFormError(
                     t('catalog.products.create.errors.priceNonNegative', 'Prices must be zero or greater.'),
                   )
@@ -335,53 +319,115 @@ export default function CreateCatalogProductPage() {
                     {},
                   )
                 }
-              const pricePayload: Record<string, unknown> = {
-                productId,
-                variantId,
-                currencyCode,
-                priceKindId: priceKind.id,
+                priceRequests.push({
+                  variantDraftId: variant.id,
+                  priceKindId: priceKind.id,
+                  currencyCode,
+                  amount: numeric,
+                  displayMode: priceKind.displayMode,
+                  taxRateId: resolvedVariantTaxRateId ?? null,
+                  taxRateValue: resolvedVariantTaxRate ?? null,
+                })
               }
-              if (resolvedVariantTaxRateId) {
-                pricePayload.taxRateId = resolvedVariantTaxRateId
-              } else if (typeof resolvedVariantTaxRate === 'number' && Number.isFinite(resolvedVariantTaxRate)) {
-                pricePayload.taxRate = resolvedVariantTaxRate
+            }
+
+            const cleanupState: { productId: string | null; variantIds: string[] } = { productId: null, variantIds: [] }
+            try {
+              const { result: created } = await createCrud<{ id?: string }>('catalog/products', productPayload)
+              const productId = created?.id
+              if (!productId) {
+                throw createCrudFormError(t('catalog.products.create.errors.id', 'Product id missing after create.'))
               }
-              if (priceKind.displayMode === 'including-tax') {
-                pricePayload.unitPriceGross = numeric
-              } else {
-                  pricePayload.unitPriceNet = numeric
+              cleanupState.productId = productId
+
+              const variantIdMap: Record<string, string> = {}
+              for (const variant of variantDrafts) {
+                const variantPayload: Record<string, unknown> = {
+                  productId,
+                  name: variant.title?.trim() || Object.values(variant.optionValues).join(' / ') || 'Variant',
+                  sku: variant.sku?.trim() || undefined,
+                  isDefault: Boolean(variant.isDefault),
+                  isActive: true,
+                  optionValues: Object.keys(variant.optionValues).length ? variant.optionValues : undefined,
+                }
+                const { result: variantResult } = await createCrud<{ id?: string; variantId?: string }>(
+                  'catalog/variants',
+                  variantPayload,
+                )
+                const variantId = variantResult?.variantId ?? variantResult?.id
+                if (!variantId) {
+                  throw createCrudFormError(t('catalog.products.create.errors.variant', 'Failed to create variant.'))
+                }
+                variantIdMap[variant.id] = variantId
+                cleanupState.variantIds.push(variantId)
+              }
+
+              for (const draft of priceRequests) {
+                const variantId = variantIdMap[draft.variantDraftId]
+                if (!variantId) continue
+                const pricePayload: Record<string, unknown> = {
+                  productId,
+                  variantId,
+                  currencyCode: draft.currencyCode,
+                  priceKindId: draft.priceKindId,
+                }
+                if (draft.taxRateId) {
+                  pricePayload.taxRateId = draft.taxRateId
+                } else if (typeof draft.taxRateValue === 'number' && Number.isFinite(draft.taxRateValue)) {
+                  pricePayload.taxRate = draft.taxRateValue
+                }
+                if (draft.displayMode === 'including-tax') {
+                  pricePayload.unitPriceGross = draft.amount
+                } else {
+                  pricePayload.unitPriceNet = draft.amount
                 }
                 await createCrud('catalog/prices', pricePayload)
               }
-            }
 
-            if (mediaDraftId && attachmentIds.length) {
-              const transfer = await apiCall<{ ok?: boolean; error?: string }>(
-                '/api/attachments/transfer',
-                {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({
-                    entityId: E.catalog.catalog_product,
-                    attachmentIds,
-                    fromRecordId: mediaDraftId,
-                    toRecordId: productId,
-                  }),
-                },
-                { fallback: null },
-              )
-              if (!transfer.ok) {
-                console.error('attachments.transfer.failed', transfer.result?.error)
+              if (mediaDraftId && attachmentIds.length) {
+                const transfer = await apiCall<{ ok?: boolean; error?: string }>(
+                  '/api/attachments/transfer',
+                  {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                      entityId: E.catalog.catalog_product,
+                      attachmentIds,
+                      fromRecordId: mediaDraftId,
+                      toRecordId: productId,
+                    }),
+                  },
+                  { fallback: null },
+                )
+                if (!transfer.ok) {
+                  console.error('attachments.transfer.failed', transfer.result?.error)
+                }
               }
-            }
 
-            flash(t('catalog.products.create.success', 'Product created.'), 'success')
-            router.push('/backend/catalog/products')
+              flash(t('catalog.products.create.success', 'Product created.'), 'success')
+              router.push('/backend/catalog/products')
+            } catch (err) {
+              await cleanupFailedProduct(cleanupState.productId, cleanupState.variantIds)
+              throw err
+            }
           }}
         />
       </PageBody>
     </Page>
   )
+}
+
+async function cleanupFailedProduct(productId: string | null, variantIds: string[]): Promise<void> {
+  if (!productId && variantIds.length === 0) return
+  if (variantIds.length) {
+    const variantDeletes = variantIds.map((variantId) =>
+      apiCall(`/api/catalog/variants?id=${encodeURIComponent(variantId)}`, { method: 'DELETE' }).catch(() => null),
+    )
+    await Promise.allSettled(variantDeletes)
+  }
+  if (productId) {
+    await apiCall(`/api/catalog/products?id=${encodeURIComponent(productId)}`, { method: 'DELETE' }).catch(() => null)
+  }
 }
 
 type ProductBuilderProps = {

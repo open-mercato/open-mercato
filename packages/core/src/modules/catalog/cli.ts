@@ -49,9 +49,6 @@ const UNIT_DEFAULTS: Array<{ value: string; label: string; description?: string 
 const PRICE_KIND_DEFAULTS = [
   { code: 'regular', title: 'Regular', isPromotion: false, displayMode: 'including-tax' as const, currencyCode: 'USD' as const },
   { code: 'sale', title: 'Sale', isPromotion: true, displayMode: 'including-tax' as const, currencyCode: 'USD' as const },
-  { code: 'promotion', title: 'Promotion', isPromotion: true },
-  { code: 'tier', title: 'Tier', isPromotion: false },
-  { code: 'custom', title: 'Custom', isPromotion: false },
 ] as const
 
 function parseArgs(rest: string[]) {

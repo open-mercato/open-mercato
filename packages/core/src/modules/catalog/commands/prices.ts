@@ -717,9 +717,9 @@ const deletePriceCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductPrice, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
     const { product } = await resolvePriceRecordAssociations(em, record)
-    ensureTenantScope(ctx, product.tenantId)
-    ensureOrganizationScope(ctx, product.organizationId)
 
     const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadPriceSnapshot(baseEm, id)

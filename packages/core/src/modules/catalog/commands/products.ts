@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -20,6 +21,7 @@ import {
   CatalogOffer,
   CatalogProduct,
   CatalogProductVariant,
+  CatalogProductPrice,
   CatalogOptionSchemaTemplate,
   CatalogProductCategory,
   CatalogProductCategoryAssignment,
@@ -322,19 +324,27 @@ function ensureSchemaName(name?: string | null, fallback?: string | null): strin
   return 'Product option schema'
 }
 
-function assignOptionSchemaTemplate(
+async function assignOptionSchemaTemplate(
   em: EntityManager,
   product: CatalogProduct,
   schema: CatalogProductOptionSchema,
   preferredName?: string | null
-): CatalogOptionSchemaTemplate {
+): Promise<CatalogOptionSchemaTemplate> {
   const resolvedName = ensureSchemaName(schema.name, preferredName ?? product.title)
   const templateCode = resolveOptionSchemaCode({
     name: schema.name ?? resolvedName,
     fallback: `${resolvedName}-${product.id}`,
     uniqueHint: product.id?.slice(0, 8),
   })
-  let template = product.optionSchemaTemplate
+  let template = product.optionSchemaTemplate ?? null
+  if (!template) {
+    template = await em.findOne(CatalogOptionSchemaTemplate, {
+      organizationId: product.organizationId,
+      tenantId: product.tenantId,
+      code: templateCode,
+      deletedAt: null,
+    })
+  }
   if (!template) {
     template = em.create(CatalogOptionSchemaTemplate, {
       organizationId: product.organizationId,
@@ -348,6 +358,7 @@ function assignOptionSchemaTemplate(
     })
     em.persist(template)
   } else {
+    template.code = templateCode
     template.name = resolvedName
     template.description = schema.description ?? template.description ?? null
     template.schema = cloneJson(schema)
@@ -656,6 +667,87 @@ async function syncProductTags(
   }
 }
 
+type VariantCleanupSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  custom: Record<string, unknown> | null
+}
+
+async function deleteProductVariantsAndRelatedData(opts: {
+  em: EntityManager
+  product: CatalogProduct
+  dataEngine: DataEngine
+}): Promise<void> {
+  const { em, product, dataEngine } = opts
+  const variants = await em.find(CatalogProductVariant, { product })
+  if (!variants.length) return
+  const cleanupEntries: VariantCleanupSnapshot[] = await Promise.all(
+    variants.map(async (variant) => {
+      const custom = await loadCustomFieldSnapshot(em, {
+        entityId: E.catalog.catalog_product_variant,
+        recordId: variant.id,
+        organizationId: variant.organizationId,
+        tenantId: variant.tenantId,
+      })
+      return {
+        id: variant.id,
+        organizationId: variant.organizationId,
+        tenantId: variant.tenantId,
+        custom: Object.keys(custom).length ? custom : null,
+      }
+    })
+  )
+  const variantIds = variants.map((variant) => variant.id)
+  if (variantIds.length) {
+    await em.nativeDelete(CatalogProductPrice, { variant: { $in: variantIds } })
+  }
+  for (const variant of variants) {
+    em.remove(variant)
+  }
+  await em.flush()
+  for (const cleanup of cleanupEntries) {
+    if (!cleanup.custom) continue
+    const resetValues = buildCustomFieldResetMap(cleanup.custom, undefined)
+    if (!Object.keys(resetValues).length) continue
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.catalog.catalog_product_variant,
+      recordId: cleanup.id,
+      organizationId: cleanup.organizationId,
+      tenantId: cleanup.tenantId,
+      values: resetValues,
+    })
+  }
+}
+
+function isProductOwnedOptionSchemaTemplate(
+  template: CatalogOptionSchemaTemplate | string | null | undefined
+): template is CatalogOptionSchemaTemplate {
+  if (!template || typeof template === 'string') return false
+  const metadata = template.metadata
+  if (!metadata || typeof metadata !== 'object') return false
+  const source = (metadata as Record<string, unknown>).source
+  return source === 'product'
+}
+
+async function resolveOptionSchemaTemplateForRemoval(
+  em: EntityManager,
+  product: CatalogProduct
+): Promise<CatalogOptionSchemaTemplate | null> {
+  const template = product.optionSchemaTemplate
+  if (!isProductOwnedOptionSchemaTemplate(template)) {
+    return null
+  }
+  const otherUsage = await em.count(CatalogProduct, {
+    optionSchemaTemplate: template,
+    id: { $ne: product.id },
+    deletedAt: null,
+  })
+  if (otherUsage > 0) return null
+  return template
+}
+
 async function loadProductSnapshot(
   em: EntityManager,
   id: string
@@ -743,7 +835,9 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
     const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
+    const productId = randomUUID()
     const record = em.create(CatalogProduct, {
+      id: productId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       title: parsed.title,
@@ -774,7 +868,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       ensureSameScope(optionSchemaTemplate, parsed.organizationId, parsed.tenantId)
       record.optionSchemaTemplate = optionSchemaTemplate
     } else if (optionSchemaDefinition) {
-      optionSchemaTemplate = assignOptionSchemaTemplate(
+      optionSchemaTemplate = await assignOptionSchemaTemplate(
         em,
         record,
         optionSchemaDefinition,
@@ -928,7 +1022,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       }
     }
     if (optionSchemaDefinition) {
-      assignOptionSchemaTemplate(
+      await assignOptionSchemaTemplate(
         em,
         record,
         optionSchemaDefinition,
@@ -1071,19 +1165,26 @@ const deleteProductCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Product id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProduct, { id })
+    const record = await em.findOne(
+      CatalogProduct,
+      { id },
+      { populate: ['optionSchemaTemplate'] }
+    )
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
     const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadProductSnapshot(baseEm, id)
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const variantCount = await em.count(CatalogProductVariant, { product: record })
-    if (variantCount > 0) {
-      throw new CrudHttpError(400, { error: 'Remove product variants before deleting the product.' })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await deleteProductVariantsAndRelatedData({ em, product: record, dataEngine })
+    await em.nativeDelete(CatalogProductPrice, { product: record.id })
+    const templateToRemove = await resolveOptionSchemaTemplateForRemoval(em, record)
+    if (templateToRemove) {
+      record.optionSchemaTemplate = null
+      em.remove(templateToRemove)
     }
     em.remove(record)
     await em.flush()
-    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
