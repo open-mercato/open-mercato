@@ -9,10 +9,10 @@ docs/.next
 .gitignore
 .vscode
 *.log
-Dockerfile.dev
-docker-compose.yml
 docs/node_modules
 docs/build
 *.swp
 *.swo
 **/.DS_Store
+Dockerfile*
+docker-compose*.yml
