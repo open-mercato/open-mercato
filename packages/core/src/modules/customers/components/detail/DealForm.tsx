@@ -42,6 +42,9 @@ export type DealFormProps = {
   submitLabel?: string
   cancelLabel?: string
   isSubmitting?: boolean
+  embedded?: boolean
+  title?: string
+  backHref?: string
 }
 
 type EntityOption = {
@@ -407,6 +410,9 @@ export function DealForm({
   submitLabel,
   cancelLabel,
   isSubmitting = false,
+  embedded = true,
+  title,
+  backHref,
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -806,7 +812,9 @@ export function DealForm({
 
   return (
     <CrudForm<Record<string, unknown>>
-      embedded
+      embedded={embedded}
+      title={title}
+      backHref={backHref}
       schema={schema}
       fields={baseFields}
       groups={groups}

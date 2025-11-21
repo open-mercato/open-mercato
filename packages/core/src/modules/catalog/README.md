@@ -6,9 +6,8 @@ The catalog module exposes reusable product definitions that feed sales flows. I
 
 - **CatalogProduct** – Scope aware product master record (name, code, status, default currency/unit, channel availability, metadata).
 - **CatalogProductVariant** – SKU-level configuration with weight/dimensions metadata and variant specific pricing associations.
-- **CatalogProductOption**/**CatalogProductOptionValue** – Configurable option definitions used to construct variant matrices or runtime configuration choices.
-- **CatalogVariantOptionValue** – Junction storing the selected option values for each variant.
-- **CatalogProductPrice** – Tiered prices by currency/kind (list, sale, tier, custom) with optional validity windows and inferred tax context.
+- **CatalogPriceKind** – Organization-scoped labels describing how prices behave (tax display, promotion flag, currency hints).
+- **CatalogProductPrice** – Tiered prices linked to a `CatalogPriceKind` with optional validity windows and inferred tax context.
 
 All MikroORM relations remain intra-module; cross-module references are exposed as plain UUID strings so sales/order modules can link without foreign key constraints.
 
@@ -17,18 +16,17 @@ All MikroORM relations remain intra-module; cross-module references are exposed 
 `data/validators.ts` provides zod schemas that align with the entity model:
 
 - Scoped helpers enforce `{ organizationId, tenantId }` on every payload.
-- Product, variant, option, and price schemas normalise codes (lowercase slug-style) and accept ISO currency codes.
-- Option configuration arrays enable command handlers to persist `CatalogVariantOptionValue` assignments.
+- Product and variant schemas normalise codes (lowercase slug-style) and accept ISO currency codes.
 
 Types exported from the validators are intended for command handlers, CRUD factories, and UI forms.
 
 ## Custom Fields
 
-`ce.ts` registers catalog product, variant, and option custom-field containers. These IDs power the global EAV storage so users can extend catalog records without schema changes.
+`ce.ts` registers catalog product and variant custom-field containers. These IDs power the global EAV storage so users can extend catalog records without schema changes.
 
 ## Access Control
 
-`acl.ts` surfaces feature toggles for catalog operations (`catalog.products.view`, `catalog.options.manage`, etc.). Downstream APIs and pages can declare `requireFeatures` metadata against these identifiers.
+`acl.ts` surfaces feature toggles for catalog operations (`catalog.products.view`, etc.). Downstream APIs and pages can declare `requireFeatures` metadata against these identifiers.
 
 ## Internationalisation
 

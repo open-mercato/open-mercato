@@ -64,6 +64,48 @@ export class CustomFieldDef {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'custom_field_entity_configs' })
+@Index({
+  name: 'cf_entity_cfgs_entity_scope_idx',
+  properties: ['entityId', 'tenantId', 'organizationId'],
+})
+@Index({
+  name: 'cf_entity_cfgs_entity_tenant_idx',
+  properties: ['entityId', 'tenantId'],
+})
+@Index({
+  name: 'cf_entity_cfgs_entity_org_idx',
+  properties: ['entityId', 'organizationId'],
+})
+export class CustomFieldEntityConfig {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_id', type: 'text' })
+  entityId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'config_json', type: 'jsonb', nullable: true })
+  configJson?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 // User-defined logical entities registry (for dynamic data types)
 @Entity({ tableName: 'custom_entities' })
 @Index({ name: 'custom_entities_unique_idx', properties: ['entityId', 'organizationId', 'tenantId'], options: { unique: true } })

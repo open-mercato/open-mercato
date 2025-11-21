@@ -117,23 +117,13 @@ export function DictionaryTable({
   ], [translations.appearanceColumn, translations.inheritedLabel, translations.inheritedTooltip, translations.labelColumn, translations.valueColumn])
 
   const actions = React.useMemo(() => {
-    const buttons: React.ReactNode[] = []
-    if (onRefresh) {
-      buttons.push(
-        <Button key="refresh" variant="outline" size="sm" onClick={onRefresh}>
-          {translations.refreshLabel}
-        </Button>
-      )
-    }
-    if (canManage && onCreate) {
-      buttons.push(
-        <Button key="add" size="sm" onClick={onCreate}>
-          {translations.addLabel}
-        </Button>
-      )
-    }
-    return buttons.length ? <div className="flex items-center gap-2">{buttons}</div> : null
-  }, [canManage, onCreate, onRefresh, translations.addLabel, translations.refreshLabel])
+    if (!canManage || !onCreate) return null
+    return (
+      <Button size="sm" onClick={onCreate}>
+        {translations.addLabel}
+      </Button>
+    )
+  }, [canManage, onCreate, translations.addLabel])
 
   const handleRowClick = canManage && onEdit
     ? (entry: DictionaryTableEntry) => {
@@ -167,6 +157,11 @@ export function DictionaryTable({
         totalPages,
         onPageChange: setPage,
       }}
+      refreshButton={onRefresh ? {
+        label: translations.refreshLabel,
+        onRefresh,
+        isRefreshing: loading,
+      } : undefined}
       onRowClick={handleRowClick}
       rowActions={
         canManage

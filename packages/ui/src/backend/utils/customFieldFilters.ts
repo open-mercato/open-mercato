@@ -100,8 +100,16 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
   return out
 }
 
-export async function fetchCustomFieldFilterDefs(entityIds: string | string[], fetchImpl?: typeof fetch): Promise<FilterDef[]> {
-  const defs: CustomFieldDefDto[] = await loadCustomFieldDefs(entityIds, fetchImpl)
+export async function fetchCustomFieldFilterDefs(
+  entityIds: string | string[],
+  fetchImpl?: typeof fetch,
+  options?: { fieldset?: string },
+): Promise<FilterDef[]> {
+  const defs: CustomFieldDefDto[] = await loadCustomFieldDefs(
+    entityIds,
+    fetchImpl,
+    options?.fieldset ? { fieldset: options.fieldset } : undefined,
+  )
   return buildFilterDefsFromCustomFields(defs)
 }
 

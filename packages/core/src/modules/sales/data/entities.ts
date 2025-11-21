@@ -302,6 +302,9 @@ export class SalesTaxRate {
   @Property({ name: 'is_compound', type: 'boolean', default: false })
   isCompound: boolean = false
 
+  @Property({ name: 'is_default', type: 'boolean', default: false })
+  isDefault: boolean = false
+
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 

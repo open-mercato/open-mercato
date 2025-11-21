@@ -6,14 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import {
-  CatalogProduct,
-  CatalogProductOption,
-  CatalogProductOptionValue,
-  CatalogProductVariant,
-  CatalogVariantOptionValue,
-  CatalogProductPrice,
-} from '../data/entities'
+import { CatalogProduct, CatalogProductVariant, CatalogProductPrice } from '../data/entities'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -23,11 +16,8 @@ import {
 import {
   cloneJson,
   ensureOrganizationScope,
-  ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
-  requireOption,
-  requireOptionValue,
   requireProduct,
   toNumericString,
 } from './shared'
@@ -43,11 +33,14 @@ type VariantSnapshot = {
   statusEntryId: string | null
   isDefault: boolean
   isActive: boolean
+  defaultMediaId: string | null
+  defaultMediaUrl: string | null
   weightValue: string | null
   weightUnit: string | null
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
-  optionValueIds: string[]
+  optionValues: Record<string, string> | null
+  customFieldsetCode: string | null
   createdAt: string
   updatedAt: string
   custom: Record<string, unknown> | null
@@ -65,19 +58,15 @@ const VARIANT_CHANGE_KEYS = [
   'statusEntryId',
   'isDefault',
   'isActive',
+  'defaultMediaId',
+  'defaultMediaUrl',
   'weightValue',
   'weightUnit',
   'dimensions',
+  'optionValues',
+  'customFieldsetCode',
   'metadata',
 ] as const satisfies readonly string[]
-
-type VariantOptionConfiguration =
-  | {
-      optionId: string
-      optionValueIds: string[]
-    }[]
-  | undefined
-  | null
 
 async function loadVariantSnapshot(
   em: EntityManager,
@@ -91,14 +80,6 @@ async function loadVariantSnapshot(
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
-  const variantOptionValues = await em.find(
-    CatalogVariantOptionValue,
-    { variant: record },
-    { populate: ['optionValue'] }
-  )
-  const optionValueIds = variantOptionValues.map((link) =>
-    typeof link.optionValue === 'string' ? link.optionValue : link.optionValue.id
-  )
   const productId = typeof record.product === 'string' ? record.product : record.product.id
   return {
     id: record.id,
@@ -111,11 +92,14 @@ async function loadVariantSnapshot(
     statusEntryId: record.statusEntryId ?? null,
     isDefault: record.isDefault,
     isActive: record.isActive,
+    defaultMediaId: record.defaultMediaId ?? null,
+    defaultMediaUrl: record.defaultMediaUrl ?? null,
     weightValue: record.weightValue ?? null,
     weightUnit: record.weightUnit ?? null,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
-    optionValueIds,
+    optionValues: record.optionValues ? cloneJson(record.optionValues) : null,
+    customFieldsetCode: record.customFieldsetCode ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
@@ -131,102 +115,56 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.isDefault = snapshot.isDefault
   record.isActive = snapshot.isActive
+  record.defaultMediaId = snapshot.defaultMediaId ?? null
+  record.defaultMediaUrl = snapshot.defaultMediaUrl ?? null
   record.weightValue = snapshot.weightValue ?? null
   record.weightUnit = snapshot.weightUnit ?? null
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.optionValues = snapshot.optionValues ? cloneJson(snapshot.optionValues) : null
+  record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
 }
 
-async function syncVariantOptionValues(
-  em: EntityManager,
-  variant: CatalogProductVariant,
-  configuration: VariantOptionConfiguration
-): Promise<void> {
-  if (configuration === undefined) return
-  await em.nativeDelete(CatalogVariantOptionValue, { variant: variant.id })
-  if (!configuration || configuration.length === 0) return
+type MetadataSplitResult = {
+  metadata: Record<string, unknown> | null
+  optionValues: Record<string, string> | null
+  hadOptionValues: boolean
+}
 
-  const grouped = new Map<string, Set<string>>()
-  for (const entry of configuration) {
-    if (!entry || !entry.optionId) continue
-    const set = grouped.get(entry.optionId) ?? new Set<string>()
-    for (const valueId of entry.optionValueIds ?? []) {
-      if (valueId) set.add(valueId)
+function splitOptionValuesFromMetadata(
+  metadata?: Record<string, unknown> | null
+): MetadataSplitResult {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {
+      metadata: metadata ? cloneJson(metadata) : null,
+      optionValues: null,
+      hadOptionValues: false,
     }
-    if (set.size) grouped.set(entry.optionId, set)
   }
-  if (!grouped.size) return
-
-  const productId = typeof variant.product === 'string' ? variant.product : variant.product.id
-
-  for (const [optionId, valueIds] of grouped.entries()) {
-    const option = await requireOption(
-      em,
-      optionId,
-      'Catalog option not found for variant configuration'
-    )
-    const optionProductId =
-      typeof option.product === 'string' ? option.product : option.product.id
-    if (optionProductId !== productId) {
-      throw new CrudHttpError(400, { error: 'Option does not belong to the same product.' })
-    }
-    ensureSameScope(option, variant.organizationId, variant.tenantId)
-    if (!valueIds.size) continue
-    const values = await em.find(CatalogProductOptionValue, {
-      id: { $in: Array.from(valueIds) },
-      option,
-    })
-    if (values.length !== valueIds.size) {
-      throw new CrudHttpError(400, { error: 'One or more option values not found for configuration.' })
-    }
-    for (const value of values) {
-      ensureSameScope(value, variant.organizationId, variant.tenantId)
-      const link = em.create(CatalogVariantOptionValue, {
-        variant,
-        optionValue: value,
-        organizationId: variant.organizationId,
-        tenantId: variant.tenantId,
-      })
-      em.persist(link)
-    }
+  const { optionValues, ...rest } = metadata as Record<string, unknown> & {
+    optionValues?: unknown
+  }
+  const normalizedMetadata = Object.keys(rest).length ? cloneJson(rest) : null
+  return {
+    metadata: normalizedMetadata,
+    optionValues: normalizeOptionValues(optionValues),
+    hadOptionValues: optionValues !== undefined,
   }
 }
 
-async function restoreVariantOptionValues(
-  em: EntityManager,
-  variant: CatalogProductVariant,
-  optionValueIds: string[]
-): Promise<void> {
-  await em.nativeDelete(CatalogVariantOptionValue, { variant: variant.id })
-  if (!optionValueIds.length) return
-  const values = await em.find(CatalogProductOptionValue, { id: { $in: optionValueIds } })
-  if (values.length !== optionValueIds.length) {
-    throw new CrudHttpError(400, { error: 'Unable to restore variant configuration.' })
+function normalizeOptionValues(input: unknown): Record<string, string> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const normalized: Record<string, string> = {}
+  for (const [rawKey, rawValue] of Object.entries(input)) {
+    if (typeof rawValue !== 'string') continue
+    const key = rawKey.trim()
+    const value = rawValue.trim()
+    if (!key || !value) continue
+    normalized[key] = value
   }
-  const productId = typeof variant.product === 'string' ? variant.product : variant.product.id
-  for (const value of values) {
-    const option = value.option as CatalogProductOption | string
-    const optionId = typeof option === 'string' ? option : option.id
-    const optionEntity =
-      typeof option === 'string'
-        ? await em.findOne(CatalogProductOption, { id: optionId })
-        : option
-    if (!optionEntity) continue
-    const optionProductId =
-      typeof optionEntity.product === 'string'
-        ? optionEntity.product
-        : optionEntity.product.id
-    if (optionProductId !== productId) continue
-    const link = em.create(CatalogVariantOptionValue, {
-      variant,
-      optionValue: value,
-      organizationId: variant.organizationId,
-      tenantId: variant.tenantId,
-    })
-    em.persist(link)
-  }
+  return Object.keys(normalized).length ? normalized : null
 }
 
 const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string }> = {
@@ -237,6 +175,10 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
+
+    const metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+    const resolvedOptionValues =
+      parsed.optionValues ?? (metadataSplit.hadOptionValues ? metadataSplit.optionValues : null)
 
     const now = new Date()
     const record = em.create(CatalogProductVariant, {
@@ -249,16 +191,19 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       statusEntryId: parsed.statusEntryId ?? null,
       isDefault: parsed.isDefault ?? false,
       isActive: parsed.isActive ?? true,
+      defaultMediaId: parsed.defaultMediaId ?? null,
+      defaultMediaUrl: parsed.defaultMediaUrl ?? null,
       weightValue: toNumericString(parsed.weightValue),
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: metadataSplit.metadata,
+      optionValues: resolvedOptionValues ? cloneJson(resolvedOptionValues) : null,
+      customFieldsetCode: parsed.customFieldsetCode ?? null,
       createdAt: now,
       updatedAt: now,
     })
     em.persist(record)
     await em.flush()
-    await syncVariantOptionValues(em, record, parsed.optionConfiguration)
     await em.flush()
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -302,7 +247,6 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
@@ -348,6 +292,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+    if (parsed.defaultMediaId !== undefined) record.defaultMediaId = parsed.defaultMediaId ?? null
+    if (parsed.defaultMediaUrl !== undefined) record.defaultMediaUrl = parsed.defaultMediaUrl ?? null
     if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
       record.weightValue = toNumericString(parsed.weightValue)
     }
@@ -355,12 +301,18 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.dimensions !== undefined) {
       record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
     }
+    let metadataSplit: MetadataSplitResult | null = null
     if (parsed.metadata !== undefined) {
-      record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
+      metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+      record.metadata = metadataSplit.metadata
     }
-
-    if (parsed.optionConfiguration !== undefined) {
-      await syncVariantOptionValues(em, record, parsed.optionConfiguration)
+    if (parsed.optionValues !== undefined) {
+      record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
+    } else if (metadataSplit?.hadOptionValues) {
+      record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
+    }
+    if (parsed.customFieldsetCode !== undefined) {
+      record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
 
     await em.flush()
@@ -431,6 +383,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        optionValues: before.optionValues ? cloneJson(before.optionValues) : null,
+        customFieldsetCode: before.customFieldsetCode ?? null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })
@@ -439,7 +393,6 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
-    await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
@@ -491,7 +444,6 @@ const deleteVariantCommand: CommandHandler<
     if (priceCount > 0) {
       throw new CrudHttpError(400, { error: 'Remove variant prices before deleting the variant.' })
     }
-    await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
@@ -550,6 +502,7 @@ const deleteVariantCommand: CommandHandler<
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        customFieldsetCode: before.customFieldsetCode ?? null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })
@@ -558,7 +511,6 @@ const deleteVariantCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
-    await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

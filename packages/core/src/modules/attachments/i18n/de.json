@@ -1,0 +1,175 @@
+{
+  "attachments": {
+    "storage": {
+      "nav": {
+        "title": "Speicher"
+      }
+    },
+    "library": {
+      "title": "Attachments",
+      "description": "Browse, tag, and manage every file stored in this workspace.",
+      "actions": {
+        "refresh": "Refresh",
+        "upload": "Upload",
+        "open": "Open",
+        "edit": "Edit metadata",
+        "copyUrl": "Copy URL",
+        "copied": "Link copied.",
+        "copyError": "Unable to copy link.",
+        "delete": "Delete"
+      },
+      "table": {
+        "file": "File",
+        "tags": "Tags",
+        "assignments": "Assignments",
+      "partition": "Partition",
+      "created": "Created",
+      "download": "Download",
+      "empty": "No attachments found.",
+      "search": "Search files…"
+      },
+      "filters": {
+        "partition": "Partition",
+        "tags": "Tags",
+        "tagsPlaceholder": "Filter by tag"
+      },
+      "metadata": {
+        "title": "Edit attachment metadata",
+        "tagsPlaceholder": "Add tags",
+        "cancel": "Cancel",
+        "saving": "Saving…",
+        "save": "Save",
+        "download": "Herunterladen",
+        "noSelection": "Select an attachment to edit.",
+        "error": "Failed to update metadata.",
+        "success": "Attachment updated.",
+        "preview": "Preview",
+        "resizeTool": {
+          "title": "Generate resized URL",
+          "width": "Width (px)",
+          "height": "Height (px)",
+          "copy": "Copy URL",
+          "missing": "Enter width or height to generate the URL.",
+          "copied": "Image URL copied.",
+          "copyError": "Unable to copy URL."
+        },
+        "assignments": {
+          "title": "Assignments",
+          "description": "Add the records this attachment belongs to with optional links.",
+          "type": "Type",
+          "id": "Record ID",
+          "href": "Link",
+          "label": "Label",
+          "add": "Add assignment",
+          "remove": "Remove"
+        }
+      },
+      "upload": {
+        "title": "Upload attachment",
+        "file": "Files",
+        "partition": "Partition",
+        "partitionDefault": "Default (private)",
+        "dropHint": "Drag and drop files here or click to upload.",
+        "choose": "Choose files",
+        "noFiles": "No files selected yet.",
+        "tagsPlaceholder": "Add tags",
+        "cancel": "Cancel",
+        "submitting": "Uploading…",
+        "progressLabel": "Dateien werden hochgeladen",
+        "submit": "Upload",
+        "failed": "Upload failed.",
+        "success": "Attachment uploaded.",
+        "fileRequired": "Select a file to upload.",
+        "assignments": {
+          "title": "Assignments",
+          "description": "Optionally link this file to existing records now or add them later.",
+          "type": "Type",
+          "id": "Record ID",
+          "href": "Link",
+          "label": "Label",
+          "add": "Add assignment",
+          "remove": "Remove"
+        }
+      },
+      "messages": {
+        "deleted": "Attachment removed."
+      },
+      "errors": {
+        "load": "Failed to load attachments.",
+        "delete": "Failed to delete attachment."
+      },
+      "confirm": {
+        "delete": "Delete attachment \"{{name}}\"? This action cannot be undone."
+      }
+    },
+    "partitions": {
+      "nav": {
+        "title": "Anhänge"
+      },
+      "title": "Attachment partitions",
+      "description": "Define storage partitions and visibility for uploads.",
+      "actions": {
+        "add": "Add partition",
+        "refresh": "Refresh",
+        "edit": "Edit",
+        "delete": "Delete",
+        "cancel": "Cancel",
+        "save": "Save changes",
+        "create": "Create partition"
+      },
+      "table": {
+        "code": "Code",
+        "title": "Title",
+        "description": "Description",
+        "visibility": "Visibility",
+        "public": "Public",
+        "private": "Private",
+        "envKey": "Env variable",
+        "search": "Search partitions…",
+        "empty": "No partitions configured."
+      },
+      "form": {
+        "codeLabel": "Code",
+        "titleLabel": "Title",
+        "descriptionLabel": "Description",
+        "publicLabel": "Publicly accessible",
+        "codePlaceholder": "e.g. marketingAssets",
+        "titlePlaceholder": "e.g. Marketing assets",
+        "descriptionPlaceholder": "Explain how this partition is used.",
+        "envKeyHelp": "Set this env var to override storage path:"
+      },
+      "dialog": {
+        "createTitle": "Create partition",
+        "editTitle": "Edit partition",
+        "createDescription": "Define a storage partition for attachments.",
+        "editDescription": "Update partition metadata and visibility."
+      },
+      "messages": {
+        "created": "Partition created.",
+        "updated": "Partition updated.",
+        "deleted": "Partition removed."
+      },
+      "errors": {
+        "load": "Failed to load partitions.",
+        "save": "Failed to save partition.",
+        "delete": "Failed to delete partition.",
+        "required": "Code and title are required."
+      },
+      "confirm": {
+        "delete": "Delete partition \"{{code}}\"?"
+      },
+      "locked": {
+        "title": "Partition settings locked",
+        "description": "Attachment partitions are managed by environment defaults while demo or onboarding mode is enabled.",
+      "hint": "Update the environment variables below to re-enable in-app configuration."
+    }
+  },
+  "customers": {
+    "storage": {
+      "nav": {
+        "group": "Speicher"
+      }
+    }
+  }
+}
+}

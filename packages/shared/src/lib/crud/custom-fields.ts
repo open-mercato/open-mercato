@@ -88,15 +88,55 @@ export function extractCustomFieldsFromItem(item: Record<string, unknown>, keys:
 export function extractAllCustomFieldEntries(item: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (!item || typeof item !== 'object') return out
+  const assignBareKey = (rawKey: unknown, rawValue: unknown) => {
+    if (typeof rawKey !== 'string') return
+    const trimmed = rawKey.trim()
+    if (!trimmed) return
+    out[`cf_${trimmed}`] = normalizeCustomFieldValue(rawValue)
+  }
   for (const [rawKey, rawValue] of Object.entries(item)) {
     if (rawKey.startsWith('cf_')) {
       if (rawKey.endsWith('__is_multi')) continue
       out[rawKey] = normalizeCustomFieldValue(rawValue)
     } else if (rawKey.startsWith('cf:')) {
-      out[`cf_${rawKey.slice(3)}`] = normalizeCustomFieldValue(rawValue)
+      assignBareKey(rawKey.slice(3), rawValue)
+    }
+  }
+  const customValues = (item as any).customValues
+  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
+    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
+      assignBareKey(key, value)
+    }
+  }
+  const customFields = (item as any).customFields
+  if (Array.isArray(customFields)) {
+    for (const entry of customFields as Array<Record<string, unknown>>) {
+      const key = entry && typeof entry.key === 'string' ? entry.key : null
+      if (!key) continue
+      assignBareKey(key, 'value' in entry ? (entry as any).value : undefined)
+    }
+  } else if (customFields && typeof customFields === 'object') {
+    for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
+      assignBareKey(key, value)
     }
   }
   return out
+}
+
+function normalizeFieldsetFilter(input?: string | string[] | null): Set<string | null> | null {
+  if (input == null) return null
+  const values = Array.isArray(input) ? input : [input]
+  const normalized = new Set<string | null>()
+  for (const raw of values) {
+    if (raw == null) continue
+    const trimmed = String(raw).trim()
+    if (!trimmed) {
+      normalized.add(null)
+    } else {
+      normalized.add(trimmed)
+    }
+  }
+  return normalized.size ? normalized : null
 }
 
 export async function buildCustomFieldFiltersFromQuery(opts: {
@@ -105,6 +145,7 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
   query: Record<string, unknown>
   em: EntityManager
   tenantId: string | null | undefined
+  fieldset?: string | string[] | null
 }): Promise<Record<string, WhereValue>> {
   const out: Record<string, WhereValue> = {}
   const entries = Object.entries(opts.query).filter(([k]) => k.startsWith('cf_'))
@@ -125,10 +166,16 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
       { $or: [ { tenantId: opts.tenantId as any }, { tenantId: null } ] },
     ],
   })
+  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
   const order = new Map<string, number>()
   entityIdList.map(String).forEach((id, index) => order.set(id, index))
   const byKey: Record<string, { kind: string; multi?: boolean; entityId: string }> = {}
   for (const d of defs) {
+    if (fieldsetFilter) {
+      const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
+      const normalizedFieldset = rawFieldset.length ? rawFieldset : null
+      if (!fieldsetFilter.has(normalizedFieldset)) continue
+    }
     const key = d.key
     const entityId = String(d.entityId)
     const current = byKey[key]
@@ -180,7 +227,24 @@ export function splitCustomFieldPayload(raw: unknown): SplitCustomFieldPayload {
   const custom: Record<string, unknown> = {}
   if (!raw || typeof raw !== 'object') return { base, custom }
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (key === 'customFields' && value && typeof value === 'object') {
+    if (key === 'customFields') {
+      if (Array.isArray(value)) {
+        value.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return
+          const entryKey = typeof (entry as any).key === 'string' ? (entry as any).key.trim() : ''
+          if (!entryKey) return
+          custom[entryKey] = (entry as any).value
+        })
+        continue
+      }
+      if (value && typeof value === 'object') {
+        for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
+          custom[String(ck)] = cv
+        }
+        continue
+      }
+    }
+    if (key === 'customValues' && value && typeof value === 'object' && !Array.isArray(value)) {
       for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
         custom[String(ck)] = cv
       }

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Pencil, MousePointerClick } from 'lucide-react'
+import { Pencil, MousePointerClick, Loader2, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -404,37 +404,55 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold text-foreground">
-                  {data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
-                </h1>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1 text-muted-foreground hover:text-foreground"
-                  onClick={scrollToDealSettings}
-                >
-                  <Pencil className="h-4 w-4" aria-hidden />
-                  <MousePointerClick className="h-4 w-4" aria-hidden />
-                  <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
-                </Button>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href="/backend/customers/deals"
+                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+              >
+                <span aria-hidden className="mr-1 text-base">←</span>
+                <span className="sr-only">{t('customers.deals.detail.backToList', 'Back to deals')}</span>
+              </Link>
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-semibold text-foreground">
+                    {data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
+                  </h1>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={scrollToDealSettings}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden />
+                    <MousePointerClick className="h-4 w-4" aria-hidden />
+                    <span>{t('customers.deals.detail.goToSettings', 'Edit deal details')}</span>
+                  </Button>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t('customers.deals.detail.summary', undefined, {
+                    status: statusLabel,
+                    pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
+                  })}
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {t('customers.deals.detail.summary', undefined, {
-                  status: statusLabel,
-                  pipeline: pipelineLabel ?? t('customers.deals.detail.noPipeline', 'No pipeline'),
-                })}
-              </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setReloadToken((token) => token + 1)}>
-                {t('ui.actions.refresh', 'Refresh')}
-              </Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-                {isDeleting ? t('ui.actions.deleting', 'Deleting…') : t('ui.actions.delete', 'Delete')}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
+              >
+                {isDeleting ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="size-4" aria-hidden />
+                )}
+                <span>{t('ui.actions.delete', 'Delete')}</span>
               </Button>
             </div>
           </div>

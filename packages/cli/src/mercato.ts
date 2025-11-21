@@ -190,6 +190,18 @@ export async function run(argv = process.argv) {
         execSync(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
         console.log('✅ Customer dictionaries seeded\n')
 
+        console.log('📏 Seeding catalog units...')
+        execSync(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+        console.log('✅ Catalog units seeded\n')
+
+        console.log('🏷️  Seeding catalog price kinds...')
+        execSync(`yarn mercato catalog seed-price-kinds --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+        console.log('✅ Catalog price kinds seeded\n')
+
+        console.log('💶 Seeding default tax rates...')
+        execSync(`yarn mercato sales seed-tax-rates --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+        console.log('✅ Tax rates seeded\n')
+
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesTaxRate } from '../../data/entities'
@@ -13,7 +14,7 @@ const rawBodySchema = z.object({}).passthrough()
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
+    pageSize: z.coerce.number().min(1).max(200).default(50),
     search: z.string().optional(),
     country: z.string().optional(),
     region: z.string().optional(),
@@ -48,6 +49,7 @@ const taxRateResponseItemSchema = z.object({
   channelId: z.string().uuid().nullable(),
   priority: z.number().nullable(),
   isCompound: z.boolean(),
+  isDefault: z.boolean(),
   metadata: z.record(z.string(), z.any()).nullable().optional(),
   startsAt: z.string().nullable(),
   endsAt: z.string().nullable(),
@@ -123,6 +125,7 @@ const crud = makeCrudRoute({
       F.channel_id,
       F.priority,
       F.is_compound,
+      F.is_default,
       F.metadata,
       F.starts_at,
       F.ends_at,
@@ -157,6 +160,7 @@ const crud = makeCrudRoute({
         channelId: item.channel_id ?? null,
         priority: item.priority ?? 0,
         isCompound: item.is_compound ?? false,
+        isDefault: item.is_default ?? false,
         metadata: item.metadata ?? null,
         startsAt: item.starts_at ?? null,
         endsAt: item.ends_at ?? null,
@@ -165,10 +169,7 @@ const crud = makeCrudRoute({
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       }
-      const custom: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(item ?? {})) {
-        if (key.startsWith('cf:')) custom[key.slice(3)] = value
-      }
+      const { custom } = splitCustomFieldPayload(item)
       return Object.keys(custom).length ? { ...base, customFields: custom } : base
     },
   },

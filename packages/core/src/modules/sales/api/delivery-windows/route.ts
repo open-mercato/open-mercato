@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesDeliveryWindow } from '../../data/entities'
 import { deliveryWindowCreateSchema, deliveryWindowUpdateSchema } from '../../data/validators'
@@ -121,10 +122,7 @@ const crud = makeCrudRoute({
         createdAt: item.created_at,
         updatedAt: item.updated_at,
       }
-      const custom: Record<string, unknown> = {}
-      for (const [key, value] of Object.entries(item ?? {})) {
-        if (key.startsWith('cf:')) custom[key.slice(3)] = value
-      }
+      const { custom } = splitCustomFieldPayload(item)
       return Object.keys(custom).length ? { ...base, customFields: custom } : base
     },
   },

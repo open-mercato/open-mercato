@@ -3,6 +3,7 @@ import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
 import { validationRulesArraySchema } from '@open-mercato/shared/modules/entities/validation'
 
 export const entityIdRegex = /^[a-z0-9_]+:[a-z0-9_]+$/
+export const fieldsetCodeRegex = /^[a-z0-9_\-]+$/
 
 export const upsertCustomEntitySchema = z.object({
   entityId: z.string().regex(
@@ -40,10 +41,37 @@ export const upsertCustomFieldDefSchema = z.object({
       dictionaryInlineCreate: z.boolean().optional(),
       // validation rules
       validation: validationRulesArraySchema.optional(),
+      fieldset: z.string().regex(fieldsetCodeRegex).optional(),
+      group: z
+        .object({
+          code: z.string().regex(fieldsetCodeRegex),
+          title: z.string().max(200).optional(),
+          hint: z.string().max(500).optional(),
+        })
+        .optional(),
     })
     .passthrough()
     .optional(),
   isActive: z.boolean().optional(),
+})
+
+export const customFieldsetGroupSchema = z.object({
+  code: z.string().regex(fieldsetCodeRegex),
+  title: z.string().max(200).optional(),
+  hint: z.string().max(500).optional(),
+})
+
+export const customFieldsetSchema = z.object({
+  code: z.string().regex(fieldsetCodeRegex),
+  label: z.string().min(1).max(255),
+  icon: z.string().max(100).optional(),
+  description: z.string().max(2000).optional(),
+  groups: z.array(customFieldsetGroupSchema).optional(),
+})
+
+export const customFieldEntityConfigSchema = z.object({
+  fieldsets: z.array(customFieldsetSchema).max(20).optional(),
+  singleFieldsetPerRecord: z.boolean().optional(),
 })
 
 export type UpsertCustomEntityInput = z.infer<typeof upsertCustomEntitySchema>

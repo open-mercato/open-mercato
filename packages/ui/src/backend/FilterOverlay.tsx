@@ -1,9 +1,9 @@
 "use client"
 import * as React from 'react'
 import { Button } from '../primitives/button'
-import { TagsInput } from './inputs/TagsInput'
+import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 
-export type FilterOption = { value: string; label: string }
+export type FilterOption = { value: string; label: string; description?: string | null }
 
 export type FilterDef = {
   id: string
@@ -15,6 +15,8 @@ export type FilterDef = {
   multiple?: boolean
   placeholder?: string
   group?: string
+  formatValue?: (value: string) => string
+  formatDescription?: (value: string) => string | null | undefined
 }
 
 export type FilterValues = Record<string, any>
@@ -27,6 +29,7 @@ export type FilterOverlayProps = {
   onOpenChange: (open: boolean) => void
   onApply: (values: FilterValues) => void
   onClear?: () => void
+  extraContent?: React.ReactNode
 }
 
 const EMPTY_FILTER_VALUES: FilterValues = {}
@@ -74,7 +77,16 @@ function areFilterValuesEqual(a?: FilterValues | null, b?: FilterValues | null):
   return true
 }
 
-export function FilterOverlay({ title = 'Filters', filters, initialValues, open, onOpenChange, onApply, onClear }: FilterOverlayProps) {
+export function FilterOverlay({
+  title = 'Filters',
+  filters,
+  initialValues,
+  open,
+  onOpenChange,
+  onApply,
+  onClear,
+  extraContent,
+}: FilterOverlayProps) {
   const [values, setValues] = React.useState<FilterValues>(initialValues)
   React.useEffect(() => {
     setValues((prev) => (areFilterValuesEqual(prev, initialValues) ? prev : initialValues))
@@ -148,6 +160,7 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
               </Button>
             </div>
             <div className="flex-1 overflow-auto p-4 space-y-4">
+              {extraContent ? <div className="space-y-2 rounded-md border bg-muted/30 p-3">{extraContent}</div> : null}
               {filters.map((f) => (
                 <div key={f.id} className="space-y-2">
                   <div className="text-sm font-medium">{f.label}</div>
@@ -222,22 +235,45 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
                   )}
                   {f.type === 'tags' && (() => {
                     const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
-                    const staticOptions = f.options || dynamicOptions[f.id] || []
+                    const staticOptions = f.options || []
+                    const dynamic = dynamicOptions[f.id] || []
+                    const optionMap = new Map<string, FilterOption>()
+                    staticOptions.forEach((opt) => optionMap.set(opt.value, opt))
+                    dynamic.forEach((opt) => optionMap.set(opt.value, opt))
                     const loadSuggestions = (f as any).loadOptions
                       ? async (q?: string) => {
                           try {
                             const opts = await (f as any).loadOptions(q ?? '')
-                            return opts.map((o: FilterOption) => o.label)
+                            setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
+                            return opts.map((o: FilterOption) => ({
+                              value: o.value,
+                              label: o.label,
+                              description: o.description,
+                            }))
                           } catch {
                             return []
                           }
                         }
                       : undefined
+                    const resolveTagLabel = f.formatValue
+                      ? (val: string) => f.formatValue!(val)
+                      : (val: string) => optionMap.get(val)?.label ?? val
+                    const resolveTagDescription = f.formatDescription
+                      ? (val: string) => f.formatDescription!(val) ?? null
+                      : (val: string) => optionMap.get(val)?.description ?? null
+                    const suggestionList: TagsInputOption[] = Array.from(optionMap.values()).map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                      description: opt.description ?? null,
+                    }))
                     return (
                       <TagsInput
                         value={arr}
-                        suggestions={staticOptions.map((o) => o.label)}
+                        suggestions={suggestionList}
                         loadSuggestions={loadSuggestions}
+                        allowCustomValues={false}
+                        resolveLabel={resolveTagLabel}
+                        resolveDescription={resolveTagDescription}
                         placeholder={f.placeholder}
                         onChange={(next) => setValue(f.id, next.length ? next : undefined)}
                       />

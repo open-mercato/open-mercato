@@ -106,30 +106,44 @@ function AttachmentDefEditor({ def, onChange }: { def: any; onChange: (patch: an
   const cfg = def?.configJson || {}
   const [maxMb, setMaxMb] = React.useState<number | ''>(typeof cfg.maxAttachmentSizeMb === 'number' ? cfg.maxAttachmentSizeMb : '')
   const [exts, setExts] = React.useState<string>((Array.isArray(cfg.acceptExtensions) ? cfg.acceptExtensions : []).join(', '))
+  const [partition, setPartition] = React.useState<string>(typeof cfg.partitionCode === 'string' ? cfg.partitionCode : '')
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <div>
-        <label className="text-xs">Max file size (MB)</label>
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="space-y-2">
+        <label className="text-xs font-medium">Max file size (MB)</label>
         <input
-          className="border rounded w-full px-2 py-1 text-sm"
+          className="w-full rounded border px-2 py-1 text-sm"
           type="number"
           min={0}
           placeholder="e.g., 10"
           value={maxMb}
           onChange={(e) => setMaxMb(e.target.value === '' ? '' : Number(e.target.value))}
-          onBlur={() => onChange({ maxAttachmentSizeMb: (maxMb === '' ? undefined : Number(maxMb)) })}
+          onBlur={() => onChange({ maxAttachmentSizeMb: maxMb === '' ? undefined : Number(maxMb) })}
         />
       </div>
-      <div>
-        <label className="text-xs">Accepted extensions</label>
+      <div className="space-y-2">
+        <label className="text-xs font-medium">Accepted extensions</label>
         <input
-          className="border rounded w-full px-2 py-1 text-sm"
+          className="w-full rounded border px-2 py-1 text-sm"
           placeholder="e.g., pdf, jpg, png"
           value={exts}
           onChange={(e) => setExts(e.target.value)}
-          onBlur={() => onChange({ acceptExtensions: exts.split(',').map(s => s.trim()).filter(Boolean) })}
+          onBlur={() => onChange({ acceptExtensions: exts.split(',').map((s) => s.trim()).filter(Boolean) })}
         />
-        <div className="text-xs text-muted-foreground mt-1">Leave blank to allow any.</div>
+        <div className="text-xs text-muted-foreground">Leave blank to allow any.</div>
+      </div>
+      <div className="space-y-2">
+        <label className="text-xs font-medium">Partition code</label>
+        <input
+          className="w-full rounded border px-2 py-1 text-sm"
+          placeholder="e.g., productsMedia"
+          value={partition}
+          onChange={(e) => setPartition(e.target.value)}
+          onBlur={() => onChange({ partitionCode: partition.trim() || undefined })}
+        />
+        <div className="text-xs text-muted-foreground">
+          Configure partitions under Settings → Attachments. Leave blank for default.
+        </div>
       </div>
     </div>
   )

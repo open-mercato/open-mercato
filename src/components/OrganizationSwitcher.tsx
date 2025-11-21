@@ -245,6 +245,8 @@ export default function OrganizationSwitcher() {
           !tenantMatches
         ) {
           persistSelection(resolvedTenantId, fallbackSelected, { refresh: false })
+        } else {
+          emitOrganizationScopeChanged({ organizationId: fallbackSelected, tenantId: resolvedTenantId ?? null })
         }
       } else {
         if (
