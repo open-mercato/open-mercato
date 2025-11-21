@@ -41,17 +41,21 @@ type RulesResponse = {
 }
 
 export default function RulesListPage() {
+  const [page, setPage] = React.useState(1)
+  const [pageSize] = React.useState(20)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['business-rules', 'list', filterValues],
+    queryKey: ['business-rules', 'list', filterValues, page],
     queryFn: async () => {
       const params = new URLSearchParams()
-      params.set('page', '1')
-      params.set('pageSize', '100')
+      params.set('page', page.toString())
+      params.set('pageSize', pageSize.toString())
       params.set('sortField', 'priority')
       params.set('sortDir', 'desc')
 
@@ -69,7 +73,13 @@ export default function RulesListPage() {
         throw new Error('Failed to fetch rules')
       }
 
-      return result.result?.items || []
+      const response = result.result
+      if (response) {
+        setTotal(response.total || 0)
+        setTotalPages(response.totalPages || 1)
+      }
+
+      return response?.items || []
     },
   })
 
@@ -83,10 +93,10 @@ export default function RulesListPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.messages.deleted'))
+      flash(t('business_rules.messages.deleted'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules'] })
     } else {
-      flash.error(t('business_rules.messages.deleteFailed'))
+      flash(t('business_rules.messages.deleteFailed'), 'error')
     }
   }
 
@@ -101,12 +111,26 @@ export default function RulesListPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.messages.updated'))
+      flash(t('business_rules.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules'] })
     } else {
-      flash.error(t('business_rules.messages.updateFailed'))
+      flash(t('business_rules.messages.updateFailed'), 'error')
     }
   }
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    const next: FilterValues = {}
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== undefined) next[key] = value
+    })
+    setFilterValues(next)
+    setPage(1)
+  }, [setFilterValues, setPage])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [setFilterValues, setPage])
 
   const filters: FilterDef[] = [
     {
@@ -157,7 +181,6 @@ export default function RulesListPage() {
       id: 'ruleId',
       header: t('business_rules.fields.ruleId'),
       accessorKey: 'ruleId',
-      minWidth: 140,
       cell: ({ row }) => (
         <span className="font-mono text-sm">{row.original.ruleId}</span>
       ),
@@ -166,7 +189,6 @@ export default function RulesListPage() {
       id: 'ruleName',
       header: t('business_rules.fields.ruleName'),
       accessorKey: 'ruleName',
-      minWidth: 200,
       cell: ({ row }) => (
         <div>
           <div className="font-medium">{row.original.ruleName}</div>
@@ -182,7 +204,6 @@ export default function RulesListPage() {
       id: 'ruleType',
       header: t('business_rules.fields.ruleType'),
       accessorKey: 'ruleType',
-      minWidth: 120,
       cell: ({ row }) => {
         const typeColors = {
           GUARD: 'bg-red-100 text-red-800',
@@ -203,20 +224,17 @@ export default function RulesListPage() {
       id: 'entityType',
       header: t('business_rules.fields.entityType'),
       accessorKey: 'entityType',
-      minWidth: 120,
     },
     {
       id: 'eventType',
       header: t('business_rules.fields.eventType'),
       accessorKey: 'eventType',
-      minWidth: 120,
       cell: ({ row }) => row.original.eventType || '-',
     },
     {
       id: 'enabled',
       header: t('business_rules.fields.enabled'),
       accessorKey: 'enabled',
-      minWidth: 100,
       cell: ({ row }) => (
         <button
           onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
@@ -235,7 +253,6 @@ export default function RulesListPage() {
       id: 'priority',
       header: t('business_rules.fields.priority'),
       accessorKey: 'priority',
-      minWidth: 80,
       cell: ({ row }) => (
         <span className="font-mono text-sm">{row.original.priority}</span>
       ),
@@ -243,7 +260,6 @@ export default function RulesListPage() {
     {
       id: 'actions',
       header: '',
-      minWidth: 60,
       cell: ({ row }) => (
         <RowActions
           items={[
@@ -259,7 +275,7 @@ export default function RulesListPage() {
               label: t('common.duplicate'),
               onSelect: () => {
                 // TODO: Implement duplicate functionality in Step 5.2
-                flash.info(t('business_rules.messages.duplicateNotYetImplemented'))
+                flash(t('business_rules.messages.duplicateNotYetImplemented'), 'info')
               },
             },
             {
@@ -291,27 +307,25 @@ export default function RulesListPage() {
   return (
     <Page>
       <PageBody>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">{t('business_rules.list.title')}</h1>
-            <p className="text-sm text-gray-600 mt-1">{t('business_rules.list.description')}</p>
-          </div>
-          <Link href="/backend/rules/create">
-            <Button>{t('business_rules.actions.create')}</Button>
-          </Link>
-        </div>
-
         <DataTable
+          title={t('business_rules.list.title')}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/rules/create">
+                {t('business_rules.actions.create')}
+              </Link>
+            </Button>
+          )}
           columns={columns}
           data={data || []}
-          defaultSort={[{ id: 'priority', desc: true }]}
           filters={filters}
           filterValues={filterValues}
-          onFiltersChange={setFilterValues}
-          canExport
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           perspective={{
             tableId: 'business-rules.rules.list',
           }}
+          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>
     </Page>

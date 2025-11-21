@@ -35,17 +35,21 @@ type RuleSetsResponse = {
 }
 
 export default function RuleSetsListPage() {
+  const [page, setPage] = React.useState(1)
+  const [pageSize] = React.useState(20)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['business-rules', 'sets', filterValues],
+    queryKey: ['business-rules', 'sets', filterValues, page],
     queryFn: async () => {
       const params = new URLSearchParams()
-      params.set('page', '1')
-      params.set('pageSize', '100')
+      params.set('page', page.toString())
+      params.set('pageSize', pageSize.toString())
       params.set('sortField', 'setName')
       params.set('sortDir', 'asc')
 
@@ -60,7 +64,13 @@ export default function RuleSetsListPage() {
         throw new Error('Failed to fetch rule sets')
       }
 
-      return result.result?.items || []
+      const response = result.result
+      if (response) {
+        setTotal(response.total || 0)
+        setTotalPages(response.totalPages || 1)
+      }
+
+      return response?.items || []
     },
   })
 
@@ -74,10 +84,10 @@ export default function RuleSetsListPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.sets.messages.deleted'))
+      flash(t('business_rules.sets.messages.deleted'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets'] })
     } else {
-      flash.error(t('business_rules.sets.messages.deleteFailed'))
+      flash(t('business_rules.sets.messages.deleteFailed'), 'error')
     }
   }
 
@@ -92,12 +102,26 @@ export default function RuleSetsListPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.sets.messages.updated'))
+      flash(t('business_rules.sets.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets'] })
     } else {
-      flash.error(t('business_rules.sets.messages.updateFailed'))
+      flash(t('business_rules.sets.messages.updateFailed'), 'error')
     }
   }
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    const next: FilterValues = {}
+    Object.entries(values).forEach(([key, value]) => {
+      if (value !== undefined) next[key] = value
+    })
+    setFilterValues(next)
+    setPage(1)
+  }, [setFilterValues, setPage])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [setFilterValues, setPage])
 
   const filters: FilterDef[] = [
     {
@@ -123,7 +147,6 @@ export default function RuleSetsListPage() {
       id: 'setId',
       header: t('business_rules.sets.fields.setId'),
       accessorKey: 'setId',
-      minWidth: 150,
       cell: ({ row }) => (
         <Link
           href={`/backend/sets/${row.original.id}`}
@@ -137,7 +160,6 @@ export default function RuleSetsListPage() {
       id: 'setName',
       header: t('business_rules.sets.fields.setName'),
       accessorKey: 'setName',
-      minWidth: 200,
       cell: ({ row }) => (
         <div>
           <div className="font-medium">{row.original.setName}</div>
@@ -153,7 +175,6 @@ export default function RuleSetsListPage() {
       id: 'enabled',
       header: t('business_rules.sets.fields.enabled'),
       accessorKey: 'enabled',
-      minWidth: 100,
       cell: ({ row }) => (
         <button
           onClick={() => handleToggleEnabled(row.original.id, row.original.enabled)}
@@ -171,7 +192,6 @@ export default function RuleSetsListPage() {
     {
       id: 'actions',
       header: '',
-      minWidth: 60,
       cell: ({ row }) => (
         <RowActions
           items={[
@@ -197,25 +217,24 @@ export default function RuleSetsListPage() {
   return (
     <Page>
       <PageBody>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">{t('business_rules.sets.list.title')}</h1>
-            <p className="text-sm text-gray-600 mt-1">{t('business_rules.sets.list.description')}</p>
-          </div>
-          <Link href="/backend/sets/create">
-            <Button>{t('business_rules.sets.actions.create')}</Button>
-          </Link>
-        </div>
-
         <DataTable
+          title={t('business_rules.sets.list.title')}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/sets/create">
+                {t('business_rules.sets.actions.create')}
+              </Link>
+            </Button>
+          )}
           columns={columns}
           data={data || []}
-          defaultSort={[{ id: 'setName', desc: false }]}
           filters={filters}
           filterValues={filterValues}
-          onFilterChange={setFilterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
           error={error ? t('business_rules.sets.messages.loadFailed') : undefined}
+          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>
     </Page>

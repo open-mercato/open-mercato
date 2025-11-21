@@ -24,6 +24,10 @@ export default function CreateRuleSetPage() {
   const { organizationId, tenantId } = useOrganizationScopeDetail()
 
   const handleSubmit = async (values: RuleSetFormValues) => {
+    if (!tenantId || !organizationId) {
+      throw new Error(t('business_rules.errors.missingTenantOrOrg'))
+    }
+
     const payload = {
       ...values,
       tenantId,
@@ -39,15 +43,11 @@ export default function CreateRuleSetPage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || 'Failed to create rule set')
+      throw new Error(error.message || t('business_rules.sets.errors.createFailed'))
     }
 
     const result = await response.json()
     router.push(`/backend/sets/${result.id}`)
-  }
-
-  const handleCancel = () => {
-    router.push('/backend/sets')
   }
 
   const fields: CrudField[] = [
@@ -71,7 +71,6 @@ export default function CreateRuleSetPage() {
       label: t('business_rules.sets.form.description'),
       type: 'textarea',
       placeholder: t('business_rules.sets.form.placeholders.description'),
-      rows: 3,
     },
     {
       id: 'enabled',
@@ -81,7 +80,7 @@ export default function CreateRuleSetPage() {
     },
   ]
 
-  const defaultValues: Partial<RuleSetFormValues> = {
+  const initialValues: Partial<RuleSetFormValues> = {
     enabled: true,
   }
 
@@ -94,11 +93,10 @@ export default function CreateRuleSetPage() {
       <CrudForm
         schema={ruleSetFormSchema}
         fields={fields}
-        defaultValues={defaultValues}
+        initialValues={initialValues}
         onSubmit={handleSubmit}
-        onCancel={handleCancel}
+        cancelHref="/backend/sets"
         submitLabel={t('business_rules.sets.form.create')}
-        cancelLabel={t('business_rules.sets.form.cancel')}
       />
     </div>
   )

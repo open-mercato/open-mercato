@@ -37,7 +37,7 @@ export default function EditBusinessRulePage() {
     queryFn: async () => {
       const response = await apiFetch(`/api/business_rules/rules/${ruleId}`)
       if (!response.ok) {
-        throw new Error('Failed to fetch rule')
+        throw new Error(t('business_rules.errors.fetchFailed'))
       }
       const result = await response.json()
       return result
@@ -66,15 +66,11 @@ export default function EditBusinessRulePage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || 'Failed to update business rule')
+      throw new Error(error.message || t('business_rules.errors.updateFailed'))
     }
 
     router.push('/backend/rules')
     router.refresh()
-  }
-
-  const handleCancel = () => {
-    router.push('/backend/rules')
   }
 
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
@@ -99,7 +95,7 @@ export default function EditBusinessRulePage() {
     return (
       <div className="container mx-auto py-6 px-4 max-w-5xl">
         <div className="bg-red-50 border border-red-200 rounded p-4">
-          <p className="text-red-800">Failed to load rule. Please try again.</p>
+          <p className="text-red-800">{t('business_rules.errors.loadFailed')}</p>
         </div>
       </div>
     )
@@ -112,9 +108,9 @@ export default function EditBusinessRulePage() {
   return (
     <div className="container mx-auto py-6 px-4 max-w-5xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Edit Business Rule</h1>
+        <h1 className="text-3xl font-bold text-gray-900">{t('business_rules.rules.edit.title')}</h1>
         <p className="text-sm text-gray-600 mt-1">
-          Modify conditions and actions for: <strong>{rule.ruleName}</strong>
+          {t('business_rules.rules.edit.description')}: <strong>{rule.ruleName}</strong>
         </p>
       </div>
       <CrudForm
@@ -123,10 +119,9 @@ export default function EditBusinessRulePage() {
         fields={fields}
         initialValues={initialValues}
         onSubmit={handleSubmit}
-        onCancel={handleCancel}
+        cancelHref="/backend/rules"
         groups={formGroups}
         submitLabel={t('business_rules.rules.form.update')}
-        cancelLabel={t('business_rules.rules.form.cancel')}
       />
     </div>
   )

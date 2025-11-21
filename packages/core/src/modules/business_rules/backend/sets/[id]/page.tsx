@@ -65,7 +65,7 @@ export default function EditRuleSetPage() {
     queryFn: async () => {
       const response = await apiFetch(`/api/business_rules/sets/${setId}`)
       if (!response.ok) {
-        throw new Error('Failed to fetch rule set')
+        throw new Error(t('business_rules.sets.errors.fetchFailed'))
       }
       const result = await response.json()
       return result as RuleSetDetail
@@ -87,15 +87,11 @@ export default function EditRuleSetPage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || 'Failed to update rule set')
+      throw new Error(error.message || t('business_rules.sets.errors.updateFailed'))
     }
 
     flash.success(t('business_rules.sets.messages.updated'))
     queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets', setId] })
-  }
-
-  const handleCancel = () => {
-    router.push('/backend/sets')
   }
 
   const handleAddMember = async (ruleId: string, sequence: number) => {
@@ -205,10 +201,10 @@ export default function EditRuleSetPage() {
           <p className="text-red-800 font-semibold">{t('business_rules.sets.messages.loadFailed')}</p>
           {error && (
             <p className="text-red-700 text-sm mt-2">
-              Error: {error instanceof Error ? error.message : String(error)}
+              {t('business_rules.sets.errors.errorDetails')}: {error instanceof Error ? error.message : String(error)}
             </p>
           )}
-          <p className="text-gray-600 text-sm mt-2">Rule Set ID: {setId}</p>
+          <p className="text-gray-600 text-sm mt-2">{t('business_rules.sets.fields.setId')}: {setId}</p>
         </div>
       </div>
     )

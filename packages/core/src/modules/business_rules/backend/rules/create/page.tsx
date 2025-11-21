@@ -23,6 +23,10 @@ export default function CreateBusinessRulePage() {
   const { organizationId, tenantId } = useOrganizationScopeDetail()
 
   const handleSubmit = async (values: BusinessRuleFormValues) => {
+    if (!tenantId || !organizationId) {
+      throw new Error(t('business_rules.errors.missingTenantOrOrg'))
+    }
+
     const payload = buildRulePayload(values, tenantId, organizationId, undefined)
 
     const response = await apiFetch('/api/business_rules', {
@@ -33,15 +37,11 @@ export default function CreateBusinessRulePage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || 'Failed to create business rule')
+      throw new Error(error.message || t('business_rules.errors.createFailed'))
     }
 
     const result = await response.json()
     router.push(`/backend/rules/${result.data.id}`)
-  }
-
-  const handleCancel = () => {
-    router.push('/backend/rules')
   }
 
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
@@ -54,18 +54,17 @@ export default function CreateBusinessRulePage() {
   return (
     <div className="container mx-auto py-6 px-4 max-w-5xl">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Create Business Rule</h1>
-        <p className="text-sm text-gray-600 mt-1">Define a new business rule with conditions and actions</p>
+        <h1 className="text-3xl font-bold text-gray-900">{t('business_rules.rules.create.title')}</h1>
+        <p className="text-sm text-gray-600 mt-1">{t('business_rules.rules.create.description')}</p>
       </div>
       <CrudForm
         schema={businessRuleFormSchema}
         fields={fields}
-        defaultValues={defaultFormValues}
+        initialValues={defaultFormValues}
         onSubmit={handleSubmit}
-        onCancel={handleCancel}
+        cancelHref="/backend/rules"
         groups={formGroups}
         submitLabel={t('business_rules.rules.form.create')}
-        cancelLabel={t('business_rules.rules.form.cancel')}
       />
     </div>
   )

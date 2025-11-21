@@ -66,6 +66,11 @@
   "business_rules.rules.form.descriptions.effectiveFrom": "Rule becomes active from this date",
   "business_rules.rules.form.descriptions.effectiveTo": "Rule deactivates after this date",
 
+  "business_rules.rules.create.title": "Create Business Rule",
+  "business_rules.rules.create.description": "Define a new business rule with conditions and actions",
+  "business_rules.rules.edit.title": "Edit Business Rule",
+  "business_rules.rules.edit.description": "Modify conditions and actions for",
+
   "business_rules.rules.actions.edit": "Edit",
   "business_rules.rules.actions.delete": "Delete",
   "business_rules.rules.actions.duplicate": "Duplicate",
@@ -151,6 +156,11 @@
   "business_rules.sets.messages.updateFailed": "Failed to update rule set",
   "business_rules.sets.messages.loadFailed": "Failed to load rule sets",
 
+  "business_rules.sets.errors.createFailed": "Failed to create rule set",
+  "business_rules.sets.errors.updateFailed": "Failed to update rule set",
+  "business_rules.sets.errors.fetchFailed": "Failed to fetch rule set",
+  "business_rules.sets.errors.errorDetails": "Error",
+
   "business_rules.sets.members.messages.added": "Rule added to set successfully",
   "business_rules.sets.members.messages.addFailed": "Failed to add rule to set",
   "business_rules.sets.members.messages.alreadyExists": "This rule is already in the set",
@@ -172,6 +182,11 @@
   "business_rules.errors.invalidCondition": "Invalid condition",
   "business_rules.errors.executionFailed": "Rule execution failed",
   "business_rules.errors.unauthorized": "You don't have permission to perform this action",
+  "business_rules.errors.missingTenantOrOrg": "Tenant ID and Organization ID are required",
+  "business_rules.errors.createFailed": "Failed to create business rule",
+  "business_rules.errors.updateFailed": "Failed to update business rule",
+  "business_rules.errors.fetchFailed": "Failed to fetch rule",
+  "business_rules.errors.loadFailed": "Failed to load rule. Please try again.",
 
   "business_rules.success.created": "Rule created successfully",
   "business_rules.success.updated": "Rule updated successfully",

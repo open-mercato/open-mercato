@@ -66,6 +66,11 @@
   "business_rules.rules.form.descriptions.effectiveFrom": "Reguła staje się aktywna od tej daty",
   "business_rules.rules.form.descriptions.effectiveTo": "Reguła dezaktywuje się po tej dacie",
 
+  "business_rules.rules.create.title": "Utwórz Regułę Biznesową",
+  "business_rules.rules.create.description": "Zdefiniuj nową regułę biznesową z warunkami i akcjami",
+  "business_rules.rules.edit.title": "Edytuj Regułę Biznesową",
+  "business_rules.rules.edit.description": "Modyfikuj warunki i akcje dla",
+
   "business_rules.rules.actions.edit": "Edytuj",
   "business_rules.rules.actions.delete": "Usuń",
   "business_rules.rules.actions.duplicate": "Duplikuj",
@@ -151,6 +156,11 @@
   "business_rules.sets.messages.updateFailed": "Nie udało się zaktualizować zestawu reguł",
   "business_rules.sets.messages.loadFailed": "Nie udało się załadować zestawów reguł",
 
+  "business_rules.sets.errors.createFailed": "Nie udało się utworzyć zestawu reguł",
+  "business_rules.sets.errors.updateFailed": "Nie udało się zaktualizować zestawu reguł",
+  "business_rules.sets.errors.fetchFailed": "Nie udało się pobrać zestawu reguł",
+  "business_rules.sets.errors.errorDetails": "Błąd",
+
   "business_rules.sets.members.messages.added": "Reguła została dodana do zestawu pomyślnie",
   "business_rules.sets.members.messages.addFailed": "Nie udało się dodać reguły do zestawu",
   "business_rules.sets.members.messages.alreadyExists": "Ta reguła jest już w zestawie",
@@ -172,6 +182,11 @@
   "business_rules.errors.invalidCondition": "Nieprawidłowy warunek",
   "business_rules.errors.executionFailed": "Wykonanie reguły nie powiodło się",
   "business_rules.errors.unauthorized": "Nie masz uprawnień do wykonania tej akcji",
+  "business_rules.errors.missingTenantOrOrg": "ID najemcy i ID organizacji są wymagane",
+  "business_rules.errors.createFailed": "Nie udało się utworzyć reguły biznesowej",
+  "business_rules.errors.updateFailed": "Nie udało się zaktualizować reguły biznesowej",
+  "business_rules.errors.fetchFailed": "Nie udało się pobrać reguły",
+  "business_rules.errors.loadFailed": "Nie udało się załadować reguły. Spróbuj ponownie.",
 
   "business_rules.success.created": "Reguła została utworzona pomyślnie",
   "business_rules.success.updated": "Reguła została zaktualizowana pomyślnie",
