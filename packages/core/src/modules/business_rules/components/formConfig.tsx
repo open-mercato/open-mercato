@@ -166,7 +166,7 @@ export function createFormGroups(
 ): CrudFormGroup[] {
   // Wrapper to adapt CrudForm props to ConditionBuilder props
   const ConditionBuilderWrapper = (props: { value: any; setValue: (v: any) => void; error?: string }) => {
-    return <ConditionBuilderComponent value={props.value} onChange={props.setValue} error={props.error} showJsonPreview />
+    return <ConditionBuilderComponent value={props.value} onChangeAction={props.setValue} error={props.error} showJsonPreview />
   }
 
   // Wrapper to adapt CrudForm props to ActionBuilder props

@@ -9,7 +9,7 @@ import { validateConditionExpression } from './utils/conditionValidation'
 
 export type ConditionBuilderProps = {
   value: GroupCondition | null | undefined
-  onChange: (value: GroupCondition) => void
+  onChangeAction: (value: GroupCondition) => void
   entityType?: string
   maxDepth?: number
   error?: string
@@ -18,7 +18,7 @@ export type ConditionBuilderProps = {
 
 export function ConditionBuilder({
   value,
-  onChange,
+  onChangeAction,
   entityType,
   maxDepth = 5,
   error,
@@ -37,16 +37,14 @@ export function ConditionBuilder({
         },
       ],
     }
-    onChange(initialGroup)
+    onChangeAction(initialGroup)
   }
 
-  const handleChange = (updatedGroup: GroupCondition) => {
-    onChange(updatedGroup)
+  const handleChange = (updatedGroup: GroupCondition) => {onChangeAction(updatedGroup)
   }
 
   const handleClear = () => {
-    if (confirm('Are you sure you want to clear all conditions?')) {
-      onChange({
+    if (confirm('Are you sure you want to clear all conditions?')) {onChangeAction({
         operator: 'AND',
         rules: [],
       })

@@ -4,7 +4,8 @@ import * as React from 'react'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ConditionRow } from './ConditionRow'
-import type { GroupCondition, ConditionExpression, SimpleCondition, LogicalOperator } from './utils/conditionValidation'
+import type { GroupCondition, ConditionExpression, SimpleCondition } from './utils/conditionValidation'
+import type { LogicalOperator } from './../data/validators'
 import { isGroupCondition, getLogicalOperators } from './utils/conditionValidation'
 
 export type ConditionGroupProps = {

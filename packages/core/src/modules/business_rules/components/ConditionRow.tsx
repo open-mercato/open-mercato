@@ -30,12 +30,13 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
     const rawValue = e.target.value
 
     // Try to parse as JSON for arrays/objects
-    let parsedValue = rawValue
-    if (rawValue.startsWith('[') || rawValue.startsWith('{')) {
+    let parsedValue: any = rawValue
+    if (rawValue.trim().startsWith('[') || rawValue.trim().startsWith('{')) {
       try {
         parsedValue = JSON.parse(rawValue)
       } catch {
         // Keep as string if not valid JSON
+        parsedValue = rawValue
       }
     }
 
@@ -113,7 +114,15 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
             </div>
             <input
               type="text"
-              value={useFieldComparison ? (condition.valueField || '') : (JSON.stringify(condition.value) || '')}
+              value={
+                useFieldComparison
+                  ? (condition.valueField || '')
+                  : (condition.value === null || condition.value === undefined)
+                    ? ''
+                    : typeof condition.value === 'string'
+                      ? condition.value
+                      : JSON.stringify(condition.value)
+              }
               onChange={useFieldComparison ? handleValueFieldChange : handleValueChange}
               placeholder={useFieldComparison ? 'e.g., user.role' : 'e.g., "ACTIVE" or ["A","B"]'}
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
