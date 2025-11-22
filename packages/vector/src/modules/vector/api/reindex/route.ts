@@ -3,15 +3,17 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { VectorIndexService } from '@open-mercato/vector'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['vector.reindex'] },
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   let payload: any = {}
@@ -31,7 +33,7 @@ export async function POST(req: Request) {
   try {
     service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
-    return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
+    return NextResponse.json({ error: t('vector.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
   }
 
   try {
@@ -70,7 +72,7 @@ export async function POST(req: Request) {
     ).catch(() => undefined)
     return NextResponse.json({ ok: true })
   } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : 'Vector reindex failed'
+    const message = typeof error?.message === 'string' ? error.message : t('vector.api.errors.reindexFailed', 'Vector reindex failed')
     const status = typeof error?.status === 'number'
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)

@@ -4,7 +4,7 @@ import './globals.css'
 import { I18nProvider } from '@/lib/i18n/context'
 import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
 import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
-import { detectLocale, loadDictionary } from '@/lib/i18n/server'
+import { detectLocale, loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,13 +16,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "Open Mercato",
-  description: "AI‑supportive, modular ERP foundation for product & service companies",
-  icons: {
-    icon: "/open-mercato.svg",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await resolveTranslations()
+  return {
+    title: t('app.metadata.title', 'Open Mercato'),
+    description: t('app.metadata.description', 'AI‑supportive, modular ERP foundation for product & service companies'),
+    icons: {
+      icon: "/open-mercato.svg",
+    },
+  }
+}
 
 export default async function RootLayout({
   children,

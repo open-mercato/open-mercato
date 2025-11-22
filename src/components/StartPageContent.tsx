@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import React, { useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Shield, Users, Briefcase, Info, Rocket, ArrowRight, BookOpen } from 'lucide-react'
 import { getApiDocsResources, resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import Link from 'next/link'
+import { useT } from '@/lib/i18n/context'
 
 interface RoleTileProps {
   icon: ReactNode
@@ -27,9 +28,11 @@ function RoleTile({
   loginUrl,
   variant = 'default',
   disabled = false,
-  disabledCtaLabel = 'Login unavailable',
+  disabledCtaLabel,
   disabledMessage,
 }: RoleTileProps) {
+  const t = useT()
+  const defaultDisabledCtaLabel = t('startPage.roleTile.loginUnavailable', 'Login unavailable')
   return (
     <div className="rounded-lg border bg-card p-6 flex flex-col gap-4 transition-all hover:shadow-md">
       <div className="flex items-start gap-4">
@@ -43,7 +46,7 @@ function RoleTile({
       </div>
       
       <div className="flex-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Available Features:</div>
+        <div className="text-xs font-medium text-muted-foreground mb-2">{t('startPage.roleTile.availableFeatures', 'Available Features:')}</div>
         <ul className="space-y-1.5">
           {features.map((feature, idx) => (
             <li key={idx} className="text-sm flex items-start gap-2">
@@ -57,7 +60,7 @@ function RoleTile({
       {disabled ? (
         <>
           <Button variant="outline" className="w-full cursor-not-allowed opacity-80" disabled>
-            {disabledCtaLabel}
+            {disabledCtaLabel ?? defaultDisabledCtaLabel}
           </Button>
           {disabledMessage ? (
             <p className="text-xs text-muted-foreground text-center leading-relaxed">
@@ -67,7 +70,7 @@ function RoleTile({
         </>
       ) : (
         <Button asChild variant={variant} className="w-full">
-          <Link href={loginUrl}>Login as {title}</Link>
+          <Link href={loginUrl}>{t('startPage.roleTile.loginAs', 'Login as {title}', { title })}</Link>
         </Button>
       )}
     </div>
@@ -80,6 +83,7 @@ interface StartPageContentProps {
 }
 
 export function StartPageContent({ showStartPage: initialShowStartPage, showOnboardingCta = false }: StartPageContentProps) {
+  const t = useT()
   const [showStartPage, setShowStartPage] = useState(initialShowStartPage)
 
   const superAdminDisabled = showOnboardingCta
@@ -95,10 +99,9 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
   return (
     <>
       <section className="rounded-lg border bg-gradient-to-br from-background to-muted/20 p-8 text-center">
-        <h2 className="text-2xl font-semibold mb-3">Welcome to Your Open Mercato Installation</h2>
+        <h2 className="text-2xl font-semibold mb-3">{t('startPage.welcome.title', 'Welcome to Your Open Mercato Installation')}</h2>
         <p className="text-muted-foreground max-w-2xl mx-auto">
-          This is a customizable start page for your fresh Open Mercato installation. 
-          Choose your role below to get started and explore the features available to you.
+          {t('startPage.welcome.description', 'This is a customizable start page for your fresh Open Mercato installation. Choose your role below to get started and explore the features available to you.')}
         </p>
       </section>
 
@@ -110,21 +113,21 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             </div>
             <div className="space-y-3">
               <div>
-                <h3 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">Launch your own workspace</h3>
+                <h3 className="text-lg font-semibold text-emerald-900 dark:text-emerald-100">{t('startPage.onboarding.title', 'Launch your own workspace')}</h3>
                 <p className="text-sm text-emerald-800/80 dark:text-emerald-200/90">
-                  Create a tenant, organization, and administrator account in minutes. We&apos;ll verify your email and deliver a pre-seeded environment so you can explore Open Mercato with real data.
+                  {t('startPage.onboarding.description', 'Create a tenant, organization, and administrator account in minutes. We\'ll verify your email and deliver a pre-seeded environment so you can explore Open Mercato with real data.')}
                 </p>
               </div>
               <ul className="text-sm text-emerald-900/80 dark:text-emerald-200/90 space-y-1 list-disc pl-5 marker:text-emerald-600 dark:marker:text-emerald-400">
-                <li>Automatic tenant and sample data provisioning</li>
-                <li>Ready-to-use superadmin credentials after verification</li>
+                <li>{t('startPage.onboarding.feature1', 'Automatic tenant and sample data provisioning')}</li>
+                <li>{t('startPage.onboarding.feature2', 'Ready-to-use superadmin credentials after verification')}</li>
               </ul>
             </div>
           </div>
           <div className="md:ml-auto">
             <Button asChild className="bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-emerald-600 px-6 py-5 text-base font-semibold text-white shadow-md">
               <Link href="/onboarding">
-                Start onboarding
+                {t('startPage.onboarding.cta', 'Start onboarding')}
                 <ArrowRight className="size-4" aria-hidden />
               </Link>
             </Button>
@@ -136,36 +139,38 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
         <div className="flex items-start gap-3">
           <Info className="size-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">Default Password</h3>
+            <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-1">{t('startPage.defaultPassword.title', 'Default Password')}</h3>
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              The default password for all demo accounts is <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">secret</code>. 
-              To change passwords, use the CLI command: <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
+              {t('startPage.defaultPassword.description1', 'The default password for all demo accounts is')}{' '}
+              <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">secret</code>.
+              {' '}{t('startPage.defaultPassword.description2', 'To change passwords, use the CLI command:')}{' '}
+              <code className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-mono text-xs">yarn mercato auth set-password --email &lt;email&gt; --password &lt;newPassword&gt;</code>
             </p>
           </div>
         </div>
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold mb-4">Choose Your Role</h2>
+        <h2 className="text-xl font-semibold mb-4">{t('startPage.chooseRole.title', 'Choose Your Role')}</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <RoleTile
             icon={<Shield className="size-6" />}
-            title="Super Admin"
-            description="Full system access with complete control"
+            title={t('startPage.roles.superAdmin.title', 'Super Admin')}
+            description={t('startPage.roles.superAdmin.description', 'Full system access with complete control')}
             features={[
-              'Manage organization structure',
-              'Create and manage roles',
-              'Manage all users across organizations',
-              'System-wide configuration',
-              'Access to all modules and features'
+              t('startPage.roles.superAdmin.feature1', 'Manage organization structure'),
+              t('startPage.roles.superAdmin.feature2', 'Create and manage roles'),
+              t('startPage.roles.superAdmin.feature3', 'Manage all users across organizations'),
+              t('startPage.roles.superAdmin.feature4', 'System-wide configuration'),
+              t('startPage.roles.superAdmin.feature5', 'Access to all modules and features')
             ]}
             loginUrl="/login?role=superadmin"
             disabled={superAdminDisabled}
-            disabledCtaLabel="Superadmin login disabled"
+            disabledCtaLabel={t('startPage.roles.superAdmin.disabledCta', 'Superadmin login disabled')}
             disabledMessage={
               <>
-                Superadmin demo access is not enabled on this instance.{' '}
-                Install Open Mercato locally for full access via{' '}
+                {t('startPage.roles.superAdmin.disabledMessage1', 'Superadmin demo access is not enabled on this instance.')}{' '}
+                {t('startPage.roles.superAdmin.disabledMessage2', 'Install Open Mercato locally for full access via')}{' '}
                 <a
                   href="https://github.com/open-mercato"
                   target="_blank"
@@ -181,14 +186,14 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
           
           <RoleTile
             icon={<Users className="size-6" />}
-            title="Admin"
-            description="Organization-level administration"
+            title={t('startPage.roles.admin.title', 'Admin')}
+            description={t('startPage.roles.admin.description', 'Organization-level administration')}
             features={[
-              'Admin specific organization(s)',
-              'Manage users within organization',
-              'Configure organization settings',
-              'Access to admin modules',
-              'Report and analytics access'
+              t('startPage.roles.admin.feature1', 'Admin specific organization(s)'),
+              t('startPage.roles.admin.feature2', 'Manage users within organization'),
+              t('startPage.roles.admin.feature3', 'Configure organization settings'),
+              t('startPage.roles.admin.feature4', 'Access to admin modules'),
+              t('startPage.roles.admin.feature5', 'Report and analytics access')
             ]}
             loginUrl="/login?role=admin"
             variant="secondary"
@@ -196,14 +201,14 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
           
           <RoleTile
             icon={<Briefcase className="size-6" />}
-            title="Employee"
-            description="Work on your daily tasks"
+            title={t('startPage.roles.employee.title', 'Employee')}
+            description={t('startPage.roles.employee.description', 'Work on your daily tasks')}
             features={[
-              'Work on assigned tasks',
-              'Access organization resources',
-              'Collaborate with team members',
-              'View personal dashboard',
-              'Submit reports and updates'
+              t('startPage.roles.employee.feature1', 'Work on assigned tasks'),
+              t('startPage.roles.employee.feature2', 'Access organization resources'),
+              t('startPage.roles.employee.feature3', 'Collaborate with team members'),
+              t('startPage.roles.employee.feature4', 'View personal dashboard'),
+              t('startPage.roles.employee.feature5', 'Submit reports and updates')
             ]}
             loginUrl="/login?role=employee"
             variant="outline"
@@ -218,9 +223,9 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
               <BookOpen className="size-5" />
             </span>
             <div>
-              <h2 className="text-lg font-semibold">API resources</h2>
+              <h2 className="text-lg font-semibold">{t('startPage.apiResources.title', 'API resources')}</h2>
               <p className="text-sm text-muted-foreground">
-                Explore the official documentation and download the generated OpenAPI exports for this installation.
+                {t('startPage.apiResources.description', 'Explore the official documentation and download the generated OpenAPI exports for this installation.')}
               </p>
             </div>
           </div>
@@ -236,12 +241,12 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
             >
               <div className="font-medium text-foreground">{resource.label}</div>
               <p className="mt-1 text-xs text-muted-foreground">{resource.description}</p>
-              <span className="mt-3 inline-flex text-xs font-medium text-primary">{resource.actionLabel ?? 'Open link'}</span>
+              <span className="mt-3 inline-flex text-xs font-medium text-primary">{resource.actionLabel ?? t('startPage.apiResources.openLink', 'Open link')}</span>
             </a>
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Current API base URL:{' '}
+          {t('startPage.apiResources.baseUrl', 'Current API base URL:')}{' '}
           <code className="rounded bg-muted px-2 py-0.5 text-[10px] text-foreground">{baseUrl}</code>
         </p>
       </section>
@@ -256,7 +261,7 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
           htmlFor="show-start-page"
           className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
         >
-          Display this start page next time
+          {t('startPage.showNextTime', 'Display this start page next time')}
         </label>
       </section>
     </>

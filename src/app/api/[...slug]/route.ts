@@ -9,6 +9,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -42,8 +43,9 @@ async function checkAuthorization(
   auth: AuthContext,
   req: NextRequest
 ): Promise<NextResponse | null> {
+  const { t } = await resolveTranslations()
   if (methodMetadata?.requireAuth && !auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const requiredRoles = methodMetadata?.requireRoles ?? []
@@ -53,7 +55,7 @@ async function checkAuthorization(
     requiredRoles.length &&
     (!auth || !Array.isArray(auth.roles) || !requiredRoles.some((role) => auth.roles!.includes(role)))
   ) {
-    return NextResponse.json({ error: 'Forbidden', requiredRoles }, { status: 403 })
+    return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden'), requiredRoles }, { status: 403 })
   }
 
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
@@ -76,7 +78,7 @@ async function checkAuthorization(
             await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
           } catch (error) {
             if (error instanceof CrudHttpError) {
-              return NextResponse.json(error.body ?? { error: 'Forbidden' }, { status: error.status })
+              return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
             }
             throw error
           }
@@ -87,7 +89,7 @@ async function checkAuthorization(
 
   if (requiredFeatures.length) {
     if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
     }
     const featureContainer = await ensureContainer()
     const rbac = featureContainer.resolve<RbacService>('rbacService')
@@ -127,7 +129,7 @@ async function checkAuthorization(
           // best-effort logging; ignore secondary failures
         }
       }
-      return NextResponse.json({ error: 'Forbidden', requiredFeatures }, { status: 403 })
+      return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden'), requiredFeatures }, { status: 403 })
     }
   }
 
@@ -185,10 +187,11 @@ async function handleRequest(
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
+  const { t } = await resolveTranslations()
   const params = await paramsPromise
   const pathname = '/' + (params.slug?.join('/') ?? '')
   const api = findApi(modules, method, pathname)
-  if (!api) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
+  if (!api) return NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
   const auth = await getAuthFromRequest(req)
 
   const methodMetadata = extractMethodMetadata(api.metadata, method)

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useT } from '@/lib/i18n/context'
 
 const DEMO_NOTICE_COOKIE = 'om_demo_notice_ack'
 const COOKIE_NOTICE_COOKIE = 'om_cookie_notice_ack'
@@ -21,6 +22,7 @@ function setCookie(name: string, value: string, days = 365) {
 }
 
 export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean }) {
+  const t = useT()
   const [showDemoNotice, setShowDemoNotice] = useState(false)
   const [showCookieNotice, setShowCookieNotice] = useState(false)
 
@@ -57,27 +59,27 @@ export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean
         <div className="pointer-events-auto w-full max-w-4xl rounded-lg border border-amber-200 bg-amber-50/90 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-amber-50/70 dark:border-amber-900/70 dark:bg-amber-950/40">
           <div className="flex items-start gap-3">
             <div className="flex-1 text-sm text-amber-900 dark:text-amber-50 space-y-1">
-              <p className="font-medium">Demo Environment</p>
+              <p className="font-medium">{t('notices.demo.title', 'Demo Environment')}</p>
               <p>
-                This instance is provided for demo purposes only. Data may be reset at any time and is not retained for any guaranteed period.
+                {t('notices.demo.description', 'This instance is provided for demo purposes only. Data may be reset at any time and is not retained for any guaranteed period.')}
               </p>
               <p>
-                Need persistent superadmin access?{' '}
+                {t('notices.demo.superadminQuestion', 'Need persistent superadmin access?')}{' '}
                 <a
                   href="https://github.com/open-mercato"
                   target="_blank"
                   rel="noreferrer"
                   className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200"
                 >
-                  Install Open Mercato locally
+                  {t('notices.demo.installLink', 'Install Open Mercato locally')}
                 </a>
-                . Review our{' '}
+                . {t('notices.demo.reviewLinks', 'Review our')}{' '}
                 <Link className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200" href="/terms">
-                  Terms
+                  {t('common.terms')}
                 </Link>{' '}
-                and{' '}
+                {t('notices.demo.and', 'and')}{' '}
                 <Link className="underline font-medium hover:text-amber-800 dark:hover:text-amber-200" href="/privacy">
-                  Privacy Policy
+                  {t('common.privacy')}
                 </Link>
                 .
               </p>
@@ -93,17 +95,17 @@ export function GlobalNoticeBars({ demoModeEnabled }: { demoModeEnabled: boolean
         <div className="pointer-events-auto w-full max-w-4xl rounded-lg border border-slate-300 bg-background/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80 dark:border-slate-700">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-muted-foreground">
-              We use essential cookies to remember your preferences. Learn how we handle data in our{' '}
+              {t('notices.cookies.description', 'We use essential cookies to remember your preferences. Learn how we handle data in our')}{' '}
               <Link className="underline font-medium hover:text-foreground" href="/privacy">
-                Privacy Policy
+                {t('common.privacy')}
               </Link>.
             </div>
             <div className="flex items-center gap-2 self-end sm:self-auto">
               <Button variant="ghost" size="sm" onClick={handleDismissCookies}>
-                Dismiss
+                {t('notices.cookies.dismiss', 'Dismiss')}
               </Button>
               <Button size="sm" onClick={handleAcceptCookies}>
-                Accept cookies
+                {t('notices.cookies.accept', 'Accept cookies')}
               </Button>
             </div>
           </div>

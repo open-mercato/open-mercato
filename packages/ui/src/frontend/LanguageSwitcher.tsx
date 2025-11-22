@@ -4,19 +4,19 @@ import { useLocale, useT } from '@/lib/i18n/context'
 import { useRouter } from 'next/navigation'
 import { locales, type Locale } from '@/lib/i18n/config'
 
-const languageLabels: Record<Locale, string> = {
-  en: 'English',
-  pl: 'Polski',
-  es: 'Español',
-  de: 'Deutsch',
-}
-
 export function LanguageSwitcher() {
   const current = useLocale()
   const t = useT()
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const selectId = useId()
+
+  const languageLabels: Record<Locale, string> = {
+    en: t('common.languages.english', 'English'),
+    pl: t('common.languages.polish', 'Polski'),
+    es: t('common.languages.spanish', 'Español'),
+    de: t('common.languages.german', 'Deutsch'),
+  }
 
   async function setLocale(locale: Locale) {
     if (locale === current) return
