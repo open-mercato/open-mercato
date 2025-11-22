@@ -90,7 +90,7 @@ export default function EditRuleSetPage() {
       throw new Error(error.message || t('business_rules.sets.errors.updateFailed'))
     }
 
-    flash.success(t('business_rules.sets.messages.updated'))
+    flash(t('business_rules.sets.messages.updated'), 'success')
     queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets', setId] })
   }
 
@@ -106,13 +106,14 @@ export default function EditRuleSetPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.sets.members.messages.added'))
+      flash(t('business_rules.sets.members.messages.added'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets', setId] })
     } else {
-      if (result.result?.error?.includes('duplicate') || result.result?.message?.includes('exists')) {
-        flash.error(t('business_rules.sets.members.messages.alreadyExists'))
+      const error = result.result as { error?: string; message?: string } | null
+      if (error?.error?.includes('duplicate') || error?.message?.includes('exists')) {
+        flash(t('business_rules.sets.members.messages.alreadyExists'), 'error')
       } else {
-        flash.error(t('business_rules.sets.members.messages.addFailed'))
+        flash(t('business_rules.sets.members.messages.addFailed'), 'error')
       }
     }
   }
@@ -128,10 +129,10 @@ export default function EditRuleSetPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.sets.members.messages.updated'))
+      flash(t('business_rules.sets.members.messages.updated'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets', setId] })
     } else {
-      flash.error(t('business_rules.sets.members.messages.updateFailed'))
+      flash(t('business_rules.sets.members.messages.updateFailed'), 'error')
     }
   }
 
@@ -145,10 +146,10 @@ export default function EditRuleSetPage() {
     })
 
     if (result.ok) {
-      flash.success(t('business_rules.sets.members.messages.removed'))
+      flash(t('business_rules.sets.members.messages.removed'), 'success')
       queryClient.invalidateQueries({ queryKey: ['business-rules', 'sets', setId] })
     } else {
-      flash.error(t('business_rules.sets.members.messages.removeFailed'))
+      flash(t('business_rules.sets.members.messages.removeFailed'), 'error')
     }
   }
 
@@ -173,7 +174,6 @@ export default function EditRuleSetPage() {
       label: t('business_rules.sets.form.description'),
       type: 'textarea',
       placeholder: t('business_rules.sets.form.placeholders.description'),
-      rows: 3,
     },
     {
       id: 'enabled',
@@ -235,9 +235,8 @@ export default function EditRuleSetPage() {
             fields={fields}
             initialValues={initialValues}
             onSubmit={handleSubmit}
-            onCancel={handleCancel}
+            cancelHref="/backend/sets"
             submitLabel={t('business_rules.sets.form.update')}
-            cancelLabel={t('business_rules.sets.form.cancel')}
             embedded
           />
         </div>

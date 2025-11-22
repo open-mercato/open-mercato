@@ -56,12 +56,23 @@ export default function EditBusinessRulePage() {
   }, [rule])
 
   const handleSubmit = async (values: BusinessRuleFormValues) => {
-    const payload = buildRulePayload(values, tenantId, organizationId, undefined)
+    // Use tenant/org from the loaded rule if available, otherwise from context
+    const effectiveTenantId = rule?.tenantId || tenantId
+    const effectiveOrgId = rule?.organizationId || organizationId
 
-    const response = await apiFetch(`/api/business_rules/rules/${ruleId}`, {
-      method: 'PATCH',
+    if (!effectiveTenantId || !effectiveOrgId) {
+      throw new Error(t('business_rules.errors.missingTenantOrOrg'))
+    }
+
+    const payload = buildRulePayload(values, effectiveTenantId, effectiveOrgId, undefined)
+
+    const response = await apiFetch('/api/business_rules/rules', {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        ...payload,
+        id: ruleId,
+      }),
     })
 
     if (!response.ok) {

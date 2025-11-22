@@ -237,5 +237,6 @@
   "common.retry": "Ponów",
   "common.moveUp": "Przesuń w górę",
   "common.moveDown": "Przesuń w dół",
-  "common.remove": "Usuń"
+  "common.remove": "Usuń",
+  "common.cancel": "Anuluj"
 }

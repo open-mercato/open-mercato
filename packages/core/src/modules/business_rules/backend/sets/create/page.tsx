@@ -21,17 +21,13 @@ type RuleSetFormValues = z.infer<typeof ruleSetFormSchema>
 export default function CreateRuleSetPage() {
   const router = useRouter()
   const t = useT()
-  const { organizationId, tenantId } = useOrganizationScopeDetail()
 
   const handleSubmit = async (values: RuleSetFormValues) => {
-    if (!tenantId || !organizationId) {
-      throw new Error(t('business_rules.errors.missingTenantOrOrg'))
-    }
-
+    // Note: tenantId and organizationId are injected by the API from auth token
     const payload = {
-      ...values,
-      tenantId,
-      organizationId,
+      setId: values.setId,
+      setName: values.setName,
+      description: values.description || null,
       enabled: values.enabled ?? true,
     }
 
@@ -48,6 +44,7 @@ export default function CreateRuleSetPage() {
 
     const result = await response.json()
     router.push(`/backend/sets/${result.id}`)
+    router.refresh()
   }
 
   const fields: CrudField[] = [

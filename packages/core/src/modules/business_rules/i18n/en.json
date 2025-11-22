@@ -237,5 +237,6 @@
   "common.retry": "Retry",
   "common.moveUp": "Move Up",
   "common.moveDown": "Move Down",
-  "common.remove": "Remove"
+  "common.remove": "Remove",
+  "common.cancel": "Cancel"
 }
