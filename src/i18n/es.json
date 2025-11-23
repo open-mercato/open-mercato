@@ -32,6 +32,7 @@
   "ui.forms.flash.deleteSuccess": "Registro eliminado",
   "ui.forms.flash.deleteError": "No se pudo eliminar el registro",
   "ui.forms.flash.saveError": "No se pudo guardar",
+  "catalog.products.edit.offers.deleteError": "No se pudo eliminar la oferta del canal de ventas.",
   "ui.forms.errors.required": "Este campo es obligatorio",
   "ui.forms.errors.highlighted": "Corrige los errores resaltados.",
   "ui.forms.errors.unexpected": "Error inesperado",

@@ -179,7 +179,35 @@ export default async function BackendLayout({ children, params }: { children: Re
     weight: group.weight,
     items: group.items.map(mapItem),
   }))
-  baseGroups.sort((a, b) => a.weight - b.weight)
+  const defaultGroupOrder = [
+    'customers.nav.group',
+    'catalog.nav.group',
+    'customers~sales.nav.group',
+    'entities.nav.group',
+    'directory.nav.group',
+    'customers.storage.nav.group',
+  ]
+  const groupOrderIndex = new Map(defaultGroupOrder.map((id, index) => [id, index]))
+  baseGroups.sort((a, b) => {
+    const aIndex = groupOrderIndex.get(a.id)
+    const bIndex = groupOrderIndex.get(b.id)
+    if (aIndex !== undefined || bIndex !== undefined) {
+      if (aIndex === undefined) return 1
+      if (bIndex === undefined) return -1
+      if (aIndex !== bIndex) return aIndex - bIndex
+    }
+    if (a.weight !== b.weight) return a.weight - b.weight
+    return a.name.localeCompare(b.name)
+  })
+  const defaultGroupCount = defaultGroupOrder.length
+  baseGroups.forEach((group, index) => {
+    const rank = groupOrderIndex.get(group.id)
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const normalized =
+      (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
+      Math.min(Math.max(fallbackWeight, 0), 999_999)
+    group.weight = normalized
+  })
 
   let rolePreference: SidebarPreferencesSettings | null = null
   let sidebarPreference: SidebarPreferencesSettings | null = null

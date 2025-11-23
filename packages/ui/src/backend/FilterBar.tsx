@@ -16,6 +16,7 @@ export type FilterBarProps = {
   className?: string
   leadingItems?: React.ReactNode
   layout?: 'stacked' | 'inline'
+  filtersExtraContent?: React.ReactNode
 }
 
 export function FilterBar({
@@ -30,6 +31,7 @@ export function FilterBar({
   className,
   leadingItems,
   layout = 'stacked',
+  filtersExtraContent,
 }: FilterBarProps) {
   const t = useT()
   const resolvedSearchPlaceholder = searchPlaceholder ?? t('ui.filterBar.searchPlaceholder', 'Search')
@@ -101,6 +103,10 @@ export function FilterBar({
             const v = (values as any)[f.id]
             if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) return null
             const toLabel = (val: any) => {
+              if (typeof f.formatValue === 'function' && (typeof val === 'string' || typeof val === 'number')) {
+                const formatted = f.formatValue(String(val))
+                if (formatted) return formatted
+              }
               if (f.type === 'select' && f.options) {
                 const o = f.options.find((o) => o.value === val)
                 return o ? o.label : String(val)
@@ -146,6 +152,7 @@ export function FilterBar({
         onOpenChange={setOpen}
         onApply={(v) => onApply?.(v)}
         onClear={onClear}
+        extraContent={filtersExtraContent}
       />
     </div>
   )

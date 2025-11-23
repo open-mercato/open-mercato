@@ -1,8 +1,202 @@
 {
+  "customers~sales": {
+    "nav": {
+      "group": "Sales"
+    }
+  },
   "sales": {
     "module": {
       "title": "Sales Management",
       "description": "Quotes, orders, fulfillment, invoicing, and payments connected to the product catalog."
+    },
+    "nav": {
+      "group": "Sales",
+      "channels": "Channels"
+    },
+    "channels": {
+      "nav": {
+        "title": "Sales channels"
+      },
+      "table": {
+        "name": "Name",
+        "code": "Code",
+        "offers": "Product offers",
+        "active": "Active",
+        "updated": "Updated",
+        "search": "Search channels…",
+        "refresh": "Refresh",
+        "empty": "No channels yet.",
+        "errors": {
+          "load": "Failed to load channels.",
+          "delete": "Failed to delete channel."
+        },
+        "messages": {
+          "deleted": "Channel deleted."
+        },
+        "actions": {
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "subtitle": "Organize catalog offers per marketplace or storefront."
+      },
+      "actions": {
+        "create": "Add channel"
+      },
+      "form": {
+        "tabs": {
+          "settings": "Settings",
+          "offers": "Offers"
+        },
+        "groups": {
+          "general": "General",
+          "contact": "Contact",
+          "address": "Location"
+        },
+        "name": "Channel name",
+        "code": "Code",
+        "description": "Description",
+        "websiteUrl": "Website URL",
+        "contactEmail": "Contact email",
+        "contactPhone": "Contact phone",
+        "status": "Status entry ID",
+        "address1": "Address line 1",
+        "address2": "Address line 2",
+        "city": "City",
+        "region": "State / region",
+        "postalCode": "Postal code",
+        "country": "Country",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "isActive": "Active",
+        "createTitle": "Create sales channel",
+        "createSubmit": "Create channel",
+        "editTitle": "Edit channel",
+        "updateSubmit": "Save changes",
+        "createSuccess": "Channel created.",
+        "loading": "Loading channel…",
+        "errors": {
+          "create": "Failed to create channel.",
+          "update": "Failed to save channel.",
+          "delete": "Failed to delete channel.",
+          "load": "Failed to load channel."
+        },
+        "messages": {
+          "created": "Channel created.",
+          "updated": "Channel updated.",
+          "deleted": "Channel deleted."
+        }
+      },
+      "offers": {
+        "listTitle": "Sales channel offers",
+        "listSubtitle": "Review product overrides across every sales channel.",
+        "filters": {
+          "channels": "Sales channels",
+          "channelsPlaceholder": "Filter by channels…",
+          "channelsLoadError": "Failed to load channels"
+        },
+        "heading": "Offers for {{name}}",
+        "subtitle": "Override product presentation and pricing per channel.",
+        "actions": {
+          "create": "Add offer",
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "errors": {
+          "load": "Failed to load offers.",
+          "delete": "Failed to delete offer.",
+          "loadOffer": "Failed to load offer.",
+          "save": "Failed to save offer.",
+          "duplicateProduct": "This product already has an offer in this channel.",
+          "requiredFields": "Choose a channel and product.",
+          "priceKindRequired": "Select a price kind for each price override.",
+          "priceKindDuplicate": "Each price kind can only be overridden once."
+        },
+        "messages": {
+          "deleted": "Offer deleted.",
+          "saved": "Offer saved."
+        },
+        "table": {
+          "offer": "Offer",
+          "pricing": "Prices",
+          "prices": "Price overrides",
+          "active": "Active",
+          "updated": "Updated",
+          "search": "Search offers…",
+          "refresh": "Refresh",
+          "empty": "No offers for this channel yet.",
+          "emptyAll": "No offers available yet.",
+          "noOverrides": "No overrides",
+          "price": "Price",
+          "channelPrice": "Original product price {{price}}",
+          "emptyProduct": "Unlinked product",
+          "channel": "Channel",
+          "channelUnassigned": "Unassigned"
+        },
+        "form": {
+          "createTitle": "Create offer",
+          "editTitle": "Edit offer",
+          "createSubmit": "Create offer",
+          "updateSubmit": "Save changes",
+          "loading": "Loading offer…",
+          "channel": "Channel",
+          "channelDetails": "Details",
+          "channelPlaceholder": "Select channel",
+          "product": "Product",
+          "productGroup": "Product",
+          "productGroupHelp": "Search the catalog and pick the product you want to customize for this channel.",
+          "productSummaryTitle": "Product summary",
+          "productSummaryPlaceholder": "Select a product to preview its media, price, and variants.",
+          "productSearchPlaceholder": "Search by title, SKU, or ID…",
+          "productSearchLoading": "Searching products…",
+          "productSearchEmpty": "No products match your search.",
+          "productSearchHint": "Type at least 2 characters or paste a product ID.",
+          "productSearchIntro": "Search by name or paste the product id to find catalog items.",
+          "productSelectedHint": "Selected product ID: {{id}}",
+          "productClear": "Clear selection",
+          "productUntitled": "Untitled product",
+          "productPriceMissing": "No price",
+          "productPriceLabel": "Base price",
+          "productHasOffer": "Already has an offer for this channel.",
+          "productHasOfferLink": "View offer",
+          "productUnavailable": "Unavailable",
+          "productSelect": "Select",
+          "productSelected": "Selected",
+          "defaultMedia": "Default media",
+          "mediaGroupTitle": "Default media override",
+          "mediaEmpty": "Select a product to load its media.",
+          "mediaHelp": "Choose the thumbnail that should represent this offer in the channel.",
+          "mediaInherit": "Use product default",
+          "mediaSelected": "Active",
+          "title": "Title",
+          "description": "Description",
+          "active": "Active",
+          "variantsTitle": "Variants",
+          "variantsEmpty": "No variants available for this product.",
+          "tabs": {
+            "offers": "Offers"
+          },
+          "groups": {
+            "associations": "Associations",
+            "content": "Content",
+            "pricing": "Price overrides"
+          }
+        },
+        "pricing": {
+          "help": "Provide overrides for price kinds when this offer is active.",
+          "add": "Add price",
+          "selectKind": "Select price kind",
+          "amount": "Amount",
+          "remove": "Remove",
+          "empty": "No overrides yet.",
+          "emptyFallback": "Using {price} from the product until you add overrides.",
+          "basePriceLabel": "Original product price",
+          "basePriceMissing": "No price found",
+          "basePriceHelp": "Shown to shoppers when no override is configured.",
+          "overrideHint": "Overrides take precedence over the original product price.",
+          "allKindsUsed": "Each price kind already has an override.",
+          "noKindsAvailable": "Define a price kind before adding overrides."
+        }
+      }
     },
     "navigation": {
       "quotes": "Quotes",
@@ -126,6 +320,52 @@
           "save": "Status saved.",
           "delete": "Status deleted."
         }
+      },
+      "taxRates": {
+        "title": "Tax rates",
+        "description": "Maintain VAT classes applied to catalog pricing.",
+        "actions": {
+          "add": "Add tax rate",
+          "edit": "Edit",
+          "delete": "Delete",
+          "deleteConfirm": "Delete tax rate \"{{name}}\"?",
+          "refresh": "Refresh"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "rate": "Rate",
+          "location": "Location",
+          "updatedAt": "Updated",
+          "empty": "No tax rates yet.",
+          "search": "Search tax rates…",
+          "defaultBadge": "Default"
+        },
+        "form": {
+          "createTitle": "Add tax rate",
+          "editTitle": "Edit tax rate",
+          "name": "Name",
+          "code": "Code",
+          "codeHelp": "Lowercase letters, numbers, and dashes.",
+          "rate": "Rate (%)",
+          "countryCode": "Country code",
+          "regionCode": "Region code",
+          "postalCode": "Postal code",
+          "city": "City",
+          "isDefault": "Default tax class",
+          "isDefaultHelp": "Preselect this class for new catalog products.",
+          "save": "Save",
+          "cancel": "Cancel"
+        },
+        "messages": {
+          "saved": "Tax rate saved.",
+          "deleted": "Tax rate deleted."
+        },
+        "errors": {
+          "load": "Failed to load tax rates.",
+          "save": "Failed to save tax rate.",
+          "delete": "Failed to delete tax rate."
+        }
       }
     }
     ,
@@ -151,5 +391,10 @@
     }
   },
   "sales.order-statuses": {},
-  "sales.order-line-statuses": {}
+  "sales.order-line-statuses": {},
+  "sales.channels.create": "Create sales channel",
+  "sales.channels.update": "Update sales channel",
+  "sales.tax-rates.create": "Create tax rate",
+  "sales.tax-rates.update": "Update tax rate",
+  "sales.tax-rates.delete": "Delete tax rate"
 }

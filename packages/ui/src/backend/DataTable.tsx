@@ -9,8 +9,9 @@ import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
+import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { type RowActionItem } from './RowActions'
-import { subscribeOrganizationScopeChanged } from '@/lib/frontend/organizationEvents'
+import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@/lib/frontend/organizationEvents'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
@@ -130,6 +131,8 @@ export type DataTableProps<T> = {
   exporter?: DataTableExportConfig | false
   perspective?: DataTablePerspectiveConfig
   embedded?: boolean
+  onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
+  customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -491,11 +494,30 @@ export function DataTable<T>({
   exporter,
   perspective,
   embedded = false,
+  onCustomFieldFilterFieldsetChange,
+  customFieldFilterKeyExtras,
 }: DataTableProps<T>) {
   const t = useT()
   const router = useRouter()
+  const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
+  const hasInitializedScopeRef = React.useRef(false)
   React.useEffect(() => {
-    return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
+    return subscribeOrganizationScopeChanged((detail) => {
+      const prev = lastScopeRef.current
+      lastScopeRef.current = detail
+      if (!hasInitializedScopeRef.current) {
+        hasInitializedScopeRef.current = true
+        return
+      }
+      if (
+        prev &&
+        prev.organizationId === detail.organizationId &&
+        prev.tenantId === detail.tenantId
+      ) {
+        return
+      }
+      scheduleRouterRefresh(router)
+    })
   }, [router])
   const queryClient = useQueryClient()
   const perspectiveConfig = perspective ?? null
@@ -1187,8 +1209,99 @@ export function DataTable<T>({
     return []
   }, [entityId, entityIds])
   const entityKey = React.useMemo(() => (resolvedEntityIds.length ? resolvedEntityIds.join('|') : null), [resolvedEntityIds])
+  const customFieldFilterExtrasSignature = React.useMemo(
+    () => JSON.stringify(customFieldFilterKeyExtras ?? []),
+    [customFieldFilterKeyExtras]
+  )
 
-  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], { enabled: !!entityKey })
+  const [cfFilterFieldsetsByEntity, setCfFilterFieldsetsByEntity] = React.useState<Record<string, CustomFieldsetDto[]>>({})
+  const [cfFilterFieldsetSelection, setCfFilterFieldsetSelection] = React.useState<Record<string, string | null>>({})
+
+  React.useEffect(() => {
+    if (!entityKey) {
+      setCfFilterFieldsetsByEntity({})
+      setCfFilterFieldsetSelection({})
+      return
+    }
+    let cancelled = false
+    const loadFieldsets = async () => {
+      try {
+        const payload = await fetchCustomFieldDefinitionsPayload(resolvedEntityIds)
+        if (cancelled) return
+        const fieldsets = payload.fieldsetsByEntity ?? {}
+        setCfFilterFieldsetsByEntity(fieldsets)
+        const selectionChanges: Array<[string, string | null]> = []
+        let shouldNotify = false
+        setCfFilterFieldsetSelection((prev) => {
+          const next: Record<string, string | null> = {}
+          let changed = false
+          resolvedEntityIds.forEach((entityId) => {
+            const list = fieldsets[entityId] ?? []
+            if (!list.length) {
+              if (prev[entityId] !== undefined) changed = true
+              return
+            }
+            const existing = prev[entityId]
+            const fallback = list[0]?.code ?? null
+            const isValidExisting = existing ? list.some((entry) => entry.code === existing) : false
+            const value = isValidExisting ? existing : fallback ?? null
+            next[entityId] = value
+            if (value !== existing) {
+              changed = true
+              selectionChanges.push([entityId, value])
+            }
+          })
+          if (Object.keys(prev).length !== Object.keys(next).length) changed = true
+          if (changed) {
+            shouldNotify = true
+            return next
+          }
+          return prev
+        })
+        if (shouldNotify && selectionChanges.length && onCustomFieldFilterFieldsetChange) {
+          selectionChanges.forEach(([entityId, value]) => onCustomFieldFilterFieldsetChange(value, entityId))
+        }
+      } catch {
+        if (!cancelled) {
+          setCfFilterFieldsetsByEntity({})
+          setCfFilterFieldsetSelection({})
+        }
+      }
+    }
+    loadFieldsets()
+    return () => {
+      cancelled = true
+    }
+  }, [customFieldFilterExtrasSignature, entityKey, onCustomFieldFilterFieldsetChange, resolvedEntityIds])
+
+  const supportsCustomFieldFilterFieldsets =
+    resolvedEntityIds.length === 1 &&
+    (cfFilterFieldsetsByEntity[resolvedEntityIds[0]]?.length ?? 0) > 0
+  const activeCustomFieldFilterFieldset = supportsCustomFieldFilterFieldsets
+    ? cfFilterFieldsetSelection[resolvedEntityIds[0]] ?? cfFilterFieldsetsByEntity[resolvedEntityIds[0]]?.[0]?.code ?? null
+    : null
+
+  const handleCustomFieldFilterFieldsetChange = React.useCallback(
+    (value: string) => {
+      if (!supportsCustomFieldFilterFieldsets) return
+      const entityId = resolvedEntityIds[0]
+      const nextValue = value || null
+      setCfFilterFieldsetSelection((prev) => {
+        if (prev[entityId] === nextValue) return prev
+        return { ...prev, [entityId]: nextValue }
+      })
+      if (onCustomFieldFilterFieldsetChange) {
+        onCustomFieldFilterFieldsetChange(nextValue, entityId)
+      }
+    },
+    [onCustomFieldFilterFieldsetChange, resolvedEntityIds, supportsCustomFieldFilterFieldsets],
+  )
+
+  const { data: cfFilters = [] } = useCustomFieldFilterDefs(entityKey ? resolvedEntityIds : [], {
+    enabled: !!entityKey,
+    fieldset: supportsCustomFieldFilterFieldsets ? activeCustomFieldFilterFieldset ?? undefined : undefined,
+    keyExtras: customFieldFilterKeyExtras,
+  })
 
   const builtToolbar = React.useMemo(() => {
     if (toolbar) return toolbar
@@ -1206,6 +1319,26 @@ export function DataTable<T>({
         {t('ui.dataTable.perspectives.button', 'Perspectives')}
       </Button>
     ) : null
+    const fieldsetSelector =
+      supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
+        ? (
+          <div className="space-y-1">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Fieldset</div>
+            <select
+              className="w-full rounded border bg-background px-2 py-2 text-sm"
+              value={activeCustomFieldFilterFieldset ?? ''}
+              onChange={(event) => handleCustomFieldFilterFieldsetChange(event.target.value)}
+            >
+              {(cfFilterFieldsetsByEntity[resolvedEntityIds[0]] ?? []).map((fieldset) => (
+                <option key={fieldset.code} value={fieldset.code}>
+                  {fieldset.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )
+        : null
+    const leadingItems = perspectiveButton ? <div className="flex items-center gap-2">{perspectiveButton}</div> : null
     return (
       <FilterBar
         searchValue={searchValue}
@@ -1216,12 +1349,31 @@ export function DataTable<T>({
         values={filterValues}
         onApply={onFiltersApply}
         onClear={onFiltersClear}
-        leadingItems={perspectiveButton}
+        leadingItems={leadingItems}
+        filtersExtraContent={fieldsetSelector}
         layout={embedded ? 'inline' : 'stacked'}
         className={embedded ? 'min-h-[2.25rem]' : undefined}
       />
     )
-  }, [toolbar, searchValue, onSearchChange, searchPlaceholder, searchAlign, baseFilters, cfFilters, filterValues, onFiltersApply, onFiltersClear, canUsePerspectives, embedded])
+  }, [
+    toolbar,
+    searchValue,
+    onSearchChange,
+    searchPlaceholder,
+    searchAlign,
+    baseFilters,
+    cfFilters,
+    filterValues,
+    onFiltersApply,
+    onFiltersClear,
+    canUsePerspectives,
+    embedded,
+    supportsCustomFieldFilterFieldsets,
+    resolvedEntityIds,
+    activeCustomFieldFilterFieldset,
+    handleCustomFieldFilterFieldsetChange,
+    cfFilterFieldsetsByEntity,
+  ])
 
   const hasTitle = title != null
   const hasActions = actions !== undefined && actions !== null && actions !== false

@@ -7,13 +7,14 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
-  CatalogProduct,
-  CatalogProductOption,
-  CatalogProductOptionValue,
   CatalogProductVariant,
-  CatalogVariantOptionValue,
   CatalogProductPrice,
+  CatalogProduct,
+  CatalogOffer,
+  CatalogPriceKind,
 } from '../data/entities'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -23,11 +24,9 @@ import {
 import {
   cloneJson,
   ensureOrganizationScope,
-  ensureSameScope,
   ensureTenantScope,
+  emitCatalogQueryIndexEvent,
   extractUndoPayload,
-  requireOption,
-  requireOptionValue,
   requireProduct,
   toNumericString,
 } from './shared'
@@ -47,15 +46,18 @@ type VariantSnapshot = {
   weightUnit: string | null
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
-  optionValueIds: string[]
+  optionValues: Record<string, string> | null
+  customFieldsetCode: string | null
   createdAt: string
   updatedAt: string
   custom: Record<string, unknown> | null
+  prices?: VariantPriceSnapshot[] | null
 }
 
 type VariantUndoPayload = {
   before?: VariantSnapshot | null
   after?: VariantSnapshot | null
+  previousDefaultVariantId?: string | null
 }
 
 const VARIANT_CHANGE_KEYS = [
@@ -68,37 +70,25 @@ const VARIANT_CHANGE_KEYS = [
   'weightValue',
   'weightUnit',
   'dimensions',
+  'optionValues',
+  'customFieldsetCode',
   'metadata',
 ] as const satisfies readonly string[]
 
-type VariantOptionConfiguration =
-  | {
-      optionId: string
-      optionValueIds: string[]
-    }[]
-  | undefined
-  | null
-
 async function loadVariantSnapshot(
   em: EntityManager,
-  id: string
+  id: string,
+  options: { includePrices?: boolean } = {}
 ): Promise<VariantSnapshot | null> {
   const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
   if (!record) return null
+  const prices = options.includePrices ? await loadVariantPriceSnapshots(em, record.id) : null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product_variant,
     recordId: record.id,
     tenantId: record.tenantId,
     organizationId: record.organizationId,
   })
-  const variantOptionValues = await em.find(
-    CatalogVariantOptionValue,
-    { variant: record },
-    { populate: ['optionValue'] }
-  )
-  const optionValueIds = variantOptionValues.map((link) =>
-    typeof link.optionValue === 'string' ? link.optionValue : link.optionValue.id
-  )
   const productId = typeof record.product === 'string' ? record.product : record.product.id
   return {
     id: record.id,
@@ -115,10 +105,12 @@ async function loadVariantSnapshot(
     weightUnit: record.weightUnit ?? null,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
-    optionValueIds,
+    optionValues: record.optionValues ? cloneJson(record.optionValues) : null,
+    customFieldsetCode: record.customFieldsetCode ?? null,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
     custom: Object.keys(custom).length ? custom : null,
+    prices: prices && prices.length ? prices : null,
   }
 }
 
@@ -135,101 +127,356 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.weightUnit = snapshot.weightUnit ?? null
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.optionValues = snapshot.optionValues ? cloneJson(snapshot.optionValues) : null
+  record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
 }
 
-async function syncVariantOptionValues(
+type VariantPriceSnapshot = {
+  id: string
+  variantId: string | null
+  productId: string | null
+  offerId: string | null
+  organizationId: string
+  tenantId: string
+  priceKindId: string
+  priceKindCode: string
+  currencyCode: string
+  kind: string
+  minQuantity: number
+  maxQuantity: number | null
+  unitPriceNet: string | null
+  unitPriceGross: string | null
+  taxRate: string | null
+  taxAmount: string | null
+  channelId: string | null
+  userId: string | null
+  userGroupId: string | null
+  customerId: string | null
+  customerGroupId: string | null
+  metadata: Record<string, unknown> | null
+  startsAt: string | null
+  endsAt: string | null
+  createdAt: string
+  updatedAt: string
+  custom: Record<string, unknown> | null
+}
+
+async function loadVariantPriceSnapshots(
+  em: EntityManager,
+  variantId: string
+): Promise<VariantPriceSnapshot[]> {
+  const prices = await em.find(
+    CatalogProductPrice,
+    { variant: variantId },
+    { populate: ['priceKind', 'product', 'offer'] }
+  )
+  const snapshots: VariantPriceSnapshot[] = []
+  for (const price of prices) {
+    const variantRef = price.variant
+    const variantIdValue =
+      typeof variantRef === 'string'
+        ? variantRef
+        : variantRef
+          ? variantRef.id
+          : null
+    const productRef = price.product
+      ? price.product
+      : typeof price.variant === 'object' && price.variant
+        ? price.variant.product
+        : null
+    const productId =
+      typeof productRef === 'string'
+        ? productRef
+        : productRef
+          ? productRef.id
+          : null
+    const priceKindRef = price.priceKind
+    const priceKindId =
+      typeof priceKindRef === 'string'
+        ? priceKindRef
+        : priceKindRef
+          ? priceKindRef.id
+          : null
+    if (!priceKindId) {
+      throw new CrudHttpError(400, { error: 'Price is missing price kind metadata.' })
+    }
+    const priceKindCode =
+      typeof priceKindRef === 'object' && priceKindRef ? priceKindRef.code : price.kind
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: E.catalog.catalog_product_price,
+      recordId: price.id,
+      tenantId: price.tenantId,
+      organizationId: price.organizationId,
+    })
+    snapshots.push({
+      id: price.id,
+      variantId: variantIdValue,
+      productId,
+      offerId: typeof price.offer === 'string' ? price.offer : price.offer ? price.offer.id : null,
+      organizationId: price.organizationId,
+      tenantId: price.tenantId,
+      priceKindId,
+      priceKindCode,
+      currencyCode: price.currencyCode,
+      kind: price.kind,
+      minQuantity: price.minQuantity,
+      maxQuantity: price.maxQuantity ?? null,
+      unitPriceNet: price.unitPriceNet ?? null,
+      unitPriceGross: price.unitPriceGross ?? null,
+      taxRate: price.taxRate ?? null,
+      taxAmount: price.taxAmount ?? null,
+      channelId: price.channelId ?? null,
+      userId: price.userId ?? null,
+      userGroupId: price.userGroupId ?? null,
+      customerId: price.customerId ?? null,
+      customerGroupId: price.customerGroupId ?? null,
+      metadata: price.metadata ? cloneJson(price.metadata) : null,
+      startsAt: price.startsAt ? price.startsAt.toISOString() : null,
+      endsAt: price.endsAt ? price.endsAt.toISOString() : null,
+      createdAt: price.createdAt.toISOString(),
+      updatedAt: price.updatedAt.toISOString(),
+      custom: Object.keys(custom).length ? custom : null,
+    })
+  }
+  return snapshots
+}
+
+async function restoreVariantPricesFromSnapshots(
   em: EntityManager,
   variant: CatalogProductVariant,
-  configuration: VariantOptionConfiguration
+  snapshots: VariantPriceSnapshot[],
+  dataEngine: DataEngine
 ): Promise<void> {
-  if (configuration === undefined) return
-  await em.nativeDelete(CatalogVariantOptionValue, { variant: variant.id })
-  if (!configuration || configuration.length === 0) return
-
-  const grouped = new Map<string, Set<string>>()
-  for (const entry of configuration) {
-    if (!entry || !entry.optionId) continue
-    const set = grouped.get(entry.optionId) ?? new Set<string>()
-    for (const valueId of entry.optionValueIds ?? []) {
-      if (valueId) set.add(valueId)
-    }
-    if (set.size) grouped.set(entry.optionId, set)
-  }
-  if (!grouped.size) return
-
-  const productId = typeof variant.product === 'string' ? variant.product : variant.product.id
-
-  for (const [optionId, valueIds] of grouped.entries()) {
-    const option = await requireOption(
-      em,
-      optionId,
-      'Catalog option not found for variant configuration'
-    )
-    const optionProductId =
-      typeof option.product === 'string' ? option.product : option.product.id
-    if (optionProductId !== productId) {
-      throw new CrudHttpError(400, { error: 'Option does not belong to the same product.' })
-    }
-    ensureSameScope(option, variant.organizationId, variant.tenantId)
-    if (!valueIds.size) continue
-    const values = await em.find(CatalogProductOptionValue, {
-      id: { $in: Array.from(valueIds) },
-      option,
-    })
-    if (values.length !== valueIds.size) {
-      throw new CrudHttpError(400, { error: 'One or more option values not found for configuration.' })
-    }
-    for (const value of values) {
-      ensureSameScope(value, variant.organizationId, variant.tenantId)
-      const link = em.create(CatalogVariantOptionValue, {
+  if (!snapshots.length) return
+  const productRef =
+    typeof variant.product === 'string'
+      ? await requireProduct(em, variant.product)
+      : variant.product
+  for (const snapshot of snapshots) {
+    const product =
+      snapshot.productId && snapshot.productId !== productRef.id
+        ? em.getReference(CatalogProduct, snapshot.productId)
+        : productRef
+    const offer = snapshot.offerId ? em.getReference(CatalogOffer, snapshot.offerId) : null
+    const priceKind = em.getReference(CatalogPriceKind, snapshot.priceKindId)
+    let record = await em.findOne(CatalogProductPrice, { id: snapshot.id })
+    if (!record) {
+      record = em.create(CatalogProductPrice, {
+        id: snapshot.id,
         variant,
-        optionValue: value,
-        organizationId: variant.organizationId,
-        tenantId: variant.tenantId,
+        product,
+        offer,
+        organizationId: snapshot.organizationId,
+        tenantId: snapshot.tenantId,
+        currencyCode: snapshot.currencyCode,
+        priceKind,
+        kind: snapshot.priceKindCode || snapshot.kind,
+        minQuantity: snapshot.minQuantity,
+        maxQuantity: snapshot.maxQuantity ?? null,
+        unitPriceNet: snapshot.unitPriceNet ?? null,
+        unitPriceGross: snapshot.unitPriceGross ?? null,
+        taxRate: snapshot.taxRate ?? null,
+        taxAmount: snapshot.taxAmount ?? null,
+        channelId: snapshot.channelId ?? null,
+        userId: snapshot.userId ?? null,
+        userGroupId: snapshot.userGroupId ?? null,
+        customerId: snapshot.customerId ?? null,
+        customerGroupId: snapshot.customerGroupId ?? null,
+        metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+        startsAt: snapshot.startsAt ? new Date(snapshot.startsAt) : null,
+        endsAt: snapshot.endsAt ? new Date(snapshot.endsAt) : null,
+        createdAt: new Date(snapshot.createdAt),
+        updatedAt: new Date(snapshot.updatedAt),
       })
-      em.persist(link)
+      em.persist(record)
+    } else {
+      record.variant = variant
+      record.product = product
+      record.offer = offer
+      record.priceKind = priceKind
+      record.organizationId = snapshot.organizationId
+      record.tenantId = snapshot.tenantId
+      record.currencyCode = snapshot.currencyCode
+      record.kind = snapshot.priceKindCode || snapshot.kind
+      record.minQuantity = snapshot.minQuantity
+      record.maxQuantity = snapshot.maxQuantity ?? null
+      record.unitPriceNet = snapshot.unitPriceNet ?? null
+      record.unitPriceGross = snapshot.unitPriceGross ?? null
+      record.taxRate = snapshot.taxRate ?? null
+      record.taxAmount = snapshot.taxAmount ?? null
+      record.channelId = snapshot.channelId ?? null
+      record.userId = snapshot.userId ?? null
+      record.userGroupId = snapshot.userGroupId ?? null
+      record.customerId = snapshot.customerId ?? null
+      record.customerGroupId = snapshot.customerGroupId ?? null
+      record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+      record.startsAt = snapshot.startsAt ? new Date(snapshot.startsAt) : null
+      record.endsAt = snapshot.endsAt ? new Date(snapshot.endsAt) : null
+      record.createdAt = new Date(snapshot.createdAt)
+      record.updatedAt = new Date(snapshot.updatedAt)
     }
   }
-}
-
-async function restoreVariantOptionValues(
-  em: EntityManager,
-  variant: CatalogProductVariant,
-  optionValueIds: string[]
-): Promise<void> {
-  await em.nativeDelete(CatalogVariantOptionValue, { variant: variant.id })
-  if (!optionValueIds.length) return
-  const values = await em.find(CatalogProductOptionValue, { id: { $in: optionValueIds } })
-  if (values.length !== optionValueIds.length) {
-    throw new CrudHttpError(400, { error: 'Unable to restore variant configuration.' })
-  }
-  const productId = typeof variant.product === 'string' ? variant.product : variant.product.id
-  for (const value of values) {
-    const option = value.option as CatalogProductOption | string
-    const optionId = typeof option === 'string' ? option : option.id
-    const optionEntity =
-      typeof option === 'string'
-        ? await em.findOne(CatalogProductOption, { id: optionId })
-        : option
-    if (!optionEntity) continue
-    const optionProductId =
-      typeof optionEntity.product === 'string'
-        ? optionEntity.product
-        : optionEntity.product.id
-    if (optionProductId !== productId) continue
-    const link = em.create(CatalogVariantOptionValue, {
-      variant,
-      optionValue: value,
-      organizationId: variant.organizationId,
-      tenantId: variant.tenantId,
+  await em.flush()
+  for (const snapshot of snapshots) {
+    if (!snapshot.custom || !Object.keys(snapshot.custom).length) continue
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.catalog.catalog_product_price,
+      recordId: snapshot.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      values: snapshot.custom,
     })
-    em.persist(link)
   }
 }
 
-const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string }> = {
+type MetadataSplitResult = {
+  metadata: Record<string, unknown> | null
+  optionValues: Record<string, string> | null
+  hadOptionValues: boolean
+}
+
+function splitOptionValuesFromMetadata(
+  metadata?: Record<string, unknown> | null
+): MetadataSplitResult {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return {
+      metadata: metadata ? cloneJson(metadata) : null,
+      optionValues: null,
+      hadOptionValues: false,
+    }
+  }
+  const { optionValues, ...rest } = metadata as Record<string, unknown> & {
+    optionValues?: unknown
+  }
+  const normalizedMetadata = Object.keys(rest).length ? cloneJson(rest) : null
+  return {
+    metadata: normalizedMetadata,
+    optionValues: normalizeOptionValues(optionValues),
+    hadOptionValues: optionValues !== undefined,
+  }
+}
+
+function normalizeOptionValues(input: unknown): Record<string, string> | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const normalized: Record<string, string> = {}
+  for (const [rawKey, rawValue] of Object.entries(input)) {
+    if (typeof rawValue !== 'string') continue
+    const key = rawKey.trim()
+    const value = rawValue.trim()
+    if (!key || !value) continue
+    normalized[key] = value
+  }
+  return Object.keys(normalized).length ? normalized : null
+}
+
+function resolveProductId(record: CatalogProductVariant): string {
+  return typeof record.product === 'string' ? record.product : record.product.id
+}
+
+async function enforceSingleDefaultVariant(
+  em: EntityManager,
+  variant: CatalogProductVariant
+): Promise<string | null> {
+  if (!variant.isDefault) return null
+  const productId = resolveProductId(variant)
+  const existingDefault = await em.findOne(
+    CatalogProductVariant,
+    { product: productId, isDefault: true, deletedAt: null, id: { $ne: variant.id } },
+    { fields: ['id', 'isDefault'] }
+  )
+  if (existingDefault) {
+    existingDefault.isDefault = false
+    return existingDefault.id
+  }
+  return null
+}
+
+async function aggregateVariantMediaToProduct(
+  em: EntityManager,
+  variant: CatalogProductVariant
+): Promise<void> {
+  const productId = resolveProductId(variant)
+  const buildKey = (
+    attachment: Pick<Attachment, 'fileName' | 'fileSize' | 'storageDriver' | 'partitionCode' | 'storagePath'>
+  ) =>
+    [
+      attachment.fileName?.trim() ?? '',
+      attachment.fileSize ?? '',
+      attachment.storageDriver ?? '',
+      attachment.partitionCode ?? '',
+    ].join('|')
+  const attachments = await em.find(
+    Attachment,
+    {
+      entityId: E.catalog.catalog_product_variant,
+      recordId: variant.id,
+      organizationId: variant.organizationId ?? undefined,
+      tenantId: variant.tenantId ?? undefined,
+    },
+    {
+      fields: [
+        'id',
+        'partitionCode',
+        'fileName',
+        'mimeType',
+        'fileSize',
+        'storageDriver',
+        'storagePath',
+        'storageMetadata',
+        'url',
+        'organizationId',
+        'tenantId',
+        'fileSize',
+        'storageDriver',
+        'partitionCode',
+      ],
+    }
+  )
+  if (!attachments.length) return
+  const existing = await em.find(
+    Attachment,
+    {
+      entityId: E.catalog.catalog_product,
+      recordId: productId,
+      organizationId: variant.organizationId ?? undefined,
+      tenantId: variant.tenantId ?? undefined,
+    },
+    {
+      fields: ['storagePath', 'fileName', 'fileSize', 'storageDriver', 'partitionCode'],
+    }
+  )
+  const existingKeys = new Set(existing.map((item) => buildKey(item)))
+  let created = 0
+  for (const source of attachments) {
+    const key = buildKey(source)
+    if (existingKeys.has(key)) continue
+    const clone = em.create(Attachment, {
+      entityId: E.catalog.catalog_product,
+      recordId: productId,
+      organizationId: source.organizationId ?? variant.organizationId ?? null,
+      tenantId: source.tenantId ?? variant.tenantId ?? null,
+      partitionCode: source.partitionCode,
+      fileName: source.fileName,
+      mimeType: source.mimeType,
+      fileSize: source.fileSize,
+      storageDriver: source.storageDriver,
+      storagePath: source.storagePath,
+      storageMetadata: source.storageMetadata ? cloneJson(source.storageMetadata) : null,
+      url: source.url,
+    })
+    em.persist(clone)
+    existingKeys.add(key)
+    created += 1
+  }
+  if (created > 0) {
+    await em.flush()
+  }
+}
+
+const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
   id: 'catalog.variants.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
@@ -237,6 +484,10 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
+
+    const metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+    const resolvedOptionValues =
+      parsed.optionValues ?? (metadataSplit.hadOptionValues ? metadataSplit.optionValues : null)
 
     const now = new Date()
     const record = em.create(CatalogProductVariant, {
@@ -252,14 +503,20 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightValue: toNumericString(parsed.weightValue),
       weightUnit: parsed.weightUnit ?? null,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: metadataSplit.metadata,
+      optionValues: resolvedOptionValues ? cloneJson(resolvedOptionValues) : null,
+      customFieldsetCode: parsed.customFieldsetCode ?? null,
       createdAt: now,
       updatedAt: now,
     })
     em.persist(record)
     await em.flush()
-    await syncVariantOptionValues(em, record, parsed.optionConfiguration)
-    await em.flush()
+    let previousDefaultVariantId: string | null = null
+    if (record.isDefault) {
+      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+      await em.flush()
+    }
+    await aggregateVariantMediaToProduct(em, record)
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_variant,
@@ -268,7 +525,14 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       tenantId: record.tenantId,
       values: custom,
     })
-    return { variantId: record.id }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'created',
+    })
+    return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -289,6 +553,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       payload: {
         undo: {
           after,
+          previousDefaultVariantId: (result as { previousDefaultVariantId?: string | null })?.previousDefaultVariantId ?? null,
         } satisfies VariantUndoPayload,
       },
     }
@@ -302,9 +567,17 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
+    if (payload?.previousDefaultVariantId) {
+      const previousDefault = await em.findOne(CatalogProductVariant, { id: payload.previousDefaultVariantId })
+      if (previousDefault) {
+        ensureTenantScope(ctx, previousDefault.tenantId)
+        ensureOrganizationScope(ctx, previousDefault.organizationId)
+        previousDefault.isDefault = true
+        await em.flush()
+      }
+    }
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -319,7 +592,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
   },
 }
 
-const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string }> = {
+const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
   id: 'catalog.variants.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
@@ -336,11 +609,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
-    const product = record.product as CatalogProduct | string
-    const productEntity =
-      typeof product === 'string' ? await requireProduct(em, product) : product
-    ensureTenantScope(ctx, productEntity.tenantId)
-    ensureOrganizationScope(ctx, productEntity.organizationId)
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
 
     if (parsed.name !== undefined) record.name = parsed.name ?? null
     if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
@@ -355,15 +625,26 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.dimensions !== undefined) {
       record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
     }
+    let metadataSplit: MetadataSplitResult | null = null
     if (parsed.metadata !== undefined) {
-      record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
+      metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+      record.metadata = metadataSplit.metadata
+    }
+    if (parsed.optionValues !== undefined) {
+      record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
+    } else if (metadataSplit?.hadOptionValues) {
+      record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
+    }
+    if (parsed.customFieldsetCode !== undefined) {
+      record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
 
-    if (parsed.optionConfiguration !== undefined) {
-      await syncVariantOptionValues(em, record, parsed.optionConfiguration)
+    let previousDefaultVariantId: string | null = null
+    if (parsed.isDefault === true) {
+      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
     }
-
     await em.flush()
+    await aggregateVariantMediaToProduct(em, record)
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -374,7 +655,14 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         values: custom,
       })
     }
-    return { variantId: record.id }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'updated',
+    })
+    return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -403,6 +691,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         undo: {
           before,
           after,
+          previousDefaultVariantId:
+            (result as { previousDefaultVariantId?: string | null })?.previousDefaultVariantId ?? null,
         } satisfies VariantUndoPayload,
       },
     }
@@ -431,6 +721,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        optionValues: before.optionValues ? cloneJson(before.optionValues) : null,
+        customFieldsetCode: before.customFieldsetCode ?? null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })
@@ -439,8 +731,17 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
-    await restoreVariantOptionValues(em, record, before.optionValueIds)
     await em.flush()
+    const previousDefaultId = payload?.previousDefaultVariantId
+    if (previousDefaultId) {
+      const previousDefault = await em.findOne(CatalogProductVariant, { id: previousDefaultId })
+      if (previousDefault) {
+        ensureTenantScope(ctx, previousDefault.tenantId)
+        ensureOrganizationScope(ctx, previousDefault.organizationId)
+        previousDefault.isDefault = true
+        await em.flush()
+      }
+    }
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined
@@ -466,7 +767,7 @@ const deleteVariantCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadVariantSnapshot(em, id)
+    const snapshot = await loadVariantSnapshot(em, id, { includePrices: true })
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -478,27 +779,41 @@ const deleteVariantCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
-    const product = record.product as CatalogProduct | string
-    const productEntity =
-      typeof product === 'string' ? await requireProduct(em, product) : product
-    ensureTenantScope(ctx, productEntity.tenantId)
-    ensureOrganizationScope(ctx, productEntity.organizationId)
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
 
     const baseEm = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadVariantSnapshot(baseEm, id)
+    const snapshot = await loadVariantSnapshot(baseEm, id, { includePrices: true })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const priceSnapshots =
+      snapshot?.prices && snapshot.prices.length
+        ? snapshot.prices
+        : await loadVariantPriceSnapshots(baseEm, id)
 
-    const priceCount = await em.count(CatalogProductPrice, { variant: record })
-    if (priceCount > 0) {
-      throw new CrudHttpError(400, { error: 'Remove variant prices before deleting the variant.' })
+    if (priceSnapshots.length) {
+      await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
+    } else {
+      await em.nativeDelete(CatalogProductPrice, { variant: record })
     }
-    await em.nativeDelete(CatalogVariantOptionValue, { variant: record.id })
     em.remove(record)
     await em.flush()
+    for (const priceSnapshot of priceSnapshots) {
+      const resetValues = buildCustomFieldResetMap(priceSnapshot.custom ?? undefined, undefined)
+      if (!Object.keys(resetValues).length) continue
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.catalog.catalog_product_price,
+        recordId: priceSnapshot.id,
+        organizationId: priceSnapshot.organizationId,
+        tenantId: priceSnapshot.tenantId,
+        values: resetValues,
+      })
+    }
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
         await setCustomFieldsIfAny({
-          dataEngine: ctx.container.resolve('dataEngine'),
+          dataEngine,
           entityId: E.catalog.catalog_product_variant,
           recordId: id,
           organizationId: snapshot.organizationId,
@@ -507,6 +822,13 @@ const deleteVariantCommand: CommandHandler<
         })
       }
     }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: id,
+      organizationId: snapshot?.organizationId ?? record.organizationId,
+      tenantId: snapshot?.tenantId ?? record.tenantId,
+      action: 'deleted',
+    })
     return { variantId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -550,6 +872,7 @@ const deleteVariantCommand: CommandHandler<
         weightUnit: before.weightUnit ?? null,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
+        customFieldsetCode: before.customFieldsetCode ?? null,
         createdAt: new Date(before.createdAt),
         updatedAt: new Date(before.updatedAt),
       })
@@ -558,7 +881,10 @@ const deleteVariantCommand: CommandHandler<
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
-    await restoreVariantOptionValues(em, record, before.optionValueIds)
+    if (before.prices?.length) {
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      await restoreVariantPricesFromSnapshots(em, record, before.prices, dataEngine)
+    }
     await em.flush()
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({

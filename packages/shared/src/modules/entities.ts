@@ -35,9 +35,17 @@ export type CustomFieldDefinition = {
   kind: CustomFieldKind
   label?: string
   description?: string
+  fieldset?: string
+  group?: {
+    code: string
+    title?: string
+    hint?: string
+  }
   required?: boolean
   multi?: boolean // allow multiple values
-  options?: string[] // for 'select'
+  options?: Array<
+    string | number | boolean | { value: string | number | boolean; label?: string | null }
+  >
   // Optional dynamic options source for selects/tags relations
   optionsUrl?: string
   defaultValue?: string | number | boolean | null

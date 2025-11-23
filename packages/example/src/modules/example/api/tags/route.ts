@@ -7,6 +7,7 @@ import {
   exampleTag,
   optionsResponseSchema,
 } from '../openapi'
+import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['example.todos.view'] },
@@ -41,9 +42,9 @@ export async function GET(request: Request) {
         { $or: [ { tenantId: auth.tenantId as any }, { tenantId: null } ] },
       ],
     })
-    const opts = Array.isArray(def?.configJson?.options) ? def!.configJson!.options as string[] : []
+    const opts = normalizeCustomFieldOptions(def?.configJson?.options)
     for (const o of opts) {
-      const s = String(o || '').trim()
+      const s = String(o.value || '').trim()
       if (s) set.add(s)
     }
     const items = Array.from(set).map((t) => ({ value: t, label: t }))

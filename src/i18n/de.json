@@ -32,6 +32,7 @@
   "ui.forms.flash.deleteSuccess": "Datensatz gelöscht",
   "ui.forms.flash.deleteError": "Datensatz konnte nicht gelöscht werden",
   "ui.forms.flash.saveError": "Speichern fehlgeschlagen",
+  "catalog.products.edit.offers.deleteError": "Angebot für Vertriebskanal konnte nicht entfernt werden.",
   "ui.forms.errors.required": "Dieses Feld ist erforderlich",
   "ui.forms.errors.highlighted": "Bitte behebe die markierten Fehler.",
   "ui.forms.errors.unexpected": "Unerwarteter Fehler",
