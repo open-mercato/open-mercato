@@ -97,7 +97,6 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
       label: t('business_rules.rules.form.description'),
       type: 'textarea',
       placeholder: t('business_rules.rules.form.placeholders.description'),
-      rows: 3,
     },
     {
       id: 'ruleType',

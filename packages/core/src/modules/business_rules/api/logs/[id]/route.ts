@@ -107,7 +107,6 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get execution log detail',
       description: 'Returns detailed information about a specific rule execution, including full context and results.',
-      params: paramsSchema,
       responses: [
         { status: 200, description: 'Log entry details', schema: logDetailSchema },
       ],

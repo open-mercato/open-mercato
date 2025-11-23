@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
-import { BusinessRule, RuleExecutionLog } from '../data/entities'
+import { BusinessRule, RuleExecutionLog, type RuleType } from '../data/entities'
 import * as ruleEvaluator from './rule-evaluator'
 import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
@@ -82,7 +82,7 @@ export interface RuleDiscoveryOptions {
   eventType?: string
   tenantId: string
   organizationId: string
-  ruleType?: string
+  ruleType?: RuleType
 }
 
 /**

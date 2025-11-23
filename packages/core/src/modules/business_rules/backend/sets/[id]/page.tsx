@@ -11,7 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { z } from 'zod'
-import { RuleSetMembers } from './RuleSetMembers'
+import { RuleSetMembers } from '@open-mercato/core/modules/business_rules/components/RuleSetMembers'
 
 const ruleSetFormSchema = z.object({
   setId: z.string().min(1).max(50),
