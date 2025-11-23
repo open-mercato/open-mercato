@@ -296,15 +296,46 @@ function endsWith(str: any, suffix: any): boolean {
 }
 
 /**
- * Check if string matches regex pattern
+ * Security limits for regex operations
+ */
+const REGEX_TIMEOUT_MS = 100
+const MAX_REGEX_LENGTH = 200
+
+/**
+ * Check if string matches regex pattern (with ReDoS protection)
  */
 function matches(str: any, pattern: any): boolean {
   if (str == null || pattern == null) return false
 
   try {
-    const regex = new RegExp(String(pattern))
-    return regex.test(String(str))
-  } catch {
+    const patternStr = String(pattern)
+
+    // Prevent overly long patterns
+    if (patternStr.length > MAX_REGEX_LENGTH) {
+      return false
+    }
+
+    // Check for dangerous patterns that can cause exponential backtracking
+    // Patterns like (a+)+, (a*)*, (a+)*, etc.
+    if (/(\(.*[+*]\).*[+*])/.test(patternStr)) {
+      return false
+    }
+
+    const regex = new RegExp(patternStr)
+    const testStr = String(str)
+
+    // Use a simple timeout mechanism
+    const startTime = Date.now()
+    const result = regex.test(testStr)
+
+    if (Date.now() - startTime > REGEX_TIMEOUT_MS) {
+      throw new Error('Regex execution timeout - potential ReDoS pattern detected')
+    }
+
+    return result
+  } catch (error) {
+    // Log the error for debugging but don't expose to user
+    console.error('Regex matching failed:', error instanceof Error ? error.message : 'Unknown error')
     return false
   }
 }

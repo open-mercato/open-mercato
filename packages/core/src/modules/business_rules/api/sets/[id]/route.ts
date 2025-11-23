@@ -109,7 +109,6 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get rule set detail',
       description: 'Returns detailed information about a specific rule set, including all member rules.',
-      params: paramsSchema,
       responses: [
         { status: 200, description: 'Rule set details', schema: ruleSetDetailSchema },
       ],

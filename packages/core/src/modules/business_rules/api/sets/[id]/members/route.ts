@@ -81,7 +81,7 @@ export async function POST(req: Request, ctx: { params?: { id?: string } }) {
 
   const parsed = addMemberRequestSchema.safeParse(body)
   if (!parsed.success) {
-    const errors = parsed.error?.errors?.map(e => `${e.path.join('.')}: ${e.message}`) ?? ['Unknown validation error']
+    const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
@@ -152,7 +152,7 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
 
   const parsed = updateMemberRequestSchema.safeParse(body)
   if (!parsed.success) {
-    const errors = parsed.error?.errors?.map(e => `${e.path.join('.')}: ${e.message}`) ?? ['Unknown validation error']
+    const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
@@ -223,7 +223,6 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Add rule to set',
       description: 'Adds a business rule to a rule set with specified sequence and enabled state.',
-      params: paramsSchema,
       requestBody: {
         contentType: 'application/json',
         schema: addMemberRequestSchema,
@@ -245,7 +244,6 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Update set member',
       description: 'Updates sequence or enabled state of a rule set member.',
-      params: paramsSchema,
       requestBody: {
         contentType: 'application/json',
         schema: updateMemberRequestSchema,
@@ -266,7 +264,6 @@ export const openApi: OpenApiRouteDoc = {
     DELETE: {
       summary: 'Remove rule from set',
       description: 'Removes a business rule from a rule set (hard delete).',
-      params: paramsSchema,
       query: z.object({ memberId: z.string().uuid().describe('Member identifier') }),
       responses: [
         { status: 200, description: 'Member removed', schema: okResponseSchema },

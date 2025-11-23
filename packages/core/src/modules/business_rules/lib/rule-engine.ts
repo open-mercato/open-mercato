@@ -118,9 +118,7 @@ export async function executeRules(
   // Validate input
   const validation = ruleEngineContextSchema.safeParse(context)
   if (!validation.success) {
-    const validationErrors = validation.error?.errors
-      ? validation.error.errors.map(e => `${e.path.join('.')}: ${e.message}`)
-      : ['Validation failed: Unknown error']
+    const validationErrors = validation.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return {
       allowed: false,
       executedRules: [],

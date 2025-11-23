@@ -549,4 +549,44 @@ describe('RuleExpressionEvaluator', () => {
       expect(evaluateExpression(condition, { text: 'anything' }, {})).toBe(false)
     })
   })
+
+  describe('Security - ReDoS Protection', () => {
+    test('should reject overly long regex patterns', () => {
+      const longPattern = 'a'.repeat(300)
+      const condition: SimpleCondition = {
+        field: 'text',
+        operator: 'MATCHES',
+        value: longPattern,
+      }
+      expect(evaluateExpression(condition, { text: 'test' }, {})).toBe(false)
+    })
+
+    test('should reject dangerous exponential backtracking patterns', () => {
+      const dangerousPatterns = [
+        '(a+)+',
+        '(a*)*',
+        '(a+)*',
+        '(.*)*',
+      ]
+
+      dangerousPatterns.forEach(pattern => {
+        const condition: SimpleCondition = {
+          field: 'text',
+          operator: 'MATCHES',
+          value: pattern,
+        }
+        expect(evaluateExpression(condition, { text: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, {})).toBe(false)
+      })
+    })
+
+    test('should allow safe regex patterns', () => {
+      const condition: SimpleCondition = {
+        field: 'email',
+        operator: 'MATCHES',
+        value: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$',
+      }
+      expect(evaluateExpression(condition, { email: 'user@example.com' }, {})).toBe(true)
+      expect(evaluateExpression(condition, { email: 'invalid-email' }, {})).toBe(false)
+    })
+  })
 })

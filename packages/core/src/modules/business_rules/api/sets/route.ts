@@ -165,7 +165,7 @@ export async function POST(req: Request) {
 
   const parsed = createRuleSetSchema.safeParse(payload)
   if (!parsed.success) {
-    const errors = parsed.error?.errors?.map(e => `${e.path.join('.')}: ${e.message}`) ?? ['Unknown validation error']
+    const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
@@ -202,7 +202,7 @@ export async function PUT(req: Request) {
 
   const parsed = updateRuleSetSchema.safeParse(payload)
   if (!parsed.success) {
-    const errors = parsed.error?.errors?.map(e => `${e.path.join('.')}: ${e.message}`) ?? ['Unknown validation error']
+    const errors = parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`)
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
