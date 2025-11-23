@@ -576,9 +576,10 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     if (Object.keys(customFields).length) {
       payload.customFields = customFields
     }
+    const previousSnapshots = offerSnapshotsRef.current
     const offersPayload = buildOfferPayloads({
       channelIds,
-      offerSnapshots: offerSnapshotsRef.current,
+      offerSnapshots: previousSnapshots,
       fallback: {
         title,
         description: description ?? undefined,
@@ -587,7 +588,24 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       },
     })
     payload.offers = offersPayload
-    const previousSnapshots = offerSnapshotsRef.current
+    const removedOffers = previousSnapshots.filter(
+      (offer) => typeof offer.id === 'string' && !channelIds.includes(offer.channelId),
+    )
+    if (removedOffers.length) {
+      try {
+        for (const offer of removedOffers) {
+          if (!offer.id) continue
+          await deleteCrud('catalog/offers', offer.id, {
+            errorMessage: t('catalog.products.edit.offers.deleteError', 'Failed to remove sales channel offer.'),
+          })
+        }
+      } catch (err) {
+        console.error('catalog.products.edit.offers.delete', err)
+        throw createCrudFormError(
+          t('catalog.products.edit.offers.deleteError', 'Failed to remove sales channel offer.'),
+        )
+      }
+    }
     await updateCrud('catalog/products', payload)
     offerSnapshotsRef.current = mergeOfferSnapshots(previousSnapshots, offersPayload)
     flash(t('catalog.products.edit.success', 'Product updated.'), 'success')
