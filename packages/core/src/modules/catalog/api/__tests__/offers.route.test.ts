@@ -99,7 +99,8 @@ describe('catalog offers route helpers', () => {
           if (where && 'offer' in where && where.offer !== null) {
             return offerPriceRows
           }
-          if (where && 'product' in where) {
+          const hasFallbackTargets = Boolean((where as any)?.$or || (where as any)?.$and)
+          if (hasFallbackTargets) {
             return fallbackPriceRows
           }
         }
@@ -133,13 +134,22 @@ describe('catalog offers route helpers', () => {
         displayMode: 'excluding-tax',
       }),
     )
-    expect(items[0].productChannelPrice).toEqual({
+    expect(items[0].productDefaultPrices).toEqual([
+      expect.objectContaining({
+        currencyCode: 'USD',
+        unitPriceNet: 95,
+        unitPriceGross: 114,
+        displayMode: 'including-tax',
+      }),
+    ])
+    expect(items[0].productChannelPrice).toEqual(expect.objectContaining({
       currencyCode: 'USD',
-      unitPriceNet: 90,
-      unitPriceGross: 108,
-      displayMode: 'excluding-tax',
-    })
+      unitPriceNet: 95,
+      unitPriceGross: 114,
+      displayMode: 'including-tax',
+    }))
     expect(items[1].prices).toHaveLength(1)
+    expect(items[1].productDefaultPrices).toEqual([])
     expect(items[1].productChannelPrice).toBeNull()
     expect(em.find).toHaveBeenCalledWith(CatalogProduct, expect.any(Object), expect.any(Object))
     expect(em.find).toHaveBeenCalledWith(

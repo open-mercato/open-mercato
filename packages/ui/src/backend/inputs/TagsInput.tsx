@@ -184,9 +184,9 @@ export function TagsInput({
           const label = option?.label ?? tag
           const description = option?.description
           return (
-            <span key={tag} className="inline-flex items-center gap-2 rounded bg-muted px-2 py-0.5 text-xs">
+            <span key={tag} className="inline-flex items-center gap-2 rounded-sm bg-muted px-2 py-0.5 text-xs">
               <span className="flex flex-col items-start leading-tight">
-                <span>{label}</span>
+                <span className="whitespace-nowrap">{label}</span>
                 {description ? (
                   <span className="text-[10px] text-muted-foreground">{description}</span>
                 ) : null}

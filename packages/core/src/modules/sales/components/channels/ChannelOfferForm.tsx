@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError, type CrudServerFieldErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -95,6 +95,9 @@ type ProductSearchResult = {
   sku: string | null
   defaultMediaUrl: string | null
   pricing: PricingSummary | null
+  existingOfferId: string | null
+  existingOfferTitle: string | null
+  isCurrentOfferProduct: boolean
 }
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -324,6 +327,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           value={(value as string | null) ?? null}
           onChange={(next) => setValue(next)}
           channelId={selectedChannelId}
+          currentOfferId={offerId ?? null}
         />
       ),
     },
@@ -533,16 +537,36 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     })
     const deletedIds = Array.from(deletedIdSet)
     let savedId = offerId ?? null
-    if (mode === 'create') {
-      const res = await createCrud<{ id?: string; offerId?: string }>('catalog/offers', basePayload, {
-        errorMessage: t('sales.channels.offers.errors.save', 'Failed to save offer.'),
-      })
-      savedId = res?.result?.offerId ?? res?.result?.id ?? null
-    } else if (offerId) {
-      await updateCrud('catalog/offers', { id: offerId, ...basePayload }, {
-        errorMessage: t('sales.channels.offers.errors.save', 'Failed to save offer.'),
-      })
-      savedId = offerId
+    try {
+      if (mode === 'create') {
+        const res = await createCrud<{ id?: string; offerId?: string }>('catalog/offers', basePayload, {
+          errorMessage: t('sales.channels.offers.errors.save', 'Failed to save offer.'),
+        })
+        savedId = res?.result?.offerId ?? res?.result?.id ?? null
+      } else if (offerId) {
+        await updateCrud('catalog/offers', { id: offerId, ...basePayload }, {
+          errorMessage: t('sales.channels.offers.errors.save', 'Failed to save offer.'),
+        })
+        savedId = offerId
+      }
+    } catch (err) {
+      const details = (err as { details?: unknown })?.details
+      const rawFieldErrors = (err as { fieldErrors?: unknown })?.fieldErrors
+      const fieldErrors = rawFieldErrors && typeof rawFieldErrors === 'object'
+        ? (rawFieldErrors as CrudServerFieldErrors)
+        : undefined
+      const status = (err as { status?: number })?.status
+      const message = typeof (err as { message?: unknown }).message === 'string' && (err as { message: string }).message.trim().length
+        ? (err as { message: string }).message
+        : t(
+            'sales.channels.offers.errors.duplicateProduct',
+            'This product already has an offer in this channel.',
+          )
+      throw createCrudFormError(
+        message,
+        fieldErrors,
+        { status, details },
+      )
     }
     if (savedId) {
       await syncPriceOverrides({
@@ -875,10 +899,12 @@ function ProductSelectInput({
   value,
   onChange,
   channelId,
+  currentOfferId,
 }: {
   value: string | null
   onChange: (next: string | null) => void
   channelId: string | null
+  currentOfferId?: string | null
 }) {
   const t = useT()
   const [query, setQuery] = React.useState('')
@@ -913,7 +939,13 @@ function ProductSelectInput({
         )
         const items = Array.isArray(payload.items) ? payload.items : []
         if (!cancelled) {
-          setResults(items.map(mapProductSearchResult))
+          const mapped = items.map((item) => mapProductSearchResult(item, channelId, currentOfferId))
+          mapped.sort((a, b) => {
+            const aBlocked = Boolean(a.existingOfferId && !a.isCurrentOfferProduct)
+            const bBlocked = Boolean(b.existingOfferId && !b.isCurrentOfferProduct)
+            return Number(aBlocked) - Number(bBlocked)
+          })
+          setResults(mapped)
         }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
@@ -927,7 +959,7 @@ function ProductSelectInput({
       clearTimeout(timeout)
       controller.abort()
     }
-  }, [channelId, shouldSearch, trimmed])
+  }, [channelId, currentOfferId, shouldSearch, trimmed])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && UUID_REGEX.test(trimmed)) {
@@ -981,6 +1013,7 @@ function ProductSelectInput({
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {results.map((product) => {
               const isSelected = value === product.id
+              const hasConflict = Boolean(product.existingOfferId && !product.isCurrentOfferProduct)
               return (
                 <div
                   key={product.id}
@@ -1009,17 +1042,35 @@ function ProductSelectInput({
                       <div className="text-xs font-medium text-muted-foreground">
                         {product.pricing ? formatPriceDisplay(product.pricing) : t('sales.channels.offers.form.productPriceMissing', 'No price')}
                       </div>
-                    </div>
+                      </div>
+                    {hasConflict ? (
+                      <div className="flex items-center justify-between gap-2 text-xs text-amber-700">
+                        <span className="truncate">
+                          {t('sales.channels.offers.form.productHasOffer', 'Already has an offer for this channel.')}
+                        </span>
+                        {channelId && product.existingOfferId ? (
+                          <Link
+                            href={`/backend/sales/channels/${channelId}/offers/${product.existingOfferId}/edit`}
+                            className="shrink-0 font-medium text-primary hover:underline"
+                          >
+                            {t('sales.channels.offers.form.productHasOfferLink', 'View offer')}
+                          </Link>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="flex justify-end">
                       <Button
                         type="button"
                         variant={isSelected ? 'secondary' : 'outline'}
                         size="sm"
                         onClick={() => onChange(product.id)}
+                        disabled={hasConflict && !isSelected}
                       >
-                        {isSelected
-                          ? t('sales.channels.offers.form.productSelected', 'Selected')
-                          : t('sales.channels.offers.form.productSelect', 'Select')}
+                        {hasConflict && !isSelected
+                          ? t('sales.channels.offers.form.productUnavailable', 'Unavailable')
+                          : isSelected
+                            ? t('sales.channels.offers.form.productSelected', 'Selected')
+                            : t('sales.channels.offers.form.productSelect', 'Select')}
                       </Button>
                     </div>
                   </div>
@@ -1459,7 +1510,24 @@ async function resolveVariantThumbnail(
   return null
 }
 
-function mapProductSearchResult(item: Record<string, unknown>): ProductSearchResult {
+function mapProductSearchResult(
+  item: Record<string, unknown>,
+  channelId?: string | null,
+  currentOfferId?: string | null,
+): ProductSearchResult {
+  const offers = Array.isArray((item as { offers?: unknown }).offers)
+    ? (item as { offers: Array<Record<string, unknown>> }).offers
+    : []
+  const channelOffer = offers.find((entry) => {
+    if (!entry || typeof entry !== 'object') return false
+    const offerChannelId = typeof entry.channelId === 'string'
+      ? entry.channelId
+      : typeof (entry as Record<string, unknown>).channel_id === 'string'
+        ? (entry as Record<string, unknown>).channel_id
+        : null
+    return channelId ? offerChannelId === channelId : false
+  }) ?? null
+  const existingOfferId = channelOffer && typeof channelOffer.id === 'string' ? channelOffer.id : null
   return {
     id: typeof item.id === 'string' ? item.id : '',
     title: typeof item.title === 'string' ? item.title : '',
@@ -1472,6 +1540,10 @@ function mapProductSearchResult(item: Record<string, unknown>): ProductSearchRes
     pricing: item.pricing && typeof item.pricing === 'object'
       ? normalizePricing(item.pricing as Record<string, unknown>)
       : null,
+    existingOfferId,
+    existingOfferTitle:
+      channelOffer && typeof channelOffer.title === 'string' ? channelOffer.title : null,
+    isCurrentOfferProduct: Boolean(existingOfferId && currentOfferId && existingOfferId === currentOfferId),
   }
 }
 

@@ -37,6 +37,24 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['attachments.manage'] },
 }
 
+type RouteParams = { id: string }
+type RouteContext = { params: RouteParams | Promise<RouteParams> }
+
+async function resolveAttachmentId(ctx: RouteContext): Promise<string | null> {
+  const params = ctx?.params
+  if (!params) return null
+  try {
+    const resolved = typeof (params as any).then === 'function' ? await params : params
+    const id = resolved?.id
+    if (typeof id === 'string' && id.trim().length) {
+      return id
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 function normalizeCustomFieldResponse(values: Record<string, unknown> | null | undefined): Record<string, unknown> | undefined {
   if (!values) return undefined
   const entries: Record<string, unknown> = {}
@@ -56,12 +74,12 @@ function normalizeCustomFieldResponse(values: Record<string, unknown> | null | u
   return Object.keys(entries).length ? entries : undefined
 }
 
-export async function GET(req: Request, ctx: { params: { id: string } }) {
+export async function GET(req: Request, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const attachmentId = ctx.params?.id
+  const attachmentId = await resolveAttachmentId(ctx)
   if (!attachmentId) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
@@ -116,12 +134,12 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
   })
 }
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const attachmentId = ctx.params?.id
+  const attachmentId = await resolveAttachmentId(ctx)
   if (!attachmentId) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
@@ -189,12 +207,12 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   })
 }
 
-export async function DELETE(req: Request, ctx: { params: { id: string } }) {
+export async function DELETE(req: Request, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const attachmentId = ctx.params?.id
+  const attachmentId = await resolveAttachmentId(ctx)
   if (!attachmentId) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }

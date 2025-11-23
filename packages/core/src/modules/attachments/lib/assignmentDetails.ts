@@ -147,6 +147,17 @@ function buildSimpleHref(base: string, idValue: unknown, suffix: string = ''): s
   return `${base}/${encodeURIComponent(id)}${suffix}`
 }
 
+function isUuid(value: string | null | undefined): boolean {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
+}
+
+function filterIdsForEntity(entityId: string, ids: string[]): string[] {
+  if (entityId === E.catalog.catalog_product_variant || entityId === E.catalog.catalog_product) {
+    return ids.filter((id) => isUuid(id))
+  }
+  return ids
+}
+
 function resolveLabelCandidates(entityId: string, linkSpec: AssignmentLinkSpec | undefined, entitySpecs: Map<string, CustomEntitySpec>): string[] {
   const candidates = new Set<string>()
   const spec = entitySpecs.get(entityId)
@@ -203,7 +214,7 @@ export async function resolveAssignmentEnrichments(
   if (!grouped.size) return map
 
   for (const [entityId, idsSet] of grouped.entries()) {
-    const ids = Array.from(idsSet.values())
+    const ids = filterIdsForEntity(entityId, Array.from(idsSet.values()))
     if (!ids.length) continue
     const linkSpec = ENTITY_LINK_SPECS[entityId]
     const fields = new Set<string>(['id'])

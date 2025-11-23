@@ -181,14 +181,20 @@ export async function decorateOffersWithDetails(
     }
   })
   const DEFAULT_CHANNEL_KEY = '__default__'
-  const productChannelPriceMap = new Map<string, Map<string, { payload: Record<string, unknown>; priority: number }>>()
+  type ProductFallbackPrice = { prices: Record<string, unknown>[]; priority: number }
+  const productChannelPriceMap = new Map<string, Map<string, ProductFallbackPrice>>()
   const assignFallbackPrice = (productRef: string | null, channelRef: string | null, payload: Record<string, unknown>, priority: number) => {
     if (!productRef) return
     const bucket = productChannelPriceMap.get(productRef) ?? new Map()
     const effectiveChannel = channelRef ?? DEFAULT_CHANNEL_KEY
     const existing = bucket.get(effectiveChannel)
-    if (existing && existing.priority >= priority) return
-    bucket.set(effectiveChannel, { payload, priority })
+    if (existing && existing.priority > priority) return
+    if (existing && existing.priority === priority) {
+      bucket.set(effectiveChannel, { prices: [...existing.prices, payload], priority })
+      productChannelPriceMap.set(productRef, bucket)
+      return
+    }
+    bucket.set(effectiveChannel, { prices: [payload], priority })
     productChannelPriceMap.set(productRef, bucket)
   }
   const channelIds = Array.from(new Set(
@@ -210,8 +216,17 @@ export async function decorateOffersWithDetails(
         CatalogProductPrice,
         {
           offer: null,
-          $or: fallbackTargets,
-          channelId: { $in: channelFilterValues },
+          $and: [
+            { $or: fallbackTargets },
+            channelFilterValues.includes(null)
+              ? {
+                  $or: [
+                    { channelId: { $in: channelFilterValues.filter((id): id is string => typeof id === 'string') } },
+                    { channelId: null },
+                  ],
+                }
+              : { channelId: { $in: channelFilterValues } },
+          ],
         },
         { populate: ['priceKind'] },
       )
@@ -223,12 +238,27 @@ export async function decorateOffersWithDetails(
     const priceKind = entry.priceKind && typeof entry.priceKind === 'object'
       ? (entry.priceKind as Record<string, unknown>)
       : null
+    const priceKindId =
+      typeof priceKind?.id === 'string'
+        ? priceKind.id
+        : null
+    const priceKindCode =
+      typeof priceKind?.code === 'string'
+        ? priceKind.code
+        : null
+    const priceKindTitle =
+      typeof priceKind?.title === 'string'
+        ? priceKind.title
+        : null
     const displayMode = typeof priceKind?.displayMode === 'string'
       ? priceKind.displayMode
       : typeof priceKind?.display_mode === 'string'
         ? priceKind.display_mode
-        : null
+        : 'excluding-tax'
     const payload = {
+      priceKindId,
+      priceKindCode,
+      priceKindTitle,
       currencyCode: entry.currencyCode ?? null,
       unitPriceNet: entry.unitPriceNet ?? null,
       unitPriceGross: entry.unitPriceGross ?? null,
@@ -273,8 +303,11 @@ export async function decorateOffersWithDetails(
         : null
     const bucket = productChannelPriceMap.get(productId)
     const channelKey = rowChannelId ?? DEFAULT_CHANNEL_KEY
-    const channelPrice = bucket?.get(channelKey) ?? bucket?.get(DEFAULT_CHANNEL_KEY) ?? null
-    item.productChannelPrice = channelPrice ? channelPrice.payload : null
+    const channelPrice = bucket?.get(channelKey) ?? null
+    const defaultPrice = bucket?.get(DEFAULT_CHANNEL_KEY) ?? null
+    const effectivePrice = channelPrice ?? defaultPrice ?? null
+    item.productChannelPrice = effectivePrice?.prices?.[0] ?? null
+    item.productDefaultPrices = effectivePrice?.prices ?? []
   })
 }
 

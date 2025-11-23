@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   CatalogOffer,
   CatalogProduct,
+  CatalogProductCategory,
   CatalogProductCategoryAssignment,
   CatalogProductPrice,
   CatalogProductVariant,
@@ -341,7 +342,29 @@ async function decorateProductsAfterList(
     { product: { $in: productIds } },
     { populate: ['category'], orderBy: { position: 'asc' } }
   )
-  const categoriesByProduct = new Map<string, Array<{ id: string; name: string | null; treePath: string | null }>>()
+  const parentIds = new Set<string>()
+  for (const assignment of categoryAssignments) {
+    const category =
+      typeof assignment.category === 'string' ? null : assignment.category ?? null
+    if (!category) continue
+    const parentId = category.parentId ?? null
+    if (parentId) parentIds.add(parentId)
+  }
+  const parentCategories = parentIds.size
+    ? await em.find(
+        CatalogProductCategory,
+        { id: { $in: Array.from(parentIds) } },
+        { fields: ['id', 'name'] }
+      )
+    : []
+  const parentNameById = new Map<string, string | null>()
+  for (const parent of parentCategories) {
+    parentNameById.set(parent.id, parent.name ?? null)
+  }
+  const categoriesByProduct = new Map<
+    string,
+    Array<{ id: string; name: string | null; treePath: string | null; parentId: string | null; parentName: string | null }>
+  >()
   for (const assignment of categoryAssignments) {
     const productId =
       typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
@@ -349,11 +372,15 @@ async function decorateProductsAfterList(
     const category =
       typeof assignment.category === 'string' ? null : assignment.category ?? null
     if (!category) continue
+    const parentId = category.parentId ?? null
+    const parentName = parentId ? parentNameById.get(parentId) ?? null : null
     const bucket = categoriesByProduct.get(productId) ?? []
     bucket.push({
       id: category.id,
       name: category.name ?? null,
       treePath: category.treePath ?? null,
+      parentId,
+      parentName,
     })
     categoriesByProduct.set(productId, bucket)
   }

@@ -11,6 +11,12 @@ export type ProductCategorizePickerOption = {
   description?: string | null
 }
 
+const formatCategoryLabel = (name: string | null | undefined, fallback: string, parentName?: string | null) => {
+  const base = typeof name === 'string' && name.trim().length ? name.trim() : fallback
+  const parent = typeof parentName === 'string' && parentName.trim().length ? parentName.trim() : null
+  return parent ? `${base} / ${parent}` : base
+}
+
 type ProductCategorizeSectionProps = {
   values: ProductFormValues
   setValue: (id: string, value: unknown) => void
@@ -104,12 +110,18 @@ export function ProductCategorizeSection({
           .map((entry) => {
             const value = typeof entry.id === 'string' ? entry.id : null
             if (!value) return null
-            const label = typeof entry.name === 'string' && entry.name.trim().length ? entry.name : value
-            const description =
+            const parentName =
               typeof entry.parentName === 'string' && entry.parentName.trim().length ? entry.parentName : null
+            const label = formatCategoryLabel(
+              typeof entry.name === 'string' ? entry.name : null,
+              value,
+              parentName,
+            )
+            const description =
+              parentName && !label.toLowerCase().includes(parentName.toLowerCase()) ? parentName : null
             return { value, label, description }
           })
-          .filter((option): option is PickerOption => !!option)
+          .filter((option): option is ProductCategorizePickerOption => !!option)
         registerPickerOptions(setCategoryOptionsMap, options)
         return options
       } catch {
@@ -143,7 +155,7 @@ export function ProductCategorizeSection({
             const description = typeof entry.code === 'string' && entry.code.trim().length ? entry.code : null
             return { value, label, description }
           })
-          .filter((option): option is PickerOption => !!option)
+          .filter((option): option is ProductCategorizePickerOption => !!option)
         registerPickerOptions(setChannelOptionsMap, options)
         return options
       } catch {
@@ -170,7 +182,7 @@ export function ProductCategorizeSection({
             if (!rawLabel) return null
             return { value: rawLabel, label: rawLabel }
           })
-          .filter((option): option is PickerOption => !!option)
+          .filter((option): option is ProductCategorizePickerOption => !!option)
         registerPickerOptions(setTagOptionsMap, options)
         return options
       } catch {

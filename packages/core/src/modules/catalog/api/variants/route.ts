@@ -36,6 +36,7 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
     search: z.string().optional(),
     productId: z.string().uuid().optional(),
     sku: z.string().optional(),
@@ -63,6 +64,9 @@ export async function buildVariantFilters(
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
   const term = sanitizeSearchTerm(query.search)
+  if (query.id) {
+    filters.id = { $eq: query.id }
+  }
   if (term) {
     const like = `%${term}%`
     filters.$or = [

@@ -1159,7 +1159,9 @@ function ProductVariantsSection({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold">{t('catalog.products.edit.variants', 'Variants')}</h3>
+        <h3 id="variants" className="text-sm font-semibold">
+          {t('catalog.products.edit.variants', 'Variants')}
+        </h3>
         <div className="flex flex-wrap items-center gap-2">
           {showGenerateButton ? (
             <Button type="button" size="sm" variant="outline" disabled={generating} onClick={() => { void handleGenerateVariants() }}>
@@ -1503,6 +1505,11 @@ function normalizeTagValues(value: unknown): string[] {
   return Array.from(new Set(tags))
 }
 
+function formatCategoryLabel(name: string | null, fallback: string, parentName: string | null): string {
+  const base = name ?? fallback
+  return parentName ? `${base} / ${parentName}` : base
+}
+
 function readCategorySelections(record: Record<string, unknown>): {
   ids: string[]
   options: ProductCategorizePickerOption[]
@@ -1514,9 +1521,12 @@ function readCategorySelections(record: Record<string, unknown>): {
     .map((entry) => {
       const value = getString(entry.id) ?? getString(entry.categoryId) ?? getString(entry.category_id)
       if (!value) return null
-      const label = getString(entry.name) ?? value
-      const description = getString(entry.treePath) ?? getString(entry.parentName)
-      return { value, label, description: description ?? null }
+      const name = getString(entry.name)
+      const parentName = getString(entry.parentName)
+      const label = formatCategoryLabel(name, value, parentName)
+      const description =
+        parentName && !label.toLowerCase().includes(parentName.toLowerCase()) ? parentName : null
+      return { value, label, description }
     })
     .filter((option): option is ProductCategorizePickerOption => !!option)
   const fallbackIds = normalizeIdList((record as Record<string, unknown>).categoryIds)

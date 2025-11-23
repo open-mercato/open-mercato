@@ -8,8 +8,8 @@ export type OfferPriceRow = {
   priceKindCode?: string | null
   priceKindTitle?: string | null
   currencyCode?: string | null
-  unitPriceNet?: string | null
-  unitPriceGross?: string | null
+  unitPriceNet?: string | number | null
+  unitPriceGross?: string | number | null
   displayMode?: string | null
 }
 
@@ -23,6 +23,7 @@ export type OfferRow = {
   productSku: string | null
   productMediaUrl: string | null
   prices: OfferPriceRow[]
+  productDefaultPrices: OfferPriceRow[]
   productChannelPrice: OfferPriceRow | null
   isActive: boolean
   updatedAt: string | null
@@ -33,6 +34,11 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
     ? item.product as Record<string, unknown>
     : null
   const prices = Array.isArray(item.prices) ? item.prices as Array<Record<string, unknown>> : []
+  const productDefaultPrices = Array.isArray(item.productDefaultPrices)
+    ? item.productDefaultPrices as Array<Record<string, unknown>>
+    : Array.isArray(item.product_default_prices)
+      ? item.product_default_prices as Array<Record<string, unknown>>
+      : []
   const productChannelPriceSource =
     item.productChannelPrice && typeof item.productChannelPrice === 'object'
       ? item.productChannelPrice
@@ -60,44 +66,8 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
       : typeof product?.default_media_url === 'string'
         ? product.default_media_url
         : null,
-    prices: prices.map((row) => ({
-      id: typeof row.id === 'string' ? row.id : undefined,
-      priceKindId: typeof row.priceKindId === 'string'
-        ? row.priceKindId
-        : typeof row.price_kind_id === 'string'
-          ? row.price_kind_id
-          : null,
-      priceKindCode: typeof row.priceKindCode === 'string'
-        ? row.priceKindCode
-        : typeof row.price_kind_code === 'string'
-          ? row.price_kind_code
-          : null,
-      priceKindTitle: typeof row.priceKindTitle === 'string'
-        ? row.priceKindTitle
-        : typeof row.price_kind_title === 'string'
-          ? row.price_kind_title
-          : null,
-      currencyCode: typeof row.currencyCode === 'string'
-        ? row.currencyCode
-        : typeof row.currency_code === 'string'
-          ? row.currency_code
-          : null,
-      unitPriceNet: typeof row.unitPriceNet === 'string'
-        ? row.unitPriceNet
-        : typeof row.unit_price_net === 'string'
-          ? row.unit_price_net
-          : null,
-      unitPriceGross: typeof row.unitPriceGross === 'string'
-        ? row.unitPriceGross
-        : typeof row.unit_price_gross === 'string'
-          ? row.unit_price_gross
-          : null,
-      displayMode: typeof row.displayMode === 'string'
-        ? row.displayMode
-        : typeof row.display_mode === 'string'
-          ? row.display_mode
-          : null,
-    })),
+    prices: prices.map(mapPriceRow),
+    productDefaultPrices: productDefaultPrices.map(mapPriceRow),
     productChannelPrice: mapPriceSummary(productChannelPriceSource),
     isActive: item.isActive === true || item.is_active === true,
     updatedAt: typeof item.updatedAt === 'string'
@@ -113,6 +83,13 @@ export function renderOfferPriceSummary(
   t: Translator,
 ): React.ReactNode {
   if (!row.prices.length) {
+    if (row.productDefaultPrices.length) {
+      return (
+        <div className="flex flex-wrap gap-2">
+          {row.productDefaultPrices.map((price) => renderPriceBadge(price, t, true))}
+        </div>
+      )
+    }
     if (row.productChannelPrice) {
       return (
         <span className="text-xs text-muted-foreground">
@@ -126,48 +103,14 @@ export function renderOfferPriceSummary(
   }
   return (
     <div className="flex flex-wrap gap-2">
-      {row.prices.map((price) => {
-        const label = price.priceKindTitle || price.priceKindCode || t('sales.channels.offers.table.price', 'Price')
-        const numeric = price.displayMode === 'including-tax'
-          ? price.unitPriceGross ?? price.unitPriceNet
-          : price.unitPriceNet ?? price.unitPriceGross
-        return (
-          <div key={`${price.id ?? 'price'}-${label}`} className="rounded border px-2 py-1 text-xs">
-            <div className="font-medium">{label}</div>
-            <div className="text-muted-foreground">
-              {price.currencyCode ?? ''} {numeric ?? '—'}
-            </div>
-          </div>
-        )
-      })}
+      {row.prices.map((price) => renderPriceBadge(price, t))}
     </div>
   )
 }
 
 function mapPriceSummary(source: Record<string, unknown> | null): OfferPriceRow | null {
   if (!source) return null
-  return {
-    currencyCode: typeof source.currencyCode === 'string'
-      ? source.currencyCode
-      : typeof source.currency_code === 'string'
-        ? source.currency_code
-        : null,
-    unitPriceNet: typeof source.unitPriceNet === 'string'
-      ? source.unitPriceNet
-      : typeof source.unit_price_net === 'string'
-        ? source.unit_price_net
-        : null,
-    unitPriceGross: typeof source.unitPriceGross === 'string'
-      ? source.unitPriceGross
-      : typeof source.unit_price_gross === 'string'
-        ? source.unit_price_gross
-        : null,
-    displayMode: typeof source.displayMode === 'string'
-      ? source.displayMode
-      : typeof source.display_mode === 'string'
-        ? source.display_mode
-        : null,
-  }
+  return mapPriceRow(source)
 }
 
 function formatPriceValue(price: OfferPriceRow | null): string {
@@ -175,6 +118,47 @@ function formatPriceValue(price: OfferPriceRow | null): string {
   const amount = price.displayMode === 'including-tax'
     ? price.unitPriceGross ?? price.unitPriceNet
     : price.unitPriceNet ?? price.unitPriceGross
-  if (!amount) return price.currencyCode ?? '—'
-  return `${price.currencyCode ?? ''} ${amount}`
+  if (amount === null || amount === undefined) return price.currencyCode ?? '—'
+  return `${price.currencyCode ?? ''} ${String(amount)}`
+}
+
+function mapPriceRow(source: Record<string, unknown>): OfferPriceRow {
+  return {
+    id: readString(source.id) ?? undefined,
+    priceKindId: readString(source.priceKindId ?? source.price_kind_id),
+    priceKindCode: readString(source.priceKindCode ?? source.price_kind_code),
+    priceKindTitle: readString(source.priceKindTitle ?? source.price_kind_title),
+    currencyCode: readString(source.currencyCode ?? source.currency_code),
+    unitPriceNet: readPriceValue(source.unitPriceNet ?? source.unit_price_net),
+    unitPriceGross: readPriceValue(source.unitPriceGross ?? source.unit_price_gross),
+    displayMode: readString(source.displayMode ?? source.display_mode),
+  }
+}
+
+function readPriceValue(value: unknown): string | number | null {
+  if (typeof value === 'number' || typeof value === 'string') return value
+  return null
+}
+
+function readString(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return value.toString()
+  return null
+}
+
+function renderPriceBadge(price: OfferPriceRow, t: Translator, muted?: boolean) {
+  const label = price.priceKindTitle || price.priceKindCode || t('sales.channels.offers.table.price', 'Price')
+  const numeric = price.displayMode === 'including-tax'
+    ? price.unitPriceGross ?? price.unitPriceNet
+    : price.unitPriceNet ?? price.unitPriceGross
+  const amount = numeric === null || numeric === undefined ? '—' : String(numeric)
+  const className = ['rounded border px-2 py-1 text-xs', muted ? 'bg-muted' : null].filter(Boolean).join(' ')
+  return (
+    <div key={`${price.id ?? 'price'}-${label}`} className={className}>
+      <div className="font-medium">{label}</div>
+      <div className="text-muted-foreground">
+        {price.currencyCode ?? ''} {amount}
+      </div>
+    </div>
+  )
 }

@@ -1339,7 +1339,11 @@ export function AttachmentLibrary() {
           return (
             <div className="flex flex-col gap-1">
               {assignments.map((assignment) => {
-                const label = assignment.label || assignment.id
+                const label = assignment.label?.trim() || assignment.id
+                const hideType =
+                  assignment.type === E.catalog.catalog_product ||
+                  assignment.type === E.catalog.catalog_product_variant
+                const content = hideType ? label : `${assignment.type}: ${label}`
                 return assignment.href ? (
                   <a
                     key={`${assignment.type}-${assignment.id}-${assignment.href}`}
@@ -1348,11 +1352,11 @@ export function AttachmentLibrary() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    {assignment.type}: {label}
+                    {content}
                   </a>
                 ) : (
                   <div key={`${assignment.type}-${assignment.id}`} className="text-sm">
-                    {assignment.type}: {label}
+                    {content}
                   </div>
                 )
               })}

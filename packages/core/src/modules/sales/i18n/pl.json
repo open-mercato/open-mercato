@@ -106,6 +106,7 @@
           "delete": "Failed to delete offer.",
           "loadOffer": "Failed to load offer.",
           "save": "Failed to save offer.",
+          "duplicateProduct": "Ten produkt ma już ofertę w tym kanale.",
           "requiredFields": "Choose a channel and product.",
           "priceKindRequired": "Wybierz rodzaj ceny dla każdego nadpisania.",
           "priceKindDuplicate": "Każdy typ ceny można nadpisać tylko raz."
@@ -154,6 +155,9 @@
           "productUntitled": "Produkt bez nazwy",
           "productPriceMissing": "Brak ceny",
           "productPriceLabel": "Cena bazowa",
+          "productHasOffer": "Ma już ofertę w tym kanale.",
+          "productHasOfferLink": "Zobacz ofertę",
+          "productUnavailable": "Niedostępny",
           "productSelect": "Wybierz",
           "productSelected": "Wybrano",
           "defaultMedia": "Domyślne media",

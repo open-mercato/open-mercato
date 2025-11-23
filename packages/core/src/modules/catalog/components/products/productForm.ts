@@ -92,7 +92,8 @@ export const productFormSchema = z.object({
   defaultMediaUrl: z.string().trim().max(500).nullable().optional(),
   options: z.any().optional(),
   variants: z.any().optional(),
-  metadata: z.record(z.unknown()).nullable().optional(),
+  // Use a permissive schema to avoid zod classic `_zod` runtime crashes on records in edge builds.
+  metadata: z.custom<Record<string, unknown>>(() => true).nullable().optional(),
   customFieldsetCode: z.string().optional().nullable(),
   categoryIds: z.array(z.string().uuid()).optional(),
   channelIds: z.array(z.string().uuid()).optional(),

@@ -2,6 +2,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogOffer } from '../data/entities'
@@ -113,7 +114,10 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
       deletedAt: null,
     })
     if (conflict) {
-      throw new CrudHttpError(400, { error: 'Offer already exists for this channel.' })
+      throw new CrudHttpError(400, {
+        error: 'This product already has an offer in this channel.',
+        details: { offerId: conflict.id },
+      })
     }
     const now = new Date()
     const record = em.create(CatalogOffer, {
@@ -135,7 +139,11 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
       updatedAt: now,
     })
     em.persist(record)
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (err) {
+      handleUniqueOfferError(err)
+    }
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_offer,
@@ -219,37 +227,39 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     await em.populate(record, ['product'])
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    let product =
+    let productEntity =
       typeof record.product === 'string'
         ? await requireProduct(em, record.product)
         : record.product
     if (parsed.productId && parsed.productId !== record.product.id) {
       const nextProduct = await requireProduct(em, parsed.productId)
       ensureSameScope(nextProduct, record.organizationId, record.tenantId)
-      product = nextProduct
-      record.product = nextProduct
+      productEntity = nextProduct
     }
-    if (parsed.channelId && parsed.channelId !== record.channelId) {
-      const conflict = await em.findOne(CatalogOffer, {
-        product,
-        channelId: parsed.channelId,
-        deletedAt: null,
-        id: { $ne: record.id },
+    const nextChannelId = parsed.channelId ?? record.channelId
+    const conflict = await em.findOne(CatalogOffer, {
+      product: typeof productEntity === 'string' ? productEntity : productEntity.id,
+      channelId: nextChannelId,
+      deletedAt: null,
+      id: { $ne: record.id },
+    })
+    if (conflict) {
+      throw new CrudHttpError(400, {
+        error: 'This product already has an offer in this channel.',
+        details: { offerId: conflict.id },
       })
-      if (conflict) {
-        throw new CrudHttpError(400, { error: 'Offer already exists for this channel.' })
-      }
-      record.channelId = parsed.channelId
     }
+    record.product = productEntity
+    record.channelId = nextChannelId
     if (parsed.title !== undefined) {
       record.title =
-        parsed.title && parsed.title.trim().length ? parsed.title.trim() : product.title
+        parsed.title && parsed.title.trim().length ? parsed.title.trim() : productEntity.title
     }
     if (parsed.description !== undefined) {
       record.description =
         parsed.description && parsed.description.trim().length
           ? parsed.description.trim()
-          : product.description ?? null
+          : productEntity.description ?? null
     }
     if (parsed.defaultMediaId !== undefined) {
       record.defaultMediaId = parsed.defaultMediaId ?? null
@@ -266,7 +276,11 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     if (parsed.isActive !== undefined) {
       record.isActive = parsed.isActive
     }
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (err) {
+      handleUniqueOfferError(err)
+    }
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_offer,
@@ -469,3 +483,10 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
 registerCommand(createOfferCommand)
 registerCommand(updateOfferCommand)
 registerCommand(deleteOfferCommand)
+
+function handleUniqueOfferError(err: unknown): never {
+  if (err instanceof UniqueConstraintViolationException) {
+    throw new CrudHttpError(400, { error: 'This product already has an offer in this channel.' })
+  }
+  throw err
+}

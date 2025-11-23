@@ -364,6 +364,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const formTitle = productTitle
     ? t('catalog.variants.form.editTitleFor', 'Edit variant • {{title}}').replace('{{title}}', productTitle)
     : t('catalog.variants.form.editTitle', 'Edit variant')
+  const productVariantsHref = `/backend/catalog/products/${currentProductId}#variants`
 
   return (
     <Page>
@@ -373,7 +374,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
         ) : null}
         <CrudForm<VariantFormValues>
           title={formTitle}
-          backHref={`/backend/catalog/products/${currentProductId}`}
+          backHref={productVariantsHref}
           fields={[]}
           groups={groups}
           entityId={E.catalog.catalog_product_variant}
@@ -382,7 +383,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           isLoading={loading}
           loadingMessage={t('catalog.variants.form.loading', 'Loading variant...')}
           submitLabel={t('catalog.variants.form.save', 'Save changes')}
-          cancelHref={`/backend/catalog/products/${currentProductId}`}
+          cancelHref={productVariantsHref}
           onSubmit={async (values) => {
             const name = values.name?.trim()
             if (!name) {
@@ -426,15 +427,16 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               taxRateId: values.taxRateId,
             })
             flash(t('catalog.variants.form.updated', 'Variant updated.'), 'success')
+            router.push(productVariantsHref)
           }}
           onDelete={async () => {
             await deleteCrud('catalog/variants', variantId, {
               errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
             })
             flash(t('catalog.variants.form.deleted', 'Variant deleted.'), 'success')
-            router.push(`/backend/catalog/products/${currentProductId}`)
+            router.push(productVariantsHref)
           }}
-          deleteRedirect={`/backend/catalog/products/${currentProductId}`}
+          deleteRedirect={productVariantsHref}
         />
       </PageBody>
     </Page>
