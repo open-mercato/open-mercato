@@ -923,8 +923,8 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
               z.object({
                 type: z.string().min(1),
                 id: z.string().min(1),
-                href: z.string().nullable().optional(),
-                label: z.string().nullable().optional(),
+                href: z.string().optional(),
+                label: z.string().optional(),
               }),
             )
             .optional(),

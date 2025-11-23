@@ -262,12 +262,10 @@ export function AttachmentPartitionSettings() {
       <DataTable<Partition>
         columns={columns}
         data={filteredItems}
-        searchProps={{
-          value: search,
-          onChange: (value) => setSearch(value),
-          placeholder: tableLabels.search,
-        }}
-        emptyState={{ message: tableLabels.empty }}
+        searchValue={search}
+        onSearchChange={(value: string) => setSearch(value)}
+        searchPlaceholder={tableLabels.search}
+        emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{tableLabels.empty}</p>}
         isLoading={loading}
         refreshButton={{
           label: t('attachments.partitions.actions.refresh', 'Refresh'),

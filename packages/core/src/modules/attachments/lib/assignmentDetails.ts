@@ -230,7 +230,7 @@ export async function resolveAssignmentEnrichments(
         filters: { id: ids.length === 1 ? { $eq: ids[0] } : { $in: ids } },
         tenantId: opts.tenantId,
         organizationId: opts.organizationId,
-        pageSize: Math.max(ids.length, 20),
+        page: { pageSize: Math.max(ids.length, 20) },
       })
       for (const record of result.items ?? []) {
         const recordId = normalizeValue((record as Record<string, unknown>).id)

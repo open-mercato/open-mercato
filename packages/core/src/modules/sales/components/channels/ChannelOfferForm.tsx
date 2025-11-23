@@ -278,10 +278,19 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         const priceItems = Array.isArray(pricePayload.items) ? pricePayload.items : []
         values.priceOverrides = priceItems.map(mapPriceRow)
         let preloadedMedia: MediaOption[] = []
+        let preloadedVariants: ProductVariantPreview[] = []
         const productId = typeof values.productId === 'string' ? values.productId : null
         if (productId) {
           try {
-            preloadedMedia = dedupeMediaOptions(await loadProductMedia(productId))
+            const [attachments, variants] = await Promise.all([
+              loadProductMedia(productId),
+              resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache }),
+            ])
+            preloadedVariants = variants
+            preloadedMedia = dedupeMediaOptions([
+              ...attachments,
+              ...buildVariantMediaOptions(variants),
+            ])
             if (preloadedMedia.length) {
               attachmentCache.current.set(productId, preloadedMedia)
             }
@@ -291,6 +300,9 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         }
         if (!cancelled) {
           setInitialValues(values)
+          if (preloadedVariants.length) {
+            setVariantPreviews(preloadedVariants)
+          }
           if (preloadedMedia.length) {
             setMediaOptions(preloadedMedia)
           }
@@ -304,7 +316,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     void loadOffer()
     return () => { cancelled = true }
-  }, [attachmentCache, lockedChannelId, mode, offerId, setMediaOptions, t])
+  }, [attachmentCache, lockedChannelId, mode, offerId, setMediaOptions, setVariantPreviews, t, variantCache, variantMediaCache])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -1211,7 +1223,7 @@ function OfferFormWatchers({
   setProductSummary: React.Dispatch<React.SetStateAction<ProductSummary>>
   setVariantPreviews: React.Dispatch<React.SetStateAction<ProductVariantPreview[]>>
   variantCache: React.MutableRefObject<Map<string, ProductVariantPreview[]>>
-  variantMediaCache: React.MutableRefObject<Map<string, string | null>>
+  variantMediaCache: React.MutableRefObject<Map<string, VariantThumbnailInfo>>
   channelId: string | null
   manualMediaSelections: React.MutableRefObject<Set<string>>
   setCurrentProductId: React.Dispatch<React.SetStateAction<string | null>>
@@ -1255,10 +1267,12 @@ function OfferFormWatchers({
         }
         const attachments = await resolveProductMediaOptionsWithCache({ productId, attachmentCache })
         if (!cancelled) {
-          setMediaOptions(attachments)
-        }
-        const variants = await resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache })
-        if (!cancelled) {
+          const variants = await resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache })
+          const mergedMedia = dedupeMediaOptions([
+            ...attachments,
+            ...buildVariantMediaOptions(variants),
+          ])
+          setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
         }
       } catch (err) {
@@ -1341,7 +1355,7 @@ async function resolveVariantPreviewsWithCache({
 }: {
   productId: string
   variantCache: React.MutableRefObject<Map<string, ProductVariantPreview[]>>
-  variantMediaCache: React.MutableRefObject<Map<string, string | null>>
+  variantMediaCache: React.MutableRefObject<Map<string, VariantThumbnailInfo>>
 }): Promise<ProductVariantPreview[]> {
   if (!productId) return []
   const cached = variantCache.current.get(productId)
@@ -1355,8 +1369,13 @@ async function resolveVariantPreviewsWithCache({
   const variants = await Promise.all(
     items.map(async (item) => {
       const preview = mapVariantPreview(item)
-      const thumbnail = await resolveVariantThumbnail(preview.id, variantMediaCache)
-      return { ...preview, thumbnailUrl: thumbnail }
+      const media = await resolveVariantThumbnail(preview.id, variantMediaCache)
+      return {
+        ...preview,
+        thumbnailId: media?.attachmentId ?? preview.thumbnailId,
+        thumbnailUrl: media?.thumbnailUrl ?? preview.thumbnailUrl,
+        thumbnailFileName: media?.fileName ?? preview.thumbnailFileName,
+      }
     }),
   )
   variantCache.current.set(productId, variants)
@@ -1455,6 +1474,22 @@ async function loadProductMedia(productId: string): Promise<MediaOption[]> {
   return []
 }
 
+function buildVariantMediaOptions(variants: ProductVariantPreview[]): MediaOption[] {
+  return variants
+    .map((variant) => {
+      if (!variant.thumbnailId || !variant.thumbnailUrl) return null
+      const label = variant.name || variant.sku || 'Variant'
+      const fileName = variant.thumbnailFileName ?? `${variant.thumbnailId}.jpg`
+      return {
+        id: variant.thumbnailId,
+        label,
+        fileName,
+        thumbnailUrl: variant.thumbnailUrl,
+      }
+    })
+    .filter((entry): entry is MediaOption => Boolean(entry))
+}
+
 function dedupeMediaOptions(entries: MediaOption[] | null | undefined): MediaOption[] {
   if (!Array.isArray(entries)) return []
   const seen = new Set<string>()
@@ -1482,13 +1517,15 @@ function mapVariantPreview(item: Record<string, unknown>): ProductVariantPreview
       : typeof item.default_media_url === 'string'
         ? item.default_media_url
         : null,
+    thumbnailId: null,
+    thumbnailFileName: null,
   }
 }
 
 async function resolveVariantThumbnail(
   variantId: string,
-  cache: React.MutableRefObject<Map<string, string | null>>,
-): Promise<string | null> {
+  cache: React.MutableRefObject<Map<string, VariantThumbnailInfo>>,
+): Promise<VariantThumbnailInfo | null> {
   if (!variantId) return null
   if (cache.current.has(variantId)) {
     return cache.current.get(variantId) ?? null
@@ -1500,21 +1537,27 @@ async function resolveVariantThumbnail(
     const items = payload.ok && payload.result?.items ? payload.result.items : []
     const first = items.find((item) => typeof item.id === 'string')
     if (first?.id) {
-      const thumbnail = typeof first.thumbnailUrl === 'string'
+      const thumbnailUrl = typeof first.thumbnailUrl === 'string'
         ? first.thumbnailUrl
         : buildAttachmentImageUrl(first.id, {
             width: 360,
             height: 360,
             slug: slugifyAttachmentFileName(first.fileName ?? first.id),
           })
-      cache.current.set(variantId, thumbnail ?? null)
-      return thumbnail ?? null
+      const info: VariantThumbnailInfo = {
+        attachmentId: first.id,
+        thumbnailUrl: thumbnailUrl ?? null,
+        fileName: typeof first.fileName === 'string' ? first.fileName : null,
+      }
+      cache.current.set(variantId, info)
+      return info
     }
   } catch (err) {
     console.error('sales.channels.offer.variantMedia', err)
   }
-  cache.current.set(variantId, null)
-  return null
+  const empty: VariantThumbnailInfo = { attachmentId: null, thumbnailUrl: null, fileName: null }
+  cache.current.set(variantId, empty)
+  return empty
 }
 
 function mapProductSearchResult(
@@ -1646,7 +1689,7 @@ function PriceOverridesEditor({
     <div className="space-y-4">
       <div className="rounded border bg-muted/60 px-3 py-2">
         <div className="text-xs uppercase text-muted-foreground">
-          {t('sales.channels.offers.pricing.basePriceLabel', 'Channel price')}
+          {t('sales.channels.offers.pricing.basePriceLabel', 'Original product price')}
         </div>
         <div className="text-base font-semibold">
           {basePrice ? formatPriceDisplay(basePrice) : t('sales.channels.offers.pricing.basePriceMissing', 'No price found')}
@@ -1674,7 +1717,7 @@ function PriceOverridesEditor({
       </div>
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          {t('sales.channels.offers.pricing.overrideHint', 'Overrides take precedence over the channel price.')}
+          {t('sales.channels.offers.pricing.overrideHint', 'Overrides take precedence over the original product price.')}
         </p>
       </div>
       {values.length ? (

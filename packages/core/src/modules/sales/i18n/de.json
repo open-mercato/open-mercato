@@ -127,6 +127,7 @@
           "emptyAll": "Noch keine Angebote vorhanden.",
           "noOverrides": "No overrides",
           "price": "Price",
+          "channelPrice": "Ursprünglicher Produktpreis {{price}}",
           "emptyProduct": "Unlinked product",
           "channel": "Kanal",
           "channelUnassigned": "Nicht zugewiesen"
@@ -187,10 +188,10 @@
           "amount": "Betrag",
           "remove": "Entfernen",
           "empty": "Noch keine Überschreibungen.",
-          "basePriceLabel": "Kanalpreis",
+          "basePriceLabel": "Ursprünglicher Produktpreis",
           "basePriceMissing": "Kein Preis gefunden",
           "basePriceHelp": "Wird angezeigt, wenn keine Überschreibung existiert.",
-          "overrideHint": "Überschreibungen ersetzen den Kanalpreis.",
+          "overrideHint": "Überschreibungen haben Vorrang vor dem ursprünglichen Produktpreis.",
           "allKindsUsed": "Für jede Preisart existiert bereits eine Überschreibung.",
           "noKindsAvailable": "Definiere zuerst eine Preisart, bevor du Überschreibungen hinzufügst."
         }

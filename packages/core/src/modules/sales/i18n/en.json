@@ -127,6 +127,7 @@
           "emptyAll": "No offers available yet.",
           "noOverrides": "No overrides",
           "price": "Price",
+          "channelPrice": "Original product price {{price}}",
           "emptyProduct": "Unlinked product",
           "channel": "Channel",
           "channelUnassigned": "Unassigned"
@@ -188,10 +189,10 @@
           "remove": "Remove",
           "empty": "No overrides yet.",
           "emptyFallback": "Using {price} from the product until you add overrides.",
-          "basePriceLabel": "Channel price",
+          "basePriceLabel": "Original product price",
           "basePriceMissing": "No price found",
           "basePriceHelp": "Shown to shoppers when no override is configured.",
-          "overrideHint": "Overrides take precedence over the channel price.",
+          "overrideHint": "Overrides take precedence over the original product price.",
           "allKindsUsed": "Each price kind already has an override.",
           "noKindsAvailable": "Define a price kind before adding overrides."
         }

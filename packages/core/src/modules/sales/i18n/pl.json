@@ -127,6 +127,7 @@
           "emptyAll": "Brak dostępnych ofert.",
           "noOverrides": "No overrides",
           "price": "Price",
+          "channelPrice": "Oryginalna cena produktu {{price}}",
           "emptyProduct": "Unlinked product",
           "channel": "Kanał",
           "channelUnassigned": "Nieprzypisany"
@@ -188,10 +189,10 @@
           "remove": "Remove",
           "empty": "No overrides yet.",
           "emptyFallback": "Do czasu dodania nadpisania użyta będzie cena {price} z produktu.",
-          "basePriceLabel": "Cena kanału",
+          "basePriceLabel": "Oryginalna cena produktu",
           "basePriceMissing": "Brak ceny",
           "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",
-          "overrideHint": "Nadpisania mają pierwszeństwo przed ceną kanału.",
+          "overrideHint": "Nadpisania mają pierwszeństwo przed oryginalną ceną produktu.",
           "allKindsUsed": "Każdy typ ceny ma już nadpisanie.",
           "noKindsAvailable": "Zdefiniuj typ ceny przed dodaniem nadpisań."
         }

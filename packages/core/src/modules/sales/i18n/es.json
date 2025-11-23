@@ -127,6 +127,7 @@
           "emptyAll": "Todavía no hay ofertas disponibles.",
           "noOverrides": "No overrides",
           "price": "Price",
+          "channelPrice": "Precio original del producto {{price}}",
           "emptyProduct": "Unlinked product",
           "channel": "Canal",
           "channelUnassigned": "Sin asignar"
@@ -188,10 +189,10 @@
           "remove": "Remove",
           "empty": "No overrides yet.",
           "emptyFallback": "Se usará {price} del producto hasta que añadas reemplazos.",
-          "basePriceLabel": "Precio del canal",
+          "basePriceLabel": "Precio original del producto",
           "basePriceMissing": "No se encontró precio",
           "basePriceHelp": "Se muestra cuando no hay anulaciones.",
-          "overrideHint": "Las anulaciones tienen prioridad sobre el precio del canal.",
+          "overrideHint": "Las anulaciones tienen prioridad sobre el precio original del producto.",
           "allKindsUsed": "Cada tipo de precio ya tiene una anulación.",
           "noKindsAvailable": "Define un tipo de precio antes de agregar anulaciones."
         }

@@ -268,6 +268,8 @@ describe('catalog module components', () => {
       options: [],
       variants: [],
       metadata: {},
+      dimensions: null,
+      weight: null,
       customFieldsetCode: null,
       categoryIds: ['cat-1'],
       channelIds: ['ch-1'],

@@ -93,7 +93,7 @@ export function renderOfferPriceSummary(
     if (row.productChannelPrice) {
       return (
         <span className="text-xs text-muted-foreground">
-          {t('sales.channels.offers.table.channelPrice', 'Channel price {{price}}', {
+          {t('sales.channels.offers.table.channelPrice', 'Original product price {{price}}', {
             price: formatPriceValue(row.productChannelPrice),
           })}
         </span>
