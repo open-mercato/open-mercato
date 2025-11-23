@@ -1,0 +1,319 @@
+---
+title: Creating Rules
+description: Step-by-step guide to creating and configuring business rules in Open Mercato.
+---
+
+# Creating Rules
+
+This guide walks you through creating a business rule from start to finish. You'll learn how to fill out each field, configure conditions and actions, and test your rule.
+
+## Accessing the Rules Page
+
+1. Navigate to **Business Rules** > **Rules** in the main navigation
+2. Click the **Create Rule** button in the top-right corner
+3. The rule creation form will open with several sections
+
+> ℹ️ You need the `business_rules.rules.create` feature to create rules. Contact your administrator if you don't have access.
+
+## Basic Information
+
+The first section captures core information about your rule.
+
+### Rule ID
+
+**Purpose**: Unique identifier for programmatic access
+
+**Format**: Uppercase letters, numbers, and underscores (e.g., `MATERIAL_AVAILABILITY_CHECK`)
+
+**Guidelines**:
+- Must be unique across all rules
+- Maximum 50 characters
+- Use descriptive names that indicate the rule's purpose
+- Cannot be changed after creation
+
+**Tip**: The Rule ID is auto-generated from the Rule Name, but you can override it if needed.
+
+### Rule Name
+
+**Purpose**: Human-readable name displayed in the UI
+
+**Format**: Any text up to 200 characters
+
+**Guidelines**:
+- Use clear, descriptive names
+- Indicate what the rule does (e.g., "Block Work Order Release Without Materials")
+- Avoid abbreviations unless widely understood
+
+**Examples**:
+- "Require Manager Approval for Large Orders"
+- "Auto-Assign Work Orders Based on Skills"
+- "Validate Material Availability Before Release"
+
+### Description
+
+**Purpose**: Explains the rule's business rationale and behavior
+
+**Format**: Optional text up to 5000 characters
+
+**Guidelines**:
+- Explain **why** the rule exists (business reason)
+- Document any special cases or exceptions
+- Include relevant policy references
+- Note any dependencies on other rules
+
+**Example**:
+```
+Prevents work orders from being released to the shop floor if required
+materials are not available in inventory. This ensures production
+schedulers have visibility into material constraints before committing
+resources. Part of the Material Planning policy (MP-2024-03).
+```
+
+### Rule Type
+
+**Purpose**: Determines how the rule behaves and when it executes
+
+**Options**:
+- **GUARD** - Block or allow state transitions (e.g., prevent status changes)
+- **VALIDATION** - Validate data before saves (e.g., check required fields)
+- **CALCULATION** - Calculate derived values (e.g., compute totals)
+- **ACTION** - Trigger side effects (e.g., send notifications)
+- **ASSIGNMENT** - Set field values automatically (e.g., auto-populate assignee)
+
+**Required**: Yes
+
+**See also**: [Rule Types Reference](./rule-types) for detailed explanations
+
+### Rule Category
+
+**Purpose**: Organize rules into logical groups for filtering and reporting
+
+**Format**: Optional text up to 50 characters
+
+**Guidelines**:
+- Use consistent category names across related rules
+- Common categories: Pricing, Workflow, Data Quality, Compliance, Safety
+
+**Examples**:
+- "Material Planning"
+- "Quality Control"
+- "Approval Workflow"
+- "Customer Service"
+
+### Entity Type
+
+**Purpose**: Specifies which entity this rule applies to
+
+**Format**: Text up to 50 characters
+
+**Guidelines**:
+- Use exact entity names (case-sensitive)
+- Start typing to see autocomplete suggestions
+- Common entities: WorkOrder, Order, Invoice, Customer, Product
+
+**Autocomplete Suggestions**:
+The field provides suggestions for common entity types:
+- WorkOrder
+- Order
+- Invoice
+- Customer
+- Product
+- User
+- Task
+- Ticket
+- Deal
+- Contact
+
+You can also enter custom entity types not in the list.
+
+**Required**: Yes
+
+### Event Type
+
+**Purpose**: Defines when the rule should execute during the entity lifecycle
+
+**Format**: Optional text up to 50 characters
+
+**Guidelines**:
+- Use lifecycle event names
+- Start typing to see autocomplete suggestions
+- Leave empty to execute on any event
+
+**Autocomplete Suggestions**:
+The field provides suggestions for lifecycle events:
+- `beforeCreate` - Before entity is created
+- `afterCreate` - After entity is created
+- `beforeUpdate` - Before entity is updated
+- `afterUpdate` - After entity is updated
+- `beforeDelete` - Before entity is deleted
+- `afterDelete` - After entity is deleted
+- `beforeSave` - Before any save operation
+- `afterSave` - After any save operation
+- `onStatusChange` - When status field changes
+- `onAssign` - When entity is assigned
+
+**Examples**:
+- Use `beforeUpdate` for validation rules that check data before saves
+- Use `afterCreate` for notification rules that trigger after creation
+- Use `onStatusChange` for workflow rules tied to status transitions
+
+## Metadata
+
+Control rule execution with these settings.
+
+### Priority
+
+**Purpose**: Determines execution order when multiple rules apply
+
+**Format**: Number between 0 and 9999
+
+**Default**: 100
+
+**Guidelines**:
+- Higher numbers execute first
+- GUARD rules should typically have high priority (500-1000)
+- VALIDATION rules should execute before CALCULATION rules
+- ACTION and ASSIGNMENT rules can have lower priority (0-100)
+
+**Examples**:
+- 1000 - Critical guard rules that block dangerous operations
+- 500 - Standard validation rules
+- 250 - Calculation rules
+- 100 - Action rules (notifications, logging)
+- 50 - Assignment rules (auto-populate fields)
+
+### Enabled
+
+**Purpose**: Controls whether the rule is active
+
+**Default**: Checked (enabled)
+
+**Guidelines**:
+- Only enabled rules are executed
+- Disable rules temporarily for testing or maintenance
+- Disabled rules still appear in the UI but are skipped during execution
+
+### Version
+
+**Purpose**: Tracks rule changes over time
+
+**Format**: Positive integer
+
+**Default**: 1
+
+**Guidelines**:
+- Increment when making significant changes
+- Used for audit trail and rollback
+- Does not affect execution behavior
+
+### Effective From
+
+**Purpose**: Rule becomes active starting from this date
+
+**Format**: Date picker
+
+**Optional**: Leave empty for rules that are effective immediately
+
+**Use cases**:
+- Schedule rule activation for future date (e.g., new policy takes effect Jan 1)
+- Coordinate rule changes with other system updates
+- Test rules in production without immediate impact
+
+### Effective To
+
+**Purpose**: Rule becomes inactive after this date
+
+**Format**: Date picker
+
+**Optional**: Leave empty for rules that remain active indefinitely
+
+**Use cases**:
+- Temporary promotional rules (e.g., holiday discount)
+- Pilot programs with defined end dates
+- Gradual rule deprecation
+
+## Conditions
+
+Define the logic that determines when your rule applies.
+
+**See**: [Conditions Guide](./conditions) for detailed instructions on building conditions
+
+**Key points**:
+- Rules with no conditions always execute (match all)
+- Conditions can reference entity fields using dot notation
+- Supports 15 operators (equality, comparison, string matching, etc.)
+- Use AND/OR groups for complex logic
+- Nest groups up to 10 levels deep
+
+## Actions
+
+Configure what happens when conditions pass (success) or fail (failure).
+
+**See**: [Actions Guide](./actions) for detailed instructions on configuring actions
+
+**Key points**:
+- Success actions execute when conditions are true
+- Failure actions execute when conditions are false
+- GUARD rules use failure actions to block operations
+- Multiple actions execute in sequence
+- Message templates support field interpolation with `{{field}}`
+
+## Saving Your Rule
+
+After configuring all sections:
+
+1. Click **Create Rule** at the bottom of the form
+2. The rule is saved and immediately available for execution (if enabled)
+3. You'll be redirected to the rule detail page
+
+If there are validation errors:
+- Error messages appear next to the relevant fields
+- Scroll up to see all errors
+- Fix each error and try saving again
+
+## Testing Your Rule
+
+After creation, test your rule to ensure it works as expected:
+
+1. **Manual Execution**: Use the [Execute API](../../api/business-rules/execute) with `dryRun: true` to test without side effects
+2. **Trigger Naturally**: Perform the action that should trigger the rule (e.g., update an entity)
+3. **Check Logs**: Navigate to **Business Rules** > **Execution Logs** to verify the rule executed
+4. **Review Results**: Check that conditions evaluated correctly and actions executed as intended
+
+## Example: Material Availability Rule
+
+Here's a complete example of creating a rule that blocks work order release if materials are unavailable.
+
+**Basic Information**:
+- **Rule ID**: `BLOCK_WO_RELEASE_WITHOUT_MATERIALS`
+- **Rule Name**: "Block Work Order Release Without Materials"
+- **Description**: "Prevents releasing work orders to production when required materials are not available in inventory"
+- **Rule Type**: GUARD
+- **Rule Category**: "Material Planning"
+- **Entity Type**: WorkOrder
+- **Event Type**: onStatusChange
+
+**Metadata**:
+- **Priority**: 800 (high priority for guard rule)
+- **Enabled**: Yes
+- **Version**: 1
+
+**Conditions**:
+```
+AND Group:
+  - newStatus = "RELEASED"
+  - materialsAvailable = false
+```
+
+**Failure Actions** (execute when conditions are true - i.e., when we want to block):
+1. **BLOCK_TRANSITION**: Block the status change
+2. **SHOW_ERROR**: "Cannot release work order. Required materials are not available in inventory. Please check material availability and try again."
+3. **NOTIFY**: Send notification to material planner
+
+**Success Actions**: None (allow transition when materials are available)
+
+## Next Steps
+
+- [**Conditions Guide**](./conditions) - Learn how to build complex conditional logic
+- [**Actions Guide**](./actions) - Configure success and failure actions
+- [**Execution Logs**](./execution-logs) - Monitor rule execution and troubleshoot issues

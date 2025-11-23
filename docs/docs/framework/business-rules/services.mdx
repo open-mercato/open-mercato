@@ -1,0 +1,676 @@
+---
+title: Services
+description: Core services and libraries that power the business rules engine.
+---
+
+# Services
+
+The Business Rules module is built on four core services that handle rule discovery, condition evaluation, action execution, and logging. Understanding these services helps when extending functionality or debugging complex scenarios.
+
+## Architecture Overview
+
+```
+┌─────────────────┐
+│  Rule Engine    │  ← Main orchestrator
+└────────┬────────┘
+         │
+   ┌─────┴─────┬─────────────┬──────────────┐
+   │           │             │              │
+┌──▼──────┐ ┌──▼─────────┐ ┌▼────────────┐ ┌▼──────┐
+│ Rule    │ │ Condition  │ │ Action      │ │ Logger│
+│Discovery│ │ Evaluator  │ │ Executor    │ │       │
+└─────────┘ └────────────┘ └─────────────┘ └───────┘
+```
+
+**Flow**:
+1. Rule Engine discovers applicable rules for entity + event
+2. For each rule, Condition Evaluator checks if conditions match
+3. If conditions match, Action Executor runs success/failure actions
+4. Logger records execution details to database
+
+## Rule Engine
+
+The rule engine (`lib/rule-engine.ts`) orchestrates the entire rule execution process.
+
+### Key Functions
+
+#### executeRules()
+
+Main entry point for executing business rules.
+
+```typescript
+import { executeRules } from '@/modules/business_rules/lib/rule-engine'
+
+const result = await executeRules(em, {
+  entityType: 'WorkOrder',
+  entityId: 'wo-12345',
+  eventType: 'onStatusChange',
+  data: {
+    oldStatus: 'PENDING',
+    newStatus: 'RELEASED',
+    materialsAvailable: false
+  },
+  tenantId: 'tenant-1',
+  organizationId: 'org-1',
+  dryRun: false
+})
+
+// Result structure
+{
+  allowed: boolean              // Can operation proceed?
+  executedRules: [              // Rules that executed
+    {
+      rule: BusinessRule        // Rule entity
+      conditionResult: boolean  // Did conditions match?
+      actionsExecuted: {...}    // Action execution results
+      executionTime: number     // Time in milliseconds
+      error?: string            // Error if failed
+      logId?: string            // Database log ID
+    }
+  ],
+  totalExecutionTime: number    // Total time for all rules
+  errors?: string[]             // Any errors encountered
+  logIds?: string[]             // All log IDs
+}
+```
+
+**Context Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `entityType` | string | Yes | Entity type (WorkOrder, Order, etc.) |
+| `entityId` | string | No | Specific entity ID |
+| `eventType` | string | No | Event that triggered (beforeCreate, etc.) |
+| `data` | object | Yes | Entity data for condition evaluation |
+| `tenantId` | string | Yes | Tenant ID for multi-tenancy |
+| `organizationId` | string | Yes | Organization ID |
+| `user` | object | No | User context (id, email, role) |
+| `dryRun` | boolean | No | If true, don't execute actions (default: false) |
+| `executedBy` | string | No | User ID who triggered execution |
+
+**Safety Limits**:
+- Max rules per execution: 100
+- Single rule timeout: 30 seconds
+- Total execution timeout: 60 seconds
+
+**Behavior**:
+1. Validates input context
+2. Discovers applicable rules (filtered by entity/event type, tenant, enabled status)
+3. Sorts rules by priority (descending)
+4. Executes each rule in order
+5. Stops if any GUARD rule blocks (sets `allowed: false`)
+6. Logs execution details to database
+7. Returns aggregated results
+
+#### findApplicableRules()
+
+Discovers rules that apply to the given context.
+
+```typescript
+import { findApplicableRules } from '@/modules/business_rules/lib/rule-engine'
+
+const rules = await findApplicableRules(em, {
+  entityType: 'WorkOrder',
+  eventType: 'onStatusChange',
+  tenantId: 'tenant-1',
+  organizationId: 'org-1',
+  ruleType: 'GUARD'  // Optional: filter by type
+})
+
+// Returns: BusinessRule[] sorted by priority (high to low)
+```
+
+**Filtering**:
+- Entity type must match exactly
+- Event type must match (if rule specifies one)
+- Tenant and organization must match
+- Rule must be enabled
+- Current date must be within effectiveFrom/effectiveTo range
+
+**Sorting**: Results are sorted by `priority` field (descending), so high-priority rules execute first.
+
+## Rule Evaluator
+
+The rule evaluator (`lib/rule-evaluator.ts`) evaluates rule conditions against entity data.
+
+### evaluateConditions()
+
+Evaluates a rule's conditions against provided data.
+
+```typescript
+import { evaluateConditions } from '@/modules/business_rules/lib/rule-evaluator'
+
+const result = await evaluateConditions(
+  {
+    operator: 'AND',
+    conditions: [
+      { field: 'status', operator: '=', value: 'PENDING' },
+      { field: 'total', operator: '>', value: 1000 }
+    ]
+  },
+  {
+    status: 'PENDING',
+    total: 1500,
+    customer: { tier: 'GOLD' }
+  },
+  em  // EntityManager for complex lookups
+)
+
+// Result: true (both conditions matched)
+```
+
+**Condition Structure**:
+
+```typescript
+interface Condition {
+  operator: 'AND' | 'OR'
+  conditions: Array<FieldCondition | Condition>
+}
+
+interface FieldCondition {
+  field: string       // Field path (supports dot notation: customer.tier)
+  operator: string    // Comparison operator (=, !=, >, <, etc.)
+  value: any          // Value to compare against
+}
+```
+
+**Supported Operators**:
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `=` | Equals | `status = "PENDING"` |
+| `!=` | Not equals | `priority != "LOW"` |
+| `>` | Greater than | `total > 1000` |
+| `<` | Less than | `quantity < 100` |
+| `>=` | Greater or equal | `score >= 80` |
+| `<=` | Less or equal | `age <= 65` |
+| `IN` | Value in array | `status IN ["PENDING", "APPROVED"]` |
+| `NOT_IN` | Value not in array | `region NOT_IN ["CA", "TX"]` |
+| `CONTAINS` | String/array contains | `tags CONTAINS "urgent"` |
+| `NOT_CONTAINS` | String/array not contains | `description NOT_CONTAINS "test"` |
+| `IS_EMPTY` | Field is null/undefined/empty | `notes IS_EMPTY` |
+| `IS_NOT_EMPTY` | Field has value | `assignedTo IS_NOT_EMPTY` |
+| `STARTS_WITH` | String starts with | `productCode STARTS_WITH "WO-"` |
+| `ENDS_WITH` | String ends with | `email ENDS_WITH "@company.com"` |
+| `MATCHES_REGEX` | Matches regular expression | `phone MATCHES_REGEX "^\\d{10}$"` |
+
+**Nested Field Access**:
+
+Use dot notation to access nested properties:
+
+```typescript
+{
+  field: 'customer.address.city',
+  operator: '=',
+  value: 'San Francisco'
+}
+```
+
+**Array Field Access**:
+
+```typescript
+{
+  field: 'items[0].quantity',
+  operator: '>',
+  value: 10
+}
+```
+
+**Logical Groups**:
+
+Complex conditions use AND/OR groups:
+
+```typescript
+{
+  operator: 'AND',
+  conditions: [
+    { field: 'status', operator: '=', value: 'PENDING' },
+    {
+      operator: 'OR',
+      conditions: [
+        { field: 'priority', operator: '=', value: 'HIGH' },
+        { field: 'total', operator: '>', value: 10000 }
+      ]
+    }
+  ]
+}
+```
+
+This reads as: "status is PENDING AND (priority is HIGH OR total > 10000)"
+
+## Action Executor
+
+The action executor (`lib/action-executor.ts`) executes rule actions when conditions match.
+
+### executeActions()
+
+Executes a list of actions with the given context.
+
+```typescript
+import { executeActions } from '@/modules/business_rules/lib/action-executor'
+
+const result = await executeActions(
+  [
+    {
+      type: 'SET_FIELD',
+      config: { field: 'approvalRequired', value: 'true' }
+    },
+    {
+      type: 'NOTIFY',
+      config: {
+        recipients: ['manager@company.com'],
+        message: 'Approval needed for {{entityId}}'
+      }
+    }
+  ],
+  {
+    entityId: 'order-123',
+    entityType: 'Order',
+    data: { total: 15000 },
+    tenantId: 'tenant-1',
+    organizationId: 'org-1',
+    dryRun: false
+  },
+  em
+)
+
+// Result structure
+{
+  blocked: boolean           // Did any action block execution?
+  results: [                 // Individual action results
+    {
+      type: 'SET_FIELD',
+      success: true,
+      executionTime: 5,
+      output: { field: 'approvalRequired', value: true }
+    },
+    {
+      type: 'NOTIFY',
+      success: true,
+      executionTime: 120,
+      output: { sent: true, notificationId: 'notif-xyz' }
+    }
+  ],
+  totalExecutionTime: 125
+}
+```
+
+**Action Types**:
+
+### Control Actions
+
+**ALLOW_TRANSITION** - Explicitly allow operation (GUARD rules)
+```typescript
+{ type: 'ALLOW_TRANSITION' }
+```
+
+**BLOCK_TRANSITION** - Block operation (GUARD rules)
+```typescript
+{
+  type: 'BLOCK_TRANSITION',
+  config: {
+    message: 'Operation not allowed'  // Optional error message
+  }
+}
+```
+
+### User Feedback Actions
+
+**SHOW_ERROR** - Display error message
+```typescript
+{
+  type: 'SHOW_ERROR',
+  config: {
+    message: 'Materials not available for work order {{entityId}}'
+  }
+}
+```
+
+**SHOW_WARNING** - Display warning message
+```typescript
+{
+  type: 'SHOW_WARNING',
+  config: {
+    message: 'This order is below minimum quantity threshold'
+  }
+}
+```
+
+**SHOW_INFO** - Display informational message
+```typescript
+{
+  type: 'SHOW_INFO',
+  config: {
+    message: 'Order has been submitted for approval'
+  }
+}
+```
+
+### Data Actions
+
+**SET_FIELD** - Set entity field value
+```typescript
+{
+  type: 'SET_FIELD',
+  config: {
+    field: 'approvalRequired',
+    value: 'true'
+  }
+}
+```
+
+Supports interpolation:
+```typescript
+{
+  type: 'SET_FIELD',
+  config: {
+    field: 'lastModifiedBy',
+    value: '{{user.id}}'
+  }
+}
+```
+
+**LOG** - Write to execution log
+```typescript
+{
+  type: 'LOG',
+  config: {
+    level: 'info',  // debug, info, warn, error
+    message: 'Rule executed for {{entityType}} {{entityId}}'
+  }
+}
+```
+
+### Notification Actions
+
+**NOTIFY** - Send notification to users
+```typescript
+{
+  type: 'NOTIFY',
+  config: {
+    recipients: ['user1@company.com', 'user2@company.com'],
+    message: 'Work order {{entityId}} requires your attention'
+  }
+}
+```
+
+### Integration Actions
+
+**CALL_WEBHOOK** - Make HTTP request
+```typescript
+{
+  type: 'CALL_WEBHOOK',
+  config: {
+    url: 'https://api.example.com/webhooks/order-created',
+    method: 'POST',
+    payload: '{"orderId": "{{entityId}}", "total": {{total}}}'
+  }
+}
+```
+
+**EMIT_EVENT** - Emit domain event
+```typescript
+{
+  type: 'EMIT_EVENT',
+  config: {
+    eventName: 'order.approved',
+    payload: '{"orderId": "{{entityId}}", "approvedBy": "{{user.id}}"}'
+  }
+}
+```
+
+**Interpolation**: All message and payload fields support `{{field}}` interpolation. The value is resolved from the action context at runtime.
+
+**Dry Run Mode**: When `dryRun: true`, actions return planned execution without side effects:
+- NOTIFY: doesn't send notifications
+- CALL_WEBHOOK: doesn't make HTTP calls
+- EMIT_EVENT: doesn't emit events
+- SET_FIELD: doesn't modify data
+- Feedback actions (SHOW_ERROR, etc.): still execute
+
+## Value Resolver
+
+The value resolver (`lib/value-resolver.ts`) resolves field values and interpolation expressions.
+
+### resolveValue()
+
+Resolves a field path from an object.
+
+```typescript
+import { resolveValue } from '@/modules/business_rules/lib/value-resolver'
+
+const data = {
+  customer: {
+    name: 'Acme Corp',
+    address: {
+      city: 'San Francisco'
+    }
+  },
+  items: [
+    { sku: 'ABC-123', quantity: 10 },
+    { sku: 'DEF-456', quantity: 5 }
+  ]
+}
+
+resolveValue('customer.name', data)              // 'Acme Corp'
+resolveValue('customer.address.city', data)      // 'San Francisco'
+resolveValue('items[0].quantity', data)          // 10
+resolveValue('items[1].sku', data)               // 'DEF-456'
+resolveValue('customer.tier', data)              // undefined
+```
+
+**Special Values**:
+
+Certain field paths resolve to dynamic values:
+
+| Field | Resolves To |
+|-------|-------------|
+| `{{user.id}}` | Current user's ID |
+| `{{user.email}}` | Current user's email |
+| `{{tenant.id}}` | Current tenant ID |
+| `{{organization.id}}` | Current organization ID |
+| `{{now}}` | Current timestamp (ISO 8601) |
+| `{{today}}` | Current date (YYYY-MM-DD) |
+
+### interpolate()
+
+Replaces `{{field}}` placeholders in strings.
+
+```typescript
+import { interpolate } from '@/modules/business_rules/lib/value-resolver'
+
+const template = 'Order {{orderId}} for {{customer.name}} total: {{total}}'
+const data = {
+  orderId: 'order-123',
+  customer: { name: 'Acme Corp' },
+  total: 1500
+}
+
+interpolate(template, data)
+// 'Order order-123 for Acme Corp total: 1500'
+```
+
+## Logging Service
+
+Execution logging is handled automatically by the rule engine. Logs are written to the `RuleExecutionLog` entity.
+
+### Log Entry Structure
+
+```typescript
+interface RuleExecutionLog {
+  id: string
+  rule: BusinessRule           // Reference to rule
+  entityType: string
+  entityId: string
+  eventType: string
+  executionResult: string      // SUCCESS, FAILURE, ERROR
+  conditionResult: boolean
+  executionTime: number
+  actionsExecuted: number
+  error?: string
+  trace: {
+    conditions: Array<{
+      field: string
+      operator: string
+      expectedValue: any
+      actualValue: any
+      result: boolean
+    }>
+    actions: Array<{
+      type: string
+      config: any
+      result: string
+      executionTime: number
+      output?: any
+      error?: string
+    }>
+  }
+  tenantId: string
+  organizationId: string
+  createdAt: Date
+}
+```
+
+Logs are automatically created for every rule execution (unless disabled).
+
+## Integration Patterns
+
+### Custom Action Type
+
+Extend the action executor to support custom actions:
+
+```typescript
+// In your module's di.ts
+import { registerActionHandler } from '@/modules/business_rules/lib/action-executor'
+
+registerActionHandler('CUSTOM_ACTION', async (config, context, em) => {
+  // Your custom logic
+  return {
+    success: true,
+    output: { /* result */ }
+  }
+})
+```
+
+### Custom Condition Operator
+
+Add custom operators to the evaluator:
+
+```typescript
+// In your module's di.ts
+import { registerOperator } from '@/modules/business_rules/lib/rule-evaluator'
+
+registerOperator('CUSTOM_OP', (actualValue, expectedValue) => {
+  // Your comparison logic
+  return actualValue === expectedValue
+})
+```
+
+### Event-Driven Execution
+
+Trigger rules from domain events:
+
+```typescript
+// In your event subscriber
+export default async function handleOrderCreated(
+  event: OrderCreatedEvent,
+  container: AppContainer
+) {
+  const em = container.resolve('entityManager')
+
+  const result = await executeRules(em, {
+    entityType: 'Order',
+    entityId: event.orderId,
+    eventType: 'afterCreate',
+    data: event.orderData,
+    tenantId: event.tenantId,
+    organizationId: event.organizationId,
+    user: { id: event.userId }
+  })
+
+  if (!result.allowed) {
+    // Handle blocked operation
+  }
+}
+```
+
+### Programmatic Rule Creation
+
+Create rules programmatically:
+
+```typescript
+const rule = em.create(BusinessRule, {
+  id: 'DYNAMIC_RULE_' + Date.now(),
+  name: 'Dynamically Created Rule',
+  ruleType: 'VALIDATION',
+  entityType: 'Order',
+  eventType: 'beforeCreate',
+  priority: 500,
+  enabled: true,
+  conditions: {
+    operator: 'AND',
+    conditions: [
+      { field: 'total', operator: '>', value: 1000 }
+    ]
+  },
+  successActions: [
+    { type: 'LOG', config: { level: 'info', message: 'High value order' } }
+  ],
+  failureActions: [],
+  tenantId: 'tenant-1',
+  organizationId: 'org-1'
+})
+
+await em.persistAndFlush(rule)
+```
+
+## Performance Considerations
+
+**Rule Discovery**: Indexed on `(entityType, eventType, enabled, tenantId, organizationId)` for fast lookups
+
+**Condition Evaluation**: Pure function, no I/O, very fast (<1ms typical)
+
+**Action Execution**:
+- Synchronous actions (SET_FIELD, LOG): <5ms
+- Notification actions: 50-200ms (depends on email service)
+- Webhook actions: 100-500ms (depends on external service)
+- Event emission: 10-50ms (depends on subscribers)
+
+**Timeout Handling**: Each rule has 30s timeout. If exceeded, execution stops and error is logged.
+
+**Concurrency**: Rules execute sequentially in priority order. No parallelization (ensures deterministic behavior).
+
+**Caching**: Rule discovery results can be cached (not implemented by default, but EntityManager query cache can be used).
+
+## Testing Services
+
+Test individual services in isolation:
+
+```typescript
+// Test rule evaluator
+import { evaluateConditions } from '@/modules/business_rules/lib/rule-evaluator'
+
+describe('Rule Evaluator', () => {
+  it('should evaluate AND conditions', async () => {
+    const result = await evaluateConditions(
+      {
+        operator: 'AND',
+        conditions: [
+          { field: 'status', operator: '=', value: 'PENDING' },
+          { field: 'total', operator: '>', value: 1000 }
+        ]
+      },
+      { status: 'PENDING', total: 1500 },
+      em
+    )
+    expect(result).toBe(true)
+  })
+})
+```
+
+See [Testing Guide](./testing) for comprehensive testing strategies.
+
+## Next Steps
+
+- [**Architecture**](./architecture) - Overall system design
+- [**Extending**](./extending) - Add custom functionality

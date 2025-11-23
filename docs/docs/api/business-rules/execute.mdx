@@ -1,0 +1,514 @@
+---
+title: Execute API
+description: Trigger business rule execution for entities via REST API.
+---
+
+# Execute API
+
+The Execute API triggers business rule evaluation for a specific entity. Use this endpoint to manually execute rules, test rule logic, or integrate rule execution into custom workflows.
+
+## Environment Setup
+
+```bash
+export BASE_URL="http://localhost:3000"
+export API_KEY="your_api_key_here"
+```
+
+## Execute Rules
+
+Execute all applicable rules for an entity.
+
+### POST /api/business_rules/execute
+
+**Feature Required**: `business_rules.rules.execute`
+
+**Request Body**:
+
+```typescript
+{
+  entityType: string       // Required: Entity type (e.g., "Order", "WorkOrder")
+  entityId?: string        // Optional: Specific entity ID
+  eventType?: string       // Optional: Lifecycle event (e.g., "beforeCreate", "afterUpdate")
+  data: object             // Required: Entity data for evaluation
+  dryRun?: boolean         // Optional: Preview without side effects (default: false)
+}
+```
+
+**Parameters Explained**:
+
+- **entityType**: The type of entity being evaluated. Must match a rule's entityType to be considered.
+- **entityId**: Optional identifier for the specific entity instance. Used for logging and tracking.
+- **eventType**: Optional lifecycle event that triggered execution. Rules filter by this field.
+- **data**: The entity data object containing fields referenced in rule conditions.
+- **dryRun**: When true, rules are evaluated but actions with external side effects (webhooks, notifications) may still execute. Use for testing.
+
+**Example Request**:
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "Order",
+    "entityId": "order-12345",
+    "eventType": "beforeCreate",
+    "data": {
+      "orderId": "order-12345",
+      "total": 15000,
+      "customerId": "customer-789",
+      "status": "PENDING",
+      "items": [
+        {"productId": "prod-1", "quantity": 10, "price": 1500}
+      ]
+    },
+    "dryRun": false
+  }'
+```
+
+**Example Response** (200 OK):
+
+```json
+{
+  "allowed": true,
+  "executedRules": [
+    {
+      "ruleId": "LARGE_ORDER_APPROVAL",
+      "ruleName": "Require Approval for Large Orders",
+      "result": "SUCCESS",
+      "conditionResult": true,
+      "executionTime": 12,
+      "actionsExecuted": ["SET_FIELD", "NOTIFY"]
+    },
+    {
+      "ruleId": "ORDER_VALIDATION",
+      "ruleName": "Validate Order Data",
+      "result": "SUCCESS",
+      "conditionResult": true,
+      "executionTime": 8,
+      "actionsExecuted": ["LOG"]
+    }
+  ],
+  "totalExecutionTime": 20,
+  "errors": [],
+  "logIds": [
+    "log-uuid-1",
+    "log-uuid-2"
+  ]
+}
+```
+
+**Response Fields**:
+
+- **allowed**: Boolean indicating if the operation should proceed. False if any GUARD rule blocked it.
+- **executedRules**: Array of rules that were evaluated, with results and timing.
+- **totalExecutionTime**: Total time in milliseconds for all rule execution.
+- **errors**: Array of error messages if any rules failed to execute.
+- **logIds**: Array of execution log IDs for audit trail.
+
+## Response Scenarios
+
+### All Rules Pass
+
+```json
+{
+  "allowed": true,
+  "executedRules": [
+    {
+      "ruleId": "VALIDATION_RULE",
+      "result": "SUCCESS",
+      "conditionResult": true,
+      "executionTime": 10
+    }
+  ],
+  "totalExecutionTime": 10,
+  "errors": [],
+  "logIds": ["log-1"]
+}
+```
+
+The operation is allowed to proceed. All rules passed successfully.
+
+### GUARD Rule Blocks Operation
+
+```json
+{
+  "allowed": false,
+  "executedRules": [
+    {
+      "ruleId": "MATERIAL_AVAILABILITY_CHECK",
+      "result": "FAILURE",
+      "conditionResult": true,
+      "executionTime": 15,
+      "actionsExecuted": ["BLOCK_TRANSITION", "SHOW_ERROR", "NOTIFY"],
+      "message": "Cannot release work order. Required materials are not available."
+    }
+  ],
+  "totalExecutionTime": 15,
+  "errors": [],
+  "logIds": ["log-1"]
+}
+```
+
+The operation is blocked. A GUARD rule's conditions were true, triggering failure actions that blocked the transition.
+
+### Rule Execution Error
+
+```json
+{
+  "allowed": true,
+  "executedRules": [
+    {
+      "ruleId": "BROKEN_RULE",
+      "result": "ERROR",
+      "conditionResult": null,
+      "executionTime": 5,
+      "error": "Invalid field path: nonexistent.field"
+    }
+  ],
+  "totalExecutionTime": 5,
+  "errors": ["Rule BROKEN_RULE failed: Invalid field path"],
+  "logIds": ["log-1"]
+}
+```
+
+A rule encountered an error during execution. Other rules may still have executed. Check the `errors` array and execution logs.
+
+### No Applicable Rules
+
+```json
+{
+  "allowed": true,
+  "executedRules": [],
+  "totalExecutionTime": 0,
+  "errors": [],
+  "logIds": []
+}
+```
+
+No rules matched the entity type and event type criteria. The operation proceeds without rule evaluation.
+
+## Dry Run Mode
+
+Dry run mode evaluates rules without committing changes. Use this to test rules before enabling them in production.
+
+**Enable Dry Run**:
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "WorkOrder",
+    "entityId": "wo-test-123",
+    "data": {"status": "RELEASED", "materialsAvailable": false},
+    "dryRun": true
+  }'
+```
+
+**Dry Run Behavior**:
+- ✅ Conditions are evaluated normally
+- ✅ Execution is logged
+- ✅ Response indicates what would happen
+- ⚠️ Some actions may still execute (webhooks, external calls)
+- ❌ Database updates (SET_FIELD) are not committed
+- ❌ Internal events (EMIT_EVENT) are not emitted
+
+> ⚠️ **Important**: CALL_WEBHOOK and NOTIFY actions may still execute in dry run mode. Be cautious when testing rules with external integrations.
+
+## Rule Discovery
+
+The engine automatically discovers applicable rules based on:
+
+1. **Entity Type Match**: Rule's `entityType` matches request's `entityType`
+2. **Event Type Match**: Rule's `eventType` is empty OR matches request's `eventType`
+3. **Enabled Status**: Rule's `enabled` is true
+4. **Effective Dates**: Current date is within rule's `effectiveFrom` and `effectiveTo` range
+5. **Tenant Scope**: Rule belongs to the same tenant/organization
+
+**Execution Order**:
+Rules execute in priority order (highest first). Within the same priority, order is deterministic but not guaranteed.
+
+## Common Workflows
+
+### Validate Before Save
+
+```bash
+# Validate order data before creation
+response=$(curl -s -X POST "$BASE_URL/api/business_rules/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "Order",
+    "eventType": "beforeCreate",
+    "data": {
+      "total": 15000,
+      "customerId": "cust-123"
+    },
+    "dryRun": false
+  }')
+
+allowed=$(echo "$response" | jq -r '.allowed')
+
+if [ "$allowed" = "true" ]; then
+  echo "Validation passed, creating order..."
+  # Proceed with order creation
+else
+  echo "Validation failed:"
+  echo "$response" | jq -r '.executedRules[] | select(.result == "FAILURE") | .message'
+  # Abort order creation
+fi
+```
+
+### Test Rule Logic
+
+```bash
+# Test a rule with sample data
+curl -X POST "$BASE_URL/api/business_rules/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "WorkOrder",
+    "eventType": "onStatusChange",
+    "data": {
+      "id": "test-wo-1",
+      "oldStatus": "PENDING",
+      "newStatus": "RELEASED",
+      "materialsAvailable": true,
+      "assignedTo": "user-123"
+    },
+    "dryRun": true
+  }' | jq
+```
+
+### Bulk Entity Validation
+
+```bash
+# Validate multiple entities
+for entity in entity1.json entity2.json entity3.json; do
+  echo "Validating $entity..."
+  response=$(curl -s -X POST "$BASE_URL/api/business_rules/execute" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d @"$entity")
+
+  allowed=$(echo "$response" | jq -r '.allowed')
+  if [ "$allowed" != "true" ]; then
+    echo "  FAILED: $entity"
+    echo "$response" | jq '.executedRules[] | select(.result == "FAILURE")'
+  else
+    echo "  PASSED: $entity"
+  fi
+done
+```
+
+### Integration with Workflows
+
+```typescript
+// TypeScript/Node.js example
+import fetch from 'node-fetch'
+
+async function validateWorkOrderRelease(workOrder) {
+  const response = await fetch(`${process.env.BASE_URL}/api/business_rules/execute`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      entityType: 'WorkOrder',
+      entityId: workOrder.id,
+      eventType: 'onStatusChange',
+      data: {
+        ...workOrder,
+        oldStatus: workOrder.status,
+        newStatus: 'RELEASED'
+      },
+      dryRun: false
+    })
+  })
+
+  const result = await response.json()
+
+  if (!result.allowed) {
+    const blockingRule = result.executedRules.find(r => r.result === 'FAILURE')
+    throw new Error(blockingRule?.message || 'Work order release blocked by business rules')
+  }
+
+  return result
+}
+```
+
+## Performance Considerations
+
+**Rule Count**: Execution time scales with the number of applicable rules. Monitor execution logs for slow rules.
+
+**Complex Conditions**: Deeply nested conditions or regex patterns can increase evaluation time.
+
+**Actions**: External actions (webhooks) execute asynchronously but may impact overall performance.
+
+**Timeouts**: Rules have execution timeouts to prevent runaway execution:
+- Per-rule timeout: 5 seconds
+- Total execution timeout: 30 seconds
+
+**Best Practices**:
+- Use specific `eventType` to reduce the number of rules evaluated
+- Prioritize critical rules (higher priority) to execute first
+- Monitor execution logs and optimize slow rules
+- Consider rule set organization for better performance
+
+## Error Handling
+
+**Invalid Entity Type** (400 Bad Request):
+
+```json
+{
+  "error": "entityType is required"
+}
+```
+
+**Missing Data** (400 Bad Request):
+
+```json
+{
+  "error": "data object is required"
+}
+```
+
+**Rule Evaluation Error**:
+
+Even if a rule fails, the response is 200 OK. Check the `errors` array:
+
+```json
+{
+  "allowed": true,
+  "executedRules": [...],
+  "errors": [
+    "Rule BROKEN_RULE failed: Field path error"
+  ],
+  ...
+}
+```
+
+**Permission Denied** (403 Forbidden):
+
+```json
+{
+  "error": "Insufficient permissions",
+  "required": ["business_rules.rules.execute"]
+}
+```
+
+## Integration Patterns
+
+### Pre-Save Validation
+
+Execute rules before database writes:
+
+```typescript
+app.post('/api/orders', async (req, res) => {
+  const orderData = req.body
+
+  // Execute validation rules
+  const ruleResult = await executeRules({
+    entityType: 'Order',
+    eventType: 'beforeCreate',
+    data: orderData
+  })
+
+  if (!ruleResult.allowed) {
+    return res.status(400).json({
+      error: 'Validation failed',
+      details: ruleResult.executedRules
+        .filter(r => r.result === 'FAILURE')
+        .map(r => r.message)
+    })
+  }
+
+  // Proceed with order creation
+  const order = await db.orders.create(orderData)
+  res.json(order)
+})
+```
+
+### Post-Save Actions
+
+Execute rules after successful saves:
+
+```typescript
+app.patch('/api/work-orders/:id/status', async (req, res) => {
+  const { newStatus } = req.body
+  const workOrder = await db.workOrders.findById(req.params.id)
+
+  // Update status
+  workOrder.status = newStatus
+  await workOrder.save()
+
+  // Execute post-update rules (notifications, webhooks)
+  await executeRules({
+    entityType: 'WorkOrder',
+    entityId: workOrder.id,
+    eventType: 'afterUpdate',
+    data: {
+      ...workOrder.toJSON(),
+      oldStatus: workOrder.previousStatus,
+      newStatus: newStatus
+    }
+  })
+
+  res.json(workOrder)
+})
+```
+
+### Background Processing
+
+Execute rules asynchronously for non-blocking operations:
+
+```typescript
+import { queue } from './queue'
+
+// Queue rule execution
+queue.add('execute-rules', {
+  entityType: 'Order',
+  entityId: order.id,
+  eventType: 'afterCreate',
+  data: order
+})
+
+// Process in worker
+queue.process('execute-rules', async (job) => {
+  const result = await executeRules(job.data)
+  console.log(`Rules executed for ${job.data.entityId}:`, result)
+})
+```
+
+## Debugging
+
+**Enable Verbose Logging**:
+
+Review execution logs for detailed information:
+
+```bash
+# Execute rule
+result=$(curl -s -X POST "$BASE_URL/api/business_rules/execute" -d '...')
+
+# Get log IDs
+logIds=$(echo "$result" | jq -r '.logIds[]')
+
+# Fetch detailed logs
+for logId in $logIds; do
+  curl -s -X GET "$BASE_URL/api/business_rules/logs/$logId" \
+    -H "Authorization: Bearer $API_KEY" | jq
+done
+```
+
+**Common Issues**:
+- **No rules executed**: Check entity type, event type, and enabled status
+- **Unexpected results**: Review condition logic in execution logs
+- **Timeout errors**: Simplify conditions or reduce rule count
+- **Field path errors**: Verify field paths exist in entity data
+
+## Next Steps
+
+- [**Logs API**](./logs) - Query execution history and debug issues
+- [**Rules API**](./rules) - Manage rules that will be executed
+- [**User Guide**](../../user-guide/business-rules/testing-rules) - Testing best practices
