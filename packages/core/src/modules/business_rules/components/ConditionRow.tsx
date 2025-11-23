@@ -5,6 +5,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { X } from 'lucide-react'
 import type { SimpleCondition } from './utils/conditionValidation'
 import { getComparisonOperators, isValidFieldPath } from './utils/conditionValidation'
+import { useT } from '@/lib/i18n/context'
 
 export type ConditionRowProps = {
   condition: SimpleCondition
@@ -15,6 +16,7 @@ export type ConditionRowProps = {
 }
 
 export function ConditionRow({ condition, onChange, onDelete, error }: ConditionRowProps) {
+  const t = useT()
   const operators = getComparisonOperators()
   const [useFieldComparison, setUseFieldComparison] = React.useState(!!condition.valueField)
 
@@ -67,22 +69,30 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
       <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
         {/* Field Input */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Field</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            {t('business_rules.components.conditionRow.field')}
+          </label>
           <input
             type="text"
             value={condition.field || ''}
             onChange={handleFieldChange}
-            placeholder="e.g., status, user.email"
+            placeholder={t('business_rules.components.conditionRow.field.placeholder')}
             className={`w-full px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               fieldError ? 'border-red-500' : 'border-gray-300'
             }`}
           />
-          {fieldError && <p className="text-xs text-red-600 mt-0.5">Invalid field path</p>}
+          {fieldError && (
+            <p className="text-xs text-red-600 mt-0.5">
+              {t('business_rules.components.conditionRow.field.invalidPath')}
+            </p>
+          )}
         </div>
 
         {/* Operator Select */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Operator</label>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            {t('business_rules.components.conditionRow.operator')}
+          </label>
           <select
             value={condition.operator || '='}
             onChange={handleOperatorChange}
@@ -101,15 +111,21 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="block text-xs font-medium text-gray-700">
-                {useFieldComparison ? 'Compare to Field' : 'Value'}
+                {useFieldComparison
+                  ? t('business_rules.components.conditionRow.compareToField')
+                  : t('business_rules.components.conditionRow.value')
+                }
               </label>
               <button
                 type="button"
                 onClick={toggleFieldComparison}
                 className="text-xs text-blue-600 hover:text-blue-800"
-                title="Toggle field comparison"
+                title={t('business_rules.components.conditionRow.toggleFieldComparison')}
               >
-                {useFieldComparison ? 'Use value' : 'Use field'}
+                {useFieldComparison
+                  ? t('business_rules.components.conditionRow.useValue')
+                  : t('business_rules.components.conditionRow.useField')
+                }
               </button>
             </div>
             <input
@@ -124,11 +140,17 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
                       : JSON.stringify(condition.value)
               }
               onChange={useFieldComparison ? handleValueFieldChange : handleValueChange}
-              placeholder={useFieldComparison ? 'e.g., user.role' : 'e.g., "ACTIVE" or ["A","B"]'}
+              placeholder={useFieldComparison
+                ? t('business_rules.components.conditionRow.field.comparisonPlaceholder')
+                : t('business_rules.components.conditionRow.value.placeholder')
+              }
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p className="text-xs text-gray-500 mt-0.5">
-              {useFieldComparison ? 'Field path to compare with' : 'Use JSON for arrays: ["a","b"]'}
+              {useFieldComparison
+                ? t('business_rules.components.conditionRow.field.comparisonHelp')
+                : t('business_rules.components.conditionRow.value.help')
+              }
             </p>
           </div>
         )}
@@ -139,7 +161,7 @@ export function ConditionRow({ condition, onChange, onDelete, error }: Condition
         type="button"
         onClick={onDelete}
         className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-        title="Delete condition"
+        title={t('business_rules.components.conditionRow.deleteCondition')}
       >
         <X className="w-4 h-4" />
       </button>

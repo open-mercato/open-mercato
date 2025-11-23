@@ -50,9 +50,11 @@ export function RuleSetMembers({ members, onAdd, onUpdate, onRemove }: RuleSetMe
     },
   })
 
-  // Filter out already added rules
-  const memberRuleIds = new Set(members.map(m => m.ruleId))
-  const rulesNotInSet = availableRules?.filter(r => !memberRuleIds.has(r.id)) || []
+  // Filter out already added rules (memoized to avoid re-computation on every render)
+  const rulesNotInSet = React.useMemo(() => {
+    const memberRuleIds = new Set(members.map(m => m.ruleId))
+    return availableRules?.filter(r => !memberRuleIds.has(r.id)) || []
+  }, [members, availableRules])
 
   const handleAdd = async () => {
     if (!selectedRuleId) return

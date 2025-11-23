@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  validateConditionExpressionForApi,
+  validateActionsForApi,
+  isSafeExpression,
+} from '../lib/payload-validation'
 
 /**
  * Business Rules Module - Zod Validators
@@ -51,18 +56,52 @@ export type ActionTrigger = z.infer<typeof actionTriggerSchema>
 export const executionResultSchema = z.enum(['SUCCESS', 'FAILURE', 'ERROR'])
 export type ExecutionResult = z.infer<typeof executionResultSchema>
 
-// Condition Expression Schema
-// Note: This is a recursive schema for nested conditions
-// For now, we use z.any() for the full expression, which will be validated at runtime
+// Condition Expression Schema with Validation
+// Uses runtime validation to check structure, nesting, and field paths
 export const conditionExpressionSchema = z.any()
+  .superRefine((val, ctx) => {
+    // Null/undefined is allowed (optional field)
+    if (val === null || val === undefined) return
 
-// Action Schema
+    // Check for dangerous patterns first (DoS prevention)
+    if (!isSafeExpression(val)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Condition expression exceeds safety limits (max depth: 10, max rules per group: 50, max field path length: 200)'
+      })
+      return
+    }
+
+    // Validate structure and content
+    const result = validateConditionExpressionForApi(val)
+    if (!result.valid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: result.error || 'Invalid condition expression'
+      })
+    }
+  })
+
+// Action Schema with Validation
+// Validates action type and required config fields
 export const actionSchema = z.object({
   type: z.string().min(1),
   config: z.record(z.string(), z.any()).optional(),
 })
 
 export const actionsArraySchema = z.array(actionSchema).optional().nullable()
+  .superRefine((val, ctx) => {
+    // Null/undefined/empty is allowed (optional field)
+    if (!val || (Array.isArray(val) && val.length === 0)) return
+
+    const result = validateActionsForApi(val, 'actions')
+    if (!result.valid) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: result.error || 'Invalid actions'
+      })
+    }
+  })
 
 // Date preprocessing helper
 const dateOrNull = z.preprocess((value) => {

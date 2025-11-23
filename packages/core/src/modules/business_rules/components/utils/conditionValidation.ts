@@ -5,6 +5,33 @@ export type ValidationResult = {
   errors: string[]
 }
 
+/**
+ * Valid comparison operators
+ */
+const VALID_COMPARISON_OPERATORS: ComparisonOperator[] = [
+  '=',
+  '==',
+  '!=',
+  '>',
+  '>=',
+  '<',
+  '<=',
+  'IN',
+  'NOT_IN',
+  'CONTAINS',
+  'NOT_CONTAINS',
+  'STARTS_WITH',
+  'ENDS_WITH',
+  'MATCHES',
+  'IS_EMPTY',
+  'IS_NOT_EMPTY',
+]
+
+/**
+ * Valid logical operators
+ */
+const VALID_LOGICAL_OPERATORS: LogicalOperator[] = ['AND', 'OR', 'NOT']
+
 export type SimpleCondition = {
   field: string
   operator: ComparisonOperator
@@ -50,8 +77,8 @@ export function validateConditionExpression(expr: any, depth = 0, maxDepth = 5):
 
   if (isGroupCondition(expr)) {
     // Validate group condition
-    if (!['AND', 'OR', 'NOT'].includes(expr.operator)) {
-      errors.push(`Invalid logical operator: ${expr.operator}`)
+    if (!VALID_LOGICAL_OPERATORS.includes(expr.operator)) {
+      errors.push(`Invalid logical operator: "${expr.operator}". Valid operators are: ${VALID_LOGICAL_OPERATORS.join(', ')}`)
     }
 
     if (!Array.isArray(expr.rules) || expr.rules.length === 0) {
@@ -68,11 +95,15 @@ export function validateConditionExpression(expr: any, depth = 0, maxDepth = 5):
   } else if (isSimpleCondition(expr)) {
     // Validate simple condition
     if (!expr.field || typeof expr.field !== 'string') {
-      errors.push('Field is required and must be a string')
+      errors.push('Field path is required for simple conditions')
+    } else if (!isValidFieldPath(expr.field)) {
+      errors.push(`Invalid field path format: "${expr.field}". Field paths must start with a letter or underscore, and contain only letters, numbers, underscores, dots, and brackets`)
     }
 
     if (!expr.operator) {
       errors.push('Operator is required')
+    } else if (!VALID_COMPARISON_OPERATORS.includes(expr.operator)) {
+      errors.push(`Invalid comparison operator: "${expr.operator}". Valid operators are: ${VALID_COMPARISON_OPERATORS.join(', ')}`)
     }
 
     if (expr.value === undefined && !expr.valueField) {

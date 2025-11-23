@@ -2,12 +2,17 @@
 
 import * as React from 'react'
 import { z } from 'zod'
-import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { CrudField, CrudFormGroup, CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import {
   createBusinessRuleSchema,
   ruleTypeSchema,
   type RuleType,
 } from '../data/validators'
+import {
+  getEntityTypeSuggestions,
+  getEventTypeSuggestions,
+  generateRuleId,
+} from './utils/formHelpers'
 
 /**
  * Form Values Type
@@ -113,12 +118,16 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
       type: 'text',
       required: true,
       placeholder: t('business_rules.rules.form.placeholders.entityType'),
+      suggestions: getEntityTypeSuggestions(),
+      description: t('business_rules.rules.form.descriptions.entityType'),
     },
     {
       id: 'eventType',
       label: t('business_rules.rules.form.eventType'),
       type: 'text',
       placeholder: t('business_rules.rules.form.placeholders.eventType'),
+      suggestions: getEventTypeSuggestions(),
+      description: t('business_rules.rules.form.descriptions.eventType'),
     },
     {
       id: 'priority',

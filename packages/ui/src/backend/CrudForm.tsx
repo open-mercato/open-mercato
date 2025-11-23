@@ -93,6 +93,8 @@ export type CrudBuiltinField = CrudFieldBase & {
   loadOptions?: (query?: string) => Promise<CrudFieldOption[]>
   // when type === 'richtext', choose editor implementation
   editor?: 'simple' | 'uiw' | 'html'
+  // for text fields; provides datalist suggestions while allowing free-text input
+  suggestions?: string[]
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -1610,6 +1612,7 @@ function TextInput({
   autoFocus,
   onSubmit,
   disabled,
+  suggestions,
 }: {
   value: string
   onChange: (v: string) => void
@@ -1617,18 +1620,20 @@ function TextInput({
   autoFocus?: boolean
   onSubmit?: () => void
   disabled?: boolean
+  suggestions?: string[]
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
   const userTypingRef = React.useRef(false)
-  
+  const datalistId = React.useId()
+
   React.useEffect(() => {
     // Sync from props whenever the input is unfocused or the user hasn't typed yet.
     if (!isFocusedRef.current || !userTypingRef.current) {
       setLocal(value)
     }
   }, [value])
-  
+
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (disabled) return
     const next = e.target.value
@@ -1645,32 +1650,42 @@ function TextInput({
       onSubmit?.()
     }
   }, [disabled, local, onChange, onSubmit])
-  
+
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
   }, [])
-  
+
   const handleBlur = React.useCallback(() => {
     isFocusedRef.current = false
     userTypingRef.current = false
     onChange(local)
   }, [local, onChange])
-  
+
   return (
-    <input
-      type="text"
-      className="w-full h-9 rounded border px-2 text-sm"
-      placeholder={placeholder}
-      value={local}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      spellCheck={false}
-      autoFocus={autoFocus}
-      data-crud-focus-target=""
-      disabled={disabled}
-    />
+    <>
+      <input
+        type="text"
+        className="w-full h-9 rounded border px-2 text-sm"
+        placeholder={placeholder}
+        value={local}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+        disabled={disabled}
+        list={suggestions && suggestions.length > 0 ? datalistId : undefined}
+      />
+      {suggestions && suggestions.length > 0 && (
+        <datalist id={datalistId}>
+          {suggestions.map((suggestion) => (
+            <option key={suggestion} value={suggestion} />
+          ))}
+        </datalist>
+      )}
+    </>
   )
 }
 
@@ -2104,6 +2119,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
           disabled={disabled}
+          suggestions={field.type === 'text' ? field.suggestions : undefined}
         />
       )}
       {field.type === 'number' && (

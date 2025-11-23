@@ -7,6 +7,7 @@ import { ConditionRow } from './ConditionRow'
 import type { GroupCondition, ConditionExpression, SimpleCondition } from './utils/conditionValidation'
 import type { LogicalOperator } from './../data/validators'
 import { isGroupCondition, getLogicalOperators } from './utils/conditionValidation'
+import { useT } from '@/lib/i18n/context'
 
 export type ConditionGroupProps = {
   group: GroupCondition
@@ -26,6 +27,7 @@ const DEPTH_COLORS = [
 ]
 
 export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5, entityType }: ConditionGroupProps) {
+  const t = useT()
   const logicalOperators = getLogicalOperators()
   const colorClass = DEPTH_COLORS[depth % DEPTH_COLORS.length]
 
@@ -72,7 +74,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
 
   const addConditionGroup = () => {
     if (depth >= maxDepth) {
-      alert(`Maximum nesting depth (${maxDepth}) reached`)
+      alert(t('business_rules.components.conditionGroup.maxDepthReached', { maxDepth }))
       return
     }
 
@@ -99,7 +101,9 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
     >
       {/* Group Header */}
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-xs font-medium text-gray-600">Group {depth + 1}:</span>
+        <span className="text-xs font-medium text-gray-600">
+          {t('business_rules.components.conditionGroup.group', { depth: depth + 1 })}
+        </span>
         <select
           value={group.operator}
           onChange={handleOperatorChange}
@@ -113,7 +117,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
         </select>
 
         <span className="text-xs text-gray-500">
-          ({group.rules.length} {group.rules.length === 1 ? 'rule' : 'rules'})
+          ({t('business_rules.components.conditionGroup.ruleCount', { count: group.rules.length })})
         </span>
 
         {onDelete && (
@@ -121,7 +125,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
             type="button"
             onClick={onDelete}
             className="ml-auto p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-            title="Delete group"
+            title={t('business_rules.components.conditionGroup.deleteGroup')}
           >
             <X className="w-4 h-4" />
           </button>
@@ -165,7 +169,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
           className="text-xs"
         >
           <Plus className="w-3 h-3 mr-1" />
-          Add Condition
+          {t('business_rules.components.conditionGroup.addCondition')}
         </Button>
 
         {depth < maxDepth && (
@@ -177,7 +181,7 @@ export function ConditionGroup({ group, onChange, onDelete, depth, maxDepth = 5,
             className="text-xs"
           >
             <Plus className="w-3 h-3 mr-1" />
-            Add Group ({depth + 2})
+            {t('business_rules.components.conditionGroup.addGroup', { depth: depth + 2 })}
           </Button>
         )}
       </div>

@@ -100,6 +100,8 @@ export function validateAction(action: Action): ValidationResult {
 
   if (!action.type || typeof action.type !== 'string') {
     errors.push('Action type is required')
+  } else if (!ACTION_TYPES.includes(action.type as ActionType)) {
+    errors.push(`Unknown action type "${action.type}". Valid types are: ${ACTION_TYPES.join(', ')}`)
   }
 
   const requiredFields = getRequiredConfigFields(action.type)

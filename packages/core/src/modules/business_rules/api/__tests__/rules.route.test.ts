@@ -428,4 +428,319 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(body.error).toBe('Rule id is required')
     })
   })
+
+  describe('Validation - Condition Expressions', () => {
+    test('should reject deeply nested condition expressions (depth > 10)', async () => {
+      const deeplyNested = {
+        operator: 'AND',
+        rules: [{
+          operator: 'AND',
+          rules: [{
+            operator: 'AND',
+            rules: [{
+              operator: 'AND',
+              rules: [{
+                operator: 'AND',
+                rules: [{
+                  operator: 'AND',
+                  rules: [{
+                    operator: 'AND',
+                    rules: [{
+                      operator: 'AND',
+                      rules: [{
+                        operator: 'AND',
+                        rules: [{
+                          operator: 'AND',
+                          rules: [{
+                            operator: 'AND',
+                            rules: [{ field: 'test', operator: '=', value: 'test' }]
+                          }]
+                        }]
+                      }]
+                    }]
+                  }]
+                }]
+              }]
+            }]
+          }]
+        }]
+      }
+
+      const newRule = {
+        ruleId: 'RULE-DEEP',
+        ruleName: 'Deep Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: deeplyNested,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('safety limits')
+    })
+
+    test('should reject condition with invalid field path', async () => {
+      const invalidCondition = {
+        field: '123invalid',  // Field paths cannot start with numbers
+        operator: '=',
+        value: 'test'
+      }
+
+      const newRule = {
+        ruleId: 'RULE-INVALID-FIELD',
+        ruleName: 'Invalid Field Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: invalidCondition,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('Invalid')
+    })
+
+    test('should reject condition with invalid operator', async () => {
+      const invalidCondition = {
+        field: 'status',
+        operator: 'IdasdaN',  // Invalid operator
+        value: ['ACTIVE', 'PENDING']
+      }
+
+      const newRule = {
+        ruleId: 'RULE-INVALID-OPERATOR',
+        ruleName: 'Invalid Operator Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: invalidCondition,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('Invalid comparison operator')
+      expect(body.error).toContain('IdasdaN')
+    })
+
+    test('should reject condition group without rules', async () => {
+      const emptyGroup = {
+        operator: 'AND',
+        rules: []
+      }
+
+      const newRule = {
+        ruleId: 'RULE-EMPTY',
+        ruleName: 'Empty Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: emptyGroup,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('at least one rule')
+    })
+
+    test('should accept valid condition expression', async () => {
+      const validCondition = {
+        operator: 'AND',
+        rules: [
+          { field: 'status', operator: '=', value: 'ACTIVE' },
+          { field: 'priority', operator: '>', value: 5 }
+        ]
+      }
+
+      const newRule = {
+        ruleId: 'RULE-VALID',
+        ruleName: 'Valid Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: validCondition,
+      }
+
+      mockEm.create.mockReturnValue({ id: '223e4567-e89b-12d3-a456-426614174003', ...newRule })
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+    })
+  })
+
+  describe('Validation - Actions', () => {
+    test('should reject action with missing required config fields', async () => {
+      const invalidActions = [
+        { type: 'NOTIFY', config: {} }  // Missing 'message' and 'recipients'
+      ]
+
+      const newRule = {
+        ruleId: 'RULE-INVALID-ACTION',
+        ruleName: 'Invalid Action Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+        successActions: invalidActions,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('message')
+    })
+
+    test('should reject action with invalid type', async () => {
+      const invalidActions = [
+        { type: 'INVALID_ACTION_TYPE', config: {} }
+      ]
+
+      const newRule = {
+        ruleId: 'RULE-INVALID-TYPE',
+        ruleName: 'Invalid Type Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+        successActions: invalidActions,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('Unknown action type')
+    })
+
+    test('should accept valid actions', async () => {
+      const validActions = [
+        { type: 'LOG', config: { message: 'Rule triggered' } },
+        { type: 'SET_FIELD', config: { field: 'status', value: 'APPROVED' } }
+      ]
+
+      const newRule = {
+        ruleId: 'RULE-VALID-ACTIONS',
+        ruleName: 'Valid Actions Rule',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: validActions,
+      }
+
+      mockEm.create.mockReturnValue({ id: '223e4567-e89b-12d3-a456-426614174004', ...newRule })
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+    })
+
+    test('should validate failureActions separately', async () => {
+      const invalidFailureActions = [
+        { type: 'CALL_WEBHOOK', config: {} }  // Missing 'url'
+      ]
+
+      const newRule = {
+        ruleId: 'RULE-INVALID-FAILURE',
+        ruleName: 'Invalid Failure Actions',
+        ruleType: 'ACTION',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'PENDING' },
+        successActions: [{ type: 'LOG', config: { message: 'Success' } }],
+        failureActions: invalidFailureActions,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('url')
+    })
+  })
+
+  describe('Validation - PUT/Update', () => {
+    test('should validate condition expression on update', async () => {
+      const invalidCondition = {
+        field: '',  // Empty field path
+        operator: '=',
+        value: 'test'
+      }
+
+      const updateData = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        conditionExpression: invalidCondition,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(updateData),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('Invalid')
+    })
+
+    test('should validate actions on update', async () => {
+      const invalidActions = [
+        { type: 'EMIT_EVENT', config: {} }  // Missing 'eventName'
+      ]
+
+      const updateData = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        successActions: invalidActions,
+      }
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify(updateData),
+      })
+      const response = await PUT(request)
+
+      expect(response.status).toBe(400)
+      const body = await response.json()
+      expect(body.error).toContain('eventName')
+    })
+  })
 })
