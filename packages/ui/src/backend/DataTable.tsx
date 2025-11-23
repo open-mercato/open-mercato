@@ -1121,14 +1121,14 @@ export function DataTable<T>({
     const cacheBadge = normalizedCacheStatus ? (
       <span
         className="inline-flex items-center justify-center"
-        aria-label={`Cache ${normalizedCacheStatus.toUpperCase()}`}
-        title={`Cache ${normalizedCacheStatus.toUpperCase()}`}
+        aria-label={t('ui.dataTable.pagination.cache.ariaLabel', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
+        title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
       >
         <Circle
           className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
           strokeWidth={3}
         />
-        <span className="sr-only">{`Cache ${normalizedCacheStatus.toUpperCase()}`}</span>
+        <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
       </span>
     ) : null
 
@@ -1136,7 +1136,10 @@ export function DataTable<T>({
       <div className="flex items-center justify-between px-4 py-3 border-t">
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <span>
-            Showing {startItem} to {endItem} of {pagination.total} results{durationLabel ? ` in ${durationLabel}` : ''}
+            {durationLabel 
+              ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
+              : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
+            }
           </span>
           {cacheBadge}
         </div>
@@ -1147,10 +1150,10 @@ export function DataTable<T>({
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
           >
-            Previous
+            {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
           <span className="text-sm">
-            Page {page} of {totalPages}
+            {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
             variant="outline"
@@ -1158,7 +1161,7 @@ export function DataTable<T>({
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
           >
-            Next
+            {t('ui.dataTable.pagination.next', 'Next')}
           </Button>
         </div>
       </div>
@@ -1414,7 +1417,7 @@ export function DataTable<T>({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  {emptyState ?? 'No results.'}
+                  {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
                 </TableCell>
               </TableRow>
             )}

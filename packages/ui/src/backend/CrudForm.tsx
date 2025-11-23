@@ -953,6 +953,7 @@ function RelationSelect({
   placeholder?: string
   autoFocus?: boolean
 }) {
+  const t = useT()
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -967,7 +968,7 @@ function RelationSelect({
       <input
         ref={inputRef}
         className="w-full h-9 rounded border px-2 text-sm"
-        placeholder={placeholder || 'Search...'}
+        placeholder={placeholder || t('ui.forms.listbox.searchPlaceholder', 'Search...')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         autoFocus={autoFocus}
