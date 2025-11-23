@@ -7,6 +7,10 @@ import { actionsForVersion, findUpgradeAction, type UpgradeActionDefinition } fr
 
 export type UpgradeActionStatus = 'completed' | 'already_completed'
 
+export function isUpgradeActionsEnabled(): boolean {
+  return process.env.UPGRADE_ACTIONS_ENABLED === 'true'
+}
+
 export function getCurrentVersion(): string {
   return appVersion
 }
@@ -19,6 +23,7 @@ export async function listPendingUpgradeActions(
     version = appVersion,
   }: { tenantId: string; organizationId: string; version?: string },
 ): Promise<UpgradeActionDefinition[]> {
+  if (!isUpgradeActionsEnabled()) return []
   const definitions = actionsForVersion(version)
   if (!definitions.length) return []
   const runs = await em.find(UpgradeActionRun, {
@@ -39,6 +44,9 @@ export async function executeUpgradeAction(
     version = appVersion,
   }: { actionId: string; tenantId: string; organizationId: string; version?: string },
 ): Promise<{ action: UpgradeActionDefinition; status: UpgradeActionStatus }> {
+  if (!isUpgradeActionsEnabled()) {
+    throw new Error('UPGRADE_ACTIONS_DISABLED')
+  }
   const definition = findUpgradeAction(actionId, version)
   if (!definition) {
     throw new Error('UPGRADE_ACTION_NOT_AVAILABLE')

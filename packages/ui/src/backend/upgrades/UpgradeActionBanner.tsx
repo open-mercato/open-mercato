@@ -6,6 +6,10 @@ import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+const upgradeActionsEnabled =
+  process.env.NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED === 'true' ||
+  process.env.UPGRADE_ACTIONS_ENABLED === 'true'
+
 type UpgradeActionPayload = {
   id: string
   version: string
@@ -33,6 +37,7 @@ export function UpgradeActionBanner() {
   const [loading, setLoading] = React.useState(false)
 
   React.useEffect(() => {
+    if (!upgradeActionsEnabled) return
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return
     let cancelled = false
     const load = async () => {
@@ -51,10 +56,10 @@ export function UpgradeActionBanner() {
     }
   }, [])
 
-  if (!action) return null
+  if (!upgradeActionsEnabled || !action) return null
 
   async function handleRun() {
-    if (!action || loading) return
+    if (!upgradeActionsEnabled || !action || loading) return
     setLoading(true)
     try {
       const response = await apiCall<RunActionResponse>('/api/configs/upgrade-actions', {
