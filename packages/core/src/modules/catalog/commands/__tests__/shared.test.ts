@@ -96,7 +96,11 @@ describe('catalog command shared helpers', () => {
     expectedArgs: any
   }> = [
     { label: 'requireProduct', fn: (em) => requireProduct(em, 'prod'), expectedArgs: [{ id: 'prod', deletedAt: null }] },
-    { label: 'requireVariant', fn: (em) => requireVariant(em, 'variant'), expectedArgs: [{ id: 'variant', deletedAt: null }] },
+    {
+      label: 'requireVariant',
+      fn: (em) => requireVariant(em, 'variant'),
+      expectedArgs: [{ id: 'variant', deletedAt: null }, { populate: ['product'] }],
+    },
     { label: 'requireOffer', fn: (em) => requireOffer(em, 'offer'), expectedArgs: [{ id: 'offer' }] },
     {
       label: 'requireOptionSchemaTemplate',
@@ -112,7 +116,11 @@ describe('catalog command shared helpers', () => {
       const em = { findOne }
 
       await expect(fn(em)).resolves.toBe(entity)
-      expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0])
+      if (expectedArgs[1]) {
+        expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0], expectedArgs[1])
+      } else {
+        expect(findOne).toHaveBeenCalledWith(expect.any(Function), expectedArgs[0])
+      }
 
       findOne.mockResolvedValue(null)
       await expect(fn(em)).rejects.toBeInstanceOf(CrudHttpError)
