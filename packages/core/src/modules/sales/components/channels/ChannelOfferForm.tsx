@@ -188,10 +188,11 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         ])
         if (!cancelled) {
           setProductSummary(summary ?? null)
-          const mergedMedia = dedupeMediaOptions([
-            ...attachments,
-            ...buildVariantMediaOptions(variants),
-          ])
+          const mergedMedia = buildMediaOptionsFromSources({
+            attachments,
+            variants,
+            summary,
+          })
           attachmentCache.current.set(resolvedProductId, mergedMedia)
           setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
@@ -292,33 +293,39 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         values.priceOverrides = priceItems.map(mapPriceRow)
         let preloadedMedia: MediaOption[] = []
         let preloadedVariants: ProductVariantPreview[] = []
+        let preloadedSummary: ProductSummary | null = null
         const productId = typeof values.productId === 'string' ? values.productId : null
         if (productId) {
           try {
-            const [attachments, variants] = await Promise.all([
+            const hydrationChannelId = selectedChannelId
+              ?? lockedChannelId
+              ?? (typeof values.channelId === 'string' ? values.channelId : null)
+            const [summary, attachments, variants] = await Promise.all([
+              resolveProductSummaryWithCache({
+                productId,
+                channelId: hydrationChannelId ?? null,
+                productCache,
+              }),
               loadProductMedia(productId),
               resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache }),
             ])
+            preloadedSummary = summary ?? null
             preloadedVariants = variants
-            preloadedMedia = dedupeMediaOptions([
-              ...attachments,
-              ...buildVariantMediaOptions(variants),
-            ])
-            if (preloadedMedia.length) {
-              attachmentCache.current.set(productId, preloadedMedia)
-            }
+            preloadedMedia = buildMediaOptionsFromSources({
+              attachments,
+              variants,
+              summary,
+            })
+            attachmentCache.current.set(productId, preloadedMedia)
           } catch (err) {
             console.error('sales.channels.offer.media.preload', err)
           }
         }
         if (!cancelled) {
           setInitialValues(values)
-          if (preloadedVariants.length) {
-            setVariantPreviews(preloadedVariants)
-          }
-          if (preloadedMedia.length) {
-            setMediaOptions(preloadedMedia)
-          }
+          setProductSummary(preloadedSummary)
+          setVariantPreviews(preloadedVariants)
+          setMediaOptions(preloadedMedia)
         }
       } catch (err) {
         console.error('sales.channels.offer.load', err)
@@ -329,7 +336,20 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     }
     void loadOffer()
     return () => { cancelled = true }
-  }, [attachmentCache, lockedChannelId, mode, offerId, setMediaOptions, setVariantPreviews, t, variantCache, variantMediaCache])
+  }, [
+    attachmentCache,
+    lockedChannelId,
+    mode,
+    offerId,
+    productCache,
+    selectedChannelId,
+    setMediaOptions,
+    setProductSummary,
+    setVariantPreviews,
+    t,
+    variantCache,
+    variantMediaCache,
+  ])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -1303,10 +1323,11 @@ function OfferFormWatchers({
             variantCache,
             variantMediaCache,
           })
-          const mergedMedia = dedupeMediaOptions([
-            ...attachments,
-            ...buildVariantMediaOptions(variants),
-          ])
+          const mergedMedia = buildMediaOptionsFromSources({
+            attachments,
+            variants,
+            summary,
+          })
           attachmentCache.current.set(resolvedProductId, mergedMedia)
           setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
@@ -1526,6 +1547,33 @@ function buildVariantMediaOptions(variants: ProductVariantPreview[]): MediaOptio
     .filter((entry): entry is MediaOption => Boolean(entry))
 }
 
+function buildMediaOptionsFromSources({
+  attachments,
+  variants,
+  summary,
+}: {
+  attachments?: MediaOption[] | null
+  variants?: ProductVariantPreview[] | null
+  summary?: ProductSummary | null
+}): MediaOption[] {
+  const merged = dedupeMediaOptions([
+    ...(attachments ?? []),
+    ...buildVariantMediaOptions(variants ?? []),
+  ])
+  const defaultId = summary?.defaultMediaId ?? null
+  const defaultUrl = summary?.defaultMediaUrl ?? null
+  if (defaultId && defaultUrl && !merged.some((entry) => entry.id === defaultId)) {
+    const fileName = inferFileNameFromUrl(defaultUrl, defaultId)
+    merged.unshift({
+      id: defaultId,
+      label: fileName,
+      fileName,
+      thumbnailUrl: defaultUrl,
+    })
+  }
+  return merged
+}
+
 function dedupeMediaOptions(entries: MediaOption[] | null | undefined): MediaOption[] {
   if (!Array.isArray(entries)) return []
   const seen = new Set<string>()
@@ -1537,6 +1585,15 @@ function dedupeMediaOptions(entries: MediaOption[] | null | undefined): MediaOpt
     result.push(entry)
   }
   return result
+}
+
+function inferFileNameFromUrl(url: string | null, fallbackId: string): string {
+  if (typeof url === 'string' && url.length) {
+    const cleaned = url.split(/[?#]/)[0]
+    const last = cleaned.split('/').pop()
+    if (last && last.trim().length) return last
+  }
+  return `${fallbackId}.jpg`
 }
 
 function mapVariantPreview(item: Record<string, unknown>): ProductVariantPreview {
