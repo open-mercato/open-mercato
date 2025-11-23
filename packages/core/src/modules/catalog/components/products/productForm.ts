@@ -34,6 +34,18 @@ export type ProductOptionInput = {
   values: Array<{ id: string; label: string }>
 }
 
+export type ProductDimensions = {
+  width?: number
+  height?: number
+  depth?: number
+  unit?: string | null
+} | null
+
+export type ProductWeight = {
+  value?: number
+  unit?: string | null
+} | null
+
 export type VariantPriceValue = {
   amount: string
 }
@@ -66,6 +78,8 @@ export type ProductFormValues = {
   options: ProductOptionInput[]
   variants: VariantDraft[]
   metadata?: Record<string, unknown> | null
+  dimensions?: ProductDimensions
+  weight?: ProductWeight
   customFieldsetCode?: string | null
   categoryIds: string[]
   channelIds: string[]
@@ -94,6 +108,22 @@ export const productFormSchema = z.object({
   variants: z.any().optional(),
   // Use a permissive schema to avoid zod classic `_zod` runtime crashes on records in edge builds.
   metadata: z.custom<Record<string, unknown>>(() => true).nullable().optional(),
+  dimensions: z
+    .object({
+      width: z.coerce.number().min(0).optional(),
+      height: z.coerce.number().min(0).optional(),
+      depth: z.coerce.number().min(0).optional(),
+      unit: z.string().trim().max(25).optional(),
+    })
+    .nullable()
+    .optional(),
+  weight: z
+    .object({
+      value: z.coerce.number().min(0).optional(),
+      unit: z.string().trim().max(25).optional(),
+    })
+    .nullable()
+    .optional(),
   customFieldsetCode: z.string().optional().nullable(),
   categoryIds: z.array(z.string().uuid()).optional(),
   channelIds: z.array(z.string().uuid()).optional(),
@@ -118,6 +148,8 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   options: [],
   variants: [],
   metadata: {},
+  dimensions: null,
+  weight: null,
   customFieldsetCode: null,
   categoryIds: [],
   channelIds: [],
@@ -166,6 +198,85 @@ export const haveSameOptionValues = (
     if ((a[key] ?? '') !== (next[key] ?? '')) return false
   }
   return true
+}
+
+const parseNumeric = (input: unknown): number | null => {
+  const numeric = typeof input === 'number' ? input : Number(input)
+  if (!Number.isFinite(numeric) || numeric < 0) return null
+  return numeric
+}
+
+export const normalizeProductDimensions = (raw: unknown): ProductDimensions => {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const width = parseNumeric(source.width)
+  const height = parseNumeric(source.height)
+  const depth = parseNumeric(source.depth)
+  const unit = typeof source.unit === 'string' && source.unit.trim().length ? source.unit.trim() : null
+  const clean: Record<string, unknown> = {}
+  if (width !== null) clean.width = width
+  if (height !== null) clean.height = height
+  if (depth !== null) clean.depth = depth
+  if (unit) clean.unit = unit
+  return Object.keys(clean).length ? (clean as ProductDimensions) : null
+}
+
+export const normalizeProductWeight = (raw: unknown): ProductWeight => {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const value = parseNumeric(source.value)
+  const unit = typeof source.unit === 'string' && source.unit.trim().length ? source.unit.trim() : null
+  if (value === null && !unit) return null
+  const clean: Record<string, unknown> = {}
+  if (value !== null) clean.value = value
+  if (unit) clean.unit = unit
+  return clean as ProductWeight
+}
+
+export const sanitizeProductDimensions = (raw: ProductDimensions): ProductDimensions => {
+  return normalizeProductDimensions(raw ?? null)
+}
+
+export const sanitizeProductWeight = (raw: ProductWeight): ProductWeight => {
+  return normalizeProductWeight(raw ?? null)
+}
+
+export const updateDimensionValue = (
+  current: ProductDimensions,
+  field: 'width' | 'height' | 'depth' | 'unit',
+  raw: string
+): ProductDimensions => {
+  const base = normalizeProductDimensions(current) ?? {}
+  if (field === 'unit') {
+    base.unit = raw
+  } else {
+    const numeric = parseNumeric(raw)
+    if (numeric === null) {
+      delete base[field]
+    } else {
+      base[field] = numeric
+    }
+  }
+  return sanitizeProductDimensions(base)
+}
+
+export const updateWeightValue = (
+  current: ProductWeight,
+  field: 'value' | 'unit',
+  raw: string
+): ProductWeight => {
+  const base = normalizeProductWeight(current) ?? {}
+  if (field === 'unit') {
+    base.unit = raw
+  } else {
+    const numeric = parseNumeric(raw)
+    if (numeric === null) {
+      delete (base as Record<string, unknown>).value
+    } else {
+      base.value = numeric
+    }
+  }
+  return sanitizeProductWeight(base)
 }
 
 export const normalizePriceKindSummary = (input: PriceKindApiPayload | undefined | null): PriceKindSummary | null => {

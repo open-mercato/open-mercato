@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import sharp from 'sharp'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
@@ -25,7 +25,7 @@ export const metadata = {
 }
 
 export async function GET(
-  req: Request,
+  req: NextRequest,
   context: { params: Promise<{ id: string; slug?: string[] | undefined }> }
 ) {
   const auth = await getAuthFromRequest(req)
@@ -95,7 +95,12 @@ export async function GET(
         })
       }
     }
-    return new NextResponse(buffer, {
+    if (!buffer) {
+      return NextResponse.json({ error: 'Failed to render image' }, { status: 500 })
+    }
+    const responseBody = new Uint8Array(buffer)
+
+    return new NextResponse(responseBody, {
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
         'Cache-Control': partition.isPublic ? 'public, max-age=3600' : 'private, max-age=60',

@@ -260,6 +260,11 @@ type ProductListItem = Record<string, unknown> & {
   default_unit?: string | null
   default_media_id?: string | null
   default_media_url?: string | null
+  weight_value?: string | null
+  weightValue?: string | null
+  weight_unit?: string | null
+  weightUnit?: string | null
+  dimensions?: Record<string, unknown> | null
   custom_fieldset_code?: string | null
   option_schema_id?: string | null
   offers?: Array<Record<string, unknown>>
@@ -523,6 +528,9 @@ const crud = makeCrudRoute({
       F.default_unit,
       F.default_media_id,
       F.default_media_url,
+      F.weight_value,
+      F.weight_unit,
+      F.dimensions,
       F.is_configurable,
       F.is_active,
       F.metadata,

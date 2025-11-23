@@ -49,6 +49,7 @@ import {
   requireOptionSchemaTemplate,
   resolveOptionSchemaCode,
   randomSuffix,
+  toNumericString,
 } from './shared'
 
 type ProductSnapshot = {
@@ -66,6 +67,9 @@ type ProductSnapshot = {
   defaultUnit: string | null
   defaultMediaId: string | null
   defaultMediaUrl: string | null
+  weightValue: string | null
+  weightUnit: string | null
+  dimensions: Record<string, unknown> | null
   optionSchemaId: string | null
   customFieldsetCode: string | null
   metadata: Record<string, unknown> | null
@@ -176,6 +180,9 @@ const PRODUCT_CHANGE_KEYS = [
   'defaultUnit',
   'defaultMediaId',
   'defaultMediaUrl',
+  'weightValue',
+  'weightUnit',
+  'dimensions',
   'optionSchemaId',
   'customFieldsetCode',
   'metadata',
@@ -311,10 +318,73 @@ function extractOptionSchemaInput(source: {
   if (metadata) {
     delete (metadata as Record<string, unknown>)['optionSchema']
     delete (metadata as Record<string, unknown>)['option_schema']
+    delete (metadata as Record<string, unknown>)['dimensions']
+    delete (metadata as Record<string, unknown>)['weight']
   }
   return {
     schema,
     metadata: metadata && Object.keys(metadata).length ? metadata : null,
+  }
+}
+
+function parseNumeric(value: unknown): number | null {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric) || numeric < 0) return null
+  return numeric
+}
+
+function normalizeDimensionsInput(raw: unknown): {
+  width?: number
+  height?: number
+  depth?: number
+  unit?: string
+} | null {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const clean: Record<string, unknown> = {}
+  const width = parseNumeric(source.width)
+  const height = parseNumeric(source.height)
+  const depth = parseNumeric(source.depth)
+  const unit = typeof source.unit === 'string' && source.unit.trim().length ? source.unit.trim() : null
+  if (width !== null) clean.width = width
+  if (height !== null) clean.height = height
+  if (depth !== null) clean.depth = depth
+  if (unit) clean.unit = unit
+  return Object.keys(clean).length ? (clean as { width?: number; height?: number; depth?: number; unit?: string }) : null
+}
+
+function normalizeWeightInput(raw: unknown): { value?: number; unit?: string } | null {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const value = parseNumeric(source.value)
+  const unit = typeof source.unit === 'string' && source.unit.trim().length ? source.unit.trim() : null
+  if (value === null && !unit) return null
+  const clean: { value?: number; unit?: string } = {}
+  if (value !== null) clean.value = value
+  if (unit) clean.unit = unit
+  return clean
+}
+
+function extractMeasurementsFromMetadata(metadata: Record<string, unknown> | null | undefined): {
+  metadata: Record<string, unknown> | null
+  dimensions: { width?: number; height?: number; depth?: number; unit?: string } | null
+  weightValue: number | null
+  weightUnit: string | null
+} {
+  if (!metadata || typeof metadata !== 'object') {
+    return { metadata: null, dimensions: null, weightValue: null, weightUnit: null }
+  }
+  const clone = { ...(metadata as Record<string, unknown>) }
+  const dimensions = normalizeDimensionsInput(clone.dimensions)
+  const weight = normalizeWeightInput(clone.weight)
+  delete clone.dimensions
+  delete clone.weight
+  const cleanedMetadata = Object.keys(clone).length ? clone : null
+  return {
+    metadata: cleanedMetadata,
+    dimensions,
+    weightValue: weight?.value ?? null,
+    weightUnit: weight?.unit ?? null,
   }
 }
 
@@ -770,6 +840,18 @@ async function loadProductSnapshot(
     typeof optionSchemaTemplate === 'string'
       ? optionSchemaTemplate
       : optionSchemaTemplate?.id ?? null
+  const measurements = extractMeasurementsFromMetadata(record.metadata ? cloneJson(record.metadata) : null)
+  const dimensions =
+    record.dimensions && Object.keys(record.dimensions).length
+      ? cloneJson(record.dimensions)
+      : measurements.dimensions
+        ? cloneJson(measurements.dimensions)
+        : null
+  const weightValue =
+    record.weightValue ??
+    (measurements.weightValue !== null ? toNumericString(measurements.weightValue) : null)
+  const weightUnit = record.weightUnit ?? measurements.weightUnit ?? null
+  const metadata = measurements.metadata ? cloneJson(measurements.metadata) : null
   return {
     id: record.id,
     organizationId: record.organizationId,
@@ -785,8 +867,11 @@ async function loadProductSnapshot(
     defaultUnit: record.defaultUnit ?? null,
     defaultMediaId: record.defaultMediaId ?? null,
     defaultMediaUrl: record.defaultMediaUrl ?? null,
+    weightValue,
+    weightUnit,
+    dimensions,
     customFieldsetCode: record.customFieldsetCode ?? null,
-    metadata: record.metadata ? cloneJson(record.metadata) : null,
+    metadata,
     isConfigurable: record.isConfigurable,
     isActive: record.isActive,
     optionSchemaId: optionTemplateId,
@@ -815,6 +900,9 @@ function applyProductSnapshot(
   record.defaultUnit = snapshot.defaultUnit ?? null
   record.defaultMediaId = snapshot.defaultMediaId ?? null
   record.defaultMediaUrl = snapshot.defaultMediaUrl ?? null
+  record.weightValue = snapshot.weightValue ?? null
+  record.weightUnit = snapshot.weightUnit ?? null
+  record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.optionSchemaTemplate = snapshot.optionSchemaId
@@ -835,6 +923,17 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
     const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
+    const measurements = extractMeasurementsFromMetadata(sanitizedMetadata)
+    const dimensions = normalizeDimensionsInput(parsed.dimensions) ?? measurements.dimensions
+    const weightValue =
+      parsed.weightValue !== undefined
+        ? toNumericString(parsed.weightValue)
+        : measurements.weightValue !== null
+          ? toNumericString(measurements.weightValue)
+          : null
+    const weightUnit =
+      parsed.weightUnit !== undefined ? parsed.weightUnit ?? null : measurements.weightUnit ?? null
+    const metadata = measurements.metadata ? cloneJson(measurements.metadata) : null
     const productId = randomUUID()
     const record = em.create(CatalogProduct, {
       id: productId,
@@ -851,7 +950,10 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       defaultUnit: parsed.defaultUnit ?? null,
       defaultMediaId: parsed.defaultMediaId ?? null,
       defaultMediaUrl: parsed.defaultMediaUrl ?? null,
-      metadata: sanitizedMetadata ? cloneJson(sanitizedMetadata) : null,
+      weightValue,
+      weightUnit,
+      dimensions,
+      metadata,
       customFieldsetCode: parsed.customFieldsetCode ?? null,
       isConfigurable: parsed.isConfigurable ?? false,
       isActive: parsed.isActive ?? true,
@@ -1002,11 +1104,36 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.defaultMediaUrl !== undefined) {
       record.defaultMediaUrl = parsed.defaultMediaUrl ?? null
     }
+    if (normalizedDimensions !== null || parsed.dimensions !== undefined) {
+      record.dimensions = normalizedDimensions ? cloneJson(normalizedDimensions) : null
+    }
+    if (weightProvided) {
+      record.weightValue = weightValueFromInput
+      record.weightUnit = weightUnitFromInput
+    }
     const metadataProvided =
       rawInput && typeof rawInput === 'object' && Object.prototype.hasOwnProperty.call(rawInput, 'metadata')
     const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
+    const measurements = extractMeasurementsFromMetadata(sanitizedMetadata)
+    const normalizedDimensions =
+      parsed.dimensions !== undefined ? normalizeDimensionsInput(parsed.dimensions) : measurements.dimensions
+    const weightValueFromInput =
+      parsed.weightValue === null
+        ? null
+        : parsed.weightValue !== undefined
+          ? toNumericString(parsed.weightValue)
+          : measurements.weightValue !== null
+            ? toNumericString(measurements.weightValue)
+            : null
+    const weightUnitFromInput =
+      parsed.weightUnit !== undefined ? parsed.weightUnit ?? null : measurements.weightUnit ?? null
+    const weightProvided =
+      parsed.weightValue !== undefined ||
+      parsed.weightUnit !== undefined ||
+      measurements.weightValue !== null ||
+      measurements.weightUnit !== null
     if (metadataProvided) {
-      record.metadata = sanitizedMetadata ? cloneJson(sanitizedMetadata) : null
+      record.metadata = measurements.metadata ? cloneJson(measurements.metadata) : null
     }
     if (parsed.optionSchemaId !== undefined) {
       if (!parsed.optionSchemaId) {
@@ -1109,6 +1236,9 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
+        weightValue: before.weightValue ?? null,
+        weightUnit: before.weightUnit ?? null,
+        dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         customFieldsetCode: before.customFieldsetCode ?? null,
         optionSchemaTemplate: before.optionSchemaId
@@ -1242,6 +1372,9 @@ const deleteProductCommand: CommandHandler<
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
+        weightValue: before.weightValue ?? null,
+        weightUnit: before.weightUnit ?? null,
+        dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         customFieldsetCode: before.customFieldsetCode ?? null,
         optionSchemaTemplate: before.optionSchemaId

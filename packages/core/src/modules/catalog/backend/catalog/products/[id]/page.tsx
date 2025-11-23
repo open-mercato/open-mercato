@@ -41,6 +41,12 @@ import {
   normalizePriceKindSummary,
   buildOptionValuesKey,
   buildVariantCombinations,
+  normalizeProductDimensions,
+  normalizeProductWeight,
+  sanitizeProductDimensions,
+  sanitizeProductWeight,
+  updateDimensionValue,
+  updateWeightValue,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { MetadataEditor } from '@open-mercato/core/modules/catalog/components/products/MetadataEditor'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
@@ -209,7 +215,25 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
         if (!productRes.ok) throw new Error('load_failed')
         const record = Array.isArray(productRes.result?.items) ? productRes.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
-        const metadata = normalizeMetadata(record.metadata)
+        const rawMetadata = isRecord(record.metadata)
+          ? (record.metadata as Record<string, unknown>)
+          : isRecord((record as any).metadata)
+            ? ((record as any).metadata as Record<string, unknown>)
+            : null
+        const dimensions = normalizeProductDimensions(
+          (record as any).dimensions ?? (rawMetadata as any)?.dimensions ?? null,
+        )
+        const weight = normalizeProductWeight({
+          value:
+            (record as any).weight_value ??
+            (record as any).weightValue ??
+            (isRecord((rawMetadata as any)?.weight) ? (rawMetadata as any).weight.value : undefined),
+          unit:
+            (record as any).weight_unit ??
+            (record as any).weightUnit ??
+            (isRecord((rawMetadata as any)?.weight) ? (rawMetadata as any).weight.unit : undefined),
+        })
+        const metadata = normalizeMetadata(rawMetadata)
         const optionSchemaId =
           typeof record.option_schema_id === 'string'
             ? record.option_schema_id
@@ -249,6 +273,8 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           optionSchemaId,
           variants: [],
           metadata,
+          dimensions: sanitizeProductDimensions(dimensions),
+          weight: sanitizeProductWeight(weight),
           customFieldsetCode:
             typeof record.custom_fieldset_code === 'string'
               ? record.custom_fieldset_code
@@ -540,6 +566,8 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     const handle = values.handle?.trim() || undefined
     const description = values.description?.trim() || undefined
     const metadata = buildMetadataPayload(values)
+    const dimensions = sanitizeProductDimensions(values.dimensions ?? null)
+    const weight = sanitizeProductWeight(values.weight ?? null)
     const defaultMediaId = typeof values.defaultMediaId === 'string' && values.defaultMediaId.trim().length
       ? values.defaultMediaId
       : null
@@ -557,6 +585,9 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       handle,
       isConfigurable: Boolean(values.hasVariants),
       metadata,
+      dimensions,
+      weightValue: weight?.value ?? null,
+      weightUnit: weight?.unit ?? null,
       defaultMediaId: defaultMediaId ?? undefined,
       defaultMediaUrl: defaultMediaUrl ?? undefined,
       customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
@@ -780,9 +811,8 @@ function ProductDetailsSection({ values, setValue, errors, productId }: ProductD
 
 function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
   const t = useT()
-  const metadata = normalizeMetadata(values.metadata)
-  const dimensionValues = normalizeDimensions(metadata)
-  const weightValues = normalizeWeight(metadata)
+  const dimensionValues = normalizeProductDimensions(values.dimensions)
+  const weightValues = normalizeProductWeight(values.weight)
 
   return (
     <div className="space-y-4">
@@ -790,27 +820,55 @@ function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentPr
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.width', 'Width')}</Label>
-          <Input type="number" value={dimensionValues.width ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'width', event.target.value))} placeholder="0" />
+          <Input
+            type="number"
+            value={dimensionValues?.width ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'width', event.target.value))}
+            placeholder="0"
+          />
         </div>
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.height', 'Height')}</Label>
-          <Input type="number" value={dimensionValues.height ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'height', event.target.value))} placeholder="0" />
+          <Input
+            type="number"
+            value={dimensionValues?.height ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'height', event.target.value))}
+            placeholder="0"
+          />
         </div>
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.depth', 'Depth')}</Label>
-          <Input type="number" value={dimensionValues.depth ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'depth', event.target.value))} placeholder="0" />
+          <Input
+            type="number"
+            value={dimensionValues?.depth ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'depth', event.target.value))}
+            placeholder="0"
+          />
         </div>
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.unit', 'Size unit')}</Label>
-          <Input value={dimensionValues.unit ?? ''} onChange={(event) => setValue('metadata', applyDimension(metadata, 'unit', event.target.value))} placeholder="cm" />
+          <Input
+            value={dimensionValues?.unit ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'unit', event.target.value))}
+            placeholder="cm"
+          />
         </div>
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.value', 'Weight')}</Label>
-          <Input type="number" value={weightValues.value ?? ''} onChange={(event) => setValue('metadata', applyWeight(metadata, 'value', event.target.value))} placeholder="0" />
+          <Input
+            type="number"
+            value={weightValues?.value ?? ''}
+            onChange={(event) => setValue('weight', updateWeightValue(values.weight ?? null, 'value', event.target.value))}
+            placeholder="0"
+          />
         </div>
         <div className="space-y-2">
           <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.unit', 'Weight unit')}</Label>
-          <Input value={weightValues.unit ?? ''} onChange={(event) => setValue('metadata', applyWeight(metadata, 'unit', event.target.value))} placeholder="kg" />
+          <Input
+            value={weightValues?.unit ?? ''}
+            onChange={(event) => setValue('weight', updateWeightValue(values.weight ?? null, 'unit', event.target.value))}
+            placeholder="kg"
+          />
         </div>
       </div>
     </div>

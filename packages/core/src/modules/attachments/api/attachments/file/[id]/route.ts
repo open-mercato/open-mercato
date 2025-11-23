@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
@@ -11,8 +11,8 @@ export const metadata = {
   GET: { requireAuth: false },
 }
 
-export async function GET(req: Request, context: { params: { id: string } }) {
-  const id = context.params.id
+export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params
   if (!id) {
     return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
   }
@@ -60,5 +60,7 @@ export async function GET(req: Request, context: { params: { id: string } }) {
     headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(attachment.fileName)}"`
   }
 
-  return new NextResponse(buffer, { status: 200, headers })
+  const responseBody = new Uint8Array(buffer)
+
+  return new NextResponse(responseBody, { status: 200, headers })
 }
