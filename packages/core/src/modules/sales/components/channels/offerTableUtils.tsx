@@ -61,11 +61,16 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
         : null,
     productTitle: typeof product?.title === 'string' ? product.title : null,
     productSku: typeof product?.sku === 'string' ? product.sku : null,
-    productMediaUrl: typeof product?.defaultMediaUrl === 'string'
-      ? product.defaultMediaUrl
-      : typeof product?.default_media_url === 'string'
-        ? product.default_media_url
-        : null,
+    productMediaUrl:
+      typeof item.defaultMediaUrl === 'string'
+        ? item.defaultMediaUrl
+        : typeof item.default_media_url === 'string'
+          ? item.default_media_url
+          : typeof product?.defaultMediaUrl === 'string'
+            ? product.defaultMediaUrl
+            : typeof product?.default_media_url === 'string'
+              ? product.default_media_url
+              : null,
     prices: prices.map(mapPriceRow),
     productDefaultPrices: productDefaultPrices.map(mapPriceRow),
     productChannelPrice: mapPriceSummary(productChannelPriceSource),
