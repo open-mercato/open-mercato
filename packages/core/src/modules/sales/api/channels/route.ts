@@ -59,7 +59,7 @@ const salesChannelItemSchema = z.object({
 
 const salesChannelListResponseSchema = createPagedListResponseSchema(salesChannelItemSchema)
 
-function parseIdList(raw?: string): string[] {
+export function parseIdList(raw?: string): string[] {
   if (!raw) return []
   return raw
     .split(',')
@@ -67,7 +67,7 @@ function parseIdList(raw?: string): string[] {
     .filter((value) => UUID_REGEX.test(value))
 }
 
-function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
+export function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   else {
@@ -220,7 +220,7 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-async function decorateChannelsWithOfferCounts(
+export async function decorateChannelsWithOfferCounts(
   payload: { items?: Array<Record<string, unknown>> },
   ctx: CrudCtx,
 ) {

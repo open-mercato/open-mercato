@@ -1,4 +1,4 @@
-import { buildVariantFilters } from '../variants/route'
+import { buildVariantFilters, stripPlaceholderId } from '../variants/route'
 import { sanitizeSearchTerm } from '../helpers'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -30,5 +30,15 @@ describe('catalog variants route helpers', () => {
     expect(filters.sku).toEqual({ $eq: 'SKU-1' })
     expect(filters.is_active).toBe(false)
     expect(filters.is_default).toBe(true)
+  })
+
+  it('strips placeholder identifiers from payload objects', () => {
+    const payload = { id: '  create  ', name: 'Variant' }
+    stripPlaceholderId(payload)
+    expect(payload.id).toBeUndefined()
+
+    const valid = { id: ' 0a463809-ef8f-420e-b329-6767eeefaa9e ' }
+    stripPlaceholderId(valid)
+    expect(valid.id).toBe('0a463809-ef8f-420e-b329-6767eeefaa9e')
   })
 })

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
+import { promises as fs } from 'node:fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
@@ -17,8 +19,94 @@ import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/dat
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
 import { defineFields, cf } from '@/modules/dsl'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
+import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
+import { storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
+import { mergeAttachmentMetadata } from '@open-mercato/core/modules/attachments/lib/metadata'
+import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 type SeedScope = { tenantId: string; organizationId: string }
+
+const EXAMPLES_MEDIA_ROOT = path.join(process.cwd(), 'public', 'examples')
+
+function detectMimeType(fileName: string): string {
+  const ext = fileName.toLowerCase().split('.').pop() || ''
+  if (ext === 'png') return 'image/png'
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  if (ext === 'webp') return 'image/webp'
+  return 'application/octet-stream'
+}
+
+async function ensureAttachmentPartition(
+  em: EntityManager,
+  code: string
+): Promise<AttachmentPartition> {
+  let partition = await em.findOne(AttachmentPartition, { code })
+  if (!partition) {
+    await ensureDefaultPartitions(em)
+    partition = await em.findOne(AttachmentPartition, { code })
+  }
+  if (!partition) {
+    throw new Error(`Attachment partition "${code}" is not configured.`)
+  }
+  return partition
+}
+
+async function attachMediaFromExamples(
+  em: EntityManager,
+  scope: SeedScope,
+  entityId: string,
+  recordId: string,
+  mediaSeeds?: MediaSeed[]
+): Promise<Array<{ id: string; imageUrl: string }>> {
+  if (!mediaSeeds?.length) return []
+  const partitionCode = resolveDefaultPartitionCode(entityId)
+  const partition = await ensureAttachmentPartition(em, partitionCode)
+  const results: Array<{ id: string; imageUrl: string }> = []
+  for (const media of mediaSeeds) {
+    const sourcePath = path.join(EXAMPLES_MEDIA_ROOT, media.file)
+    let buffer: Buffer
+    try {
+      buffer = await fs.readFile(sourcePath)
+    } catch (error) {
+      console.warn(`[catalog.seed] Example media missing: ${sourcePath}`)
+      continue
+    }
+    const stored = await storePartitionFile({
+      partitionCode: partition.code,
+      orgId: scope.organizationId,
+      tenantId: scope.tenantId,
+      fileName: media.file,
+      buffer,
+    })
+    const attachmentId = randomUUID()
+    const slug = slugifyAttachmentFileName(media.file, 'media')
+    const metadata = mergeAttachmentMetadata(null, {
+      assignments: [{ type: entityId, id: recordId }],
+    })
+    const attachment = em.create(Attachment, {
+      id: attachmentId,
+      entityId,
+      recordId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      partitionCode: partition.code,
+      fileName: media.file,
+      mimeType: detectMimeType(media.file),
+      fileSize: buffer.length,
+      storageDriver: partition.storageDriver || 'local',
+      storagePath: stored.storagePath,
+      storageMetadata: metadata,
+      url: buildAttachmentFileUrl(attachmentId),
+    })
+    em.persist(attachment)
+    results.push({
+      id: attachmentId,
+      imageUrl: buildAttachmentImageUrl(attachmentId, { slug }),
+    })
+  }
+  return results
+}
 
 const PRODUCT_FIELDSETS = [
   {
@@ -44,6 +132,17 @@ const PRODUCT_FIELDSETS = [
       { code: 'care', title: 'Care instructions' },
     ],
   },
+  {
+    code: 'service_booking',
+    label: 'Services · Booking',
+    icon: 'solar:calendar-linear',
+    description: 'Scheduling, preparation, and delivery metadata for service offerings.',
+    groups: [
+      { code: 'identity', title: 'Identity' },
+      { code: 'timing', title: 'Timing rules' },
+      { code: 'resources', title: 'Resources & Delivery' },
+    ],
+  },
 ] as const
 
 const VARIANT_FIELDSETS = [
@@ -65,6 +164,16 @@ const VARIANT_FIELDSETS = [
     groups: [
       { code: 'fit', title: 'Fit' },
       { code: 'finish', title: 'Finish' },
+    ],
+  },
+  {
+    code: 'service_booking',
+    label: 'Services · Booking',
+    icon: 'solar:calendar-linear',
+    description: 'Provider, duration, and environment metadata for service slots.',
+    groups: [
+      { code: 'provider', title: 'Provider' },
+      { code: 'environment', title: 'Environment' },
     ],
   },
 ] as const
@@ -155,6 +264,63 @@ const CUSTOM_FIELD_SETS: FieldSetInput[] = [
       group: { code: 'finish' },
     }),
   ]),
+  defineFields(E.catalog.catalog_product, [
+    cf.integer('service_duration_minutes', {
+      label: 'Duration (minutes)',
+      description: 'Length of a single booking slot.',
+      fieldset: 'service_booking',
+      group: { code: 'timing' },
+      filterable: true,
+      required: true,
+    }),
+    cf.integer('service_buffer_minutes', {
+      label: 'Buffer between appointments',
+      description: 'Minimum downtime between consecutive bookings (minutes).',
+      fieldset: 'service_booking',
+      group: { code: 'timing' },
+    }),
+    cf.text('service_location', {
+      label: 'Location / Room',
+      description: 'Where the service is delivered.',
+      fieldset: 'service_booking',
+      group: { code: 'identity' },
+    }),
+    cf.select('service_resources', ['stylist', 'therapist', 'treatment_room', 'wash_station', 'steam_room'], {
+      label: 'Required resources',
+      description: 'Staff or rooms required to perform the service.',
+      fieldset: 'service_booking',
+      group: { code: 'resources' },
+      multi: true,
+    }),
+    cf.boolean('service_remote_available', {
+      label: 'Remote session available',
+      description: 'Indicates whether the service can be performed remotely or virtually.',
+      fieldset: 'service_booking',
+      group: { code: 'resources' },
+      defaultValue: false,
+    }),
+  ]),
+  defineFields(E.catalog.catalog_product_variant, [
+    cf.select('provider_level', ['junior', 'senior', 'master'], {
+      label: 'Provider level',
+      description: 'Seniority of the assigned specialist.',
+      fieldset: 'service_booking',
+      group: { code: 'provider' },
+      filterable: true,
+    }),
+    cf.text('staff_member', {
+      label: 'Staff member',
+      description: 'Optional name of the staff member who usually delivers this variant.',
+      fieldset: 'service_booking',
+      group: { code: 'provider' },
+    }),
+    cf.select('environment_type', ['studio', 'suite', 'on_site'], {
+      label: 'Environment',
+      description: 'Where the session is hosted.',
+      fieldset: 'service_booking',
+      group: { code: 'environment' },
+    }),
+  ]),
 ]
 
 type CategorySeed = {
@@ -194,7 +360,29 @@ const CATEGORY_TREE: CategorySeed[] = [
       },
     ],
   },
+  {
+    slug: 'services',
+    name: 'Services',
+    description: 'Bookable in-person and virtual experiences.',
+    children: [
+      {
+        slug: 'services-hairdresser',
+        name: 'Hairdresser',
+        description: 'Salon services ranging from quick trims to signature looks.',
+      },
+      {
+        slug: 'services-massage',
+        name: 'Massage',
+        description: 'Wellness treatments and bodywork sessions.',
+      },
+    ],
+  },
 ]
+
+type MediaSeed = {
+  file: string
+  title?: string
+}
 
 type VariantSeed = {
   name: string
@@ -206,6 +394,7 @@ type VariantSeed = {
     sale?: number
   }
   customFields?: Record<string, string | number | boolean | null>
+  media?: MediaSeed[]
 }
 
 type ProductSeed = {
@@ -219,6 +408,7 @@ type ProductSeed = {
   unit: string
   metadata?: Record<string, unknown>
   customFields?: Record<string, string | number | boolean | null>
+  media?: MediaSeed[]
   variants: VariantSeed[]
 }
 
@@ -240,6 +430,9 @@ const PRODUCT_SEEDS: ProductSeed[] = [
       cushioning_profile: 'responsive',
       care_notes: 'Spot clean after each run and air dry. Avoid machine drying.',
     },
+    media: [
+      { file: 'atlas-runner-midnight-1.png' },
+    ],
     variants: [
       {
         name: 'Midnight Navy · US 8',
@@ -248,6 +441,10 @@ const PRODUCT_SEEDS: ProductSeed[] = [
         optionValues: { color: 'Midnight Navy', size: 'US 8' },
         prices: { regular: 168, sale: 148 },
         customFields: { shoe_size: 8, shoe_width: 'D', colorway: 'Midnight Navy' },
+        media: [
+          { file: 'atlas-runner-midnight-1.png' },
+          { file: 'atlas-runner-midnight-2.png' },
+        ],
       },
       {
         name: 'Glacier Grey · US 10',
@@ -255,6 +452,10 @@ const PRODUCT_SEEDS: ProductSeed[] = [
         optionValues: { color: 'Glacier Grey', size: 'US 10' },
         prices: { regular: 168, sale: 138 },
         customFields: { shoe_size: 10, shoe_width: 'EE', colorway: 'Glacier Grey' },
+        media: [
+          { file: 'atlas-runner-glacier-1.png' },
+          { file: 'atlas-runner-glacier-2.png' },
+        ],
       },
     ],
   },
@@ -275,6 +476,9 @@ const PRODUCT_SEEDS: ProductSeed[] = [
       occasion_ready: 'evening',
       finishing_details: 'Hand-finished hem with subtle tonal beading along the wrap edge.',
     },
+    media: [
+      { file: 'aurora-wrap-rosewood.png' },
+    ],
     variants: [
       {
         name: 'Rosewood · Medium',
@@ -283,6 +487,9 @@ const PRODUCT_SEEDS: ProductSeed[] = [
         optionValues: { color: 'Rosewood', size: 'Medium' },
         prices: { regular: 248, sale: 212 },
         customFields: { numeric_size: 6, length_profile: 'midi', color_story: 'Rosewood' },
+        media: [
+          { file: 'aurora-wrap-rosewood.png' },
+        ],
       },
       {
         name: 'Celestial · Large',
@@ -290,6 +497,79 @@ const PRODUCT_SEEDS: ProductSeed[] = [
         optionValues: { color: 'Celestial', size: 'Large' },
         prices: { regular: 248, sale: 198 },
         customFields: { numeric_size: 8, length_profile: 'maxi', color_story: 'Celestial blue' },
+        media: [
+          { file: 'aurora-wrap-celestial.png' },
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Signature Haircut & Finish',
+    handle: 'signature-haircut-service',
+    sku: 'SERV-HAIR-60',
+    description:
+      'Tailored haircut with relaxing wash, scalp massage, and styling finish. Designed for repeat bookings in the demo portal.',
+    categorySlug: 'services-hairdresser',
+    customFieldsetCode: 'service_booking',
+    variantFieldsetCode: 'service_booking',
+    unit: 'hour',
+    metadata: { channel: 'salon', serviceType: 'hairdresser' },
+    customFields: {
+      service_duration_minutes: 60,
+      service_buffer_minutes: 15,
+      service_location: 'Salon Studio 3',
+      service_resources: ['stylist', 'wash_station'],
+      service_remote_available: false,
+    },
+    media: [{ file: 'hairdresser-service.png' }],
+    variants: [
+      {
+        name: 'Senior Stylist · 60 min',
+        sku: 'SERV-HAIR-60-SENIOR',
+        isDefault: true,
+        optionValues: { stylist: 'Senior', duration: '60' },
+        prices: { regular: 95, sale: 85 },
+        customFields: {
+          provider_level: 'senior',
+          staff_member: 'Amelia Hart',
+          environment_type: 'studio',
+        },
+        media: [{ file: 'hairdresser-service.png' }],
+      },
+    ],
+  },
+  {
+    title: 'Restorative Massage Session',
+    handle: 'restorative-massage-service',
+    sku: 'SERV-MASSAGE-90',
+    description:
+      'Full-body massage with aromatherapy oils and guided breathing. Includes complimentary refreshments and studio amenities.',
+    categorySlug: 'services-massage',
+    customFieldsetCode: 'service_booking',
+    variantFieldsetCode: 'service_booking',
+    unit: 'hour',
+    metadata: { channel: 'wellness', serviceType: 'massage' },
+    customFields: {
+      service_duration_minutes: 90,
+      service_buffer_minutes: 20,
+      service_location: 'Wellness Suite B',
+      service_resources: ['therapist', 'treatment_room', 'steam_room'],
+      service_remote_available: false,
+    },
+    media: [{ file: 'massage-service.png' }],
+    variants: [
+      {
+        name: 'Master Therapist · 90 min',
+        sku: 'SERV-MASSAGE-90-MASTER',
+        isDefault: true,
+        optionValues: { therapist: 'Master', duration: '90' },
+        prices: { regular: 140, sale: 120 },
+        customFields: {
+          provider_level: 'master',
+          staff_member: 'Noah Li',
+          environment_type: 'suite',
+        },
+        media: [{ file: 'massage-service.png' }],
       },
     ],
   },
@@ -459,6 +739,7 @@ export async function seedCatalogExamples(
   scope: SeedScope
 ): Promise<boolean> {
   await ensureFieldsetsAndDefinitions(em, scope)
+  await ensureDefaultPartitions(em)
 
   const handles = PRODUCT_SEEDS.map((seed) => seed.handle)
   const existingProducts = await em.count(CatalogProduct, {
@@ -546,6 +827,21 @@ export async function seedCatalogExamples(
       )
     }
 
+    const productMedia = await attachMediaFromExamples(
+      em,
+      scope,
+      E.catalog.catalog_product,
+      product.id,
+      productSeed.media
+    )
+    if (productMedia.length) {
+      const hero = productMedia[0]
+      product.defaultMediaId = hero.id
+      product.defaultMediaUrl = hero.imageUrl
+      offer.defaultMediaId = hero.id
+      offer.defaultMediaUrl = hero.imageUrl
+    }
+
     for (const variantSeed of productSeed.variants) {
       const variant = em.create(CatalogProductVariant, {
         id: randomUUID(),
@@ -563,6 +859,19 @@ export async function seedCatalogExamples(
         updatedAt: new Date(),
       })
       em.persist(variant)
+
+      const variantMedia = await attachMediaFromExamples(
+        em,
+        scope,
+        E.catalog.catalog_product_variant,
+        variant.id,
+        variantSeed.media
+      )
+      const variantCover = variantMedia[0] ?? productMedia[0]
+      if (variantCover) {
+        variant.defaultMediaId = variantCover.id
+        variant.defaultMediaUrl = variantCover.imageUrl
+      }
 
       const regularPrice = em.create(CatalogProductPrice, {
         id: randomUUID(),

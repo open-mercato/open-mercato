@@ -15,7 +15,7 @@ const rawBodySchema = z.object({}).passthrough()
 
 const SENTINEL_ID_VALUES = new Set(['', 'create', 'new', 'null', 'undefined'])
 
-function stripPlaceholderId(source: Record<string, unknown>): void {
+export function stripPlaceholderId(source: Record<string, unknown>): void {
   if (!Object.prototype.hasOwnProperty.call(source, 'id')) return
   const value = source.id
   if (value === undefined || value === null) {

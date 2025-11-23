@@ -71,4 +71,21 @@ describe('catalog products route helpers', () => {
     expect(filters.id).toEqual({ $in: ['prod-1', 'prod-2'] })
     expect((filters as any).custom).toEqual({ $eq: 'value' })
   })
+
+  it('falls back to sentinel id when restricted products exclude the requested record', async () => {
+    const forkedEm = { find: jest.fn().mockResolvedValue([{ product: 'prod-allowed' }]) }
+    const em = { fork: () => forkedEm }
+    const container = { resolve: jest.fn().mockReturnValue(em) }
+    ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValueOnce({})
+
+    const filters = await buildProductFilters(
+      {
+        id: 'prod-requested',
+        channelIds: '11111111-1111-4111-8111-111111111111',
+      } as any,
+      { container, auth: { tenantId: 'tenant-1' } } as any,
+    )
+
+    expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
+  })
 })

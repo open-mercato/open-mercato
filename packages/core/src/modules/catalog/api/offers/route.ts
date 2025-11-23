@@ -40,14 +40,14 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-function normalizeSearch(term?: string | null): string | null {
+export function normalizeSearch(term?: string | null): string | null {
   if (!term) return null
   const trimmed = term.trim()
   if (!trimmed.length) return null
   return trimmed
 }
 
-function buildOfferFilters(query: OfferListQuery): Record<string, unknown> {
+export function buildOfferFilters(query: OfferListQuery): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
   const searchTerm = normalizeSearch(query.search)
   if (query.id) {
@@ -73,7 +73,7 @@ function buildOfferFilters(query: OfferListQuery): Record<string, unknown> {
   return filters
 }
 
-async function decorateOffersWithDetails(
+export async function decorateOffersWithDetails(
   items: any[],
   ctx: CrudCtx,
 ): Promise<void> {
