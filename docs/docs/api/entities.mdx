@@ -134,6 +134,7 @@ curl -X POST "$BASE_URL/entities/definitions" \
 
 - Feature: `entities.definitions.manage`.
 - Body `{ entityId, definitions: [ ... ] }` lets you send an ordered array of definition payloads (`packages/core/src/modules/entities/api/definitions.batch.ts:19`).
+- Optional `fieldsets` array (matching `customFieldsetSchema`) and `singleFieldsetPerRecord` flag let you manage the drop-down metadata programmatically. Each field definition can also set `configJson.fieldset` and `configJson.group` to map the field into the new layout.
 
 ```bash
 curl -X POST "$BASE_URL/entities/definitions.batch" \
@@ -144,7 +145,19 @@ curl -X POST "$BASE_URL/entities/definitions.batch" \
     \"definitions\": [
       { \"key\": \"status\", \"kind\": \"enum\", \"configJson\": { \"label\": \"Status\", \"options\": [\"open\",\"won\",\"lost\"], \"priority\": 0 } },
       { \"key\": \"assignee\", \"kind\": \"string\", \"configJson\": { \"label\": \"Assignee\", \"filterable\": true, \"priority\": 1 } }
-    ]
+    ],
+    \"fieldsets\": [
+      {
+        \"code\": \"service_booking\",
+        \"label\": \"Services · Booking\",
+        \"icon\": \"solar:calendar-linear\",
+        \"groups\": [
+          { \"code\": \"timing\", \"title\": \"Timing\" },
+          { \"code\": \"resources\", \"title\": \"Resources\" }
+        ]
+      }
+    ],
+    \"singleFieldsetPerRecord\": true
   }"
 ```
 
