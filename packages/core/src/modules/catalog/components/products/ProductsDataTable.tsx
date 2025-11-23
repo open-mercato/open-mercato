@@ -214,7 +214,7 @@ export default function ProductsDataTable() {
                   : value
             return { value, label, description: typeof entry.code === 'string' ? entry.code : undefined }
           })
-          .filter((option): option is FilterOption => !!option)
+          .filter((option) => !!option) as FilterOption[]
         registerChannelOptions(options)
         return options
       } catch {
@@ -244,7 +244,7 @@ export default function ProductsDataTable() {
               typeof entry.parentName === 'string' && entry.parentName.trim().length ? entry.parentName : null
             return { value, label, description }
           })
-          .filter((option): option is FilterOption => !!option)
+          .filter((option) => !!option) as FilterOption[]
         registerCategoryOptions(options)
         return options
       } catch {
@@ -272,7 +272,7 @@ export default function ProductsDataTable() {
             const label = typeof entry.label === 'string' && entry.label.trim().length ? entry.label : value
             return { value, label }
           })
-          .filter((option): option is FilterOption => !!option)
+          .filter((option) => !!option) as FilterOption[]
         registerTagOptions(options)
         return options
       } catch {

@@ -1,10 +1,15 @@
 import { asFunction } from 'awilix'
+import type { EventBus } from '@open-mercato/events'
 import type { AppContainer } from '@/lib/di/container'
 import { DefaultCatalogPricingService } from './services/catalogPricingService'
 
+type AppCradle = AppContainer['cradle'] & {
+  eventBus?: EventBus | null
+}
+
 export function register(container: AppContainer) {
   container.register({
-    catalogPricingService: asFunction(({ eventBus }: AppContainer) => {
+    catalogPricingService: asFunction(({ eventBus }: AppCradle) => {
       return new DefaultCatalogPricingService(eventBus ?? null)
     }).singleton(),
   })

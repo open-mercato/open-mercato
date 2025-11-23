@@ -75,7 +75,10 @@ function normalizeOptionDefinition(entry: unknown): OptionDefinition | null {
           const valueLabel = extractString(value?.label) || id
           return { id, label: valueLabel }
         })
-        .filter((value): value is { id: string; label: string } => !!value.label.length)
+        .filter(
+          (value: { id: string; label: string }): value is { id: string; label: string } =>
+            value.label.length > 0,
+        )
     : []
   return {
     id: extractString((entry as any).id) || createLocalId(),

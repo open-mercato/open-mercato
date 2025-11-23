@@ -159,7 +159,11 @@ export function ProductCategorizeSection({
             const description = typeof entry.code === 'string' && entry.code.trim().length ? entry.code : null
             return { value, label, description }
           })
-          .filter((option): option is ProductCategorizePickerOption => !!option)
+          .filter(
+            (
+              option: { value: string; label: string; description: string | null } | null,
+            ): option is { value: string; label: string; description: string | null } => !!option,
+          )
         registerPickerOptions(setChannelOptionsMap, options)
         return options
       } catch {
@@ -186,7 +190,9 @@ export function ProductCategorizeSection({
             if (!rawLabel) return null
             return { value: rawLabel, label: rawLabel }
           })
-          .filter((option): option is ProductCategorizePickerOption => !!option)
+          .filter(
+            (option: { value: string; label: string } | null): option is { value: string; label: string } => !!option,
+          )
         registerPickerOptions(setTagOptionsMap, options)
         return options
       } catch {

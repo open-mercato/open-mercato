@@ -135,12 +135,6 @@ export class CatalogProduct {
   @Property({ name: 'custom_fieldset_code', type: 'text', nullable: true })
   customFieldsetCode?: string | null
 
-  @Property({ name: 'default_media_id', type: 'uuid', nullable: true })
-  defaultMediaId?: string | null
-
-  @Property({ name: 'default_media_url', type: 'text', nullable: true })
-  defaultMediaUrl?: string | null
-
   @ManyToOne(() => CatalogOptionSchemaTemplate, {
     fieldName: 'option_schema_id',
     nullable: true,
@@ -623,7 +617,7 @@ export class CatalogProductPrice {
   @ManyToOne(() => CatalogOffer, { fieldName: 'offer_id', nullable: true })
   offer?: CatalogOffer | null
 
-  @ManyToOne(() => CatalogPriceKind, { fieldName: 'price_kind_id', onDelete: 'restrict' })
+  @ManyToOne(() => CatalogPriceKind, { fieldName: 'price_kind_id', deleteRule: 'restrict' })
   priceKind!: CatalogPriceKind
 
   @Property({ name: 'organization_id', type: 'uuid' })
