@@ -17,6 +17,7 @@ import {
   cloneJson,
   ensureOrganizationScope,
   ensureTenantScope,
+  emitCatalogQueryIndexEvent,
   extractUndoPayload,
   requireProduct,
   toNumericString,
@@ -213,6 +214,13 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       tenantId: record.tenantId,
       values: custom,
     })
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'created',
+    })
     return { variantId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -323,6 +331,13 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         values: custom,
       })
     }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'updated',
+    })
     return { variantId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -453,6 +468,13 @@ const deleteVariantCommand: CommandHandler<
         })
       }
     }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: id,
+      organizationId: snapshot?.organizationId ?? record.organizationId,
+      tenantId: snapshot?.tenantId ?? record.tenantId,
+      action: 'deleted',
+    })
     return { variantId: id }
   },
   buildLog: async ({ snapshots }) => {

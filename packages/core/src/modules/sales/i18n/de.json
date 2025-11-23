@@ -106,7 +106,9 @@
           "delete": "Failed to delete offer.",
           "loadOffer": "Failed to load offer.",
           "save": "Failed to save offer.",
-          "requiredFields": "Choose a channel and product."
+          "requiredFields": "Choose a channel and product.",
+          "priceKindRequired": "Wähle für jede Preisüberschreibung eine Preisart.",
+          "priceKindDuplicate": "Jede Preisart kann nur einmal überschrieben werden."
         },
         "messages": {
           "deleted": "Offer deleted.",
@@ -184,7 +186,9 @@
           "basePriceLabel": "Kanalpreis",
           "basePriceMissing": "Kein Preis gefunden",
           "basePriceHelp": "Wird angezeigt, wenn keine Überschreibung existiert.",
-          "overrideHint": "Überschreibungen ersetzen den Kanalpreis."
+          "overrideHint": "Überschreibungen ersetzen den Kanalpreis.",
+          "allKindsUsed": "Für jede Preisart existiert bereits eine Überschreibung.",
+          "noKindsAvailable": "Definiere zuerst eine Preisart, bevor du Überschreibungen hinzufügst."
         }
       }
     },

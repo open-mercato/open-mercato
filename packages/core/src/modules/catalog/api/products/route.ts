@@ -261,6 +261,11 @@ type ProductListItem = Record<string, unknown> & {
   default_media_url?: string | null
   custom_fieldset_code?: string | null
   option_schema_id?: string | null
+  offers?: Array<Record<string, unknown>>
+  channelIds?: string[]
+  categories?: Array<Record<string, unknown>>
+  categoryIds?: string[]
+  tags?: string[]
 }
 
 async function decorateProductsAfterList(

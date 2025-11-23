@@ -366,7 +366,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       label: t('sales.channels.offers.form.active', 'Active'),
       type: 'checkbox',
     },
-  ], [lockedChannelId, mediaOptions, productSummary?.defaultMediaUrl, selectedChannelId, t, currentProductId])
+  ], [lockedChannelId, mediaOptions, productSummary, selectedChannelId, t, currentProductId])
 
   const handleOverrideRemove = React.useCallback(async (draft: PriceOverrideDraft) => {
     const priceId = typeof draft?.priceId === 'string' ? draft.priceId : null
@@ -450,7 +450,19 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         />
       ),
     },
-  ], [attachmentCache, handleOverrideRemove, manualMediaSelections, priceKinds, productCache, productSummary?.pricing, selectedChannelId, setMediaOptions, setCurrentProductId, t, variantPreviews])
+  ], [
+    attachmentCache,
+    handleOverrideRemove,
+    manualMediaSelections,
+    priceKinds,
+    productCache,
+    productSummary,
+    selectedChannelId,
+    setMediaOptions,
+    setCurrentProductId,
+    t,
+    variantPreviews,
+  ])
 
   const handleSubmit = React.useCallback(async (values: OfferFormValues) => {
     const channelId = typeof values.channelId === 'string' && values.channelId.length

@@ -107,7 +107,8 @@
           "loadOffer": "Failed to load offer.",
           "save": "Failed to save offer.",
           "requiredFields": "Choose a channel and product.",
-          "priceKindRequired": "Wybierz rodzaj ceny dla każdego nadpisania."
+          "priceKindRequired": "Wybierz rodzaj ceny dla każdego nadpisania.",
+          "priceKindDuplicate": "Każdy typ ceny można nadpisać tylko raz."
         },
         "messages": {
           "deleted": "Offer deleted.",
@@ -186,7 +187,9 @@
           "basePriceLabel": "Cena kanału",
           "basePriceMissing": "Brak ceny",
           "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",
-          "overrideHint": "Nadpisania mają pierwszeństwo przed ceną kanału."
+          "overrideHint": "Nadpisania mają pierwszeństwo przed ceną kanału.",
+          "allKindsUsed": "Każdy typ ceny ma już nadpisanie.",
+          "noKindsAvailable": "Zdefiniuj typ ceny przed dodaniem nadpisań."
         }
       }
     },

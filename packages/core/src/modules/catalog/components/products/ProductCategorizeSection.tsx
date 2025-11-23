@@ -5,7 +5,7 @@ import { useT } from '@/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ProductFormValues } from './productForm'
 
-type PickerOption = {
+export type ProductCategorizePickerOption = {
   value: string
   label: string
   description?: string | null
@@ -15,18 +15,28 @@ type ProductCategorizeSectionProps = {
   values: ProductFormValues
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
+  initialCategoryOptions?: ProductCategorizePickerOption[]
+  initialChannelOptions?: ProductCategorizePickerOption[]
+  initialTagOptions?: ProductCategorizePickerOption[]
 }
 
-export function ProductCategorizeSection({ values, setValue, errors }: ProductCategorizeSectionProps) {
+export function ProductCategorizeSection({
+  values,
+  setValue,
+  errors,
+  initialCategoryOptions,
+  initialChannelOptions,
+  initialTagOptions,
+}: ProductCategorizeSectionProps) {
   const t = useT()
-  const [categoryOptionsMap, setCategoryOptionsMap] = React.useState<Record<string, PickerOption>>({})
-  const [channelOptionsMap, setChannelOptionsMap] = React.useState<Record<string, PickerOption>>({})
-  const [tagOptionsMap, setTagOptionsMap] = React.useState<Record<string, PickerOption>>({})
+  const [categoryOptionsMap, setCategoryOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
+  const [channelOptionsMap, setChannelOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
+  const [tagOptionsMap, setTagOptionsMap] = React.useState<Record<string, ProductCategorizePickerOption>>({})
 
   const registerPickerOptions = React.useCallback(
     (
-      setter: React.Dispatch<React.SetStateAction<Record<string, PickerOption>>>,
-      options: PickerOption[],
+      setter: React.Dispatch<React.SetStateAction<Record<string, ProductCategorizePickerOption>>>,
+      options: ProductCategorizePickerOption[],
     ) => {
       setter((prev) => {
         const next = { ...prev }
@@ -42,6 +52,24 @@ export function ProductCategorizeSection({ values, setValue, errors }: ProductCa
   const categorySuggestions = React.useMemo(() => Object.values(categoryOptionsMap), [categoryOptionsMap])
   const channelSuggestions = React.useMemo(() => Object.values(channelOptionsMap), [channelOptionsMap])
   const tagSuggestions = React.useMemo(() => Object.values(tagOptionsMap), [tagOptionsMap])
+
+  React.useEffect(() => {
+    if (initialCategoryOptions?.length) {
+      registerPickerOptions(setCategoryOptionsMap, initialCategoryOptions)
+    }
+  }, [initialCategoryOptions, registerPickerOptions])
+
+  React.useEffect(() => {
+    if (initialChannelOptions?.length) {
+      registerPickerOptions(setChannelOptionsMap, initialChannelOptions)
+    }
+  }, [initialChannelOptions, registerPickerOptions])
+
+  React.useEffect(() => {
+    if (initialTagOptions?.length) {
+      registerPickerOptions(setTagOptionsMap, initialTagOptions)
+    }
+  }, [initialTagOptions, registerPickerOptions])
 
   const resolveCategoryLabel = React.useCallback(
     (id: string) => categoryOptionsMap[id]?.label ?? id,

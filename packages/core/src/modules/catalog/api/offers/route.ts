@@ -74,7 +74,7 @@ export function buildOfferFilters(query: OfferListQuery): Record<string, unknown
 }
 
 export async function decorateOffersWithDetails(
-  items: any[],
+  items: Record<string, unknown>[],
   ctx: CrudCtx,
 ): Promise<void> {
   if (!items.length) return
@@ -312,7 +312,7 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
     },
     buildFilters: async (query) => buildOfferFilters(query),
-    transformItem: (item: any) => {
+    transformItem: (item: Record<string, unknown>) => {
       if (!item) return item
       const cfEntries = extractAllCustomFieldEntries(item)
       const base = {

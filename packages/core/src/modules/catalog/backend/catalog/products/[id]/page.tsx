@@ -43,7 +43,10 @@ import {
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { MetadataEditor } from '@open-mercato/core/modules/catalog/components/products/MetadataEditor'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
-import { ProductCategorizeSection } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
+import {
+  ProductCategorizeSection,
+  type ProductCategorizePickerOption,
+} from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
 import { AlignLeft, BookMarked, ExternalLink, FileText, Layers, Plus, Save, Trash2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 
@@ -119,6 +122,20 @@ type VariantPriceSummary = {
   displayMode: 'including-tax' | 'excluding-tax'
 }
 
+type OfferSnapshot = {
+  id: string | null
+  channelId: string
+  title: string | null
+  description: string | null
+  defaultMediaId: string | null
+  defaultMediaUrl: string | null
+  metadata: Record<string, unknown> | null
+  localizedContent: Record<string, unknown> | null
+  isActive: boolean
+  channelName: string | null
+  channelCode: string | null
+}
+
 export default function EditCatalogProductPage({ params }: { params?: { id?: string } }) {
   const productId = params?.id ? String(params.id) : null
   const t = useT()
@@ -128,6 +145,12 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
   const [initialValues, setInitialValues] = React.useState<Partial<ProductFormValues> | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const offerSnapshotsRef = React.useRef<OfferSnapshot[]>([])
+  const [categorizeOptions, setCategorizeOptions] = React.useState<{
+    categories: ProductCategorizePickerOption[]
+    channels: ProductCategorizePickerOption[]
+    tags: ProductCategorizePickerOption[]
+  }>({ categories: [], channels: [], tags: [] })
 
   React.useEffect(() => {
     const loadTaxRates = async () => {
@@ -200,6 +223,12 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
         }
         const attachments = await fetchAttachments(productId)
         const { customValues } = extractCustomFields(record)
+        const offers = readOfferSnapshots(record)
+        offerSnapshotsRef.current = offers
+        const channelIds = extractChannelIds(offers)
+        const channelOptionEntries = buildChannelOptions(offers)
+        const { ids: categoryIds, options: categoryOptions } = readCategorySelections(record)
+        const { values: tagValues, options: tagOptions } = readTagSelections(record)
         const defaultMediaId = typeof record.default_media_id === 'string' ? record.default_media_id : (record as any).defaultMediaId ?? null
         const defaultMediaUrl = typeof record.default_media_url === 'string' ? record.default_media_url : (record as any).defaultMediaUrl ?? ''
         const initial: ProductFormValues = {
@@ -224,9 +253,17 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
               : typeof (record as any).customFieldsetCode === 'string'
                 ? (record as any).customFieldsetCode
                 : null,
+          categoryIds,
+          channelIds,
+          tags: tagValues,
         }
         if (!cancelled) {
           setInitialValues({ ...initial, ...customValues })
+          setCategorizeOptions({
+            categories: categoryOptions,
+            channels: channelOptionEntries,
+            tags: tagOptions,
+          })
         }
         await loadVariants(productId)
       } catch (err) {
@@ -459,7 +496,14 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       title: t('catalog.products.create.organize.title', 'Categorize'),
       description: t('catalog.products.create.organize.description', 'Assign categories, sales channels, and tags.'),
       component: ({ values, setValue, errors }) => (
-        <ProductCategorizeSection values={values as ProductFormValues} setValue={setValue} errors={errors} />
+        <ProductCategorizeSection
+          values={values as ProductFormValues}
+          setValue={setValue}
+          errors={errors}
+          initialCategoryOptions={categorizeOptions.categories}
+          initialChannelOptions={categorizeOptions.channels}
+          initialTagOptions={categorizeOptions.tags}
+        />
       ),
     },
     {
@@ -468,7 +512,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       title: t('catalog.products.edit.custom.title', 'Custom attributes'),
       kind: 'customFields',
     },
-  ], [handleVariantDeleted, priceKinds, productId, t, taxRates, variants])
+  ], [categorizeOptions, handleVariantDeleted, priceKinds, productId, t, taxRates, variants])
 
   const handleSubmit = React.useCallback(async (formValues: ProductFormValues) => {
     if (!productId) {
@@ -515,6 +559,11 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       defaultMediaUrl: defaultMediaUrl ?? undefined,
       customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
     }
+    const categoryIds = normalizeIdList(values.categoryIds)
+    const channelIds = normalizeIdList(values.channelIds)
+    const tags = normalizeTagValues(values.tags)
+    payload.categoryIds = categoryIds
+    payload.tags = tags
     const optionSchemaDefinition = buildOptionSchemaDefinition(values.options, title)
     if (optionSchemaDefinition) {
       payload.optionSchema = optionSchemaDefinition
@@ -525,7 +574,20 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     if (Object.keys(customFields).length) {
       payload.customFields = customFields
     }
+    const offersPayload = buildOfferPayloads({
+      channelIds,
+      offerSnapshots: offerSnapshotsRef.current,
+      fallback: {
+        title,
+        description: description ?? undefined,
+        defaultMediaId,
+        defaultMediaUrl: defaultMediaUrl ?? undefined,
+      },
+    })
+    payload.offers = offersPayload
+    const previousSnapshots = offerSnapshotsRef.current
     await updateCrud('catalog/products', payload)
+    offerSnapshotsRef.current = mergeOfferSnapshots(previousSnapshots, offersPayload)
     flash(t('catalog.products.edit.success', 'Product updated.'), 'success')
   }, [productId, t])
 
@@ -1421,6 +1483,186 @@ const cleanupWeight = (weight: { value?: number; unit?: string }) => {
   if (typeof weight.value === 'number' && Number.isFinite(weight.value)) clean.value = weight.value
   if (typeof weight.unit === 'string' && weight.unit.trim().length) clean.unit = weight.unit
   return Object.keys(clean).length ? clean : null
+}
+
+function normalizeIdList(value: unknown): string[] {
+  const ids = Array.isArray(value)
+    ? value
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter((entry) => entry.length)
+    : []
+  return Array.from(new Set(ids))
+}
+
+function normalizeTagValues(value: unknown): string[] {
+  const tags = Array.isArray(value)
+    ? value
+        .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+        .filter((entry) => entry.length)
+    : []
+  return Array.from(new Set(tags))
+}
+
+function readCategorySelections(record: Record<string, unknown>): {
+  ids: string[]
+  options: ProductCategorizePickerOption[]
+} {
+  const rawCategories = Array.isArray((record as Record<string, unknown>).categories)
+    ? ((record as Record<string, unknown>).categories as Array<Record<string, unknown>>)
+    : []
+  const options = rawCategories
+    .map((entry) => {
+      const value = getString(entry.id) ?? getString(entry.categoryId) ?? getString(entry.category_id)
+      if (!value) return null
+      const label = getString(entry.name) ?? value
+      const description = getString(entry.treePath) ?? getString(entry.parentName)
+      return { value, label, description: description ?? null }
+    })
+    .filter((option): option is ProductCategorizePickerOption => !!option)
+  const fallbackIds = normalizeIdList((record as Record<string, unknown>).categoryIds)
+  const combinedIds = Array.from(new Set([...options.map((option) => option.value), ...fallbackIds]))
+  return { ids: combinedIds, options }
+}
+
+function readTagSelections(record: Record<string, unknown>): {
+  values: string[]
+  options: ProductCategorizePickerOption[]
+} {
+  const values = normalizeTagValues((record as Record<string, unknown>).tags)
+  const options = values.map((label) => ({ value: label, label }))
+  return { values, options }
+}
+
+function readOfferSnapshots(record: Record<string, unknown>): OfferSnapshot[] {
+  const rawOffers = Array.isArray((record as Record<string, unknown>).offers)
+    ? ((record as Record<string, unknown>).offers as Array<Record<string, unknown>>)
+    : []
+  const snapshots: OfferSnapshot[] = []
+  for (const offer of rawOffers) {
+    if (!offer || typeof offer !== 'object') continue
+    const channelId =
+      getString(offer.channelId) ??
+      getString(offer.channel_id) ??
+      null
+    if (!channelId) continue
+    snapshots.push({
+      id: getString(offer.id),
+      channelId,
+      title: getString(offer.title) ?? null,
+      description: getString(offer.description) ?? null,
+      defaultMediaId: getString(offer.defaultMediaId) ?? getString(offer.default_media_id),
+      defaultMediaUrl: getString(offer.defaultMediaUrl) ?? getString(offer.default_media_url),
+      metadata: isRecord(offer.metadata) ? (offer.metadata as Record<string, unknown>) : null,
+      localizedContent: isRecord(offer.localizedContent) ? (offer.localizedContent as Record<string, unknown>) : null,
+      isActive: offer.isActive !== false,
+      channelName: getString(offer.channelName) ?? getString(offer.channel_name),
+      channelCode: getString(offer.channelCode) ?? getString(offer.channel_code),
+    })
+  }
+  return snapshots
+}
+
+function extractChannelIds(offers: OfferSnapshot[]): string[] {
+  return Array.from(new Set(offers.map((offer) => offer.channelId)))
+}
+
+function buildChannelOptions(offers: OfferSnapshot[]): ProductCategorizePickerOption[] {
+  const seen = new Set<string>()
+  const options: ProductCategorizePickerOption[] = []
+  for (const offer of offers) {
+    if (seen.has(offer.channelId)) continue
+    seen.add(offer.channelId)
+    const label = offer.channelName || offer.channelCode || offer.channelId
+    const description =
+      offer.channelCode && offer.channelCode !== label
+        ? offer.channelCode
+        : null
+    options.push({
+      value: offer.channelId,
+      label,
+      description,
+    })
+  }
+  return options
+}
+
+type OfferPayload = {
+  id?: string
+  channelId: string
+  title: string
+  description?: string
+  defaultMediaId?: string | null
+  defaultMediaUrl?: string | null
+  metadata?: Record<string, unknown> | null
+  localizedContent?: Record<string, unknown> | null
+  isActive?: boolean
+}
+
+function buildOfferPayloads(params: {
+  channelIds: string[]
+  offerSnapshots: OfferSnapshot[]
+  fallback: {
+    title: string
+    description?: string
+    defaultMediaId?: string | null
+    defaultMediaUrl?: string | null
+  }
+}): OfferPayload[] {
+  const { channelIds, offerSnapshots, fallback } = params
+  const byChannel = new Map(offerSnapshots.map((offer) => [offer.channelId, offer]))
+  const payloads: OfferPayload[] = []
+  const fallbackTitle = fallback.title.trim()
+  for (const channelId of channelIds) {
+    const existing = byChannel.get(channelId)
+    const title = ensureString(existing?.title) ?? fallbackTitle
+    const description = ensureString(existing?.description) ?? ensureString(fallback.description)
+    payloads.push({
+      id: existing?.id ?? undefined,
+      channelId,
+      title,
+      description,
+      defaultMediaId: existing?.defaultMediaId ?? fallback.defaultMediaId ?? null,
+      defaultMediaUrl: existing?.defaultMediaUrl ?? fallback.defaultMediaUrl ?? null,
+      metadata: existing?.metadata ?? undefined,
+      localizedContent: existing?.localizedContent ?? undefined,
+      isActive: existing?.isActive ?? true,
+    })
+  }
+  return payloads
+}
+
+function mergeOfferSnapshots(current: OfferSnapshot[], payloads: OfferPayload[]): OfferSnapshot[] {
+  const currentByChannel = new Map(current.map((snapshot) => [snapshot.channelId, snapshot]))
+  return payloads.map((entry) => {
+    const previous = currentByChannel.get(entry.channelId)
+    return {
+      id: entry.id ?? previous?.id ?? null,
+      channelId: entry.channelId,
+      title: entry.title ?? previous?.title ?? null,
+      description: entry.description ?? previous?.description ?? null,
+      defaultMediaId: entry.defaultMediaId ?? previous?.defaultMediaId ?? null,
+      defaultMediaUrl: entry.defaultMediaUrl ?? previous?.defaultMediaUrl ?? null,
+      metadata: entry.metadata ?? previous?.metadata ?? null,
+      localizedContent: entry.localizedContent ?? previous?.localizedContent ?? null,
+      isActive: entry.isActive ?? previous?.isActive ?? true,
+      channelName: previous?.channelName ?? null,
+      channelCode: previous?.channelCode ?? null,
+    }
+  })
+}
+
+function getString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim().length) return value.trim()
+  return null
+}
+
+function ensureString(value: unknown): string | undefined {
+  const normalized = getString(value)
+  return normalized ?? undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function buildMetadataPayload(values: ProductFormValues): Record<string, unknown> {

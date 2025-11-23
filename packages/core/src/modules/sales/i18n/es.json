@@ -107,7 +107,8 @@
           "loadOffer": "Failed to load offer.",
           "save": "Failed to save offer.",
           "requiredFields": "Choose a channel and product.",
-          "priceKindRequired": "Selecciona un tipo de precio para cada precio personalizado."
+          "priceKindRequired": "Selecciona un tipo de precio para cada precio personalizado.",
+          "priceKindDuplicate": "Cada tipo de precio solo se puede anular una vez."
         },
         "messages": {
           "deleted": "Offer deleted.",
@@ -186,7 +187,9 @@
           "basePriceLabel": "Precio del canal",
           "basePriceMissing": "No se encontró precio",
           "basePriceHelp": "Se muestra cuando no hay anulaciones.",
-          "overrideHint": "Las anulaciones tienen prioridad sobre el precio del canal."
+          "overrideHint": "Las anulaciones tienen prioridad sobre el precio del canal.",
+          "allKindsUsed": "Cada tipo de precio ya tiene una anulación.",
+          "noKindsAvailable": "Define un tipo de precio antes de agregar anulaciones."
         }
       }
     },
