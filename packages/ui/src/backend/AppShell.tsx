@@ -135,7 +135,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const resolvedProductName = productName ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
-  const [collapsed, setCollapsed] = React.useState<boolean>(sidebarCollapsedDefault)
+  const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
   // Maintain internal nav state so we can augment it client-side
   const [navGroups, setNavGroups] = React.useState(AppShell.cloneGroups(groups))
   const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => {
@@ -363,6 +363,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       setNavGroups(AppShell.cloneGroups(originalNavRef.current))
       setCustomizing(false)
       setCustomDraft(null)
+      try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     } catch (error) {
       console.error('Failed to save sidebar preferences', error)
       setCustomizationError(t('appShell.sidebarCustomizationSaveError'))
@@ -657,7 +658,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           </div>
           <p className="text-xs text-muted-foreground">{t('appShell.sidebarCustomizationHint', { locale: localeLabel })}</p>
           {canApplyToRoles ? (
-            <div className="flex flex-col gap-2 rounded border bg-background/70 p-3">
+            <div className="flex flex-col gap-2 rounded border bg-background/70 p-3 shadow-sm">
               <div>
                 <div className="text-sm font-semibold">{t('appShell.sidebarApplyToRolesTitle')}</div>
                 <p className="text-xs text-muted-foreground">{t('appShell.sidebarApplyToRolesDescription')}</p>
