@@ -64,6 +64,7 @@ const sidebars: SidebarsConfig = {
             "api/dashboards",
             "api/customers",
             "api/entities",
+            "api/attachments",
             "api/vector",
           ],
         },

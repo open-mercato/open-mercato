@@ -1306,11 +1306,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     const renderGroupedCards = (items: CrudFormGroup[]) => {
-      return items.flatMap((g) => {
+      const nodes: React.ReactNode[] = []
+      for (const g of items) {
         const isCustomFieldsGroup = g.kind === 'customFields'
         if (isCustomFieldsGroup) {
           if (isLoadingCustomFields) {
-            return [
+            nodes.push(
               <div key={`${g.id}-loading`} className="rounded-lg border bg-card p-4">
                 <DataLoader
                   isLoading
@@ -1321,9 +1322,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   <div />
                 </DataLoader>
               </div>,
-            ]
+            )
+            continue
           }
-          const nodes: React.ReactNode[] = []
           if (g.component) {
             nodes.push(
               <div key={`${g.id}-component`} className="rounded-lg border bg-card px-4 py-3">
@@ -1333,19 +1334,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           }
           const renderedSections = renderCustomFieldsContent()
           if (renderedSections.length) nodes.push(...renderedSections)
-          return nodes
+          continue
         }
 
         const componentNode = g.component ? g.component({ values, setValue, errors }) : null
         if (g.bare) {
-          return componentNode ? (
-            <React.Fragment key={g.id}>
-              {componentNode}
-            </React.Fragment>
-          ) : null
+          if (componentNode) {
+            nodes.push(<React.Fragment key={g.id}>{componentNode}</React.Fragment>)
+          }
+          continue
         }
         const groupFields = resolveGroupFields(g)
-        return [
+        nodes.push(
           <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
             {g.title ? (
               <div className="text-sm font-medium">{g.title}</div>
@@ -1363,8 +1363,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
             </DataLoader>
           </div>,
-        ]
-      })
+        )
+      }
+      return nodes
     }
 
     const col1Content = renderGroupedCards(col1)

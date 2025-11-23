@@ -800,7 +800,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="text-xs">Label</label>
           <input
             className="border rounded w-full px-2 py-1 text-sm"
-            value={local.configJson?.label || ''}
+            value={typeof local.configJson?.label === 'string' ? local.configJson.label : ''}
             onChange={(event) => apply({ configJson: { ...(local.configJson || {}), label: event.target.value } })}
             onBlur={commit}
           />
@@ -809,7 +809,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <label className="text-xs">Description</label>
           <input
             className="border rounded w-full px-2 py-1 text-sm"
-            value={local.configJson?.description || ''}
+            value={typeof local.configJson?.description === 'string' ? local.configJson.description : ''}
             onChange={(event) => apply({ configJson: { ...(local.configJson || {}), description: event.target.value } })}
             onBlur={commit}
           />
@@ -821,7 +821,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               <label className="text-xs">Editor</label>
               <select
                 className="border rounded w-full px-2 py-1 text-sm"
-                value={local.configJson?.editor || ''}
+                value={typeof local.configJson?.editor === 'string' ? local.configJson.editor : ''}
                 onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), editor: event.target.value || undefined } }, true) }}
               >
                 <option value="">Default</option>
@@ -909,7 +909,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               <input
                 className="border rounded w-full px-2 py-1 text-sm"
                 placeholder="/api/..."
-                value={local.configJson?.optionsUrl || ''}
+                value={typeof local.configJson?.optionsUrl === 'string' ? local.configJson.optionsUrl : ''}
                 onChange={(event) => apply({ configJson: { ...(local.configJson || {}), optionsUrl: event.target.value } })}
                 onBlur={commit}
               />
@@ -917,12 +917,12 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             {local.kind === 'relation' && (
               <div>
                 <label className="text-xs">Related Entity ID</label>
-                <input
-                  className="border rounded w-full px-2 py-1 text-sm font-mono"
-                  placeholder="module:entity"
-                  value={local.configJson?.relatedEntityId || ''}
-                  onChange={(event) => {
-                    const relatedEntityId = event.target.value
+                  <input
+                    className="border rounded w-full px-2 py-1 text-sm font-mono"
+                    placeholder="module:entity"
+                    value={typeof local.configJson?.relatedEntityId === 'string' ? local.configJson.relatedEntityId : ''}
+                    onChange={(event) => {
+                      const relatedEntityId = event.target.value
                     const defOptionsUrl = relatedEntityId
                       ? `/api/entities/relations/options?entityId=${encodeURIComponent(relatedEntityId)}`
                       : ''
@@ -947,7 +947,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             <input
               className="border rounded w-full px-2 py-1 text-sm"
               placeholder="kg, cm, etc."
-              value={local.configJson?.unit || ''}
+              value={typeof local.configJson?.unit === 'string' ? local.configJson.unit : ''}
               onChange={(event) => apply({ configJson: { ...(local.configJson || {}), unit: event.target.value } })}
               onBlur={commit}
             />

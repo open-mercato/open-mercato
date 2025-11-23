@@ -41,9 +41,9 @@ export function mapOfferRow(item: Record<string, unknown>): OfferRow {
       : []
   const productChannelPriceSource =
     item.productChannelPrice && typeof item.productChannelPrice === 'object'
-      ? item.productChannelPrice
+      ? item.productChannelPrice as Record<string, unknown>
       : item.product_channel_price && typeof item.product_channel_price === 'object'
-        ? item.product_channel_price
+        ? item.product_channel_price as Record<string, unknown>
         : null
   return {
     id: typeof item.id === 'string' ? item.id : '',

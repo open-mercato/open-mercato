@@ -82,7 +82,9 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
           configJson: d.configJson || {},
           isActive: d.isActive !== false,
         }))
-        loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
+        loaded.sort(
+          (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
+        )
         setDefs(loaded)
         setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
         const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
@@ -376,4 +378,3 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
 )
 
 FieldDefinitionsManager.displayName = 'FieldDefinitionsManager'
-

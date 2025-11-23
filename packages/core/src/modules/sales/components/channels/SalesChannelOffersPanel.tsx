@@ -65,7 +65,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
       accessorKey: 'pricing',
       header: t('sales.channels.offers.table.pricing', 'Prices'),
       cell: ({ row }) => (
-        <div className="text-sm">{renderOfferPriceSummary(row.original, t)}</div>
+        <div className="text-sm">{renderOfferPriceSummary(row.original, t as any)}</div>
       ),
     },
     {
@@ -181,19 +181,17 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
         onRefresh: () => setReloadToken((token) => token + 1),
         isRefreshing: isLoading,
       }}
-      rowActions={(row) => (
-        <RowActions
-          items={[
-            {
-              id: 'edit',
-              label: t('sales.channels.offers.actions.edit', 'Edit'),
-              href: `/backend/sales/channels/${channelId}/offers/${row.id}/edit`,
-            },
-            {
-              id: 'delete',
-              label: t('sales.channels.offers.actions.delete', 'Delete'),
-              onSelect: () => handleDelete(row),
-              destructive: true,
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  label: t('sales.channels.offers.actions.edit', 'Edit'),
+                  href: `/backend/sales/channels/${channelId}/offers/${row.id}/edit`,
+                },
+                {
+                  label: t('sales.channels.offers.actions.delete', 'Delete'),
+                  onSelect: () => handleDelete(row),
+                  destructive: true,
             },
           ]}
         />

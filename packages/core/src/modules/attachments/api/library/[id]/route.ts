@@ -12,9 +12,12 @@ import {
 } from '../../../lib/metadata'
 import { deletePartitionFile } from '../../../lib/storage'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { attachmentCrudEvents, attachmentCrudIndexer } from '../../../lib/crud'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../../lib/assignmentDetails'
 
 const updateSchema = z.object({
@@ -52,25 +55,6 @@ async function resolveAttachmentId(ctx: RouteContext): Promise<string | null> {
   } catch {
     return null
   }
-}
-
-function normalizeCustomFieldResponse(values: Record<string, unknown> | null | undefined): Record<string, unknown> | undefined {
-  if (!values) return undefined
-  const entries: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(values)) {
-    if (key.startsWith('cf_')) {
-      const normalized = key.slice(3)
-      if (normalized) entries[normalized] = value
-      continue
-    }
-    if (key.startsWith('cf:')) {
-      const normalized = key.slice(3)
-      if (normalized) entries[normalized] = value
-      continue
-    }
-    entries[key] = value
-  }
-  return Object.keys(entries).length ? entries : undefined
 }
 
 export async function GET(req: NextRequest, ctx: RouteContext) {
@@ -156,7 +140,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   } catch {
     queryEngine = null
   }
-  const dataEngine = resolve('dataEngine') as any
+  const dataEngine = resolve('dataEngine') as DataEngine
   const record = await em.findOne(Attachment, {
     id: attachmentId,
     organizationId: auth.orgId,
@@ -185,6 +169,22 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       console.error('[attachments] failed to persist custom attributes', error)
       return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
     }
+  }
+
+  if (dataEngine) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId ?? auth.orgId ?? null,
+        tenantId: record.tenantId ?? auth.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
   }
 
   const metadata = readAttachmentMetadata(record.storageMetadata)
@@ -217,6 +217,7 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
   }
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  const dataEngine = resolve('dataEngine') as DataEngine
   const record = await em.findOne(Attachment, {
     id: attachmentId,
     organizationId: auth.orgId,
@@ -228,6 +229,22 @@ export async function DELETE(req: NextRequest, ctx: RouteContext) {
 
   await deletePartitionFile(record.partitionCode, record.storagePath, record.storageDriver)
   await em.removeAndFlush(record)
+
+  if (dataEngine) {
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId ?? auth.orgId ?? null,
+        tenantId: record.tenantId ?? auth.tenantId ?? null,
+      },
+      events: attachmentCrudEvents,
+      indexer: attachmentCrudIndexer,
+    })
+    await dataEngine.flushOrmEntityChanges()
+  }
 
   return NextResponse.json({ ok: true })
 }

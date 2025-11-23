@@ -269,13 +269,14 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
 
   React.useEffect(() => {
     if (mode !== 'edit' || !offerId) return
+    const offerKey = offerId
     let cancelled = false
     async function loadOffer() {
       setLoading(true)
       setError(null)
       try {
         const payload = await readApiResultOrThrow<OfferResponse>(
-          `/api/catalog/offers?id=${encodeURIComponent(offerId)}&pageSize=1`,
+          `/api/catalog/offers?id=${encodeURIComponent(offerKey)}&pageSize=1`,
           undefined,
           { errorMessage: t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.') },
         )
@@ -468,10 +469,11 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
       id: 'watchers',
       column: 1,
       bare: true,
-      component: ({ values, setValue }) => (
+      component: ({ values, setValue, errors }) => (
         <OfferFormWatchers
           values={values}
           setValue={setValue}
+          errors={errors}
           productCache={productCache}
           attachmentCache={attachmentCache}
           setMediaOptions={setMediaOptions}
@@ -750,11 +752,10 @@ function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<
   if (Array.isArray(customFields)) {
     customFields.forEach((entry) => {
       if (!entry || typeof entry !== 'object') return
-      const key = typeof (entry as Record<string, unknown>).key === 'string'
-        ? (entry as Record<string, unknown>).key
-        : null
+      const entryRecord = entry as Record<string, unknown>
+      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
       if (!key) return
-      assign(key, (entry as Record<string, unknown>).value)
+      assign(key, entryRecord.value)
     })
   } else if (customFields && typeof customFields === 'object') {
     for (const [key, value] of Object.entries(customFields as Record<string, unknown>)) {
@@ -767,11 +768,10 @@ function mergeCustomFieldValues(target: Record<string, unknown>, source: Record<
   if (Array.isArray(customEntries)) {
     customEntries.forEach((entry) => {
       if (!entry || typeof entry !== 'object') return
-      const key = typeof (entry as Record<string, unknown>).key === 'string'
-        ? (entry as Record<string, unknown>).key
-        : null
+      const entryRecord = entry as Record<string, unknown>
+      const key = typeof entryRecord.key === 'string' ? entryRecord.key : null
       if (!key) return
-      assign(key, (entry as Record<string, unknown>).value)
+      assign(key, entryRecord.value)
     })
   }
 }
@@ -863,20 +863,22 @@ function ChannelSelectInput({
     void load()
   }, [])
   React.useEffect(() => {
-    if (!value || selectedOption) return
+    const channelIdToLoad = typeof value === 'string' ? value : null
+    if (!channelIdToLoad || selectedOption) return
+    const resolvedChannelId = channelIdToLoad
     let cancelled = false
     async function loadSingle() {
       try {
         const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/sales/channels?id=${encodeURIComponent(value)}&pageSize=1`,
+          `/api/sales/channels?id=${encodeURIComponent(resolvedChannelId)}&pageSize=1`,
           undefined,
           { fallback: { items: [] } },
         )
         const item = Array.isArray(payload.items) ? payload.items[0] : null
         if (!item || cancelled) return
         const entry = {
-          id: typeof item.id === 'string' ? item.id : value,
-          name: typeof item.name === 'string' ? item.name : value,
+          id: typeof item.id === 'string' ? item.id : resolvedChannelId,
+          name: typeof item.name === 'string' ? item.name : resolvedChannelId,
           code: typeof item.code === 'string' ? item.code : null,
         }
         setOptions((prev) => {
@@ -1228,6 +1230,7 @@ function OfferFormWatchers({
   channelId,
   manualMediaSelections,
   setCurrentProductId,
+  errors,
 }: CrudFormGroupComponentProps & {
   productCache: React.MutableRefObject<Map<string, ProductSummaryCacheEntry>>
   attachmentCache: React.MutableRefObject<Map<string, MediaOption[]>>
@@ -1252,39 +1255,59 @@ function OfferFormWatchers({
       previousProductIdRef.current = null
       return
     }
+    const resolvedProductId = productId as string
+    const resolvedChannelId = channelId ?? null
     if (!initializedProductRef.current) {
-      previousProductIdRef.current = productId
+      previousProductIdRef.current = resolvedProductId
       initializedProductRef.current = true
-    } else if (previousProductIdRef.current !== productId) {
-      previousProductIdRef.current = productId
+    } else if (previousProductIdRef.current !== resolvedProductId) {
+      previousProductIdRef.current = resolvedProductId
       setValue('defaultMediaId', undefined)
     }
     let cancelled = false
     async function load() {
       try {
-        const summary = await resolveProductSummaryWithCache({ productId, channelId, productCache })
+        const summary = await resolveProductSummaryWithCache({
+          productId: resolvedProductId,
+          channelId: resolvedChannelId,
+          productCache,
+        })
         if (!cancelled) {
           setProductSummary(summary ?? null)
           if (summary) {
-            if (!values.title?.trim() && summary.title) {
+            const hasTitle = typeof values.title === 'string' && values.title.trim().length > 0
+            if (!hasTitle && summary.title) {
               setValue('title', summary.title)
             }
-            if (!values.description?.trim() && summary.description) {
+            const hasDescription =
+              typeof values.description === 'string' && values.description.trim().length > 0
+            if (!hasDescription && summary.description) {
               setValue('description', summary.description)
             }
-            if (!values.defaultMediaId && summary.defaultMediaId && !manualMediaSelections.current.has(productId)) {
+            if (
+              !values.defaultMediaId &&
+              summary.defaultMediaId &&
+              !manualMediaSelections.current.has(resolvedProductId)
+            ) {
               setValue('defaultMediaId', summary.defaultMediaId)
             }
           }
         }
-        const attachments = await resolveProductMediaOptionsWithCache({ productId, attachmentCache })
+        const attachments = await resolveProductMediaOptionsWithCache({
+          productId: resolvedProductId,
+          attachmentCache,
+        })
         if (!cancelled) {
-          const variants = await resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache })
+          const variants = await resolveVariantPreviewsWithCache({
+            productId: resolvedProductId,
+            variantCache,
+            variantMediaCache,
+          })
           const mergedMedia = dedupeMediaOptions([
             ...attachments,
             ...buildVariantMediaOptions(variants),
           ])
-          attachmentCache.current.set(productId, mergedMedia)
+          attachmentCache.current.set(resolvedProductId, mergedMedia)
           setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
         }
@@ -1325,7 +1348,7 @@ async function resolveProductSummaryWithCache({
 }): Promise<ProductSummaryCacheEntry | null> {
   if (!productId) return null
   const cacheKey = channelId ? `${productId}:${channelId}` : productId
-  let summary = productCache.current.get(cacheKey)
+  let summary: ProductSummaryCacheEntry | null | undefined = productCache.current.get(cacheKey)
   if (summary) return summary
   const params = new URLSearchParams({ id: productId, pageSize: '1' })
   if (channelId) params.set('channelId', channelId)
@@ -1489,7 +1512,7 @@ async function loadProductMedia(productId: string): Promise<MediaOption[]> {
 
 function buildVariantMediaOptions(variants: ProductVariantPreview[]): MediaOption[] {
   return variants
-    .map((variant) => {
+    .map((variant): MediaOption | null => {
       if (!variant.thumbnailId || !variant.thumbnailUrl) return null
       const label = variant.name || variant.sku || 'Variant'
       const fileName = variant.thumbnailFileName ?? `${variant.thumbnailId}.jpg`

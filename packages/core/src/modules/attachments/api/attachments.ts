@@ -20,8 +20,8 @@ import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -91,19 +91,6 @@ const errorSchema = z.object({
 })
 
 const LIBRARY_ENTITY_ID = 'attachments:library'
-const attachmentCrudEvents: CrudEventsConfig<Attachment> = {
-  module: 'attachments',
-  entity: 'attachment',
-  persistent: false,
-  buildPayload: (ctx) => ({
-    id: ctx.identifiers.id,
-    organizationId: ctx.identifiers.organizationId,
-    tenantId: ctx.identifiers.tenantId,
-  }),
-}
-const attachmentCrudIndexer: CrudIndexerConfig<Attachment> = {
-  entityType: E.attachments.attachment,
-}
 
 function parseCustomFieldsEntry(value: FormDataEntryValue | null): Record<string, unknown> {
   if (!value) return {}

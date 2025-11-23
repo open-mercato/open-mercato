@@ -26,3 +26,20 @@ function normalizePrimitive(value: unknown): CustomFieldValueInput[string] {
   }
   return String(value) as CustomFieldValueInput[string]
 }
+
+export function normalizeCustomFieldResponse(
+  values: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | undefined {
+  if (!values) return undefined
+  const entries: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) continue
+    if (key.startsWith('cf_') || key.startsWith('cf:')) {
+      const normalized = key.slice(3)
+      if (normalized) entries[normalized] = value
+      continue
+    }
+    entries[key] = value
+  }
+  return Object.keys(entries).length ? entries : undefined
+}
