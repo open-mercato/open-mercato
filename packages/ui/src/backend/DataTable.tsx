@@ -15,6 +15,7 @@ import { serializeExport, defaultExportFilename, type PreparedExport } from '@op
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   PerspectiveDto,
   RolePerspectiveDto,
@@ -342,8 +343,10 @@ function normalizeLabel(input: string): string {
 }
 
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
+  const t = useT()
   if (!sections.length) return null
-  const { label = 'Export' } = config
+  const { label } = config
+  const defaultLabel = label ?? t('ui.dataTable.export.label', 'Export')
   const disabled = Boolean(config.disabled)
   const [open, setOpen] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
@@ -422,7 +425,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         aria-expanded={open}
         disabled={disabled}
       >
-        {label}
+        {defaultLabel}
       </Button>
       {open ? (
         <div
@@ -489,6 +492,7 @@ export function DataTable<T>({
   perspective,
   embedded = false,
 }: DataTableProps<T>) {
+  const t = useT()
   const router = useRouter()
   React.useEffect(() => {
     return subscribeOrganizationScopeChanged(() => scheduleRouterRefresh(router))
@@ -1277,11 +1281,11 @@ export function DataTable<T>({
                       variant="ghost"
                       size="icon"
                       onClick={() => setPerspectiveOpen(true)}
-                      aria-label="Customize columns"
-                      title="Customize columns"
+                      aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
+                      title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
                     >
                       <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">Customize columns</span>
+                      <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
                     </Button>
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}

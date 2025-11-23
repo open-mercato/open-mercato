@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { Button } from '../primitives/button'
 import { TagsInput } from './inputs/TagsInput'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type FilterOption = { value: string; label: string }
 
@@ -74,7 +75,9 @@ function areFilterValuesEqual(a?: FilterValues | null, b?: FilterValues | null):
   return true
 }
 
-export function FilterOverlay({ title = 'Filters', filters, initialValues, open, onOpenChange, onApply, onClear }: FilterOverlayProps) {
+export function FilterOverlay({ title, filters, initialValues, open, onOpenChange, onApply, onClear }: FilterOverlayProps) {
+  const t = useT()
+  const defaultTitle = title ?? t('ui.filters.title', 'Filters')
   const [values, setValues] = React.useState<FilterValues>(initialValues)
   React.useEffect(() => {
     setValues((prev) => (areFilterValuesEqual(prev, initialValues) ? prev : initialValues))
@@ -136,8 +139,8 @@ export function FilterOverlay({ title = 'Filters', filters, initialValues, open,
           <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} />
           <div className="absolute left-0 top-0 h-full w-full sm:w-[380px] bg-background shadow-xl border-r flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="text-base font-semibold">{title}</h2>
-              <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>Close</button>
+              <h2 className="text-base font-semibold">{defaultTitle}</h2>
+              <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>{t('common.close')}</button>
             </div>
             {/* Top actions: duplicate Clear/Apply */}
             <div className="px-4 py-2 border-b flex items-center justify-between gap-2">
