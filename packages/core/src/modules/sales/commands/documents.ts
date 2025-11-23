@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -13,11 +13,9 @@ import {
 } from '../data/entities'
 import {
   quoteCreateSchema,
-  quoteUpdateSchema,
   quoteLineCreateSchema,
   quoteAdjustmentCreateSchema,
   type QuoteCreateInput,
-  type QuoteUpdateInput,
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
 } from '../data/validators'
@@ -27,7 +25,7 @@ import {
   extractUndoPayload,
   toNumericString,
 } from './shared'
-import { calculateDocumentTotals } from '../lib/calculations'
+import type { SalesCalculationService } from '../services/salesCalculationService'
 import {
   type SalesLineSnapshot,
   type SalesAdjustmentDraft,
@@ -319,65 +317,6 @@ function convertAdjustmentResultToEntityInput(
   }
 }
 
-function mapExistingQuoteLineToInput(line: SalesQuoteLine): QuoteLineCreateInput {
-  return {
-    quoteId: line.quote instanceof SalesQuote ? line.quote.id : (line.quote as string),
-    organizationId: line.organizationId,
-    tenantId: line.tenantId,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    statusEntryId: line.statusEntryId ?? undefined,
-    productId: line.productId ?? undefined,
-    productVariantId: line.productVariantId ?? undefined,
-    catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : undefined,
-    name: line.name ?? undefined,
-    description: line.description ?? undefined,
-    comment: line.comment ?? undefined,
-    quantity: Number(line.quantity),
-    quantityUnit: line.quantityUnit ?? undefined,
-    currencyCode: line.currencyCode,
-    unitPriceNet: Number(line.unitPriceNet),
-    unitPriceGross: Number(line.unitPriceGross),
-    discountAmount: Number(line.discountAmount),
-    discountPercent: Number(line.discountPercent),
-    taxRate: Number(line.taxRate),
-    taxAmount: Number(line.taxAmount),
-    totalNetAmount: Number(line.totalNetAmount),
-    totalGrossAmount: Number(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : undefined,
-    promotionCode: line.promotionCode ?? undefined,
-    promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : undefined,
-    metadata: line.metadata ? cloneJson(line.metadata) : undefined,
-    customFieldSetId: line.customFieldSetId ?? undefined,
-  }
-}
-
-function mapExistingQuoteAdjustmentToInput(
-  adjustment: SalesQuoteAdjustment
-): QuoteAdjustmentCreateInput {
-  return {
-    quoteId: adjustment.quote instanceof SalesQuote ? adjustment.quote.id : (adjustment.quote as string),
-    organizationId: adjustment.organizationId,
-    tenantId: adjustment.tenantId,
-    quoteLineId:
-      typeof adjustment.quoteLine === 'string'
-        ? adjustment.quoteLine
-        : adjustment.quoteLine?.id ?? undefined,
-    scope: adjustment.scope,
-    kind: adjustment.kind,
-    code: adjustment.code ?? undefined,
-    label: adjustment.label ?? undefined,
-    calculatorKey: adjustment.calculatorKey ?? undefined,
-    promotionId: adjustment.promotionId ?? undefined,
-    rate: Number(adjustment.rate),
-    amountNet: Number(adjustment.amountNet),
-    amountGross: Number(adjustment.amountGross),
-    currencyCode: adjustment.currencyCode ?? undefined,
-    metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : undefined,
-    position: adjustment.position,
-  }
-}
-
 async function replaceQuoteLines(
   em: EntityManager,
   quote: SalesQuote,
@@ -641,7 +580,8 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       ? adjustmentInputs.map((adj) => createAdjustmentDraftFromInput(adj))
       : []
 
-    const calculation = await calculateDocumentTotals({
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'quote',
       lines: lineSnapshots,
       adjustments: adjustmentDrafts,
@@ -746,7 +686,7 @@ const deleteQuoteCommand: CommandHandler<
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
-    const quote = await restoreQuoteGraph(em, before)
+    await restoreQuoteGraph(em, before)
     await em.flush()
   },
 }

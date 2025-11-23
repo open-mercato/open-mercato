@@ -14,16 +14,17 @@ This repository is designed for extensibility. Agents should leverage the module
   - Frontend pages under `src/modules/<module>/frontend/<path>.tsx` → `/<path>`
   - Backend pages under `src/modules/<module>/backend/<path>.tsx` → `/backend/<path>`
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
-  - Page metadata:
-    - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
-    - Alternatively, server components may `export const metadata` from the page file itself.
-  - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
-  - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
-  - Optional CLI at `src/modules/<module>/cli.ts` default export
-  - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
-  - Optional features at `src/modules/<module>/acl.ts` exporting `features`
-  - Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
-  - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
+- Page metadata:
+  - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
+  - Alternatively, server components may `export const metadata` from the page file itself.
+- API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
+- Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
+- Optional CLI at `src/modules/<module>/cli.ts` default export
+- Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
+- Optional features at `src/modules/<module>/acl.ts` exporting `features`
+- Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
+- Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
+- Optional upgrade actions: declare once per version in `packages/core/src/modules/configs/lib/upgrade-actions.ts`; actions are auto-discovered by the backend upgrade banner and stored per tenant/organization in `upgrade_action_runs`. Keep them idempotent, reuse module helpers (e.g., catalog seeds), and do not introduce new features—access is guarded by `configs.manage`.
 - Extensions and fields:
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
 - Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.
@@ -31,6 +32,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Prefer using the DSL helpers from `@/modules/dsl`:
   - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
   - `defineFields()` with `cf.*` helpers for field sets.
+- Reuse the shared custom-field helpers from `packages/shared` (e.g., `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`) instead of re-implementing cf_* parsing or normalization.
 - When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
@@ -42,6 +44,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Migrations (module-scoped with MikroORM):
   - Generate all modules: `npm run db:generate` (iterates modules, writes to `src/modules/<module>/migrations`)
   - Apply all modules: `npm run db:migrate` (ordered, directory first)
+  - **Never hand-write migration files. Update the ORM entities first and let `npm run db:generate` emit the SQL so the snapshots stay in sync.**
 
 ## Database Naming
 - Tables: plural snake_case (e.g., `users`, `user_roles`, `example_items`).
@@ -157,6 +160,8 @@ This repository is designed for extensibility. Agents should leverage the module
 - Custom fields: users can add/remove/modify fields per entity without schema forks. We store definitions and values in a dedicated `entities` module (EAV). A future admin UI will let users manage fields, and generic list/detail pages will consume them for filtering and forms.
 - Query layer: access via DI (`queryEngine`) to fetch base entities with optional extensions and/or custom fields using a unified API for filtering, fields selection, pagination, and sorting.
   - Soft delete: entities should include `deleted_at timestamptz null`. The query engine excludes rows with non-null `deleted_at` by default; pass `withDeleted: true` to include them.
-- Request scoping helpers (`withScopedPayload`, `parseScopedCommandInput`, etc.) live in `packages/shared/src/lib/api/scoped.ts`. Import from there instead of redefining per module so tenants/organization enforcement stays consistent. Prefer `createScopedApiHelpers()` to tailor module-specific translations while keeping behaviour aligned.
+  - Request scoping helpers (`withScopedPayload`, `parseScopedCommandInput`, etc.) live in `packages/shared/src/lib/api/scoped.ts`. Import from there instead of redefining per module so tenants/organization enforcement stays consistent. Prefer `createScopedApiHelpers()` to tailor module-specific translations while keeping behaviour aligned.
+- Catalog price selection, channel scoping, and layered overrides must use the helpers exported from `packages/core/src/modules/catalog/lib/pricing.ts`. Reuse `selectBestPrice`, `resolvePriceVariantId`, etc., instead of reimplementing scoring logic. If you need to customize the algorithm, register a resolver via `registerCatalogPricingResolver(resolver, { priority })` so your logic composes with the default `resolveCatalogPrice` pipeline. The helper now emits `catalog.pricing.resolve.before|after` events; reach for the DI token `catalogPricingService` when you need to resolve prices so overrides (event-driven or service swaps) take effect.
+- Order/quote totals must be computed through the DI-provided `salesCalculationService`, which wraps the existing `salesCalculations` registry and dispatches `sales.line.calculate.*` / `sales.document.calculate.*` events. Never reimplement document math inline; register line/totals calculators or override the service via DI.
 - When adding new module features, mirror them in the `mercato init` role seeding (see `packages/core/src/modules/auth/cli.ts`) so the default admin role ships with immediate access to the capabilities you just enabled.
 - `ce.ts` files only describe custom entities or seed default custom-field sets. Always reference generated ids (`E.<module>.<entity>`) so system entities stay aligned with `generated/entities.ids.generated.ts`. System tables (e.g. catalog/sales documents) are auto-discovered from ORM metadata—exporting them in `ce.ts` is just for labeling/field seeding and will not register them as user-defined entities.

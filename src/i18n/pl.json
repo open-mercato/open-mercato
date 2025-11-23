@@ -24,6 +24,7 @@
   "ui.forms.flash.deleteSuccess": "Rekord usunięty",
   "ui.forms.flash.deleteError": "Nie udało się usunąć rekordu",
   "ui.forms.flash.saveError": "Nie udało się zapisać",
+  "catalog.products.edit.offers.deleteError": "Nie udało się usunąć oferty kanału sprzedaży.",
   "ui.forms.errors.required": "To pole jest wymagane",
   "ui.forms.errors.highlighted": "Popraw zaznaczone błędy.",
   "ui.forms.errors.unexpected": "Nieoczekiwany błąd",
@@ -88,6 +89,7 @@
   "appShell.closeMenu": "Zamknij menu",
   "appShell.userFallback": "Użytkownik",
   "appShell.productName": "Open Mercato",
+  "appShell.version": "Wersja {{version}}",
   "appShell.customizeSidebar": "Dostosuj pasek boczny",
   "appShell.sidebarCustomizationHeading": "Dostosowanie paska bocznego",
   "appShell.sidebarCustomizationHint": "Zmiany dotyczą tylko Twojego paska bocznego w języku {locale}. Pozostałe wersje pozostają bez zmian.",
@@ -121,5 +123,13 @@
   "tenantSelect.empty": "—",
   "tenantSelect.loading": "Ładowanie tenantów…",
   "tenantSelect.error": "Nie udało się załadować tenantów",
-  "tenantSelect.inactive": "Nieaktywny"
+  "tenantSelect.inactive": "Nieaktywny",
+  "upgrades.versionLabel": "Wersja {{version}}",
+  "upgrades.scopeRequired": "Wybierz organizację i tenant, aby zastosować tę aktualizację.",
+  "upgrades.v034.message": "Wersja {{version}} została zainstalowana. Aby w pełni korzystać z tej edycji, uruchom „Zainstaluj przykładowe produkty i kategorie katalogu”.",
+  "upgrades.v034.cta": "Zainstaluj przykładowe produkty i kategorie katalogu",
+  "upgrades.v034.loading": "Instalowanie…",
+  "upgrades.v034.success": "Przykładowe produkty i kategorie katalogu zostały zainstalowane.",
+  "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
+  "upgrades.loading": "Ładowanie aktualizacji…"
 }

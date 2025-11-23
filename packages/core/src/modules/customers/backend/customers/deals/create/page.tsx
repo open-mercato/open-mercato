@@ -60,15 +60,16 @@ export default function CreateDealPage() {
   return (
     <Page>
       <PageBody>
-        <div className="max-w-3xl">
-          <DealForm
-            mode="create"
-            onSubmit={handleSubmit}
-            onCancel={handleCancel}
-            isSubmitting={isSubmitting}
-            submitLabel={t('customers.deals.create.submit', 'Create deal')}
-          />
-        </div>
+        <DealForm
+          mode="create"
+          onSubmit={handleSubmit}
+          onCancel={handleCancel}
+          isSubmitting={isSubmitting}
+          submitLabel={t('customers.deals.create.submit', 'Create deal')}
+          embedded={false}
+          title={t('customers.deals.create.title', 'Create deal')}
+          backHref="/backend/customers/deals"
+        />
       </PageBody>
     </Page>
   )

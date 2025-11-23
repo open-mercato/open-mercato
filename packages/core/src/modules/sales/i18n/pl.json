@@ -1,8 +1,202 @@
 {
+  "customers~sales": {
+    "nav": {
+      "group": "Sprzedaż"
+    }
+  },
   "sales": {
     "module": {
       "title": "Sprzedaż",
       "description": "Oferty, zamówienia, realizacja, fakturowanie i płatności powiązane z katalogiem produktów."
+    },
+    "nav": {
+      "group": "Sales",
+      "channels": "Channels"
+    },
+    "channels": {
+      "nav": {
+        "title": "Sales channels"
+      },
+      "table": {
+        "name": "Name",
+        "code": "Code",
+        "offers": "Product offers",
+        "active": "Active",
+        "updated": "Updated",
+        "search": "Search channels…",
+        "refresh": "Refresh",
+        "empty": "No channels yet.",
+        "errors": {
+          "load": "Failed to load channels.",
+          "delete": "Failed to delete channel."
+        },
+        "messages": {
+          "deleted": "Channel deleted."
+        },
+        "actions": {
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "subtitle": "Organize catalog offers per marketplace or storefront."
+      },
+      "actions": {
+        "create": "Add channel"
+      },
+      "form": {
+        "tabs": {
+          "settings": "Settings",
+          "offers": "Offers"
+        },
+        "groups": {
+          "general": "General",
+          "contact": "Contact",
+          "address": "Location"
+        },
+        "name": "Channel name",
+        "code": "Code",
+        "description": "Description",
+        "websiteUrl": "Website URL",
+        "contactEmail": "Contact email",
+        "contactPhone": "Contact phone",
+        "status": "Status entry ID",
+        "address1": "Address line 1",
+        "address2": "Address line 2",
+        "city": "City",
+        "region": "State / region",
+        "postalCode": "Postal code",
+        "country": "Country",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "isActive": "Active",
+        "createTitle": "Create sales channel",
+        "createSubmit": "Create channel",
+        "editTitle": "Edit channel",
+        "updateSubmit": "Save changes",
+        "createSuccess": "Channel created.",
+        "loading": "Loading channel…",
+        "errors": {
+          "create": "Failed to create channel.",
+          "update": "Failed to save channel.",
+          "delete": "Failed to delete channel.",
+          "load": "Failed to load channel."
+        },
+        "messages": {
+          "created": "Channel created.",
+          "updated": "Channel updated.",
+          "deleted": "Channel deleted."
+        }
+      },
+      "offers": {
+        "listTitle": "Oferty kanałów sprzedaży",
+        "listSubtitle": "Przeglądaj nadpisania produktów we wszystkich kanałach sprzedaży.",
+        "filters": {
+          "channels": "Kanały sprzedaży",
+          "channelsPlaceholder": "Filtruj według kanałów…",
+          "channelsLoadError": "Nie udało się wczytać kanałów"
+        },
+        "heading": "Offers for {{name}}",
+        "subtitle": "Override product presentation and pricing per channel.",
+        "actions": {
+          "create": "Add offer",
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "errors": {
+          "load": "Failed to load offers.",
+          "delete": "Failed to delete offer.",
+          "loadOffer": "Failed to load offer.",
+          "save": "Failed to save offer.",
+          "duplicateProduct": "Ten produkt ma już ofertę w tym kanale.",
+          "requiredFields": "Choose a channel and product.",
+          "priceKindRequired": "Wybierz rodzaj ceny dla każdego nadpisania.",
+          "priceKindDuplicate": "Każdy typ ceny można nadpisać tylko raz."
+        },
+        "messages": {
+          "deleted": "Offer deleted.",
+          "saved": "Offer saved."
+        },
+        "table": {
+          "offer": "Offer",
+          "pricing": "Prices",
+          "prices": "Price overrides",
+          "active": "Active",
+          "updated": "Updated",
+          "search": "Search offers…",
+          "refresh": "Refresh",
+          "empty": "No offers for this channel yet.",
+          "emptyAll": "Brak dostępnych ofert.",
+          "noOverrides": "No overrides",
+          "price": "Price",
+          "channelPrice": "Oryginalna cena produktu {{price}}",
+          "emptyProduct": "Unlinked product",
+          "channel": "Kanał",
+          "channelUnassigned": "Nieprzypisany"
+        },
+        "form": {
+          "createTitle": "Create offer",
+          "editTitle": "Edit offer",
+          "createSubmit": "Create offer",
+          "updateSubmit": "Save changes",
+          "loading": "Loading offer…",
+          "channel": "Channel",
+          "channelDetails": "Szczegóły",
+          "channelPlaceholder": "Wybierz kanał",
+          "product": "Product",
+          "productGroup": "Produkt",
+          "productGroupHelp": "Wyszukaj w katalogu i wybierz produkt, który chcesz dostosować dla tego kanału.",
+          "productSummaryTitle": "Podsumowanie produktu",
+          "productSummaryPlaceholder": "Wybierz produkt, aby zobaczyć jego media, ceny i warianty.",
+          "productSearchPlaceholder": "Szukaj po nazwie, SKU lub ID…",
+          "productSearchLoading": "Wyszukiwanie produktów…",
+          "productSearchEmpty": "Brak pasujących produktów.",
+          "productSearchHint": "Wpisz co najmniej 2 znaki lub wklej identyfikator produktu.",
+          "productSearchIntro": "Szukaj po nazwie lub wklej ID produktu, aby znaleźć pozycję.",
+          "productSelectedHint": "Wybrany identyfikator produktu: {{id}}",
+          "productClear": "Wyczyść wybór",
+          "productUntitled": "Produkt bez nazwy",
+          "productPriceMissing": "Brak ceny",
+          "productPriceLabel": "Cena bazowa",
+          "productHasOffer": "Ma już ofertę w tym kanale.",
+          "productHasOfferLink": "Zobacz ofertę",
+          "productUnavailable": "Niedostępny",
+          "productSelect": "Wybierz",
+          "productSelected": "Wybrano",
+          "defaultMedia": "Domyślne media",
+          "mediaGroupTitle": "Nadpisanie domyślnego media",
+          "mediaEmpty": "Najpierw wybierz produkt, aby wczytać media.",
+          "mediaHelp": "Wybierz miniaturę, która ma reprezentować ofertę w kanale.",
+          "mediaInherit": "Użyj domyślnego produktu",
+          "mediaSelected": "Aktywne",
+          "title": "Title",
+          "description": "Description",
+          "active": "Active",
+          "variantsTitle": "Warianty",
+          "variantsEmpty": "Brak wariantów dla tego produktu.",
+          "tabs": {
+            "offers": "Offers"
+          },
+          "groups": {
+            "associations": "Associations",
+            "content": "Content",
+            "pricing": "Price overrides"
+          }
+        },
+        "pricing": {
+          "help": "Provide overrides for price kinds when this offer is active.",
+          "add": "Add price",
+          "selectKind": "Select price kind",
+          "amount": "Amount",
+          "remove": "Remove",
+          "empty": "No overrides yet.",
+          "emptyFallback": "Do czasu dodania nadpisania użyta będzie cena {price} z produktu.",
+          "basePriceLabel": "Oryginalna cena produktu",
+          "basePriceMissing": "Brak ceny",
+          "basePriceHelp": "Wyświetlana, gdy brak nadpisania.",
+          "overrideHint": "Nadpisania mają pierwszeństwo przed oryginalną ceną produktu.",
+          "allKindsUsed": "Każdy typ ceny ma już nadpisanie.",
+          "noKindsAvailable": "Zdefiniuj typ ceny przed dodaniem nadpisań."
+        }
+      }
     },
     "navigation": {
       "quotes": "Oferty",
@@ -126,6 +320,52 @@
           "save": "Status zapisany.",
           "delete": "Status usunięty."
         }
+      },
+      "taxRates": {
+        "title": "Stawki podatkowe",
+        "description": "Zarządzaj klasami VAT używanymi w cenniku katalogu.",
+        "actions": {
+          "add": "Dodaj stawkę podatkową",
+          "edit": "Edytuj",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć stawkę \"{{name}}\"?",
+          "refresh": "Odśwież"
+        },
+        "table": {
+          "name": "Nazwa",
+          "code": "Kod",
+          "rate": "Stawka",
+          "location": "Lokalizacja",
+          "updatedAt": "Zaktualizowano",
+          "empty": "Brak stawek podatkowych.",
+          "search": "Szukaj stawek podatku…",
+          "defaultBadge": "Domyślna"
+        },
+        "form": {
+          "createTitle": "Dodaj stawkę podatkową",
+          "editTitle": "Edytuj stawkę podatkową",
+          "name": "Nazwa",
+          "code": "Kod",
+          "codeHelp": "Małe litery, cyfry i myślniki.",
+          "rate": "Stawka (%)",
+          "countryCode": "Kod kraju",
+          "regionCode": "Region",
+          "postalCode": "Kod pocztowy",
+          "city": "Miasto",
+          "isDefault": "Domyślna klasa podatkowa",
+          "isDefaultHelp": "Zostanie automatycznie ustawiona dla nowych produktów katalogu.",
+          "save": "Zapisz",
+          "cancel": "Anuluj"
+        },
+        "messages": {
+          "saved": "Stawka podatkowa zapisana.",
+          "deleted": "Stawka podatkowa usunięta."
+        },
+        "errors": {
+          "load": "Nie udało się wczytać stawek podatkowych.",
+          "save": "Nie udało się zapisać stawki podatkowej.",
+          "delete": "Nie udało się usunąć stawki podatkowej."
+        }
       }
     }
   },
@@ -134,5 +374,10 @@
   "sales.order-statuses.delete": "Usuń status zamówienia",
   "sales.order-line-statuses.create": "Dodaj status pozycji zamówienia",
   "sales.order-line-statuses.update": "Zaktualizuj status pozycji zamówienia",
-  "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia"
+  "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia",
+  "sales.channels.create": "Utwórz kanał sprzedaży",
+  "sales.channels.update": "Zaktualizuj kanał sprzedaży",
+  "sales.tax-rates.create": "Utwórz stawkę podatku",
+  "sales.tax-rates.update": "Aktualizuj stawkę podatku",
+  "sales.tax-rates.delete": "Usuń stawkę podatku"
 }

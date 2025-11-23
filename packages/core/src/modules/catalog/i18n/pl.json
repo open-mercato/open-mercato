@@ -1,18 +1,402 @@
 {
+  "customers~catalog": {
+    "errors": {
+      "tenant_required": "Tenant context is required.",
+      "organization_required": "Organization context is required.",
+      "id_required": "Record identifier is required."
+    },
+    "nav": {
+      "group": "Katalog"
+    }
+  },
   "catalog": {
     "module": {
       "title": "Katalog produktów",
       "description": "Zarządzaj produktami, wariantami i cennikami wykorzystywanymi w sprzedaży."
     },
-    "products": {
+    "categories": {
+      "page": {
+        "title": "Categories"
+      },
       "list": {
-        "title": "Produkty"
+        "title": "Categories",
+        "actions": {
+          "create": "Create",
+          "edit": "Edit",
+          "delete": "Delete"
+        },
+        "searchPlaceholder": "Search categories",
+        "filters": {
+          "status": "Status",
+          "all": "All",
+          "active": "Active",
+          "inactive": "Inactive"
+        },
+        "columns": {
+          "category": "Category",
+          "path": "Path",
+          "parent": "Parent",
+          "children": "Children",
+          "active": "Active"
+        },
+        "error": {
+          "load": "Failed to load categories",
+          "delete": "Failed to delete category"
+        },
+        "confirmDelete": "Archive category \"{{name}}\"?",
+        "none": "—"
+      },
+      "select": {
+        "error": "Failed to load categories",
+        "inactive": "inactive",
+        "empty": "Root level",
+        "loading": "Loading categories…"
+      },
+      "form": {
+        "createTitle": "Create category",
+        "editTitle": "Edit category",
+        "loading": "Loading category...",
+        "field": {
+          "name": "Name",
+          "namePlaceholder": "e.g., Footwear",
+          "slug": "Slug",
+          "slugHelp": "Lowercase identifier for URLs or imports.",
+          "description": "Description",
+          "parent": "Parent",
+          "isActive": "Active"
+        },
+        "group": {
+          "details": "Details",
+          "custom": "Custom data"
+        },
+        "action": {
+          "create": "Create",
+          "save": "Save"
+        },
+        "errors": {
+          "name": "Provide the category name.",
+          "load": "Failed to load category",
+          "notFound": "Category not found",
+          "idRequired": "Category identifier is required.",
+          "delete": "Failed to delete category"
+        },
+        "pathLabel": "Path: {{path}}"
+      },
+      "flash": {
+        "created": "Category created",
+        "updated": "Category updated",
+        "deleted": "Category archived"
+      }
+    },
+    "products": {
+      "page": {
+        "title": "Produkty i usługi"
+      },
+      "actions": {
+        "refresh": "Odśwież",
+        "create": "Utwórz"
+      },
+      "filters": {
+        "status": "Status",
+        "active": "Aktywne",
+        "configurable": "Konfigurowalne",
+        "productType": "Typ produktu",
+        "channels": "Kanały sprzedaży",
+        "channelsLoadError": "Nie udało się załadować kanałów",
+        "categories": "Kategorie",
+        "categoriesLoadError": "Nie udało się załadować kategorii",
+        "tags": "Tagi",
+        "tagsLoadError": "Nie udało się załadować tagów"
+      },
+      "types": {
+        "simple": "Prosty",
+        "configurable": "Konfigurowalny",
+        "virtual": "Wirtualny",
+        "downloadable": "Do pobrania",
+        "bundle": "Zestaw",
+        "grouped": "Grupowy"
+      },
+      "table": {
+        "title": "Title",
+        "sku": "SKU",
+        "type": "Typ",
+        "configurable": "Konfigurowalne",
+        "active": "Aktywne",
+        "price": "Cena",
+        "channels": "Kanały",
+        "updatedAt": "Zaktualizowano",
+        "actions": {
+          "edit": "Edytuj",
+          "delete": "Usuń"
+        }
+      },
+      "list": {
+        "title": "Produkty",
+        "error": {
+          "load": "Nie udało się załadować produktów",
+          "delete": "Nie udało się usunąć produktu"
+        },
+        "deleteConfirm": "Usunąć ten produkt?"
+      },
+      "flash": {
+        "deleted": "Produkt został usunięty",
+        "created": "Produkt utworzony"
+      },
+      "errors": {
+        "handleExists": "Handle jest już używany.",
+        "skuExists": "SKU jest już używany."
+      },
+      "media": {
+        "label": "Media",
+        "dropHint": "Przeciągnij i upuść obrazy tutaj lub kliknij, aby je przesłać.",
+        "choose": "Wybierz pliki",
+        "uploading": "Przesyłam…",
+        "empty": "Nie dodano jeszcze żadnych mediów.",
+        "default": "Domyślny podgląd",
+        "errors": {
+          "imagesOnly": "Obsługiwane są tylko pliki graficzne.",
+          "uploadFailed": "Nie udało się przesłać pliku.",
+          "deleteFailed": "Nie udało się usunąć medium."
+        }
       },
       "form": {
         "general": "Ogólne",
         "pricing": "Ceny",
         "options": "Opcje",
-        "variants": "Warianty"
+        "variants": "Warianty",
+        "title": "Title",
+        "subtitle": "Subtitle",
+        "description": "Description",
+        "sku": "SKU",
+        "handle": "Handle",
+        "handlePlaceholder": "e.g., summer-sneaker",
+        "handlePreview": "Handle: ",
+        "handlePreviewPlaceholder": "your-handle",
+        "productType": "Product type",
+        "currency": "Primary currency",
+        "unit": "Default unit",
+        "isActive": "Active"
+      },
+      "create": {
+        "title": "Utwórz produkt",
+        "submit": "Create product",
+        "placeholders": {
+          "title": "e.g., Summer sneaker",
+          "subtitle": "Optional subtitle",
+          "handle": "e.g., summer-sneaker",
+          "description": "Describe the product..."
+        },
+        "fields": {
+          "currency": "Primary currency"
+        },
+        "meta": {
+          "title": "Metadane produktu",
+          "description": "Zarządzaj podtytułem, identyfikatorem i walutą dla witryn."
+        },
+        "actions": {
+          "generateHandle": "Generate",
+          "usePlain": "Use plain text",
+          "useMarkdown": "Use markdown"
+        },
+        "steps": {
+          "general": "General data",
+          "organize": "Organize",
+          "variants": "Variants",
+          "previous": "Previous",
+          "continue": "Continue",
+          "review": "Review"
+        },
+        "handleHelp": "Handle is used for URLs and must be unique.",
+        "attachments": {
+          "title": "Media",
+          "help": "Drag and drop images here or click to upload.",
+          "remove": "Remove"
+        },
+        "taxRates": {
+          "label": "Tax class",
+          "noneSelected": "No tax class selected",
+          "emptyOption": "No tax classes available",
+          "help": "Stosowana do nowych cen, chyba \u017ce zostanie nadpisana na poziomie wariantu.",
+          "empty": "Define tax classes under Sales \u2192 Configuration.",
+          "error": "Nie uda\u0142o si\u0119 wczyta\u0107 stawek podatkowych.",
+          "unnamed": "Untitled tax rate",
+          "manage": "Manage tax classes"
+        },
+        "organize": {
+          "categoriesLabel": "Kategorie",
+          "categoriesPlaceholder": "Szukaj kategorii",
+          "categoriesHelp": "Przypisz produkt do jednego lub wielu węzłów taksonomii.",
+          "channelsLabel": "Kanały sprzedaży",
+          "channelsPlaceholder": "Wybierz kanały",
+          "channelsHelp": "Wybrane kanały otrzymają domyślne oferty dla tego produktu.",
+          "tagsLabel": "Tagi",
+          "tagsPlaceholder": "Dodaj tag i naciśnij Enter",
+          "tagsHelp": "Opisuj produkty wspólnymi etykietami, aby tworzyć szybkie filtry."
+        },
+        "tabs": {
+          "label": "Sekcje produktu",
+          "attributes": "Atrybuty",
+          "subproducts": "Subprodukty",
+          "customOptions": "Opcje"
+        },
+        "errors": {
+          "scope": "Wybierz organizację zanim utworzysz produkt.",
+          "missingId": "Brakuje identyfikatora produktu po utworzeniu.",
+          "titleRequired": "Provide a product title.",
+          "id": "Product id missing after create.",
+          "variant": "Failed to create variant.",
+          "currency": "Provide a currency for all price kinds.",
+          "priceNonNegative": "Ceny muszą być równe zero lub wyższe."
+        },
+        "currency": {
+          "placeholder": "Select currency…",
+          "add": "Add currency",
+          "addPrompt": "Provide a currency code.",
+          "dialogTitle": "Add currency",
+          "valueLabel": "Currency code",
+          "valuePlaceholder": "e.g. USD",
+          "labelLabel": "Display label (optional)",
+          "labelPlaceholder": "e.g. US Dollar",
+          "required": "Currency code is required.",
+          "cancel": "Cancel",
+          "save": "Save",
+          "saveShortcut": "Press Enter to save",
+          "success": "Currency added.",
+          "loadError": "Unable to load currencies.",
+          "error": "Unable to add currency.",
+          "loading": "Loading currencies…",
+          "manage": "Manage currencies"
+        },
+        "pricing": {
+          "net": "Cena netto",
+          "gross": "Cena brutto",
+          "taxRate": "Stawka VAT",
+          "currencyRequired": "Podaj walutę, aby zapisać ceny.",
+          "entriesTitle": "Price entries",
+          "addPrice": "Add price",
+          "empty": "No prices yet.",
+          "currencyPlaceholder": "Select currency",
+          "unitPlaceholder": "Select unit",
+          "currencyLabel": "Currency",
+          "usePrimaryCurrency": "Use primary currency",
+          "kindLabel": "Kind",
+          "kind": {
+            "list": "List",
+            "sale": "Sale",
+            "tier": "Tier",
+            "custom": "Custom"
+          },
+          "minQty": "Min qty",
+          "maxQty": "Max qty",
+          "startsAt": "Starts at",
+          "endsAt": "Ends at",
+          "currencyLoadError": "Unable to load currencies.",
+          "unitLoadError": "Unable to load units."
+        },
+        "variants": {
+          "add": "Dodaj wariant",
+          "generate": "Generuj na podstawie atrybutów",
+          "noOptions": "Define select-type custom options to auto-generate combinations.",
+          "disabled": "Warianty dostępne są tylko dla produktów konfigurowalnych.",
+          "empty": "Brak wariantów. Dodaj pierwszy, aby zacząć.",
+          "name": "Nazwa",
+          "namePlaceholder": "np. Niebieski / L",
+          "default": "Domyślny wariant"
+        },
+        "subproducts": {
+          "loadError": "Nie udało się załadować produktów",
+          "searchLabel": "Szukaj produktów",
+          "searchPlaceholder": "Wpisz, aby wyszukać w katalogu",
+          "loading": "Ładowanie…",
+          "results": "Wyniki wyszukiwania",
+          "noResults": "Nie znaleziono produktów",
+          "add": "Dodaj",
+          "selected": "Wybrane subprodukty",
+          "empty": "Brak powiązanych subproduktów.",
+          "relation": "Relacja",
+          "required": "Wymagane",
+          "requiredLabel": "Klient musi wybrać ten element",
+          "minQty": "Min. ilość",
+          "maxQty": "Maks. ilość"
+        },
+        "options": {
+          "add": "Dodaj opcję niestandardową",
+          "empty": "Brak niestandardowych opcji.",
+          "label": "Etykieta",
+          "type": "Typ",
+          "required": "Wymagane",
+          "multiple": "Zezwól na wiele",
+          "description": "Opis",
+          "choices": "Wybory",
+          "noChoices": "Brak wyborów.",
+          "choiceValue": "Wartość",
+          "choiceLabel": "Etykieta",
+          "removeChoice": "Usuń",
+          "addChoice": "Dodaj wybór",
+          "schemaLabel": "Option schema",
+          "schemaPlaceholder": "Select schema",
+          "schemaLoadError": "Unable to load option schemas.",
+          "schemaApplied": "Using {{name}}",
+          "schemaHint": "Start from a template or build your own option set.",
+          "saveTemplate": "Save as template",
+          "clearSchema": "Clear",
+          "schemaNameField": "Name",
+          "schemaCodeField": "Code",
+          "schemaCodePlaceholder": "Used internally, e.g. fashion-defaults",
+          "schemaNameRequired": "Provide a template name.",
+          "schemaCodeRequired": "Provide a valid template code.",
+          "schemaEmpty": "Add at least one option before saving.",
+          "scopeRequired": "Select an organization before saving schemas.",
+          "schemaSaved": "Option schema saved.",
+          "schemaSaveError": "Unable to save option schema.",
+          "schemaLoadPlaceholder": "Loading…",
+          "saveTemplateTitle": "Save option schema",
+          "saveTemplateDescription": "Reuse this option set across future products."
+        },
+        "optionsBuilder": {
+          "title": "Product options",
+          "add": "Add option",
+          "placeholder": "e.g., Color",
+          "values": "Values",
+          "valuePlaceholder": "Wpisz wartość i naciśnij Enter",
+          "empty": "No options yet. Add your first option to generate variants."
+        },
+        "variantsBuilder": {
+          "toggle": "Yes, this is a product with variants",
+          "defaultOption": "Default option",
+          "sku": "SKU",
+          "vatColumn": "Tax class",
+          "manageInventory": "Managed inventory",
+          "allowBackorder": "Allow backorder",
+          "inventoryKit": "Has inventory kit",
+          "defaultLabel": "Default option value",
+          "makeDefault": "Set as default",
+          "titlePlaceholder": "Variant title",
+          "skuPlaceholder": "e.g., SKU-001",
+          "priceColumn": "Price {{title}}",
+          "vatOptionDefault": "Use product tax class ({{label}})",
+          "vatOptionNone": "No tax class",
+          "inventoryDisabled": "Sterowanie stanem magazynowym b\u0119dzie wkr\u00f3tce dost\u0119pne.",
+          "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
+        },
+        "remove": "Usuń",
+        "selectPlaceholder": "Wybierz wartość"
+      }
+    },
+    "edit": {
+      "variantList": {
+        "pricesHeading": "Ceny",
+        "actions": "Akcje",
+        "pricesEmpty": "Brak cen.",
+        "deleteConfirm": "Usunąć wariant \"{{name}}\"?",
+        "deleting": "Usuwanie…",
+        "priceFallback": "Cena",
+        "generate": "Generuj warianty",
+        "generating": "Generowanie…",
+        "generateSuccess": "Brakujące warianty zostały utworzone.",
+        "generateError": "Nie udało się wygenerować wariantów.",
+        "generateEmpty": "Wszystkie kombinacje opcji już istnieją.",
+        "defaultTitle": "Wariant"
       }
     },
     "options": {
@@ -23,6 +407,162 @@
     "pricing": {
       "list": {
         "title": "Cenniki"
+      }
+    },
+    "errors": {
+      "tenant_required": "Wymagany jest kontekst dzierżawy.",
+      "organization_required": "Wymagany jest kontekst organizacji.",
+      "id_required": "Wymagany jest identyfikator rekordu."
+    },
+    "nav": {
+      "group": "Katalog"
+    },
+    "priceKinds": {
+      "title": "Price kinds",
+      "description": "Configure reusable price kinds that control pricing columns and tax display.",
+      "actions": {
+        "add": "Add price kind",
+        "search": "Search",
+        "clear": "Clear",
+        "refresh": "Refresh",
+        "cancel": "Cancel",
+        "saveChanges": "Save changes",
+        "create": "Create",
+        "edit": "Edit",
+        "delete": "Delete"
+      },
+      "search": {
+        "placeholder": "Search by code or title…"
+      },
+      "table": {
+        "code": "Code",
+        "title": "Title",
+        "displayMode": "Display mode",
+        "currency": "Currency",
+        "promotion": "Promotion",
+        "promotionYes": "Yes",
+        "promotionNo": "No",
+        "active": "Active",
+        "activeYes": "Active",
+        "activeNo": "Inactive",
+        "actions": "Actions",
+        "empty": "No price kinds yet.",
+        "loading": "Loading…"
+      },
+      "dialog": {
+        "createTitle": "Create price kind",
+        "createDescription": "Define a reusable price kind for product pricing.",
+        "editTitle": "Edit price kind",
+        "editDescription": "Update labels or tax behavior for this price kind."
+      },
+      "form": {
+        "codeLabel": "Code",
+        "codePlaceholder": "e.g. regular",
+        "titleLabel": "Title",
+        "titlePlaceholder": "e.g. Regular price",
+        "displayModeLabel": "Display mode",
+        "displayMode": {
+          "include": "Including tax",
+          "exclude": "Excluding tax"
+        },
+        "currencyLabel": "Currency (optional)",
+        "currency": {
+          "placeholder": "Select currency…",
+          "add": "Add currency",
+          "addPrompt": "Provide a currency code.",
+          "dialogTitle": "Add currency",
+          "valueLabel": "Currency code",
+          "valuePlaceholder": "e.g. USD",
+          "labelLabel": "Display label (optional)",
+          "labelPlaceholder": "e.g. US Dollar",
+          "required": "Currency code is required.",
+          "cancel": "Cancel",
+          "save": "Save",
+          "saveShortcut": "Press Enter to save",
+          "success": "Currency added.",
+          "loadError": "Unable to load currencies.",
+          "createError": "Unable to add currency.",
+          "loading": "Loading currencies…",
+          "manage": "Manage currencies"
+        },
+        "promotionLabel": "Mark as promotion",
+        "activeLabel": "Active"
+      },
+      "errors": {
+        "load": "Failed to load price kinds.",
+        "required": "Code and title are required.",
+        "save": "Failed to save price kind.",
+        "delete": "Failed to delete price kind."
+      },
+      "messages": {
+        "created": "Price kind created.",
+        "updated": "Price kind updated.",
+        "deleted": "Price kind deleted."
+      },
+      "confirm": {
+        "delete": "Delete price kind \"{{code}}\"?"
+      }
+    },
+    "config": {
+      "nav": {
+        "catalog": "Catalog"
+      }
+    }
+    ,
+    "variants": {
+      "form": {
+        "createTitle": "Create variant",
+        "createTitleFor": "Create variant for {{title}}",
+        "editTitle": "Edit variant",
+        "editTitleFor": "Edit variant • {{title}}",
+        "loading": "Loading form...",
+        "createAction": "Create variant",
+        "save": "Save changes",
+        "customFields": "Custom attributes",
+        "nameLabel": "Name",
+        "nameRequired": "Provide the variant name.",
+        "namePlaceholder": "e.g., Blue / Small",
+        "skuLabel": "SKU",
+        "skuPlaceholder": "Unique identifier",
+        "barcodeLabel": "Barcode",
+        "barcodePlaceholder": "EAN, UPC, etc.",
+        "options": "Option values",
+        "optionPlaceholder": "Select value",
+        "dimensions": "Dimensions & weight",
+        "width": "Width",
+        "height": "Height",
+        "depth": "Depth",
+        "dimensionUnit": "Size unit",
+        "dimensionUnitPlaceholder": "cm",
+        "weight": "Weight",
+        "weightUnit": "Weight unit",
+        "weightUnitPlaceholder": "kg",
+        "pricesLabel": "Prices",
+        "pricesHint": "Populate list prices per price kind.",
+        "pricesTaxNone": "No tax override",
+        "priceMissingCurrency": "No currency configured",
+        "pricesEmpty": "No price kinds configured yet.",
+        "media": "Media",
+        "variants": "Variants",
+        "variantsAdd": "Add variant",
+        "variantsDefault": "Default",
+        "variantsEmpty": "No variants defined yet.",
+        "isDefaultLabel": "Default variant",
+        "isDefaultHint": "Used in storefronts",
+        "isActiveLabel": "Active",
+        "isActiveHint": "Inactive variants stay hidden",
+        "errors": {
+          "productMissing": "Product identifier is missing.",
+          "variantMissing": "Variant identifier is missing.",
+          "nameRequired": "Provide the variant name.",
+          "idMissing": "Variant id missing after create.",
+          "notFound": "Variant not found.",
+          "load": "Failed to load variant.",
+          "deleteError": "Failed to delete variant."
+        },
+        "createSuccess": "Variant created.",
+        "updated": "Variant updated.",
+        "deleted": "Variant deleted."
       }
     }
   }

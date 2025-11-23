@@ -1,3 +1,4 @@
+import type { EventBus } from '@open-mercato/events'
 import type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind } from '../data/entities'
 
 export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
@@ -99,4 +100,19 @@ export type SalesCalculationContext = {
   currencyCode: string
   metadata?: Record<string, unknown>
   resolve?: <T>(name: string) => T
+}
+
+export type CalculateLineOptions = {
+  documentKind: SalesDocumentKind
+  line: SalesLineSnapshot
+  context: SalesCalculationContext
+  eventBus?: EventBus | null
+}
+
+export type CalculateDocumentOptions = {
+  documentKind: SalesDocumentKind
+  lines: SalesLineSnapshot[]
+  adjustments?: SalesAdjustmentDraft[]
+  context: SalesCalculationContext
+  eventBus?: EventBus | null
 }

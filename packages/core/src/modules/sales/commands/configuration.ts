@@ -1,11 +1,20 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import {
+  buildChanges,
+  requireId,
+  parseWithCustomFields,
+  setCustomFieldsIfAny,
+  emitCrudSideEffects,
+  emitCrudUndoSideEffects,
+} from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import {
   SalesChannel,
   SalesDeliveryWindow,
@@ -134,6 +143,7 @@ type TaxRateSnapshot = {
   channelId: string | null
   priority: number
   isCompound: boolean
+  isDefault: boolean
   metadata: Record<string, unknown> | null
   startsAt: string | null
   endsAt: string | null
@@ -143,6 +153,21 @@ type TaxRateSnapshot = {
 type UndoPayload<T> = {
   before?: T | null
   after?: T | null
+}
+
+const channelCrudEvents: CrudEventsConfig<SalesChannel> = {
+  module: 'sales',
+  entity: 'channel',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+}
+
+const channelCrudIndexer: CrudIndexerConfig<SalesChannel> = {
+  entityType: E.sales.sales_channel,
 }
 
 async function loadChannelSnapshot(em: EntityManager, id: string): Promise<ChannelSnapshot | null> {
@@ -281,6 +306,7 @@ function taxRateSeedFromSnapshot(snapshot: TaxRateSnapshot) {
     channelId: snapshot.channelId ?? null,
     priority: snapshot.priority,
     isCompound: snapshot.isCompound,
+    isDefault: snapshot.isDefault,
     metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
     startsAt: snapshot.startsAt ? new Date(snapshot.startsAt) : null,
     endsAt: snapshot.endsAt ? new Date(snapshot.endsAt) : null,
@@ -400,6 +426,7 @@ async function loadTaxRateSnapshot(em: EntityManager, id: string): Promise<TaxRa
     channelId: record.channelId ?? null,
     priority: record.priority,
     isCompound: record.isCompound,
+    isDefault: record.isDefault,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     startsAt: record.startsAt ? record.startsAt.toISOString() : null,
     endsAt: record.endsAt ? record.endsAt.toISOString() : null,
@@ -495,6 +522,7 @@ function applyTaxRateSnapshot(record: SalesTaxRate, snapshot: TaxRateSnapshot): 
   record.channelId = snapshot.channelId ?? null
   record.priority = snapshot.priority
   record.isCompound = snapshot.isCompound
+  record.isDefault = snapshot.isDefault
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.startsAt = snapshot.startsAt ? new Date(snapshot.startsAt) : null
   record.endsAt = snapshot.endsAt ? new Date(snapshot.endsAt) : null
@@ -511,6 +539,19 @@ function resolveScopeFromUpdate<T extends { organizationId: string; tenantId: st
   ensureOrganizationScope(ctx, organizationId)
   ensureSameScope(entity, organizationId, tenantId)
   return { organizationId, tenantId }
+}
+
+async function deactivateOtherDefaultTaxRates(em: EntityManager, record: SalesTaxRate) {
+  await em.nativeUpdate(
+    SalesTaxRate,
+    {
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      deletedAt: null,
+      id: { $ne: record.id } as any,
+    },
+    { isDefault: false },
+  )
 }
 
 const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
@@ -547,13 +588,26 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     })
     em.persist(record)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await setCustomFieldsIfAny({
-      dataEngine: ctx.container.resolve('dataEngine'),
+      dataEngine,
       entityId: E.sales.sales_channel,
       recordId: record.id,
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       values: custom,
+    })
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: channelCrudEvents,
+      indexer: channelCrudIndexer,
     })
     return { channelId: record.id }
   },
@@ -590,10 +644,11 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.sales.sales_channel,
         recordId: after.id,
         organizationId: after.organizationId,
@@ -601,6 +656,18 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
         values: resetValues,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: channelCrudEvents,
+      indexer: channelCrudIndexer,
+    })
   },
 }
 
@@ -621,6 +688,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesChannel, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
 
     if (parsed.name !== undefined) record.name = parsed.name
@@ -654,7 +722,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     await em.flush()
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.sales.sales_channel,
         recordId: record.id,
         organizationId: record.organizationId,
@@ -662,6 +730,18 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
         values: custom,
       })
     }
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: channelCrudEvents,
+      indexer: channelCrudIndexer,
+    })
     return { channelId: record.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -708,11 +788,12 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     ensureOrganizationScope(ctx, before.organizationId)
     applyChannelSnapshot(record, before)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const after = payload?.after
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.sales.sales_channel,
         recordId: before.id,
         organizationId: before.organizationId,
@@ -720,6 +801,18 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
         values: resetValues,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: channelCrudEvents,
+      indexer: channelCrudIndexer,
+    })
   },
 }
 
@@ -747,6 +840,19 @@ const deleteChannelCommand: CommandHandler<
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: channelCrudEvents,
+      indexer: channelCrudIndexer,
+    })
     return { channelId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -781,9 +887,10 @@ const deleteChannelCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyChannelSnapshot(record, before)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
+        dataEngine,
         entityId: E.sales.sales_channel,
         recordId: before.id,
         organizationId: before.organizationId,
@@ -791,6 +898,18 @@ const deleteChannelCommand: CommandHandler<
         values: before.custom,
       })
     }
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: channelCrudEvents,
+      indexer: channelCrudIndexer,
+    })
   },
 }
 
@@ -1605,6 +1724,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
       channelId: parsed.channelId ?? null,
       priority: parsed.priority ?? 0,
       isCompound: parsed.isCompound ?? false,
+      isDefault: parsed.isDefault ?? false,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       startsAt: parsed.startsAt ?? null,
       endsAt: parsed.endsAt ?? null,
@@ -1613,6 +1733,9 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     })
     em.persist(record)
     await em.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(em, record)
+    }
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.sales.sales_tax_rate,
@@ -1714,6 +1837,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     if (parsed.channelId !== undefined) record.channelId = parsed.channelId ?? null
     if (parsed.priority !== undefined) record.priority = parsed.priority ?? 0
     if (parsed.isCompound !== undefined) record.isCompound = parsed.isCompound
+    if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
     if (parsed.metadata !== undefined) {
       record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
     }
@@ -1724,6 +1848,9 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
       record.endsAt = parsed.endsAt ?? null
     }
     await em.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(em, record)
+    }
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

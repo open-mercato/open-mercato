@@ -24,6 +24,7 @@
   "ui.forms.flash.deleteSuccess": "Registro eliminado",
   "ui.forms.flash.deleteError": "No se pudo eliminar el registro",
   "ui.forms.flash.saveError": "No se pudo guardar",
+  "catalog.products.edit.offers.deleteError": "No se pudo eliminar la oferta del canal de ventas.",
   "ui.forms.errors.required": "Este campo es obligatorio",
   "ui.forms.errors.highlighted": "Corrige los errores resaltados.",
   "ui.forms.errors.unexpected": "Error inesperado",
@@ -88,6 +89,7 @@
   "appShell.closeMenu": "Cerrar menú",
   "appShell.userFallback": "Usuario",
   "appShell.productName": "Open Mercato",
+  "appShell.version": "Versión {{version}}",
   "appShell.customizeSidebar": "Personalizar barra lateral",
   "appShell.sidebarCustomizationHeading": "Personalización de la barra lateral",
   "appShell.sidebarCustomizationHint": "Los cambios solo afectan a tu barra lateral en {locale}. Las demás opciones permanecen igual.",
@@ -121,5 +123,13 @@
   "tenantSelect.empty": "—",
   "tenantSelect.loading": "Cargando inquilinos…",
   "tenantSelect.error": "No se pudieron cargar los inquilinos",
-  "tenantSelect.inactive": "Inactivo"
+  "tenantSelect.inactive": "Inactivo",
+  "upgrades.versionLabel": "Versión {{version}}",
+  "upgrades.scopeRequired": "Selecciona una organización y un tenant para aplicar esta actualización.",
+  "upgrades.v034.message": "La versión {{version}} se ha instalado. Para aprovechar todas las funciones de esta edición, ejecuta \"Instalar productos y categorías de catálogo de ejemplo\".",
+  "upgrades.v034.cta": "Instalar productos y categorías de catálogo de ejemplo",
+  "upgrades.v034.loading": "Instalando…",
+  "upgrades.v034.success": "Productos y categorías de catálogo de ejemplo instalados.",
+  "upgrades.runFailed": "No pudimos ejecutar esta acción de actualización.",
+  "upgrades.loading": "Cargando actualización…"
 }

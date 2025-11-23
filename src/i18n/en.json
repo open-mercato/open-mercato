@@ -24,6 +24,7 @@
   "ui.forms.flash.deleteSuccess": "Record deleted",
   "ui.forms.flash.deleteError": "Failed to delete record",
   "ui.forms.flash.saveError": "Save failed",
+  "catalog.products.edit.offers.deleteError": "Failed to remove sales channel offer.",
   "ui.forms.errors.required": "This field is required",
   "ui.forms.errors.highlighted": "Please fix the highlighted errors.",
   "ui.forms.errors.unexpected": "Unexpected error",
@@ -88,6 +89,7 @@
   "appShell.closeMenu": "Close menu",
   "appShell.userFallback": "User",
   "appShell.productName": "Open Mercato",
+  "appShell.version": "Version {{version}}",
   "appShell.customizeSidebar": "Customize sidebar",
   "appShell.sidebarCustomizationHeading": "Sidebar customization",
   "appShell.sidebarCustomizationHint": "Changes apply only to your {locale} sidebar today. Other locales stay unchanged.",
@@ -121,5 +123,13 @@
   "tenantSelect.empty": "—",
   "tenantSelect.loading": "Loading tenants…",
   "tenantSelect.error": "Failed to load tenants",
-  "tenantSelect.inactive": "Inactive"
+  "tenantSelect.inactive": "Inactive",
+  "upgrades.versionLabel": "Version {{version}}",
+  "upgrades.scopeRequired": "Select an organization and tenant to apply this upgrade.",
+  "upgrades.v034.message": "The version {{version}} has been installed. To fully use all the features from this edition please do \"Install example catalog products and categories\".",
+  "upgrades.v034.cta": "Install example catalog products and categories",
+  "upgrades.v034.loading": "Installing…",
+  "upgrades.v034.success": "Example catalog products and categories installed.",
+  "upgrades.runFailed": "We could not run this upgrade action.",
+  "upgrades.loading": "Loading upgrade…"
 }
