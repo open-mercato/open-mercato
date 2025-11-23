@@ -153,7 +153,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         )
         if (mounted) {
           const loaded: Def[] = (json.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
-          loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
+          loaded.sort(
+            (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
+          )
           setDefs(loaded)
           setDefErrors({})
           setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
@@ -207,7 +209,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         { errorMessage: 'Failed to reload field definitions', fallback: { items: [], deletedKeys: [] } },
       )
       const loaded: Def[] = (j2.items || []).map((d: any) => ({ key: d.key, kind: d.kind, configJson: d.configJson || {}, isActive: d.isActive !== false }))
-      loaded.sort((a, b) => (a.configJson?.priority ?? 0) - (b.configJson?.priority ?? 0))
+      loaded.sort(
+        (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
+      )
       setDefs(loaded)
       setDeletedKeys(Array.isArray(j2.deletedKeys) ? j2.deletedKeys : [])
       flash(`Restored ${key}`, 'success')
@@ -495,7 +499,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isLoading={entityFormLoading || loading}
           submitLabel="Save"
           deleteVisible={false}
-          title={`Edit fieldset: ${requestedFieldset ?? entityId}`}
           backHref={undefined}
           cancelHref={undefined}
           embedded

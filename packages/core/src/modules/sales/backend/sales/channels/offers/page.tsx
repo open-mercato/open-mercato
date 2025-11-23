@@ -86,7 +86,7 @@ export default function SalesChannelOffersListPage() {
                 : null
           return { value, label, description }
         })
-        .filter((option): option is FilterOption => !!option)
+        .filter((option) => !!option) as FilterOption[]
       upsertChannelOptions(options)
       return options
     } catch (err) {
@@ -127,7 +127,7 @@ export default function SalesChannelOffersListPage() {
                 : null
           return { value, label, description }
         })
-        .filter((option): option is FilterOption => !!option)
+        .filter((option) => !!option) as FilterOption[]
       upsertChannelOptions(options)
     } catch (err) {
       console.warn('[sales.channels.offers] failed to hydrate channel metadata', err)
@@ -165,7 +165,7 @@ export default function SalesChannelOffersListPage() {
       accessorKey: 'pricing',
       header: t('sales.channels.offers.table.pricing', 'Prices'),
       cell: ({ row }) => (
-        <div className="text-sm">{renderOfferPriceSummary(row.original, t)}</div>
+        <div className="text-sm">{renderOfferPriceSummary(row.original, t as any)}</div>
       ),
     },
     {
@@ -332,12 +332,10 @@ export default function SalesChannelOffersListPage() {
               <RowActions
                 items={[
                   {
-                    id: 'edit',
                     label: t('sales.channels.offers.actions.edit', 'Edit'),
                     href: `/backend/sales/channels/${row.channelId}/offers/${row.id}/edit`,
                   },
                   {
-                    id: 'delete',
                     label: t('sales.channels.offers.actions.delete', 'Delete'),
                     onSelect: () => handleDelete(row),
                     destructive: true,

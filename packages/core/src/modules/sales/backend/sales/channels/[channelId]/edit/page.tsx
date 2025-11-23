@@ -69,7 +69,7 @@ export default function EditChannelPage({ params }: { params?: { channelId?: str
 
   const handleSubmit = React.useCallback(async (values: ChannelFormValues) => {
     if (!channelId) return
-    const payload = { id: channelId, ...buildChannelPayload(values) }
+    const payload: Record<string, unknown> = { id: channelId, ...buildChannelPayload(values) }
     const customFields = collectCustomFieldValues(values)
     if (Object.keys(customFields).length) payload.customFields = customFields
     await updateCrud('sales/channels', payload, {

@@ -9587,11 +9587,36 @@ export interface components {
             items: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
         };
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettings: {
-            [key: string]: unknown;
+            [key: string]: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalProperties"];
         };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalProperties: {
+            singleFieldsetPerRecord?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalPropertiesPropertiesSingleFieldsetPerRecord"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalPropertiesPropertiesSingleFieldsetPerRecord: boolean;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntity: {
-            [key: string]: unknown;
+            [key: string]: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalProperties"];
         };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalProperties: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItems"][];
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesCode"];
+            description?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesDescription"];
+            groups?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroups"];
+            icon?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesIcon"];
+            label: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesLabel"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesDescription: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroups: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItems"][];
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesTitle"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesHint: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesTitle: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesIcon: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesLabel: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
             acceptExtensions?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAcceptExtensions"];

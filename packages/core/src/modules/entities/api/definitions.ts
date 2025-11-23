@@ -444,9 +444,10 @@ const entityFieldsetResponseSchema = z.object({
 
 const definitionsResponseSchema = z.object({
   items: z.array(customFieldDefinitionSchema),
-  fieldsetsByEntity: z.record(z.array(entityFieldsetResponseSchema)).optional(),
+  fieldsetsByEntity: z.record(z.string(), z.array(entityFieldsetResponseSchema)).optional(),
   entitySettings: z
     .record(
+      z.string(),
       z.object({
         singleFieldsetPerRecord: z.boolean().optional(),
       })

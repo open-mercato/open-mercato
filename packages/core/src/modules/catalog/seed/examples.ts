@@ -518,7 +518,7 @@ const PRODUCT_SEEDS: ProductSeed[] = [
       service_duration_minutes: 60,
       service_buffer_minutes: 15,
       service_location: 'Salon Studio 3',
-      service_resources: ['stylist', 'wash_station'],
+      service_resources: 'stylist,wash_station',
       service_remote_available: false,
     },
     media: [{ file: 'hairdresser-service.png' }],
@@ -553,7 +553,7 @@ const PRODUCT_SEEDS: ProductSeed[] = [
       service_duration_minutes: 90,
       service_buffer_minutes: 20,
       service_location: 'Wellness Suite B',
-      service_resources: ['therapist', 'treatment_room', 'steam_room'],
+      service_resources: 'therapist,treatment_room,steam_room',
       service_remote_available: false,
     },
     media: [{ file: 'massage-service.png' }],
@@ -605,7 +605,9 @@ async function ensureFieldsetConfig(
       entityId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
+      isActive: true,
       createdAt: now,
+      updatedAt: now,
     })
   }
   config.configJson = {
@@ -868,10 +870,6 @@ export async function seedCatalogExamples(
         variantSeed.media
       )
       const variantCover = variantMedia[0] ?? productMedia[0]
-      if (variantCover) {
-        variant.defaultMediaId = variantCover.id
-        variant.defaultMediaUrl = variantCover.imageUrl
-      }
 
       const regularPrice = em.create(CatalogProductPrice, {
         id: randomUUID(),

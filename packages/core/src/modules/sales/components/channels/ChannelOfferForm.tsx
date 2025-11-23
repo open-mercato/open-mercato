@@ -170,6 +170,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     if (mode !== 'edit') return
     const productId = typeof initialValues?.productId === 'string' ? initialValues.productId : null
     if (!productId) return
+    const resolvedProductId = productId
     const hydrationChannelId = selectedChannelId
       ?? lockedChannelId
       ?? (typeof initialValues?.channelId === 'string' ? initialValues.channelId : null)
@@ -177,9 +178,13 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     async function hydrateExistingProduct() {
       try {
         const [summary, attachments, variants] = await Promise.all([
-          resolveProductSummaryWithCache({ productId, channelId: hydrationChannelId, productCache }),
-          resolveProductMediaOptionsWithCache({ productId, attachmentCache }),
-          resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache }),
+          resolveProductSummaryWithCache({
+            productId: resolvedProductId,
+            channelId: hydrationChannelId ?? null,
+            productCache,
+          }),
+          resolveProductMediaOptionsWithCache({ productId: resolvedProductId, attachmentCache }),
+          resolveVariantPreviewsWithCache({ productId: resolvedProductId, variantCache, variantMediaCache }),
         ])
         if (!cancelled) {
           setProductSummary(summary ?? null)
@@ -187,7 +192,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
             ...attachments,
             ...buildVariantMediaOptions(variants),
           ])
-          attachmentCache.current.set(productId, mergedMedia)
+          attachmentCache.current.set(resolvedProductId, mergedMedia)
           setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
         }
@@ -216,19 +221,25 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
 
   React.useEffect(() => {
     async function loadKinds() {
-      const mapItems = (items: Array<Record<string, unknown>>) => items.map((item) => ({
-        id: typeof item.id === 'string' ? item.id : '',
-        code: typeof item.code === 'string' ? item.code : null,
-        title: typeof item.title === 'string' ? item.title : null,
-        currencyCode: typeof item.currencyCode === 'string'
-          ? item.currencyCode
-          : typeof item.currency_code === 'string'
-            ? item.currency_code
-            : null,
-        displayMode: item.displayMode === 'including-tax' || item.display_mode === 'including-tax'
-          ? 'including-tax'
-          : 'excluding-tax',
-      }))
+      const mapItems = (items: Array<Record<string, unknown>>): PriceKindSummary[] =>
+        items.map((item): PriceKindSummary => {
+          const displayMode =
+            item.displayMode === 'including-tax' || item.display_mode === 'including-tax'
+              ? 'including-tax'
+              : 'excluding-tax'
+          return {
+            id: typeof item.id === 'string' ? item.id : '',
+            code: typeof item.code === 'string' ? item.code : null,
+            title: typeof item.title === 'string' ? item.title : null,
+            currencyCode:
+              typeof item.currencyCode === 'string'
+                ? item.currencyCode
+                : typeof item.currency_code === 'string'
+                  ? item.currency_code
+                  : null,
+            displayMode,
+          }
+        })
       const endpoints = [
         `/api/sales/price-kinds?pageSize=${MAX_LIST_PAGE_SIZE}`,
         `/api/catalog/price-kinds?pageSize=${MAX_LIST_PAGE_SIZE}`,
