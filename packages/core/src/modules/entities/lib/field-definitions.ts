@@ -23,6 +23,8 @@ export type EnsureFieldDefinitionsResult = {
 const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'label',
   'description',
+  'fieldset',
+  'group',
   'options',
   'optionsUrl',
   'defaultValue',

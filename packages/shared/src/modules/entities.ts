@@ -35,6 +35,12 @@ export type CustomFieldDefinition = {
   kind: CustomFieldKind
   label?: string
   description?: string
+  fieldset?: string
+  group?: {
+    code: string
+    title?: string
+    hint?: string
+  }
   required?: boolean
   multi?: boolean // allow multiple values
   options?: Array<

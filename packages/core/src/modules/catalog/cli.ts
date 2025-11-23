@@ -3,6 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { CatalogPriceKind } from './data/entities'
+import { seedCatalogExamples } from './seed/examples'
 
 const UNIT_DEFAULTS: Array<{ value: string; label: string; description?: string }> = [
   { value: 'pc', label: 'Piece (piece)' },
@@ -127,24 +128,47 @@ async function seedPriceKinds(
   const existing = await em.find(CatalogPriceKind, {
     tenantId,
     organizationId,
-    deletedAt: null,
   })
-  const existingMap = new Map(existing.map((entry) => [entry.code.toLowerCase(), entry]))
+  const defaultsByCode = new Map(PRICE_KIND_DEFAULTS.map((def) => [def.code.toLowerCase(), def]))
   const now = new Date()
+  const seen = new Set<string>()
+
+  for (const record of existing) {
+    const key = record.code.toLowerCase()
+    const def = defaultsByCode.get(key)
+    if (!def) {
+      if (record.deletedAt == null) {
+        record.deletedAt = now
+        record.isActive = false
+        record.updatedAt = now
+      }
+      continue
+    }
+    record.title = def.title
+    record.displayMode = def.displayMode ?? 'including-tax'
+    record.currencyCode = def.currencyCode ?? null
+    record.isPromotion = def.isPromotion
+    record.isActive = true
+    record.deletedAt = null
+    record.updatedAt = now
+    seen.add(key)
+  }
+
   for (const def of PRICE_KIND_DEFAULTS) {
     const key = def.code.toLowerCase()
-    if (existingMap.has(key)) continue
+    if (seen.has(key)) continue
     const record = em.create(CatalogPriceKind, {
       organizationId,
       tenantId,
       code: def.code,
       title: def.title,
-      displayMode: def.displayMode ?? 'excluding-tax',
+      displayMode: def.displayMode ?? 'including-tax',
       currencyCode: def.currencyCode ?? null,
       isPromotion: def.isPromotion,
       isActive: true,
       createdAt: now,
       updatedAt: now,
+      deletedAt: null,
     })
     em.persist(record)
   }
@@ -189,4 +213,35 @@ const seedPriceKindsCommand: ModuleCli = {
   },
 }
 
-export default [seedUnitsCommand, seedPriceKindsCommand]
+const seedExamplesCommand: ModuleCli = {
+  command: 'seed-examples',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato catalog seed-examples --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    let seeded = false
+    try {
+      seeded = await em.transactional(async (tem) =>
+        seedCatalogExamples(tem, container, { tenantId, organizationId })
+      )
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+    if (seeded) {
+      console.log('Catalog example data seeded for organization', organizationId)
+    } else {
+      console.log('Catalog example data already present; skipping')
+    }
+  },
+}
+
+export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand]

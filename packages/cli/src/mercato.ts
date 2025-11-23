@@ -205,6 +205,10 @@ export async function run(argv = process.argv) {
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
+          console.log('🛍️  Seeding catalog examples...')
+          execSync(`yarn mercato catalog seed-examples --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
+          console.log('✅ Catalog examples seeded\n')
+
           console.log('🏢 Seeding customer examples...')
           execSync(`yarn mercato customers seed-examples --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
           console.log('✅ Customer examples seeded\n')

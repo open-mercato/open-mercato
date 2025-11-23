@@ -7,7 +7,171 @@ import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
 
 <OpenApiExplorerBanner />
 
-The catalog module exposes both command handlers and REST endpoints (see `/api/catalog/products`, `/api/catalog/attribute-schemas`, `/api/catalog/variants`, `/api/catalog/prices`, and `/api/catalog/price-kinds`). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
+The catalog module exposes both command handlers and REST endpoints under `/api/catalog/*` (products, variants, prices, price kinds, option schemas, offers, categories, tags, product media, and dictionaries). The commands documented below remain the source of truth for validations and undo metadata, so you can safely script imports, seed data, or build bespoke HTTP wrappers even as new HTTP routes come online.
+
+## REST endpoints
+
+Every REST route described below lives in `packages/core/src/modules/catalog/api`. They share a few guarantees:
+
+- Authentication and RBAC checks are enforced via each route's `metadata` export.
+- Organization/tenant scope is derived from the caller, so payloads never cross tenants.
+- CRUD handlers reuse the same Zod schemas as the command bus, so keeping one payload up to date keeps both access paths in sync.
+- Listing endpoints default to `{ items, total, page, pageSize, totalPages }` responses and accept both `cf_<key>` and `cf:<key>` filters emitted by the custom-field engine.
+
+### `/api/catalog/products`
+
+**Permissions** — `GET` requires `catalog.products.view`; `POST/PUT/DELETE` require `catalog.products.manage`.
+
+**Filters**
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `page`, `pageSize` | number | Pagination with a max of 100 rows per page. |
+| `search` | string | Case-insensitive match on title, subtitle, SKU, handle, or description. |
+| `status`, `isActive`, `configurable` | string | Filter by workflow status, activation, or configurability flags. |
+| `productType` | enum | Narrow the list to one of the `CATALOG_PRODUCT_TYPES`. |
+| `channelId`, `channelIds`, `offerId` | string | Restrict products bound to a specific channel/offer. |
+| `categoryIds`, `tagIds` | string | Comma-separated IDs for taxonomy filters. |
+| `userId`, `userGroupId`, `customerId`, `customerGroupId` | string | Scope best-price resolution to a specific audience. |
+| `quantity`, `priceDate` | number/string | Provide context for the pricing service (quantity tiers + date-based prices). |
+| `sortField`, `sortDir` | string | Sort by title, SKU, createdAt, or updatedAt. |
+| `withDeleted` | boolean | Include soft-deleted products. |
+| `customFieldset` | string | Ensure the backend interprets `cf_*` filters using the selected fieldset. |
+
+The resolver decorates each item with:
+
+- `offers`: channel-level offers resolved from `CatalogOffer`.
+- `pricing`: the return value of `catalogPricingService.resolvePrice`, including the matching price kind, amounts, and scope (variant/offer/channel/audience IDs).
+- Flattened custom-field values (standard keys only — raw `cf:` keys are stripped).
+
+**Mutations** — `POST` and `PUT` accept exactly the shapes validated by `productCreateSchema`/`productUpdateSchema`. `DELETE` requires a payload with `{ id }` and delegates to `catalog.products.delete`, performing a soft delete.
+
+### `/api/catalog/variants`
+
+**Permissions** — `GET` requires `catalog.products.view`; writes require `catalog.variants.manage`.
+
+**Filters**
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `page`, `pageSize` | number | Pagination (≤100 per page). |
+| `search` | string | Match variant `name`, `sku`, or `barcode`. |
+| `productId`, `sku` | string | Filter to a specific product or exact SKU. |
+| `isActive`, `isDefault`, `withDeleted` | string/boolean | Toggle core flags or include soft-deleted rows. |
+| `sortField`, `sortDir` | string | Sort by `name`, `sku`, `createdAt`, or `updatedAt`. |
+| `cf_*` | string | Apply custom-field filters (scoped to the caller's tenant). |
+
+Responses include option values, dimensions, metadata, and flattened custom fields. `POST`/`PUT` payloads must satisfy `variantCreateSchema`/`variantUpdateSchema`; `DELETE` accepts `{ id }` and calls `catalog.variants.delete`.
+
+### `/api/catalog/prices`
+
+**Permissions** — `GET` requires `catalog.products.view`; mutations require `catalog.pricing.manage`.
+
+**Filters**
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `page`, `pageSize` | number | Pagination. |
+| `productId`, `variantId`, `offerId` | string | Scope prices tied to a specific record. |
+| `channelId`, `currencyCode` | string | Filter by channel or ISO currency code. |
+| `priceKindId`, `kind` | string | Restrict by price kind or price kind code. |
+| `userId`, `userGroupId`, `customerId`, `customerGroupId` | string | Filter by personalized price audiences. |
+| `withDeleted` | boolean | Include rows even if the associated product/variant was soft deleted. |
+| `sortField`, `sortDir` | string | Sort by currency, price kind, quantity band, createdAt, or updatedAt. |
+| `cf_*` | string | Custom-field filters/ordering helpers. |
+
+`POST`/`PUT` reuse `priceCreateSchema`/`priceUpdateSchema` so the HTTP route mirrors the command bus. `DELETE` forwards `{ id }` to `catalog.prices.delete`. Responses expose raw `catalog_product_price` columns plus any associated custom fields.
+
+### `/api/catalog/price-kinds`
+
+**Permissions** — all methods require `catalog.settings.manage`.
+
+**Filters**
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `page`, `pageSize` | number | Pagination. |
+| `search` | string | Case-insensitive match on `code` or `title`. |
+| `isPromotion`, `isActive` | string | Filter by promotion/activation flags (`true`/`false`). |
+| `sortField`, `sortDir` | string | Sort by code, title, display mode, currency, createdAt, or updatedAt. |
+
+`POST` and `PUT` translate inputs through `priceKindCreateSchema`/`priceKindUpdateSchema` and return `{ id }`/`{ ok: true }`. `DELETE` expects `{ id }` and soft deletes the price kind.
+
+### `/api/catalog/option-schemas`
+
+**Permissions** — `GET` requires `catalog.products.view`; writes require `catalog.settings.manage`.
+
+**Filters**
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `page`, `pageSize` | number | Pagination. |
+| `id` | string | Fetch a specific schema template. |
+| `search` | string | Match `name` or `description`. |
+| `isActive`, `withDeleted` | string/boolean | Filter by activation or include soft-deleted templates. |
+| `cf_*` | string | Apply custom-field filters stored on option schemas. |
+
+Responses surface the saved schema JSON alongside metadata. `POST`/`PUT` wrap `optionSchemaTemplateCreateSchema`/`optionSchemaTemplateUpdateSchema`; `DELETE` forwards `{ id }` to `catalog.optionSchemas.delete`.
+
+### `/api/catalog/offers`
+
+**Permissions** — all methods require `sales.channels.manage` because offers tie catalog products to sales channels.
+
+**Filters**
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `page`, `pageSize` | number | Pagination. |
+| `productId`, `id` | string | Limit offers for a given product or offer. |
+| `channelId`, `channelIds` | string | Filter by one channel or a comma-separated list. |
+| `search` | string | Match offer title/description. |
+| `isActive`, `withDeleted` | string/boolean | Restrict by activation or include soft-deleted offers. |
+| `sortField`, `sortDir` | string | Sort by title, createdAt, or updatedAt. |
+
+List responses embed:
+
+- `product`: a lightweight snapshot (`id`, `title`, default media, SKU).
+- `prices`: prices attached directly to the offer (with price kind metadata).
+- `productChannelPrice`: fallback product-level price for the requested channel.
+- Flattened custom-field values.
+
+`POST`/`PUT` feed `offerCreateSchema`/`offerUpdateSchema`; `DELETE` resolves `{ id }` through `catalog.offers.delete`.
+
+### `/api/catalog/categories`
+
+**Permissions** — `GET` requires `catalog.categories.view`; writes require `catalog.categories.manage`.
+
+`GET` accepts:
+
+| Param | Type | Purpose |
+| --- | --- | --- |
+| `view` | enum (`manage`/`tree`) | `manage` returns paginated rows flattened from the tree; `tree` returns nested nodes. |
+| `page`, `pageSize` | number | Pagination (manage view only). |
+| `search` | string | Match category names or breadcrumb labels. |
+| `status` | enum (`all`/`active`/`inactive`) | Filter by activation flag. |
+| `ids` | string | Comma-separated category IDs to focus on specific nodes. |
+
+`manage` view rows include hierarchy metadata (depth, parent, child counts, breadcrumb labels) plus any custom-field values resolved via `loadCustomFieldValues`. `tree` view collapses the same hierarchy into nested `children[]`.
+
+`POST`, `PUT`, and `DELETE` route payloads through `categoryCreateSchema`, `categoryUpdateSchema`, and `catalog.categories.delete` respectively.
+
+### `/api/catalog/tags`
+
+**Permissions** — `GET` requires `catalog.products.view`.
+
+Query parameters: `search`, `page`, and `pageSize`. The handler enforces organization scope and returns `{ items, total }`, where each item exposes `id`, `label`, `slug`, `createdAt`, and `updatedAt`.
+
+### `/api/catalog/product-media`
+
+**Permissions** — `GET` requires `catalog.products.view`.
+
+Query: `productId` (UUID, required). The route validates scope, loads attachment rows for the product, and returns `{ items: [{ id, fileName, url, thumbnailUrl }] }`. Thumbnails are precomputed via `buildAttachmentImageUrl` for UI galleries.
+
+### `/api/catalog/dictionaries/:key`
+
+**Permissions** — `GET` requires `catalog.products.manage`.
+
+Path parameter `:key` accepts `currency`, `currencies`, `unit`, `units`, or `measurement_units` (aliases are normalized). The route resolves the matching dictionary for the caller's organization/tenant and returns `{ id, entries: [{ id, value, label, color, icon }] }`. Use it to hydrate selectors that need shared catalog dictionaries without duplicating the dictionaries module API.
 
 ## Running catalog commands
 
