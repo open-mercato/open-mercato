@@ -1,7 +1,10 @@
+export type ImageCropType = 'cover' | 'contain'
+
 export type ImageSizeOptions = {
   width?: number
   height?: number
   slug?: string | null
+  cropType?: ImageCropType
 }
 
 export function slugifyAttachmentFileName(fileName: string | null | undefined, fallback = 'asset'): string {
@@ -25,6 +28,9 @@ export function buildAttachmentImageUrl(attachmentId: string, options?: ImageSiz
   }
   if (options?.height && Number.isFinite(options.height)) {
     params.set('height', String(Math.max(1, Math.floor(options.height))))
+  }
+  if (options?.cropType === 'cover' || options?.cropType === 'contain') {
+    params.set('cropType', options.cropType)
   }
   const query = params.toString()
   const slugSegment = options?.slug ? `/${encodeURIComponent(options.slug)}` : ''

@@ -17,6 +17,7 @@ import { promises as fs } from 'fs'
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
   height: z.coerce.number().int().min(1).max(4000).optional(),
+  cropType: z.enum(['cover', 'contain']).optional(),
 })
 
 export const metadata = {
@@ -38,7 +39,7 @@ export async function GET(
   if (!parsedQuery.success) {
     return NextResponse.json({ error: 'Invalid size parameters' }, { status: 400 })
   }
-  const { width, height } = parsedQuery.data
+  const { width, height, cropType } = parsedQuery.data
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
@@ -67,7 +68,7 @@ export async function GET(
     attachment.storagePath,
     attachment.storageDriver
   )
-  const cacheKey = buildThumbnailCacheKey(width, height)
+  const cacheKey = buildThumbnailCacheKey(width, height, cropType)
   try {
     let buffer: Buffer | null = null
     if (cacheKey) {
@@ -77,11 +78,15 @@ export async function GET(
       const input = await fs.readFile(filePath)
       let transformer = sharp(input)
       if (width || height) {
-        transformer = transformer.resize({
+        const resizeOptions: sharp.ResizeOptions = {
           width: width || undefined,
           height: height || undefined,
-          fit: 'cover',
-        })
+          fit: cropType === 'contain' ? 'contain' : 'cover',
+        }
+        if (cropType === 'contain') {
+          resizeOptions.background = { r: 0, g: 0, b: 0, alpha: 0 }
+        }
+        transformer = transformer.resize(resizeOptions)
       }
       buffer = await transformer.toBuffer()
       if (cacheKey) {

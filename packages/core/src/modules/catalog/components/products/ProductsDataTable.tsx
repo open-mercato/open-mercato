@@ -359,6 +359,7 @@ export default function ProductsDataTable() {
             mediaId={row.original.default_media_id}
             mediaUrl={row.original.default_media_url}
             title={row.original.title}
+            cropType="contain"
           />
         ),
         meta: { sticky: true },

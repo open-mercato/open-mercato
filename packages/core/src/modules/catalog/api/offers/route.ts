@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CatalogOffer, CatalogProduct, CatalogProductPrice } from '../../data/entities'
+import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant } from '../../data/entities'
 import { offerCreateSchema, offerUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -86,7 +86,7 @@ export async function decorateOffersWithDetails(
     .filter((value): value is string => !!value)
   if (!offerIds.length && !productIds.length) return
   const em = ctx.container.resolve('em') as EntityManager
-  const [products, prices] = await Promise.all([
+  const [products, prices, defaultVariants] = await Promise.all([
     productIds.length
       ? em.find(
           CatalogProduct,
@@ -101,6 +101,13 @@ export async function decorateOffersWithDetails(
           CatalogProductPrice,
           { offer: { $in: offerIds } },
           { populate: ['priceKind'] },
+        )
+      : [],
+    productIds.length
+      ? em.find(
+          CatalogProductVariant,
+          { product: { $in: productIds }, isDefault: true },
+          { fields: ['id', 'product'] },
         )
       : [],
   ])
@@ -160,33 +167,59 @@ export async function decorateOffersWithDetails(
     })
     priceMap.set(offerId, bucket)
   })
-  const channelId = typeof ctx.query.channelId === 'string' ? ctx.query.channelId : null
-  const productChannelEntries =
-    channelId && productIds.length
-      ? await em.find(
-          CatalogProductPrice,
-          {
-            product: { $in: productIds },
-            offer: null,
-            channelId: { $in: [channelId, null] },
-          },
-          { populate: ['priceKind'] },
-        )
-      : []
-  const productChannelPriceMap = new Map<string, { payload: Record<string, unknown>; priority: number }>()
-  productChannelEntries.forEach((entry) => {
+  const variantToProductMap = new Map<string, string>()
+  defaultVariants.forEach((variant) => {
+    const variantId = typeof variant.id === 'string' ? variant.id : null
     const productRef =
-      typeof entry.product === 'string'
-        ? entry.product
-        : entry.product && typeof entry.product === 'object' && 'id' in entry.product
-          ? (entry.product as { id?: string }).id ?? null
+      typeof variant.product === 'string'
+        ? variant.product
+        : variant.product && typeof variant.product === 'object' && 'id' in variant.product
+          ? (variant.product as { id?: string }).id ?? null
           : null
+    if (variantId && productRef) {
+      variantToProductMap.set(variantId, productRef)
+    }
+  })
+  const DEFAULT_CHANNEL_KEY = '__default__'
+  const productChannelPriceMap = new Map<string, Map<string, { payload: Record<string, unknown>; priority: number }>>()
+  const assignFallbackPrice = (productRef: string | null, channelRef: string | null, payload: Record<string, unknown>, priority: number) => {
     if (!productRef) return
-    const isChannelSpecific =
-      typeof entry.channelId === 'string' ? entry.channelId === channelId : entry.channelId === channelId
-    const priority = isChannelSpecific ? 2 : 1
-    const current = productChannelPriceMap.get(productRef)
-    if (current && current.priority >= priority) return
+    const bucket = productChannelPriceMap.get(productRef) ?? new Map()
+    const effectiveChannel = channelRef ?? DEFAULT_CHANNEL_KEY
+    const existing = bucket.get(effectiveChannel)
+    if (existing && existing.priority >= priority) return
+    bucket.set(effectiveChannel, { payload, priority })
+    productChannelPriceMap.set(productRef, bucket)
+  }
+  const channelIds = Array.from(new Set(
+    items
+      .map((item) => {
+        if (typeof item?.channelId === 'string') return item.channelId
+        if (typeof item?.channel_id === 'string') return item.channel_id
+        return null
+      })
+      .filter((value): value is string => !!value),
+  ))
+  const channelFilterValues = channelIds.length ? [...channelIds, null] : [null]
+  const fallbackTargets: Array<Record<string, unknown>> = []
+  if (productIds.length) fallbackTargets.push({ product: { $in: productIds } })
+  const defaultVariantIds = Array.from(variantToProductMap.keys())
+  if (defaultVariantIds.length) fallbackTargets.push({ variant: { $in: defaultVariantIds } })
+  const fallbackEntries = fallbackTargets.length
+    ? await em.find(
+        CatalogProductPrice,
+        {
+          offer: null,
+          $or: fallbackTargets,
+          channelId: { $in: channelFilterValues },
+        },
+        { populate: ['priceKind'] },
+      )
+    : []
+  fallbackEntries.forEach((entry) => {
+    const entryChannelId = typeof entry.channelId === 'string' && entry.channelId.length
+      ? entry.channelId
+      : null
     const priceKind = entry.priceKind && typeof entry.priceKind === 'object'
       ? (entry.priceKind as Record<string, unknown>)
       : null
@@ -195,22 +228,53 @@ export async function decorateOffersWithDetails(
       : typeof priceKind?.display_mode === 'string'
         ? priceKind.display_mode
         : null
-    productChannelPriceMap.set(productRef, {
-      payload: {
-        currencyCode: entry.currencyCode ?? null,
-        unitPriceNet: entry.unitPriceNet ?? null,
-        unitPriceGross: entry.unitPriceGross ?? null,
-        displayMode,
-      },
-      priority,
-    })
+    const payload = {
+      currencyCode: entry.currencyCode ?? null,
+      unitPriceNet: entry.unitPriceNet ?? null,
+      unitPriceGross: entry.unitPriceGross ?? null,
+      displayMode,
+    }
+    const variantRef =
+      typeof entry.variant === 'string'
+        ? entry.variant
+        : entry.variant && typeof entry.variant === 'object' && 'id' in entry.variant
+          ? (entry.variant as { id?: string }).id ?? null
+          : null
+    if (variantRef) {
+      const variantProduct = variantToProductMap.get(variantRef)
+      const productRef =
+        variantProduct
+        ?? (typeof entry.product === 'string'
+          ? entry.product
+          : entry.product && typeof entry.product === 'object' && 'id' in entry.product
+            ? (entry.product as { id?: string }).id ?? null
+            : null)
+      const priority = entryChannelId ? 4 : 3
+      assignFallbackPrice(productRef, entryChannelId, payload, priority)
+      return
+    }
+    const productRef =
+      typeof entry.product === 'string'
+        ? entry.product
+        : entry.product && typeof entry.product === 'object' && 'id' in entry.product
+          ? (entry.product as { id?: string }).id ?? null
+          : null
+    const priority = entryChannelId ? 2 : 1
+    assignFallbackPrice(productRef, entryChannelId, payload, priority)
   })
   items.forEach((item) => {
     const productId = String(item?.productId ?? '')
     item.product = productId ? productMap.get(productId) ?? null : null
     item.prices = priceMap.get(String(item?.id ?? '')) ?? []
-    const fallbackPrice = productChannelPriceMap.get(productId)?.payload ?? null
-    item.productChannelPrice = fallbackPrice
+    const rowChannelId = typeof item?.channelId === 'string'
+      ? item.channelId
+      : typeof item?.channel_id === 'string'
+        ? item.channel_id
+        : null
+    const bucket = productChannelPriceMap.get(productId)
+    const channelKey = rowChannelId ?? DEFAULT_CHANNEL_KEY
+    const channelPrice = bucket?.get(channelKey) ?? bucket?.get(DEFAULT_CHANNEL_KEY) ?? null
+    item.productChannelPrice = channelPrice ? channelPrice.payload : null
   })
 }
 

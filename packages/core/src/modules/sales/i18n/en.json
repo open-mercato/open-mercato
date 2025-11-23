@@ -107,7 +107,8 @@
           "loadOffer": "Failed to load offer.",
           "save": "Failed to save offer.",
           "requiredFields": "Choose a channel and product.",
-          "priceKindRequired": "Select a price kind for each price override."
+          "priceKindRequired": "Select a price kind for each price override.",
+          "priceKindDuplicate": "Each price kind can only be overridden once."
         },
         "messages": {
           "deleted": "Offer deleted.",
@@ -186,7 +187,9 @@
           "basePriceLabel": "Channel price",
           "basePriceMissing": "No price found",
           "basePriceHelp": "Shown to shoppers when no override is configured.",
-          "overrideHint": "Overrides take precedence over the channel price."
+          "overrideHint": "Overrides take precedence over the channel price.",
+          "allKindsUsed": "Each price kind already has an override.",
+          "noKindsAvailable": "Define a price kind before adding overrides."
         }
       }
     },

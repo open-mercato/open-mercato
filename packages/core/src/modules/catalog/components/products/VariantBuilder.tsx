@@ -184,6 +184,8 @@ export function VariantDimensionsSection({ values, setValue, showHeading = true 
   const metadata = normalizeMetadata(values.metadata)
   const dimensionValues = normalizeDimensions(metadata)
   const weightValues = normalizeWeight(metadata)
+  const dimensionUnitPlaceholder = t('catalog.variants.form.dimensionUnitPlaceholder', 'cm')
+  const weightUnitPlaceholder = t('catalog.variants.form.weightUnitPlaceholder', 'kg')
 
   return (
     <div className="space-y-4">
@@ -207,6 +209,7 @@ export function VariantDimensionsSection({ values, setValue, showHeading = true 
         <DimensionInput
           label={t('catalog.variants.form.dimensionUnit', 'Size unit')}
           value={dimensionValues.unit ?? ''}
+          placeholder={dimensionUnitPlaceholder}
           onChange={(value) => setValue('metadata', applyDimension(metadata, 'unit', value))}
         />
         <DimensionInput
@@ -217,6 +220,7 @@ export function VariantDimensionsSection({ values, setValue, showHeading = true 
         <DimensionInput
           label={t('catalog.variants.form.weightUnit', 'Weight unit')}
           value={weightValues.unit ?? ''}
+          placeholder={weightUnitPlaceholder}
           onChange={(value) => setValue('metadata', applyWeight(metadata, 'unit', value))}
         />
       </div>
@@ -374,15 +378,17 @@ function DimensionInput({
   label,
   value,
   onChange,
+  placeholder = '0',
 }: {
   label: string
   value: string | number | undefined
   onChange: (next: string) => void
+  placeholder?: string
 }) {
   return (
     <div className="space-y-2">
       <Label className="text-xs uppercase text-muted-foreground">{label}</Label>
-      <Input value={value ?? ''} onChange={(event) => onChange(event.target.value)} placeholder="0" />
+      <Input value={value ?? ''} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
     </div>
   )
 }

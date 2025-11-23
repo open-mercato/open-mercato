@@ -6,7 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { CatalogProduct, CatalogProductVariant, CatalogProductPrice } from '../data/entities'
+import { CatalogProductVariant, CatalogProductPrice } from '../data/entities'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -280,11 +280,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
-    const product = record.product as CatalogProduct | string
-    const productEntity =
-      typeof product === 'string' ? await requireProduct(em, product) : product
-    ensureTenantScope(ctx, productEntity.tenantId)
-    ensureOrganizationScope(ctx, productEntity.organizationId)
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
 
     if (parsed.name !== undefined) record.name = parsed.name ?? null
     if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
@@ -431,11 +428,8 @@ const deleteVariantCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductVariant, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
-    const product = record.product as CatalogProduct | string
-    const productEntity =
-      typeof product === 'string' ? await requireProduct(em, product) : product
-    ensureTenantScope(ctx, productEntity.tenantId)
-    ensureOrganizationScope(ctx, productEntity.organizationId)
+    ensureTenantScope(ctx, record.tenantId)
+    ensureOrganizationScope(ctx, record.organizationId)
 
     const baseEm = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadVariantSnapshot(baseEm, id)

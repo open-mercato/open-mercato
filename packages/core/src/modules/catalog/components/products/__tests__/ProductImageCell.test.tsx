@@ -32,6 +32,20 @@ describe('ProductImageCell', () => {
     render(<ProductImageCell mediaId="att-2" mediaUrl={null} title="Gallery" />)
     const img = screen.getByRole('img', { name: /gallery/i })
     expect(img).toHaveAttribute('src', 'https://cdn.example.com/generated.png')
-    expect(buildAttachmentImageUrl).toHaveBeenCalledWith('att-2', expect.any(Object))
+    expect(buildAttachmentImageUrl).toHaveBeenCalledWith('att-2', expect.objectContaining({
+      width: expect.any(Number),
+      height: expect.any(Number),
+      cropType: 'cover',
+    }))
+  })
+
+  it('supports contain crop mode', () => {
+    ;(buildAttachmentImageUrl as jest.Mock).mockReturnValue('https://cdn.example.com/generated.png')
+    render(<ProductImageCell mediaId="att-3" mediaUrl={null} title="Dress" cropType="contain" />)
+    const img = screen.getByRole('img', { name: /dress/i })
+    expect(img).toHaveClass('object-contain')
+    expect(buildAttachmentImageUrl).toHaveBeenCalledWith('att-3', expect.objectContaining({
+      cropType: 'contain',
+    }))
   })
 })

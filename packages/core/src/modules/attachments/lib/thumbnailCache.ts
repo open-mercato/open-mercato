@@ -8,11 +8,16 @@ function sanitizeSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
-export function buildThumbnailCacheKey(width?: number, height?: number): string | null {
+export function buildThumbnailCacheKey(
+  width?: number,
+  height?: number,
+  cropType?: 'cover' | 'contain'
+): string | null {
   if (!width && !height) return null
   const safeWidth = typeof width === 'number' && Number.isFinite(width) ? width : 'auto'
   const safeHeight = typeof height === 'number' && Number.isFinite(height) ? height : 'auto'
-  return `w${safeWidth}-h${safeHeight}`
+  const safeCrop = cropType === 'contain' ? 'contain' : 'cover'
+  return `w${safeWidth}-h${safeHeight}-c${safeCrop}`
 }
 
 function resolveCachePath(partitionCode: string, attachmentId: string, cacheKey: string): string {

@@ -161,31 +161,47 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   }, [initialValues?.defaultMediaId, initialValues?.productId])
 
   React.useEffect(() => {
+    if (mode !== 'edit') return
     const productId = typeof initialValues?.productId === 'string' ? initialValues.productId : null
     if (!productId) return
+    const hydrationChannelId = selectedChannelId
+      ?? lockedChannelId
+      ?? (typeof initialValues?.channelId === 'string' ? initialValues.channelId : null)
     let cancelled = false
-    async function preloadMedia() {
+    async function hydrateExistingProduct() {
       try {
-        let attachments = attachmentCache.current.get(productId) ?? []
-        if (!attachments.length) {
-          attachments = dedupeMediaOptions(await loadProductMedia(productId))
-          attachmentCache.current.set(productId, attachments)
-        } else {
-          attachments = dedupeMediaOptions(attachments)
-          attachmentCache.current.set(productId, attachments)
-        }
+        const [summary, attachments, variants] = await Promise.all([
+          resolveProductSummaryWithCache({ productId, channelId: hydrationChannelId, productCache }),
+          resolveProductMediaOptionsWithCache({ productId, attachmentCache }),
+          resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache }),
+        ])
         if (!cancelled) {
+          setProductSummary(summary ?? null)
           setMediaOptions(attachments)
+          setVariantPreviews(variants)
         }
       } catch (err) {
-        console.error('sales.channels.offer.initialMedia', err)
+        console.error('sales.channels.offer.initialHydrate', err)
       }
     }
-    void preloadMedia()
+    void hydrateExistingProduct()
     return () => {
       cancelled = true
     }
-  }, [attachmentCache, initialValues?.productId, setMediaOptions])
+  }, [
+    attachmentCache,
+    initialValues?.channelId,
+    initialValues?.productId,
+    lockedChannelId,
+    mode,
+    productCache,
+    selectedChannelId,
+    setMediaOptions,
+    setProductSummary,
+    setVariantPreviews,
+    variantCache,
+    variantMediaCache,
+  ])
 
   React.useEffect(() => {
     async function loadKinds() {
@@ -481,6 +497,22 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     })
     if (priceWithoutKind) {
       throw createCrudFormError(t('sales.channels.offers.errors.priceKindRequired', 'Select a price kind for each override.'), {})
+    }
+    const duplicateKind = (() => {
+      const seen = new Set<string>()
+      for (const entry of overrides) {
+        const kindId = typeof entry.priceKindId === 'string' ? entry.priceKindId : null
+        if (!kindId) continue
+        if (seen.has(kindId)) return kindId
+        seen.add(kindId)
+      }
+      return null
+    })()
+    if (duplicateKind) {
+      throw createCrudFormError(
+        t('sales.channels.offers.errors.priceKindDuplicate', 'Each price kind can only be overridden once.'),
+        {},
+      )
     }
     const submittedPriceIds = collectPriceIds(overrides)
     const deletedIdSet = new Set<string>()
@@ -1136,22 +1168,7 @@ function OfferFormWatchers({
     let cancelled = false
     async function load() {
       try {
-        const cacheKey = channelId ? `${productId}:${channelId}` : productId
-        let summary = productCache.current.get(cacheKey)
-        if (!summary) {
-          const params = new URLSearchParams({ id: productId, pageSize: '1' })
-          if (channelId) params.set('channelId', channelId)
-          const payload = await readApiResultOrThrow<OfferResponse>(
-            `/api/catalog/products?${params.toString()}`,
-            undefined,
-            { fallback: { items: [] } },
-          )
-          const product = Array.isArray(payload.items) ? payload.items[0] : null
-          if (product) {
-            summary = mapProductSummary(product)
-            productCache.current.set(cacheKey, summary)
-          }
-        }
+        const summary = await resolveProductSummaryWithCache({ productId, channelId, productCache })
         if (!cancelled) {
           setProductSummary(summary ?? null)
           if (summary) {
@@ -1166,35 +1183,12 @@ function OfferFormWatchers({
             }
           }
         }
-        let attachments = attachmentCache.current.get(productId) ?? []
-        if (!attachments.length) {
-          attachments = dedupeMediaOptions(await loadProductMedia(productId))
-          attachmentCache.current.set(productId, attachments)
-        } else {
-          attachments = dedupeMediaOptions(attachments)
-          attachmentCache.current.set(productId, attachments)
-        }
+        const attachments = await resolveProductMediaOptionsWithCache({ productId, attachmentCache })
         if (!cancelled) {
           setMediaOptions(attachments)
         }
-        let variants = variantCache.current.get(productId)
-        if (!variants) {
-          const variantPayload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-            `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
-            undefined,
-            { fallback: { items: [] } },
-          )
-          const items = Array.isArray(variantPayload.items) ? variantPayload.items : []
-          variants = await Promise.all(
-            items.map(async (item) => {
-              const preview = mapVariantPreview(item)
-              const thumbnail = await resolveVariantThumbnail(preview.id, variantMediaCache)
-              return { ...preview, thumbnailUrl: thumbnail }
-            }),
-          )
-          variantCache.current.set(productId, variants)
-        }
-        if (!cancelled && variants) {
+        const variants = await resolveVariantPreviewsWithCache({ productId, variantCache, variantMediaCache })
+        if (!cancelled) {
           setVariantPreviews(variants)
         }
       } catch (err) {
@@ -1221,6 +1215,82 @@ function OfferFormWatchers({
     setCurrentProductId,
   ])
   return null
+}
+
+async function resolveProductSummaryWithCache({
+  productId,
+  channelId,
+  productCache,
+}: {
+  productId: string
+  channelId: string | null
+  productCache: React.MutableRefObject<Map<string, ProductSummaryCacheEntry>>
+}): Promise<ProductSummaryCacheEntry | null> {
+  if (!productId) return null
+  const cacheKey = channelId ? `${productId}:${channelId}` : productId
+  let summary = productCache.current.get(cacheKey)
+  if (summary) return summary
+  const params = new URLSearchParams({ id: productId, pageSize: '1' })
+  if (channelId) params.set('channelId', channelId)
+  const payload = await readApiResultOrThrow<OfferResponse>(
+    `/api/catalog/products?${params.toString()}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  const product = Array.isArray(payload.items) ? payload.items[0] : null
+  summary = product ? mapProductSummary(product) : null
+  if (summary) {
+    productCache.current.set(cacheKey, summary)
+  }
+  return summary ?? null
+}
+
+async function resolveProductMediaOptionsWithCache({
+  productId,
+  attachmentCache,
+}: {
+  productId: string
+  attachmentCache: React.MutableRefObject<Map<string, MediaOption[]>>
+}): Promise<MediaOption[]> {
+  if (!productId) return []
+  const cached = attachmentCache.current.get(productId) ?? []
+  if (cached.length) {
+    const deduped = dedupeMediaOptions(cached)
+    attachmentCache.current.set(productId, deduped)
+    return deduped
+  }
+  const attachments = dedupeMediaOptions(await loadProductMedia(productId))
+  attachmentCache.current.set(productId, attachments)
+  return attachments
+}
+
+async function resolveVariantPreviewsWithCache({
+  productId,
+  variantCache,
+  variantMediaCache,
+}: {
+  productId: string
+  variantCache: React.MutableRefObject<Map<string, ProductVariantPreview[]>>
+  variantMediaCache: React.MutableRefObject<Map<string, string | null>>
+}): Promise<ProductVariantPreview[]> {
+  if (!productId) return []
+  const cached = variantCache.current.get(productId)
+  if (cached) return cached
+  const variantPayload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+    `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  const items = Array.isArray(variantPayload.items) ? variantPayload.items : []
+  const variants = await Promise.all(
+    items.map(async (item) => {
+      const preview = mapVariantPreview(item)
+      const thumbnail = await resolveVariantThumbnail(preview.id, variantMediaCache)
+      return { ...preview, thumbnailUrl: thumbnail }
+    }),
+  )
+  variantCache.current.set(productId, variants)
+  return variants
 }
 
 function mapProductSummary(item: Record<string, unknown>): ProductSummaryCacheEntry {
@@ -1433,17 +1503,43 @@ function PriceOverridesEditor({
     currencyCode: basePrice?.currencyCode ?? null,
     displayMode: basePrice?.displayMode ?? null,
   }), [baseAmount, basePrice?.currencyCode, basePrice?.displayMode])
+  const usedKindIdSet = React.useMemo(() => {
+    const next = new Set<string>()
+    values.forEach((row) => {
+      if (typeof row.priceKindId === 'string' && row.priceKindId.length) {
+        next.add(row.priceKindId)
+      }
+    })
+    return next
+  }, [values])
+  const availableKindCount = priceKinds.reduce(
+    (count, kind) => (usedKindIdSet.has(kind.id) ? count : count + 1),
+    0,
+  )
+  const canAddRow = availableKindCount > 0
   const addRow = React.useCallback(() => {
+    const usedIds = new Set<string>()
+    values.forEach((row) => {
+      if (typeof row.priceKindId === 'string' && row.priceKindId.length) {
+        usedIds.add(row.priceKindId)
+      }
+    })
+    const nextKind = priceKinds.find((kind) => !usedIds.has(kind.id))
+    if (!nextKind && priceKinds.length) {
+      return
+    }
     onChange([
       ...values,
       {
         tempId: crypto.randomUUID?.() ?? Math.random().toString(36).slice(2),
         amount: baseDefaults.amount,
-        currencyCode: baseDefaults.currencyCode,
-        displayMode: baseDefaults.displayMode,
+        currencyCode: nextKind?.currencyCode ?? baseDefaults.currencyCode,
+        displayMode: nextKind?.displayMode ?? baseDefaults.displayMode,
+        priceKindId: nextKind?.id ?? null,
+        priceKindCode: nextKind?.code ?? nextKind?.title ?? null,
       },
     ])
-  }, [baseDefaults, onChange, values])
+  }, [baseDefaults, onChange, priceKinds, values])
 
   const updateRow = React.useCallback((tempId: string, patch: Partial<PriceOverrideDraft>) => {
     onChange(values.map((row) => (row.tempId === tempId ? { ...row, ...patch } : row)))
@@ -1473,10 +1569,17 @@ function PriceOverridesEditor({
           <p className="text-sm text-muted-foreground">
             {t('sales.channels.offers.pricing.help', 'Provide overrides for price kinds when this offer is active.')}
           </p>
-          <Button type="button" variant="outline" size="sm" onClick={addRow}>
+          <Button type="button" variant="outline" size="sm" onClick={addRow} disabled={!canAddRow}>
             {t('sales.channels.offers.pricing.add', 'Add price')}
           </Button>
         </div>
+        {!canAddRow ? (
+          <p className="text-xs text-muted-foreground">
+            {priceKinds.length
+              ? t('sales.channels.offers.pricing.allKindsUsed', 'Each price kind already has an override.')
+              : t('sales.channels.offers.pricing.noKindsAvailable', 'Define a price kind before adding overrides.')}
+          </p>
+        ) : null}
       </div>
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
@@ -1502,7 +1605,11 @@ function PriceOverridesEditor({
               >
                 <option value="">{t('sales.channels.offers.pricing.selectKind', 'Select price kind')}</option>
                 {priceKinds.map((kind) => (
-                  <option key={kind.id} value={kind.id}>
+                  <option
+                    key={kind.id}
+                    value={kind.id}
+                    disabled={usedKindIdSet.has(kind.id) && row.priceKindId !== kind.id}
+                  >
                   {kind.title ?? kind.code ?? kind.id}
                 </option>
               ))}

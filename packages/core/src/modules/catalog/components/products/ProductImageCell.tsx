@@ -2,24 +2,25 @@
 
 import * as React from 'react'
 import { Image as ImageIcon } from 'lucide-react'
-import { buildAttachmentImageUrl } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+import { buildAttachmentImageUrl, type ImageCropType } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
 type ProductImageCellProps = {
   mediaId?: string | null
   mediaUrl?: string | null
   title?: string | null
+  cropType?: ImageCropType
 }
 
 const IMAGE_SIZE = 96
 
-export function ProductImageCell({ mediaId, mediaUrl, title }: ProductImageCellProps) {
+export function ProductImageCell({ mediaId, mediaUrl, title, cropType = 'cover' }: ProductImageCellProps) {
   const previewUrl = React.useMemo(() => {
     if (typeof mediaUrl === 'string' && mediaUrl.trim().length > 0) return mediaUrl
     if (typeof mediaId === 'string' && mediaId.trim().length > 0) {
-      return buildAttachmentImageUrl(mediaId, { width: IMAGE_SIZE, height: IMAGE_SIZE })
+      return buildAttachmentImageUrl(mediaId, { width: IMAGE_SIZE, height: IMAGE_SIZE, cropType })
     }
     return null
-  }, [mediaId, mediaUrl])
+  }, [cropType, mediaId, mediaUrl])
 
   if (!previewUrl) {
     return (
@@ -31,7 +32,11 @@ export function ProductImageCell({ mediaId, mediaUrl, title }: ProductImageCellP
 
   return (
     <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border bg-muted/10">
-      <img src={previewUrl} alt={title ?? ''} className="h-full w-full object-cover" />
+      <img
+        src={previewUrl}
+        alt={title ?? ''}
+        className={`h-full w-full ${cropType === 'contain' ? 'object-contain' : 'object-cover'}`}
+      />
     </div>
   )
 }

@@ -1224,6 +1224,7 @@ export function DataTable<T>({
         const fieldsets = payload.fieldsetsByEntity ?? {}
         setCfFilterFieldsetsByEntity(fieldsets)
         const selectionChanges: Array<[string, string | null]> = []
+        let shouldNotify = false
         setCfFilterFieldsetSelection((prev) => {
           const next: Record<string, string | null> = {}
           let changed = false
@@ -1245,13 +1246,14 @@ export function DataTable<T>({
           })
           if (Object.keys(prev).length !== Object.keys(next).length) changed = true
           if (changed) {
-            if (selectionChanges.length && onCustomFieldFilterFieldsetChange) {
-              selectionChanges.forEach(([entityId, value]) => onCustomFieldFilterFieldsetChange(value, entityId))
-            }
+            shouldNotify = true
             return next
           }
           return prev
         })
+        if (shouldNotify && selectionChanges.length && onCustomFieldFilterFieldsetChange) {
+          selectionChanges.forEach(([entityId, value]) => onCustomFieldFilterFieldsetChange(value, entityId))
+        }
       } catch {
         if (!cancelled) {
           setCfFilterFieldsetsByEntity({})
