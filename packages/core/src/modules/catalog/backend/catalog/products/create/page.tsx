@@ -39,6 +39,12 @@ import {
   createLocalId,
   buildOptionSchemaDefinition,
   buildVariantCombinations,
+  normalizeProductDimensions,
+  normalizeProductWeight,
+  sanitizeProductDimensions,
+  sanitizeProductWeight,
+  updateDimensionValue,
+  updateWeightValue,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 
@@ -79,6 +85,8 @@ const STEP_FIELD_MATCHERS: Record<ProductFormStep, ((value: string) => boolean)[
     matchField('mediaItems'),
     matchField('mediaDraftId'),
     matchPrefix('defaultMedia'),
+    matchPrefix('dimensions'),
+    matchPrefix('weight'),
   ],
   organize: [matchField('categoryIds'), matchField('channelIds'), matchField('tags')],
   variants: [matchField('hasVariants'), matchPrefix('options'), matchPrefix('variants')],
@@ -239,6 +247,8 @@ export default function CreateCatalogProductPage() {
                 })
               : null
             const optionSchemaDefinition = buildOptionSchemaDefinition(formValues.options, title)
+            const dimensions = sanitizeProductDimensions(formValues.dimensions ?? null)
+            const weight = sanitizeProductWeight(formValues.weight ?? null)
             const productPayload: Record<string, unknown> = {
               title,
               subtitle: formValues.subtitle?.trim() || undefined,
@@ -247,6 +257,9 @@ export default function CreateCatalogProductPage() {
               isConfigurable: Boolean(formValues.hasVariants),
               defaultMediaId: defaultMediaId ?? undefined,
               defaultMediaUrl: defaultMediaUrl ?? undefined,
+              dimensions,
+              weightValue: weight?.value ?? null,
+              weightUnit: weight?.unit ?? null,
             }
             if (optionSchemaDefinition) {
               productPayload.optionSchema = optionSchemaDefinition
@@ -443,6 +456,77 @@ type ProductMetaSectionProps = {
   setValue: (id: string, value: unknown) => void
   errors: Record<string, string>
   taxRates: TaxRateSummary[]
+}
+
+type ProductDimensionsSectionProps = {
+  values: ProductFormValues
+  setValue: (id: string, value: unknown) => void
+}
+
+function ProductDimensionsFields({ values, setValue }: ProductDimensionsSectionProps) {
+  const t = useT()
+  const dimensionValues = normalizeProductDimensions(values.dimensions)
+  const weightValues = normalizeProductWeight(values.weight)
+
+  return (
+    <div className="space-y-4 rounded-lg border p-4">
+      <h3 className="text-sm font-semibold">{t('catalog.products.edit.dimensions', 'Dimensions & weight')}</h3>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.width', 'Width')}</Label>
+          <Input
+            type="number"
+            value={dimensionValues?.width ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'width', event.target.value))}
+            placeholder="0"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.height', 'Height')}</Label>
+          <Input
+            type="number"
+            value={dimensionValues?.height ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'height', event.target.value))}
+            placeholder="0"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.depth', 'Depth')}</Label>
+          <Input
+            type="number"
+            value={dimensionValues?.depth ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'depth', event.target.value))}
+            placeholder="0"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.dimensions.unit', 'Size unit')}</Label>
+          <Input
+            value={dimensionValues?.unit ?? ''}
+            onChange={(event) => setValue('dimensions', updateDimensionValue(values.dimensions ?? null, 'unit', event.target.value))}
+            placeholder="cm"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.value', 'Weight')}</Label>
+          <Input
+            type="number"
+            value={weightValues?.value ?? ''}
+            onChange={(event) => setValue('weight', updateWeightValue(values.weight ?? null, 'value', event.target.value))}
+            placeholder="0"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs uppercase text-muted-foreground">{t('catalog.products.edit.weight.unit', 'Weight unit')}</Label>
+          <Input
+            value={weightValues?.unit ?? ''}
+            onChange={(event) => setValue('weight', updateWeightValue(values.weight ?? null, 'unit', event.target.value))}
+            placeholder="kg"
+          />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: ProductBuilderProps) {
@@ -764,6 +848,8 @@ function ProductBuilder({ values, setValue, errors, priceKinds, taxRates }: Prod
             onItemsChange={handleMediaItemsChange}
             onDefaultChange={handleDefaultMediaChange}
           />
+
+          <ProductDimensionsFields values={values as ProductFormValues} setValue={setValue} />
         </div>
       ) : null}
 

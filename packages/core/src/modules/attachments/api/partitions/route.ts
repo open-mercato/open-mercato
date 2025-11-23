@@ -99,6 +99,7 @@ export async function POST(req: Request) {
     code,
     title: parsed.data.title.trim(),
     description: parsed.data.description?.trim() ?? null,
+    storageDriver: 'local',
     isPublic: parsed.data.isPublic ?? false,
   })
   await em.persistAndFlush(entry)

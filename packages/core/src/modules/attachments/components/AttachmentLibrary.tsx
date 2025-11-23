@@ -68,6 +68,7 @@ type AttachmentMetadataResponse = {
     assignments?: AttachmentAssignment[]
     customFields?: Record<string, unknown>
   }
+  error?: string
 }
 
 type AssignmentDraft = {
@@ -546,8 +547,8 @@ function AttachmentUploadForm({ partitions, availableTags, onUploaded, onCancel 
               z.object({
                 type: z.string().min(1),
                 id: z.string().min(1),
-                href: z.string().nullable().optional(),
-                label: z.string().nullable().optional(),
+                href: z.string().optional(),
+                label: z.string().optional(),
               }),
             )
             .optional(),

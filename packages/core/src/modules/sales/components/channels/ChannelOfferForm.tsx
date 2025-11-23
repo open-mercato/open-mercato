@@ -85,6 +85,8 @@ type ProductVariantPreview = {
   name: string
   sku: string | null
   thumbnailUrl: string | null
+  thumbnailId: string | null
+  thumbnailFileName: string | null
 }
 
 type ProductSummary = ProductSummaryCacheEntry | null
@@ -102,6 +104,7 @@ type ProductSearchResult = {
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 const MAX_LIST_PAGE_SIZE = 100
+type VariantThumbnailInfo = { attachmentId: string | null; thumbnailUrl: string | null; fileName: string | null }
 
 export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: ChannelOfferFormProps) {
   const t = useT()
@@ -126,7 +129,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
   const [productSummary, setProductSummary] = React.useState<ProductSummary>(null)
   const [variantPreviews, setVariantPreviews] = React.useState<ProductVariantPreview[]>([])
   const variantCache = React.useRef<Map<string, ProductVariantPreview[]>>(new Map())
-  const variantMediaCache = React.useRef<Map<string, string | null>>(new Map())
+  const variantMediaCache = React.useRef<Map<string, VariantThumbnailInfo>>(new Map())
   const [selectedChannelId, setSelectedChannelId] = React.useState<string | null>(lockedChannelId ?? null)
   const manualMediaSelections = React.useRef<Set<string>>(new Set())
   const initialPriceIdsRef = React.useRef<Set<string>>(new Set())
@@ -180,7 +183,11 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
         ])
         if (!cancelled) {
           setProductSummary(summary ?? null)
-          setMediaOptions(attachments)
+          const mergedMedia = dedupeMediaOptions([
+            ...attachments,
+            ...buildVariantMediaOptions(variants),
+          ])
+          setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
         }
       } catch (err) {

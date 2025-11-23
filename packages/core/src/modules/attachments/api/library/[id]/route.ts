@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
@@ -38,14 +38,13 @@ export const metadata = {
 }
 
 type RouteParams = { id: string }
-type RouteContext = { params: RouteParams | Promise<RouteParams> }
+type RouteContext = { params: Promise<RouteParams> }
 
 async function resolveAttachmentId(ctx: RouteContext): Promise<string | null> {
   const params = ctx?.params
   if (!params) return null
   try {
-    const resolved = typeof (params as any).then === 'function' ? await params : params
-    const id = resolved?.id
+    const { id } = await params
     if (typeof id === 'string' && id.trim().length) {
       return id
     }
@@ -74,7 +73,7 @@ function normalizeCustomFieldResponse(values: Record<string, unknown> | null | u
   return Object.keys(entries).length ? entries : undefined
 }
 
-export async function GET(req: Request, ctx: RouteContext) {
+export async function GET(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -134,7 +133,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   })
 }
 
-export async function PATCH(req: Request, ctx: RouteContext) {
+export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -207,7 +206,7 @@ export async function PATCH(req: Request, ctx: RouteContext) {
   })
 }
 
-export async function DELETE(req: Request, ctx: RouteContext) {
+export async function DELETE(req: NextRequest, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.orgId || !auth.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

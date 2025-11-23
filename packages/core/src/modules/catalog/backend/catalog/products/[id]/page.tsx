@@ -1460,7 +1460,9 @@ function ProductMetaSection({ values, setValue, errors, taxRates }: ProductMetaS
 
 function normalizeMetadata(value: unknown): Record<string, any> {
   if (!value || typeof value !== 'object') return {}
-  const entries = Object.entries(value as Record<string, unknown>).filter(([key]) => !key.startsWith('cf'))
+  const entries = Object.entries(value as Record<string, unknown>).filter(
+    ([key]) => !key.startsWith('cf') && key !== 'dimensions' && key !== 'weight',
+  )
   return Object.fromEntries(entries)
 }
 
@@ -1499,71 +1501,6 @@ function extractCustomFields(record: Record<string, unknown>): { customValues: R
     else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
   })
   return { customValues }
-}
-
-const normalizeDimensions = (metadata: Record<string, any>) => {
-  const raw = metadata.dimensions
-  if (!raw || typeof raw !== 'object') return {}
-  return {
-    width: typeof raw.width === 'number' ? raw.width : undefined,
-    height: typeof raw.height === 'number' ? raw.height : undefined,
-    depth: typeof raw.depth === 'number' ? raw.depth : undefined,
-    unit: typeof raw.unit === 'string' ? raw.unit : undefined,
-  }
-}
-
-const normalizeWeight = (metadata: Record<string, any>) => {
-  const raw = metadata.weight
-  if (!raw || typeof raw !== 'object') return {}
-  return {
-    value: typeof raw.value === 'number' ? raw.value : undefined,
-    unit: typeof raw.unit === 'string' ? raw.unit : undefined,
-  }
-}
-
-function applyDimension(metadata: Record<string, any>, field: 'width' | 'height' | 'depth' | 'unit', raw: string) {
-  const dims = normalizeDimensions(metadata)
-  if (field === 'unit') {
-    dims.unit = raw
-  } else {
-    const numeric = Number(raw)
-    dims[field] = Number.isNaN(numeric) ? undefined : numeric
-  }
-  const clean = cleanupDimensions(dims)
-  if (clean) return { ...metadata, dimensions: clean }
-  const clone = { ...metadata }
-  delete clone.dimensions
-  return clone
-}
-
-function applyWeight(metadata: Record<string, any>, field: 'value' | 'unit', raw: string) {
-  const weight = normalizeWeight(metadata)
-  if (field === 'unit') weight.unit = raw
-  else {
-    const numeric = Number(raw)
-    weight.value = Number.isNaN(numeric) ? undefined : numeric
-  }
-  const clean = cleanupWeight(weight)
-  if (clean) return { ...metadata, weight: clean }
-  const clone = { ...metadata }
-  delete clone.weight
-  return clone
-}
-
-const cleanupDimensions = (dims: { width?: number; height?: number; depth?: number; unit?: string }) => {
-  const clean: Record<string, unknown> = {}
-  if (typeof dims.width === 'number' && Number.isFinite(dims.width)) clean.width = dims.width
-  if (typeof dims.height === 'number' && Number.isFinite(dims.height)) clean.height = dims.height
-  if (typeof dims.depth === 'number' && Number.isFinite(dims.depth)) clean.depth = dims.depth
-  if (typeof dims.unit === 'string' && dims.unit.trim().length) clean.unit = dims.unit
-  return Object.keys(clean).length ? clean : null
-}
-
-const cleanupWeight = (weight: { value?: number; unit?: string }) => {
-  const clean: Record<string, unknown> = {}
-  if (typeof weight.value === 'number' && Number.isFinite(weight.value)) clean.value = weight.value
-  if (typeof weight.unit === 'string' && weight.unit.trim().length) clean.unit = weight.unit
-  return Object.keys(clean).length ? clean : null
 }
 
 function normalizeIdList(value: unknown): string[] {
@@ -1759,6 +1696,8 @@ function buildMetadataPayload(values: ProductFormValues): Record<string, unknown
   metadata.__useMarkdown = values.useMarkdown ?? false
   delete metadata.optionSchema
   delete metadata.option_schema
+  delete metadata.dimensions
+  delete metadata.weight
   return metadata
 }
 
