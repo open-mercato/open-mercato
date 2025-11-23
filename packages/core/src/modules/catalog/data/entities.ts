@@ -115,6 +115,20 @@ export class CatalogProduct {
   @Property({ name: 'default_media_url', type: 'text', nullable: true })
   defaultMediaUrl?: string | null
 
+  @Property({ name: 'weight_value', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  weightValue?: string | null
+
+  @Property({ name: 'weight_unit', type: 'text', nullable: true })
+  weightUnit?: string | null
+
+  @Property({ name: 'dimensions', type: 'jsonb', nullable: true })
+  dimensions?: {
+    width?: number | null
+    height?: number | null
+    depth?: number | null
+    unit?: string | null
+  } | null
+
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 

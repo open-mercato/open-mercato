@@ -450,6 +450,35 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "weight_value": {
+          "name": "weight_value",
+          "type": "numeric(16,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 16,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "weight_unit": {
+          "name": "weight_unit",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "dimensions": {
+          "name": "dimensions",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "metadata": {
           "name": "metadata",
           "type": "jsonb",

@@ -122,6 +122,16 @@ export const productCreateSchema = scoped.extend({
   defaultUnit: z.string().trim().max(50).optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
+  weightValue: z.coerce.number().min(0).optional(),
+  weightUnit: z.string().trim().max(25).optional(),
+  dimensions: z
+    .object({
+      width: z.coerce.number().min(0).optional(),
+      height: z.coerce.number().min(0).optional(),
+      depth: z.coerce.number().min(0).optional(),
+      unit: z.string().trim().max(25).optional(),
+    })
+    .optional(),
   optionSchemaId: uuid().nullable().optional(),
   optionSchema: optionSchema.optional(),
   customFieldsetCode: slugSchema.nullable().optional(),
