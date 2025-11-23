@@ -74,7 +74,7 @@ jest.mock('@open-mercato/ui/backend/inputs/TagsInput', () => ({
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
-  Button: ({ children, ...props }: any) => (
+  Button: ({ children, asChild, ...props }: any) => (
     <button {...props} type={props.type || 'button'}>
       {children}
     </button>
@@ -212,13 +212,14 @@ describe('catalog module components', () => {
 
   it('renders CategorySelect with provided nodes', () => {
     const handleChange = jest.fn()
+    const nodes = [
+      { id: 'cat-1', name: 'Shoes', depth: 0, children: [], pathLabel: 'Root / Shoes', isActive: false },
+    ]
     render(
       <CategorySelect
         value="cat-1"
         onChange={handleChange}
-        nodes={[
-          { id: 'cat-1', name: 'Shoes', depth: 0, children: [], pathLabel: 'Root / Shoes', isActive: false },
-        ]}
+        nodes={nodes}
       />,
     )
     const option = screen.getByRole('option', { name: /Shoes/i })

@@ -1,6 +1,5 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { AttachmentAssignment } from './metadata'
-import { modules } from '@/generated/modules.generated'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
@@ -79,18 +78,28 @@ const DEFAULT_LABEL_FIELDS = [
   'brand_name',
 ]
 
-const ENTITY_SPECS: Map<string, CustomEntitySpec> = (() => {
-  const map = new Map<string, CustomEntitySpec>()
-  for (const mod of modules) {
-    const specs = ((mod as any).customEntities as CustomEntitySpec[] | undefined) ?? []
-    for (const spec of specs) {
-      if (spec?.id && !map.has(spec.id)) {
-        map.set(spec.id, spec)
-      }
-    }
+let entitySpecsPromise: Promise<Map<string, CustomEntitySpec>> | null = null
+
+async function loadEntitySpecs(): Promise<Map<string, CustomEntitySpec>> {
+  if (!entitySpecsPromise) {
+    entitySpecsPromise = import('@/generated/modules.generated')
+      .then((registry) => {
+        const map = new Map<string, CustomEntitySpec>()
+        const mods = registry.modules ?? []
+        for (const mod of mods) {
+          const specs = ((mod as any).customEntities as CustomEntitySpec[] | undefined) ?? []
+          for (const spec of specs) {
+            if (spec?.id && !map.has(spec.id)) {
+              map.set(spec.id, spec)
+            }
+          }
+        }
+        return map
+      })
+      .catch(() => new Map<string, CustomEntitySpec>())
   }
-  return map
-})()
+  return entitySpecsPromise
+}
 
 export type AssignmentEnrichment = {
   label?: string
@@ -138,9 +147,9 @@ function buildSimpleHref(base: string, idValue: unknown, suffix: string = ''): s
   return `${base}/${encodeURIComponent(id)}${suffix}`
 }
 
-function resolveLabelCandidates(entityId: string, linkSpec?: AssignmentLinkSpec): string[] {
+function resolveLabelCandidates(entityId: string, linkSpec: AssignmentLinkSpec | undefined, entitySpecs: Map<string, CustomEntitySpec>): string[] {
   const candidates = new Set<string>()
-  const spec = ENTITY_SPECS.get(entityId)
+  const spec = entitySpecs.get(entityId)
   if (spec?.labelField) {
     candidates.add(spec.labelField)
     candidates.add(camelToSnake(spec.labelField))
@@ -156,8 +165,13 @@ function resolveLabelCandidates(entityId: string, linkSpec?: AssignmentLinkSpec)
   return Array.from(candidates).filter((field) => field.length > 0)
 }
 
-function buildLabel(record: Record<string, unknown>, entityId: string, linkSpec?: AssignmentLinkSpec): string | null {
-  const candidates = resolveLabelCandidates(entityId, linkSpec)
+function buildLabel(
+  record: Record<string, unknown>,
+  entityId: string,
+  linkSpec: AssignmentLinkSpec | undefined,
+  entitySpecs: Map<string, CustomEntitySpec>
+): string | null {
+  const candidates = resolveLabelCandidates(entityId, linkSpec, entitySpecs)
   for (const candidate of candidates) {
     const value = readRecordValue(record, candidate)
     if (value) return value
@@ -176,6 +190,7 @@ export async function resolveAssignmentEnrichments(
 ): Promise<AssignmentEnrichmentMap> {
   const map: AssignmentEnrichmentMap = new Map()
   if (!assignments.length || !opts.queryEngine) return map
+  const entitySpecs = await loadEntitySpecs()
   const grouped = new Map<string, Set<string>>()
   for (const assignment of assignments) {
     if (!assignment || assignment.type === LIBRARY_ENTITY_ID) continue
@@ -192,7 +207,7 @@ export async function resolveAssignmentEnrichments(
     if (!ids.length) continue
     const linkSpec = ENTITY_LINK_SPECS[entityId]
     const fields = new Set<string>(['id'])
-    const candidates = resolveLabelCandidates(entityId, linkSpec)
+    const candidates = resolveLabelCandidates(entityId, linkSpec, entitySpecs)
     candidates.forEach((field) => fields.add(field))
     for (const extra of linkSpec?.extraFields ?? []) {
       fields.add(extra)
@@ -209,7 +224,7 @@ export async function resolveAssignmentEnrichments(
       for (const record of result.items ?? []) {
         const recordId = normalizeValue((record as Record<string, unknown>).id)
         if (!recordId) continue
-        const label = buildLabel(record as Record<string, unknown>, entityId, linkSpec)
+        const label = buildLabel(record as Record<string, unknown>, entityId, linkSpec, entitySpecs)
         const href = linkSpec?.buildHref?.(record as Record<string, unknown>) ?? null
         if (label || href) {
           map.set(`${entityId}:${recordId}`, {
