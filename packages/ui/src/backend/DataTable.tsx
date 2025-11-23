@@ -1203,7 +1203,7 @@ export function DataTable<T>({
     const perspectiveButton = canUsePerspectives ? (
       <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
-        Perspectives
+        {t('ui.dataTable.perspectives.button', 'Perspectives')}
       </Button>
     ) : null
     return (
