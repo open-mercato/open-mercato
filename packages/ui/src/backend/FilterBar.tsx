@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { Button } from '../primitives/button'
 import { FilterDef, FilterOverlay, FilterValues } from './FilterOverlay'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type FilterBarProps = {
   searchValue?: string
@@ -20,7 +21,7 @@ export type FilterBarProps = {
 export function FilterBar({
   searchValue,
   onSearchChange,
-  searchPlaceholder = 'Search',
+  searchPlaceholder,
   searchAlign = 'left',
   filters = [],
   values = {},
@@ -30,6 +31,8 @@ export function FilterBar({
   leadingItems,
   layout = 'stacked',
 }: FilterBarProps) {
+  const t = useT()
+  const resolvedSearchPlaceholder = searchPlaceholder ?? t('ui.filterBar.searchPlaceholder', 'Search')
   const [open, setOpen] = React.useState(false)
   const [searchDraft, setSearchDraft] = React.useState(searchValue ?? '')
   const lastAppliedSearchRef = React.useRef(searchValue ?? '')
@@ -71,7 +74,10 @@ export function FilterBar({
         {filters.length > 0 && (
           <Button variant="outline" className="h-9" onClick={() => setOpen(true)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" className="opacity-80"><path d="M3 4h18"/><path d="M6 8h12l-3 8H9L6 8z"/></svg>
-            Filters{activeCount ? ` ${activeCount}` : ''}
+            {activeCount 
+              ? t('ui.filterBar.filtersWithCount', 'Filters {count}', { count: activeCount })
+              : t('ui.filterBar.filters', 'Filters')
+            }
           </Button>
         )}
         {leadingItems}
@@ -80,7 +86,7 @@ export function FilterBar({
             <input
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder={searchPlaceholder}
+              placeholder={resolvedSearchPlaceholder}
               className="h-9 w-full rounded border pl-8 pr-2 text-sm"
               suppressHydrationWarning
             />
@@ -100,9 +106,13 @@ export function FilterBar({
                 return o ? o.label : String(val)
               }
               if (typeof val === 'object' && val.from == null && val.to == null) return null
-              if (typeof val === 'object') return `${val.from ?? ''}${val.to ? ` → ${val.to}` : ''}`.trim()
-              if (val === true) return 'Yes'
-              if (val === false) return 'No'
+              if (typeof val === 'object') {
+                const from = val.from ?? ''
+                const to = val.to ? ` → ${val.to}` : ''
+                return `${from}${to}`.trim()
+              }
+              if (val === true) return t('common.yes', 'Yes')
+              if (val === false) return t('common.no', 'No')
               return String(val)
             }
             const removeValue = (val?: any) => {
@@ -129,7 +139,7 @@ export function FilterBar({
         </div>
       )}
       <FilterOverlay
-        title="Filters"
+        title={t('ui.filterOverlay.title', 'Filters')}
         filters={filters}
         initialValues={values}
         open={open}
