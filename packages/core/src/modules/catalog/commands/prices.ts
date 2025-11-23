@@ -439,6 +439,10 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       }
     }
 
+    if (targetVariant && (targetVariant as CatalogProductVariant | null)?.product === undefined) {
+      targetVariant = await requireVariant(em, targetVariant.id)
+    }
+
     if (parsed.productId !== undefined) {
       if (!parsed.productId) {
         targetProduct = null
