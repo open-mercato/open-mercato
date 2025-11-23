@@ -14,16 +14,17 @@ This repository is designed for extensibility. Agents should leverage the module
   - Frontend pages under `src/modules/<module>/frontend/<path>.tsx` → `/<path>`
   - Backend pages under `src/modules/<module>/backend/<path>.tsx` → `/backend/<path>`
   - Special case: `src/modules/<module>/backend/page.tsx` → `/backend/<module>`
-  - Page metadata:
-    - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
-    - Alternatively, server components may `export const metadata` from the page file itself.
-  - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
-  - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
-  - Optional CLI at `src/modules/<module>/cli.ts` default export
-  - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
-  - Optional features at `src/modules/<module>/acl.ts` exporting `features`
-  - Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
-  - Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
+- Page metadata:
+  - Prefer colocated `page.meta.ts`, `<name>.meta.ts`, or folder `meta.ts`.
+  - Alternatively, server components may `export const metadata` from the page file itself.
+- API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
+- Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
+- Optional CLI at `src/modules/<module>/cli.ts` default export
+- Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
+- Optional features at `src/modules/<module>/acl.ts` exporting `features`
+- Optional custom entities at `src/modules/<module>/ce.ts` exporting `entities`
+- Optional DI registrar at `src/modules/<module>/di.ts` exporting `register(container)`
+- Optional upgrade actions: declare once per version in `packages/core/src/modules/configs/lib/upgrade-actions.ts`; actions are auto-discovered by the backend upgrade banner and stored per tenant/organization in `upgrade_action_runs`. Keep them idempotent, reuse module helpers (e.g., catalog seeds), and do not introduce new features—access is guarded by `configs.manage`.
 - Extensions and fields:
   - Per-module entity extensions: declare in `src/modules/<module>/data/extensions.ts` as `export const extensions: EntityExtension[]`.
 - Custom fields: declare in `src/modules/<module>/ce.ts` under `entities[].fields`. `data/fields.ts` is no longer supported.

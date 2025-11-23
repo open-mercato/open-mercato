@@ -543,12 +543,12 @@ export class CatalogProductVariantRelation {
 
 @Entity({ tableName: 'catalog_price_kinds' })
 @Index({
-  name: 'catalog_price_kinds_scope_idx',
-  properties: ['organizationId', 'tenantId'],
+  name: 'catalog_price_kinds_tenant_idx',
+  properties: ['tenantId'],
 })
 @Unique({
-  name: 'catalog_price_kinds_code_scope_unique',
-  properties: ['organizationId', 'tenantId', 'code'],
+  name: 'catalog_price_kinds_code_tenant_unique',
+  properties: ['tenantId', 'code'],
 })
 export class CatalogPriceKind {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
@@ -556,8 +556,8 @@ export class CatalogPriceKind {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
 
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string

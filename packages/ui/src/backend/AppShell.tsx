@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LanguageSwitcher } from '../frontend/LanguageSwitcher'
 import { LastOperationBanner } from './operations/LastOperationBanner'
+import { UpgradeActionBanner } from './upgrades/UpgradeActionBanner'
 import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
@@ -43,6 +44,7 @@ export type AppShellProps = {
   breadcrumb?: Array<{ label: string; href?: string }>
   // Optional: full admin nav API to refresh sidebar client-side
   adminNavApi?: string
+  version?: string
 }
 
 type Breadcrumb = Array<{ label: string; href?: string }>
@@ -126,7 +128,7 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi }: AppShellProps) {
+export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
@@ -944,10 +946,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <main className="flex-1 p-4 lg:p-6">
           <FlashMessages />
           <PartialIndexBanner />
+          <UpgradeActionBanner />
           <LastOperationBanner />
           {children}
         </main>
         <footer className="border-t bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/50 px-4 py-3 flex flex-wrap items-center justify-end gap-4">
+          {version ? (
+            <span className="text-xs text-muted-foreground">
+              {t('appShell.version', { version })}
+            </span>
+          ) : null}
           <nav className="flex items-center gap-3 text-xs text-muted-foreground">
             <Link href="/terms" className="transition hover:text-foreground">
               {t('common.terms')}
