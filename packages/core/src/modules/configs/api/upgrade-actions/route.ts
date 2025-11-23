@@ -45,7 +45,9 @@ async function resolveScope(
 
 export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
-  const scopeResult = await resolveScope(req, translate)
+  const scopedTranslate = (key: string, fallback?: string, params?: Record<string, unknown>) =>
+    translate(key, fallback, params as any)
+  const scopeResult = await resolveScope(req, scopedTranslate)
   if (!scopeResult.scope) return scopeResult.error!
 
   const container = scopeResult.container ?? (await createRequestContainer())
@@ -82,7 +84,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
-  const scopeResult = await resolveScope(req, translate)
+  const scopedTranslate = (key: string, fallback?: string, params?: Record<string, unknown>) =>
+    translate(key, fallback, params as any)
+  const scopeResult = await resolveScope(req, scopedTranslate)
   if (!scopeResult.scope) return scopeResult.error!
 
   let parsedBody: unknown
