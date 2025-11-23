@@ -2,26 +2,48 @@ import { NextResponse } from 'next/server'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
-import { upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
+import { CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
+import { customFieldEntityConfigSchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
 import { invalidateDefinitionsCache } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { mergeEntityFieldsetConfig, normalizeEntityFieldsetConfig } from '../lib/fieldsets'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['entities.definitions.manage'] },
 }
 
-const batchSchema = z.object({
-  entityId: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
-  definitions: z.array(
-    upsertCustomFieldDefSchema
-      .omit({ entityId: true })
-      .extend({
-        configJson: z.any().optional(),
-      })
-  ),
-})
+const batchSchema = z
+  .object({
+    entityId: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
+    definitions: z.array(
+      upsertCustomFieldDefSchema
+        .omit({ entityId: true })
+        .extend({
+          configJson: z.any().optional(),
+        })
+    ),
+  })
+  .extend(customFieldEntityConfigSchema.shape)
+
+type IncomingFieldset = z.infer<typeof customFieldEntityConfigSchema>['fieldsets']
+
+function cloneFieldsets(fieldsets?: IncomingFieldset): IncomingFieldset {
+  if (!Array.isArray(fieldsets)) return undefined
+  return fieldsets.map((fieldset) => ({
+    code: fieldset.code,
+    label: fieldset.label,
+    icon: fieldset.icon,
+    description: fieldset.description,
+    groups: Array.isArray(fieldset.groups)
+      ? fieldset.groups.map((group) => ({
+          code: group.code,
+          title: group.title,
+          hint: group.hint,
+        }))
+      : undefined,
+  }))
+}
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -31,7 +53,7 @@ export async function POST(req: Request) {
 
   const parsed = batchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
-  const { entityId, definitions } = parsed.data
+  const { entityId, definitions, fieldsets, singleFieldsetPerRecord } = parsed.data
 
   const container = await createRequestContainer()
   const { resolve } = container
@@ -66,6 +88,23 @@ export async function POST(req: Request) {
       def.isActive = d.isActive ?? true
       def.updatedAt = new Date()
       em.persist(def)
+    }
+    if (fieldsets !== undefined || singleFieldsetPerRecord !== undefined) {
+      const scope: any = { entityId, organizationId: auth.orgId ?? null, tenantId: auth.tenantId ?? null }
+      let cfg = await em.findOne(CustomFieldEntityConfig, scope)
+      if (!cfg) cfg = em.create(CustomFieldEntityConfig, { ...scope, createdAt: new Date() })
+      const existing = normalizeEntityFieldsetConfig(cfg.configJson ?? {})
+      const patch = mergeEntityFieldsetConfig(existing, {
+        fieldsets: fieldsets !== undefined ? cloneFieldsets(fieldsets) ?? [] : undefined,
+        singleFieldsetPerRecord,
+      })
+      cfg.configJson = {
+        fieldsets: patch.fieldsets,
+        singleFieldsetPerRecord: patch.singleFieldsetPerRecord,
+      }
+      cfg.updatedAt = new Date()
+      cfg.isActive = true
+      em.persist(cfg)
     }
     await em.flush()
     await em.commit()

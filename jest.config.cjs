@@ -9,13 +9,18 @@ module.exports = {
     '^@/lib/(.*)$': '<rootDir>/packages/shared/src/lib/$1',
     '^@/types/(.*)$': '<rootDir>/packages/shared/src/types/$1',
     '^@/modules/registry$': '<rootDir>/packages/shared/src/modules/registry.ts',
+    '^@open-mercato/core/generated/(.*)$': '<rootDir>/packages/core/generated/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/packages/core/src/$1',
     '^@open-mercato/example/(.*)$': '<rootDir>/packages/example/src/$1',
     '^@open-mercato/content/(.*)$': '<rootDir>/packages/content/src/$1',
     '^@open-mercato/cli/(.*)$': '<rootDir>/packages/cli/src/$1',
+    '^@open-mercato/example/generated/(.*)$': '<rootDir>/packages/example/generated/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/packages/events/src/$1',
+    '^@open-mercato/cache/(.*)$': '<rootDir>/packages/cache/src/$1',
+    '^@open-mercato/cache$': '<rootDir>/packages/cache/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^@tests/(.*)$': '<rootDir>/tests/$1',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [

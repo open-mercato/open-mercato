@@ -242,6 +242,35 @@ export async function GET(req: Request) {
       items: bucket.entries.map((entry) => toItem(entry)),
     }
   })
+  const defaultGroupOrder = [
+    'customers.nav.group',
+    'catalog.nav.group',
+    'customers~sales.nav.group',
+    'entities.nav.group',
+    'directory.nav.group',
+    'customers.storage.nav.group',
+  ]
+  const groupOrderIndex = new Map(defaultGroupOrder.map((id, index) => [id, index]))
+  groups.sort((a, b) => {
+    const aIndex = groupOrderIndex.get(a.id)
+    const bIndex = groupOrderIndex.get(b.id)
+    if (aIndex !== undefined || bIndex !== undefined) {
+      if (aIndex === undefined) return 1
+      if (bIndex === undefined) return -1
+      if (aIndex !== bIndex) return aIndex - bIndex
+    }
+    if (a.weight !== b.weight) return a.weight - b.weight
+    return a.name.localeCompare(b.name)
+  })
+  const defaultGroupCount = defaultGroupOrder.length
+  groups.forEach((group, index) => {
+    const rank = groupOrderIndex.get(group.id)
+    const fallbackWeight = typeof group.weight === 'number' ? group.weight : 10_000
+    const normalized =
+      (rank !== undefined ? rank : defaultGroupCount + index) * 1_000_000 +
+      Math.min(Math.max(fallbackWeight, 0), 999_999)
+    group.weight = normalized
+  })
 
   let rolePreference = null
   if (Array.isArray(auth.roles) && auth.roles.length) {

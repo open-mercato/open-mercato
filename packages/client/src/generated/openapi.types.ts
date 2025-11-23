@@ -61,7 +61,147 @@ export interface paths {
          *     Requires features: attachments.manage
          */
         post: operations["attachments_post_attachments_attachments"];
+        /**
+         * Delete attachment
+         * @description Removes an uploaded attachment and deletes the stored asset.
+         *
+         *     Requires features: attachments.manage
+         */
+        delete: operations["attachments_delete_attachments_attachments"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/attachments/file/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /attachments/attachments/file/{id} */
+        get: operations["attachments_get_attachments_attachments_file_id"];
+        put?: never;
+        post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/attachments/image/{id}/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /attachments/attachments/image/{id}/{slug} */
+        get: operations["attachments_get_attachments_attachments_image_id_slug"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/attachments/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /attachments/attachments/transfer
+         * @description Requires features: attachments.manage
+         */
+        post: operations["attachments_post_attachments_attachments_transfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /attachments/library
+         * @description Requires features: attachments.view
+         */
+        get: operations["attachments_get_attachments_library"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/attachments/library/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /attachments/library/{id}
+         * @description Requires features: attachments.view
+         */
+        get: operations["attachments_get_attachments_library_id"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /attachments/library/{id}
+         * @description Requires features: attachments.manage
+         */
+        delete: operations["attachments_delete_attachments_library_id"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /attachments/library/{id}
+         * @description Requires features: attachments.manage
+         */
+        patch: operations["attachments_patch_attachments_library_id"];
+        trace?: never;
+    };
+    "/attachments/partitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        get: operations["attachments_get_attachments_partitions"];
+        /**
+         * PUT /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        put: operations["attachments_put_attachments_partitions"];
+        /**
+         * POST /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        post: operations["attachments_post_attachments_partitions"];
+        /**
+         * DELETE /attachments/partitions
+         * @description Requires features: attachments.manage
+         */
+        delete: operations["attachments_delete_attachments_partitions"];
         options?: never;
         head?: never;
         patch?: never;
@@ -492,6 +632,322 @@ export interface paths {
         put: operations["auth_put_auth_users_acl"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/categories
+         * @description Requires features: catalog.categories.view
+         */
+        get: operations["catalog_get_catalog_categories"];
+        /**
+         * PUT /catalog/categories
+         * @description Requires features: catalog.categories.manage
+         */
+        put: operations["catalog_put_catalog_categories"];
+        /**
+         * POST /catalog/categories
+         * @description Requires features: catalog.categories.manage
+         */
+        post: operations["catalog_post_catalog_categories"];
+        /**
+         * DELETE /catalog/categories
+         * @description Requires features: catalog.categories.manage
+         */
+        delete: operations["catalog_delete_catalog_categories"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/dictionaries/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/dictionaries/{key}
+         * @description Requires features: catalog.products.manage
+         */
+        get: operations["catalog_get_catalog_dictionaries_key"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/helpers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/offers
+         * @description Requires features: sales.channels.manage
+         */
+        get: operations["catalog_get_catalog_offers"];
+        /**
+         * PUT /catalog/offers
+         * @description Requires features: sales.channels.manage
+         */
+        put: operations["catalog_put_catalog_offers"];
+        /**
+         * POST /catalog/offers
+         * @description Requires features: sales.channels.manage
+         */
+        post: operations["catalog_post_catalog_offers"];
+        /**
+         * DELETE /catalog/offers
+         * @description Requires features: sales.channels.manage
+         */
+        delete: operations["catalog_delete_catalog_offers"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/option-schemas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/option-schemas
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_option_schemas"];
+        /**
+         * PUT /catalog/option-schemas
+         * @description Requires features: catalog.settings.manage
+         */
+        put: operations["catalog_put_catalog_option_schemas"];
+        /**
+         * POST /catalog/option-schemas
+         * @description Requires features: catalog.settings.manage
+         */
+        post: operations["catalog_post_catalog_option_schemas"];
+        /**
+         * DELETE /catalog/option-schemas
+         * @description Requires features: catalog.settings.manage
+         */
+        delete: operations["catalog_delete_catalog_option_schemas"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/price-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        get: operations["catalog_get_catalog_price_kinds"];
+        /**
+         * PUT /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        put: operations["catalog_put_catalog_price_kinds"];
+        /**
+         * POST /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        post: operations["catalog_post_catalog_price_kinds"];
+        /**
+         * DELETE /catalog/price-kinds
+         * @description Requires features: catalog.settings.manage
+         */
+        delete: operations["catalog_delete_catalog_price_kinds"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/prices
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_prices"];
+        /**
+         * PUT /catalog/prices
+         * @description Requires features: catalog.pricing.manage
+         */
+        put: operations["catalog_put_catalog_prices"];
+        /**
+         * POST /catalog/prices
+         * @description Requires features: catalog.pricing.manage
+         */
+        post: operations["catalog_post_catalog_prices"];
+        /**
+         * DELETE /catalog/prices
+         * @description Requires features: catalog.pricing.manage
+         */
+        delete: operations["catalog_delete_catalog_prices"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/product-media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/product-media
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_product_media"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/products": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/products
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_products"];
+        /**
+         * PUT /catalog/products
+         * @description Requires features: catalog.products.manage
+         */
+        put: operations["catalog_put_catalog_products"];
+        /**
+         * POST /catalog/products
+         * @description Requires features: catalog.products.manage
+         */
+        post: operations["catalog_post_catalog_products"];
+        /**
+         * DELETE /catalog/products
+         * @description Requires features: catalog.products.manage
+         */
+        delete: operations["catalog_delete_catalog_products"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/tags
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_tags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/utils": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/catalog/variants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /catalog/variants
+         * @description Requires features: catalog.products.view
+         */
+        get: operations["catalog_get_catalog_variants"];
+        /**
+         * PUT /catalog/variants
+         * @description Requires features: catalog.variants.manage
+         */
+        put: operations["catalog_put_catalog_variants"];
+        /**
+         * POST /catalog/variants
+         * @description Requires features: catalog.variants.manage
+         */
+        post: operations["catalog_post_catalog_variants"];
+        /**
+         * DELETE /catalog/variants
+         * @description Requires features: catalog.variants.manage
+         */
+        delete: operations["catalog_delete_catalog_variants"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2447,6 +2903,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/price-kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /sales/price-kinds
+         * @description Requires features: sales.channels.manage
+         */
+        get: operations["sales_get_sales_price_kinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/shipping-methods": {
         parameters: {
             query?: never;
@@ -2794,6 +3270,31 @@ export interface components {
             error: components["schemas"]["DocPathsApiKeysKeysPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsApiKeysKeysPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        /** Format: uuid */
+        DocPathsAttachmentsAttachmentsDeleteParameters0Schema: string;
+        DocPathsAttachmentsAttachmentsDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        /** @enum {boolean} */
+        DocPathsAttachmentsAttachmentsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: true;
+        DocPathsAttachmentsAttachmentsDeleteResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsAttachmentsDeleteResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsAttachmentsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsAttachmentsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsDeleteResponses404ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses404ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsAttachmentsDeleteResponses404ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsFileIdGetParameters0Schema: string;
+        DocPathsAttachmentsAttachmentsFileIdGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsAttachmentsAttachmentsGetParameters0Schema: string;
         DocPathsAttachmentsAttachmentsGetParameters1Schema: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchema: {
@@ -2801,16 +3302,39 @@ export interface components {
         };
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            assignments?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignments"];
             createdAt: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
             fileName: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileName"];
             fileSize: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileSize"];
             id: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            partitionCode?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPartitionCode"];
+            tags?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTags"];
+            thumbnailUrl?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesThumbnailUrl"];
             url: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUrl"];
         };
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignments: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItems"][];
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItems: {
+            href?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesHref"];
+            id: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesId"];
+            label?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabel"];
+            type: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesType"];
+        };
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesHref: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesHrefAnyOf0"] | components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesHrefAnyOf1"];
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesHrefAnyOf0: null;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesHrefAnyOf1: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesId: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabel: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabelAnyOf1"];
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabelAnyOf0: null;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabelAnyOf1: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesType: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileName: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileSize: number;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPartitionCode: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTags: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTagsItems"][];
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTagsItems: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesThumbnailUrl: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUrl: string;
         DocPathsAttachmentsAttachmentsGetResponses400ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses400ContentApplicationJsonSchemaPropertiesError"];
@@ -2824,12 +3348,17 @@ export interface components {
             error: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAttachmentsAttachmentsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsImageIdSlugGetParameters0Schema: string;
+        DocPathsAttachmentsAttachmentsImageIdSlugGetParameters1Schema: string;
+        DocPathsAttachmentsAttachmentsImageIdSlugGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchema: {
+            customFields?: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesCustomFields"];
             entityId: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesEntityId"];
             fieldKey?: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFieldKey"];
             file: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFile"];
             recordId: components["schemas"]["DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesRecordId"];
         };
+        DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesCustomFields: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesEntityId: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFieldKey: string;
         DocPathsAttachmentsAttachmentsPostRequestBodyContentMultipartFormDataSchemaPropertiesFile: string;
@@ -2839,14 +3368,39 @@ export interface components {
             ok: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesOk"];
         };
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItem: {
+            assignments?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignments"];
+            customFields?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesCustomFields"];
             fileName: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileName"];
             fileSize: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileSize"];
             id: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesId"];
+            tags?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesTags"];
+            thumbnailUrl?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesThumbnailUrl"];
             url: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesUrl"];
+        };
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignments: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItems"][];
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItems: {
+            href?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesHref"];
+            id: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesId"];
+            label?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabel"];
+            type: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesType"];
+        };
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesHref: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesHrefAnyOf0"] | components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesHrefAnyOf1"];
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesHrefAnyOf0: null;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesHrefAnyOf1: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesId: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabel: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf1"];
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf0: null;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf1: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesType: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesCustomFields: {
+            [key: string]: unknown;
         };
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileName: string;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileSize: number;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesId: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesTags: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesTagsItems"][];
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesTagsItems: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesThumbnailUrl: string;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesUrl: string;
         /** @enum {boolean} */
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesOk: true;
@@ -2862,6 +3416,88 @@ export interface components {
             error: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAttachmentsAttachmentsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsTransferPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsAttachmentsTransferPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsAttachmentsTransferPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsLibraryGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdDeleteParameters0Schema: string;
+        DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdGetParameters0Schema: string;
+        DocPathsAttachmentsLibraryIdGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdPatchParameters0Schema: string;
+        DocPathsAttachmentsLibraryIdPatchResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsLibraryIdPatchResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdPatchResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdPatchResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsLibraryIdPatchResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsLibraryIdPatchResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsLibraryIdPatchResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         /** Format: uuid */
         DocPathsAuditLogsAuditLogsAccessGetParameters0Schema: string;
         /** Format: uuid */
@@ -3804,6 +4440,279 @@ export interface components {
             error: components["schemas"]["DocPathsAuthUsersPutResponses404ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsAuthUsersPutResponses404ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogCategoriesGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogCategoriesPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogCategoriesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogCategoriesPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogCategoriesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogCategoriesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogDictionariesKeyGetParameters0Schema: string;
+        DocPathsCatalogDictionariesKeyGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogDictionariesKeyGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogDictionariesKeyGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogDictionariesKeyGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogDictionariesKeyGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogDictionariesKeyGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogDictionariesKeyGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogOffersGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogOffersPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogOffersPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOffersPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOffersPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOffersPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogOptionSchemasGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogOptionSchemasPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogOptionSchemasPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogOptionSchemasPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogOptionSchemasPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogOptionSchemasPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPricesGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPricesPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogPricesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogPricesPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogPricesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogPricesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductMediaGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogProductsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogProductsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogProductsPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogProductsPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogProductsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogProductsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogTagsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogVariantsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogVariantsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsCatalogVariantsPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsCatalogVariantsPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsCatalogVariantsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsCatalogVariantsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsConfigsCacheGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsConfigsCacheGetResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsConfigsCacheGetResponses401ContentApplicationJsonSchemaPropertiesError"];
@@ -8573,6 +9482,8 @@ export interface components {
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchema: {
             definitions: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitions"];
             entityId: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesEntityId"];
+            fieldsets?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsets"];
+            singleFieldsetPerRecord?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesSingleFieldsetPerRecord"];
         };
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitions: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitionsItems"][];
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitionsItems: {
@@ -8589,6 +9500,30 @@ export interface components {
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesDefinitionsItemsPropertiesKind: "text" | "multiline" | "integer" | "float" | "boolean" | "select" | "relation" | "attachment" | "dictionary";
         /** Format: regex */
         DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesEntityId: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsets: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItems"][];
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode"];
+            description?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription"];
+            groups?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups"];
+            icon?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon"];
+            label: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel"];
+        };
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems"][];
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle"];
+        };
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel: string;
+        DocPathsEntitiesDefinitionsBatchPostRequestBodyContentApplicationJsonSchemaPropertiesSingleFieldsetPerRecord: boolean;
         DocPathsEntitiesDefinitionsBatchPostResponses200ContentApplicationJsonSchema: {
             ok: components["schemas"]["DocPathsEntitiesDefinitionsBatchPostResponses200ContentApplicationJsonSchemaPropertiesOk"];
         };
@@ -8644,9 +9579,44 @@ export interface components {
         DocPathsEntitiesDefinitionsGetParameters0SchemaOneOf1: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters0SchemaOneOf1Items"][];
         DocPathsEntitiesDefinitionsGetParameters0SchemaOneOf1Items: string;
         DocPathsEntitiesDefinitionsGetParameters1Schema: string;
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsGetParameters2Schema: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchema: {
+            entitySettings?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettings"];
+            fieldsetsByEntity?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntity"];
             items: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
         };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettings: {
+            [key: string]: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalProperties"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalProperties: {
+            singleFieldsetPerRecord?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalPropertiesPropertiesSingleFieldsetPerRecord"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesEntitySettingsAdditionalPropertiesPropertiesSingleFieldsetPerRecord: boolean;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntity: {
+            [key: string]: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalProperties"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalProperties: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItems"][];
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesCode"];
+            description?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesDescription"];
+            groups?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroups"];
+            icon?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesIcon"];
+            label: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesLabel"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesDescription: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroups: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItems"][];
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesTitle"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesHint: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesGroupsItemsPropertiesTitle: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesIcon: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsByEntityAdditionalPropertiesItemsPropertiesLabel: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
             acceptExtensions?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAcceptExtensions"];
@@ -8655,8 +9625,10 @@ export interface components {
             dictionaryInlineCreate?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDictionaryInlineCreate"];
             editor?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEditor"];
             entityId: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEntityId"];
+            fieldset?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFieldset"];
             filterable?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFilterable"];
             formEditable?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFormEditable"];
+            group?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroup"];
             input?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesInput"];
             key: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKey"];
             kind: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind"];
@@ -8675,8 +9647,17 @@ export interface components {
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDictionaryInlineCreate: boolean;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEditor: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEntityId: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFieldset: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFilterable: boolean;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFormEditable: boolean;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroup: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesTitle"];
+        };
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesCode: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesHint: string;
+        DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesGroupPropertiesTitle: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesInput: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKey: string;
         DocPathsEntitiesDefinitionsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind: string;
@@ -8702,10 +9683,33 @@ export interface components {
         DocPathsEntitiesDefinitionsManageGetParameters0Schema: string;
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchema: {
             deletedKeys: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeys"];
+            fieldsets?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsets"];
             items: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            settings?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettings"];
         };
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeys: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeysItems"][];
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesDeletedKeysItems: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsets: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItems"][];
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode"];
+            description?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription"];
+            groups?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups"];
+            icon?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon"];
+            label: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel"];
+        };
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesDescription: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroups: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems"][];
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItems: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle"];
+        };
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesCode: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesHint: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesGroupsItemsPropertiesTitle: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesIcon: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesFieldsetsItemsPropertiesLabel: string;
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
             configJson?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesConfigJson"];
@@ -8734,6 +9738,10 @@ export interface components {
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
         /** Format: uuid */
         DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1: string;
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettings: {
+            singleFieldsetPerRecord?: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettingsPropertiesSingleFieldsetPerRecord"];
+        };
+        DocPathsEntitiesDefinitionsManageGetResponses200ContentApplicationJsonSchemaPropertiesSettingsPropertiesSingleFieldsetPerRecord: boolean;
         DocPathsEntitiesDefinitionsManageGetResponses400ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsEntitiesDefinitionsManageGetResponses400ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -8758,8 +9766,10 @@ export interface components {
             dictionaryId?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryId"];
             dictionaryInlineCreate?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryInlineCreate"];
             editor?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesEditor"];
+            fieldset?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFieldset"];
             filterable?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFilterable"];
             formEditable?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFormEditable"];
+            group?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroup"];
             input?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesInput"];
             label?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesLabel"];
             listVisible?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesListVisible"];
@@ -8777,8 +9787,19 @@ export interface components {
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryId: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesDictionaryInlineCreate: boolean;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesEditor: string;
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFieldset: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFilterable: boolean;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesFormEditable: boolean;
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroup: {
+            code: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesCode"];
+            hint?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesHint"];
+            title?: components["schemas"]["DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesTitle"];
+        };
+        /** Format: regex */
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesCode: string;
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesHint: string;
+        DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesGroupPropertiesTitle: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesInput: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesLabel: string;
         DocPathsEntitiesDefinitionsPostRequestBodyContentApplicationJsonSchemaPropertiesConfigJsonPropertiesListVisible: boolean;
@@ -10051,11 +11072,14 @@ export interface components {
         DocPathsSalesChannelsGetParameters0Schema: number;
         DocPathsSalesChannelsGetParameters1Schema: number;
         DocPathsSalesChannelsGetParameters2Schema: string;
+        /** Format: uuid */
         DocPathsSalesChannelsGetParameters3Schema: string;
         DocPathsSalesChannelsGetParameters4Schema: string;
+        DocPathsSalesChannelsGetParameters5Schema: string;
+        DocPathsSalesChannelsGetParameters6Schema: string;
         /** @enum {string} */
-        DocPathsSalesChannelsGetParameters5Schema: "asc" | "desc";
-        DocPathsSalesChannelsGetParameters6Schema: boolean;
+        DocPathsSalesChannelsGetParameters7Schema: "asc" | "desc";
+        DocPathsSalesChannelsGetParameters8Schema: boolean;
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchema: {
             items: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
             page: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
@@ -10072,6 +11096,7 @@ export interface components {
             id: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
             isActive: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsActive"];
             name: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
+            offerCount?: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOfferCount"];
             organizationId: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
             statusEntryId: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryId"];
             tenantId: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
@@ -10091,6 +11116,7 @@ export interface components {
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsActive: boolean;
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName: string;
+        DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOfferCount: number;
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId: components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0"] | components["schemas"]["DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1"];
         DocPathsSalesChannelsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0: null;
         /** Format: uuid */
@@ -10120,7 +11146,7 @@ export interface components {
             addressLine1?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1"];
             addressLine2?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2"];
             city?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCity"];
-            code?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            code: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             contactEmail?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesContactEmail"];
             contactPhone?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesContactPhone"];
             country?: components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchemaPropertiesCountry"];
@@ -10183,7 +11209,7 @@ export interface components {
             addressLine1?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1"];
             addressLine2?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2"];
             city?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCity"];
-            code?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            code: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             contactEmail?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesContactEmail"];
             contactPhone?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesContactPhone"];
             country?: components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchemaPropertiesCountry"];
@@ -10894,6 +11920,15 @@ export interface components {
             error: components["schemas"]["DocPathsSalesPaymentMethodsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesPaymentMethodsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -11145,6 +12180,7 @@ export interface components {
             endsAt: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesEndsAt"];
             id: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
             isCompound: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsCompound"];
+            isDefault: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsDefault"];
             metadata?: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
             name: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
@@ -11184,6 +12220,7 @@ export interface components {
         /** Format: uuid */
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsCompound: boolean;
+        DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsDefault: boolean;
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1"];
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0: null;
         DocPathsSalesTaxRatesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1: {
@@ -11236,6 +12273,7 @@ export interface components {
             customerGroupId?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerGroupId"];
             endsAt?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesEndsAt"];
             isCompound?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsCompound"];
+            isDefault?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsDefault"];
             metadata?: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
             name: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
@@ -11258,6 +12296,7 @@ export interface components {
         /** Format: date-time */
         DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesEndsAt: string;
         DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsCompound: boolean;
+        DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesIsDefault: boolean;
         DocPathsSalesTaxRatesPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
             [key: string]: unknown;
         };
@@ -11298,6 +12337,7 @@ export interface components {
             endsAt?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesEndsAt"];
             id: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             isCompound?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsCompound"];
+            isDefault?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsDefault"];
             metadata?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
             name?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId?: components["schemas"]["DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
@@ -11322,6 +12362,7 @@ export interface components {
         /** Format: uuid */
         DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsCompound: boolean;
+        DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesIsDefault: boolean;
         DocPathsSalesTaxRatesPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
             [key: string]: unknown;
         };
@@ -11813,6 +12854,569 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_delete_attachments_attachments: {
+        parameters: {
+            query: {
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                id: components["schemas"]["DocPathsAttachmentsAttachmentsDeleteParameters0Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Attachment deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Missing attachment identifier */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Attachment not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsDeleteResponses404ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_attachments_file_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsAttachmentsFileIdGetParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsFileIdGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_attachments_image_id_slug: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsAttachmentsImageIdSlugGetParameters0Schema"];
+                slug: components["schemas"]["DocPathsAttachmentsAttachmentsImageIdSlugGetParameters1Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsImageIdSlugGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_post_attachments_attachments_transfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsAttachmentsTransferPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_library_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsLibraryIdGetParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_delete_attachments_library_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsLibraryIdDeleteParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_patch_attachments_library_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["DocPathsAttachmentsLibraryIdPatchParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdPatchResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdPatchResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsLibraryIdPatchResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_get_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_put_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_post_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    attachments_delete_attachments_partitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsAttachmentsPartitionsDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -13677,6 +15281,1482 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsAuthUsersAclPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_categories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogCategoriesDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_dictionaries_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: components["schemas"]["DocPathsCatalogDictionariesKeyGetParameters0Schema"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogDictionariesKeyGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogDictionariesKeyGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogDictionariesKeyGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_offers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogOffersGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_offers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogOffersPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_offers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogOffersPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_offers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOffersDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_option_schemas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_option_schemas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_option_schemas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_option_schemas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogOptionSchemasDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPriceKindsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_prices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPricesGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_prices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPricesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_prices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogPricesPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_prices: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogPricesDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_product_media: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogProductMediaGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductMediaGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductMediaGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_products: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_products: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogProductsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_products: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogProductsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_products: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogProductsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_tags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogTagsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogTagsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogTagsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_get_catalog_variants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_put_catalog_variants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_post_catalog_variants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    catalog_delete_catalog_variants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsCatalogVariantsDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
@@ -19741,6 +22821,8 @@ export interface operations {
                 entityId?: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters0Schema"];
                 /** @example string */
                 entityIds?: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters1Schema"];
+                /** @example string */
+                fieldset?: components["schemas"]["DocPathsEntitiesDefinitionsGetParameters2Schema"];
             };
             header?: never;
             path?: never;
@@ -22086,8 +25168,12 @@ export interface operations {
     sales_get_sales_channels: {
         parameters: {
             query?: {
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                id?: components["schemas"]["DocPathsSalesChannelsGetParameters3Schema"];
                 /** @example string */
-                isActive?: components["schemas"]["DocPathsSalesChannelsGetParameters3Schema"];
+                ids?: components["schemas"]["DocPathsSalesChannelsGetParameters4Schema"];
+                /** @example string */
+                isActive?: components["schemas"]["DocPathsSalesChannelsGetParameters5Schema"];
                 /** @example 1 */
                 page?: components["schemas"]["DocPathsSalesChannelsGetParameters0Schema"];
                 /** @example 1 */
@@ -22095,11 +25181,11 @@ export interface operations {
                 /** @example string */
                 search?: components["schemas"]["DocPathsSalesChannelsGetParameters2Schema"];
                 /** @example asc */
-                sortDir?: components["schemas"]["DocPathsSalesChannelsGetParameters5Schema"];
+                sortDir?: components["schemas"]["DocPathsSalesChannelsGetParameters7Schema"];
                 /** @example string */
-                sortField?: components["schemas"]["DocPathsSalesChannelsGetParameters4Schema"];
+                sortField?: components["schemas"]["DocPathsSalesChannelsGetParameters6Schema"];
                 /** @example true */
-                withDeleted?: components["schemas"]["DocPathsSalesChannelsGetParameters6Schema"];
+                withDeleted?: components["schemas"]["DocPathsSalesChannelsGetParameters8Schema"];
             };
             header?: never;
             path?: never;
@@ -22167,7 +25253,8 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "code": "string"
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsSalesChannelsPutRequestBodyContentApplicationJsonSchema"];
@@ -22232,7 +25319,8 @@ export interface operations {
                  * @example {
                  *       "organizationId": "00000000-0000-4000-8000-000000000000",
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
-                 *       "name": "string"
+                 *       "name": "string",
+                 *       "code": "string"
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsSalesChannelsPostRequestBodyContentApplicationJsonSchema"];
@@ -23400,6 +26488,54 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesPaymentMethodsDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_price_kinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

@@ -71,3 +71,6 @@ packages/*/src/**/*.jsx
 data/*
 
 tmp/
+
+public/uploads/*
+storage/attachments/*

@@ -27,15 +27,16 @@ const percentage = () => decimal({ min: 0, max: 100 })
 
 const metadata = z.record(z.string(), z.unknown()).optional()
 
+const channelCodeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9\-_]+$/)
+  .max(120)
+
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
-  code: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9\-_]+$/)
-    .max(120)
-    .optional(),
+  code: channelCodeSchema,
   description: z.string().trim().max(2000).optional(),
   statusEntryId: uuid().optional(),
   websiteUrl: z.string().trim().url().max(300).optional(),
@@ -56,8 +57,9 @@ export const channelCreateSchema = scoped.extend({
 export const channelUpdateSchema = z
   .object({
     id: uuid(),
+    code: channelCodeSchema,
   })
-  .merge(channelCreateSchema.partial())
+  .merge(channelCreateSchema.omit({ code: true }).partial())
 
 export const shippingMethodCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -145,6 +147,7 @@ export const taxRateCreateSchema = scoped.extend({
   channelId: uuid().optional(),
   priority: z.coerce.number().int().min(0).max(10).optional(),
   isCompound: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
   metadata,
   startsAt: z.coerce.date().optional(),
   endsAt: z.coerce.date().optional(),
