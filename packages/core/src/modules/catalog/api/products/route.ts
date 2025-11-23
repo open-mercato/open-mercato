@@ -93,7 +93,9 @@ export async function buildProductFilters(
   const restrictedProductIds: { value: Set<string> | null } = { value: null }
 
   const intersectProductIds = (ids: string[]) => {
-    const normalized = ids.filter((id): id is string => typeof id === 'string' && id.trim().length)
+    const normalized = ids.filter(
+      (id): id is string => typeof id === 'string' && id.trim().length > 0
+    )
     const current = new Set(normalized)
     if (!current.size) {
       restrictedProductIds.value = new Set()

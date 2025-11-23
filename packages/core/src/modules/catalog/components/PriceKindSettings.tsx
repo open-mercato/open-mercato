@@ -23,12 +23,13 @@ import { useT } from '@/lib/i18n/context'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import type { DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import type { CatalogPriceDisplayMode } from '../data/types'
 
 type PriceKind = {
   id: string
   code: string
   title: string
-  displayMode: 'including-tax' | 'excluding-tax'
+  displayMode: CatalogPriceDisplayMode
   currencyCode: string | null
   isPromotion: boolean
   isActive: boolean
@@ -56,7 +57,16 @@ const DISPLAY_MODES: Array<{ value: 'including-tax' | 'excluding-tax'; label: st
 
 const PAGE_SIZE = 100
 
-const DEFAULT_FORM = {
+type PriceKindFormState = {
+  code: string
+  title: string
+  displayMode: CatalogPriceDisplayMode
+  currencyCode: string
+  isPromotion: boolean
+  isActive: boolean
+}
+
+const DEFAULT_FORM: PriceKindFormState = {
   code: '',
   title: '',
   displayMode: 'excluding-tax' as const,
@@ -103,7 +113,7 @@ export function PriceKindSettings() {
   const [loading, setLoading] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
-  const [form, setForm] = React.useState(DEFAULT_FORM)
+  const [form, setForm] = React.useState<PriceKindFormState>(DEFAULT_FORM)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const { data: currencyDictionary, refetch: refetchCurrencyDictionary } = useCurrencyDictionary()

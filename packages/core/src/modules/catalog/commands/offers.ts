@@ -6,6 +6,7 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogOffer } from '../data/entities'
+import type { CatalogOfferLocalizedContent } from '../data/types'
 import {
   offerCreateSchema,
   offerUpdateSchema,
@@ -360,7 +361,10 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
       record.description = before.description ?? null
       record.defaultMediaId = before.defaultMediaId ?? null
       record.defaultMediaUrl = before.defaultMediaUrl ?? null
-      record.localizedContent = before.localizedContent ? cloneJson(before.localizedContent) : null
+      const localizedContent = before.localizedContent
+        ? (cloneJson(before.localizedContent) as CatalogOfferLocalizedContent)
+        : null
+      record.localizedContent = localizedContent
       record.metadata = before.metadata ? cloneJson(before.metadata) : null
       record.isActive = before.isActive
       record.updatedAt = new Date(before.updatedAt)

@@ -127,15 +127,15 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
       setError(null)
       try {
         const res = await apiCall<ProductResponse>(
-          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1`,
+          `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1`,
         )
         if (!res.ok) throw new Error('load_failed')
         const record = Array.isArray(res.result?.items) ? res.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
         const metadata = (record.metadata ?? {}) as Record<string, unknown>
         const optionSchemaId =
-          typeof record.option_schema_id === 'string'
-            ? record.option_schema_id
+          typeof (record as any).option_schema_id === 'string'
+            ? (record as any).option_schema_id
             : typeof (record as any).optionSchemaId === 'string'
               ? (record as any).optionSchemaId
               : null

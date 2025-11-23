@@ -89,7 +89,9 @@ export function upsertAssignment(
 ): AttachmentAssignment[] {
   if (!entry) return assignments
   const key = `${entry.type}:${entry.id}`
-  const map = new Map(assignments.map((candidate) => [`${candidate.type}:${candidate.id}`, candidate] as const))
+  const map = new Map<string, AttachmentAssignment>(
+    assignments.map((candidate) => [`${candidate.type}:${candidate.id}`, candidate] as const),
+  )
   map.set(key, entry)
   return Array.from(map.values())
 }

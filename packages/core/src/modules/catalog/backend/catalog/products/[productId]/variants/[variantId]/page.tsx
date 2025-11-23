@@ -137,7 +137,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
       setError(null)
       try {
         const variantRes = await apiCall<VariantResponse>(
-          `/api/catalog/variants?id=${encodeURIComponent(variantId)}&page=1&pageSize=1`,
+          `/api/catalog/variants?id=${encodeURIComponent(variantId!)}&page=1&pageSize=1`,
         )
         if (!variantRes.ok) throw new Error('load_variant_failed')
         const record = Array.isArray(variantRes.result?.items) ? variantRes.result?.items?.[0] : undefined
@@ -150,8 +150,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               : currentProductId
         if (resolvedProductId) setCurrentProductId(resolvedProductId)
         const metadata = typeof record.metadata === 'object' && record.metadata ? { ...(record.metadata as Record<string, unknown>) } : {}
-        const attachments = await fetchVariantAttachments(variantId)
-        const priceDrafts = await loadVariantPrices(variantId)
+        const attachments = await fetchVariantAttachments(variantId!)
+        const priceDrafts = await loadVariantPrices(variantId!)
         const priceIdMap: Record<string, string> = {}
         Object.entries(priceDrafts).forEach(([kindId, draft]) => {
           if (draft.priceId) priceIdMap[kindId] = draft.priceId
@@ -169,8 +169,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               setProductTitle(typeof product.title === 'string' ? product.title : '')
               const productMetadata = (product.metadata ?? {}) as Record<string, unknown>
               const optionSchemaId =
-                typeof product.option_schema_id === 'string'
-                  ? product.option_schema_id
+                typeof (product as any).option_schema_id === 'string'
+                  ? (product as any).option_schema_id
                   : typeof (product as any).optionSchemaId === 'string'
                     ? (product as any).optionSchemaId
                     : null
@@ -219,7 +219,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
           const base = createVariantInitialValues()
           setInitialValues({
             ...base,
-            mediaDraftId: variantId,
+            mediaDraftId: variantId!,
             name: typeof record.name === 'string' ? record.name : '',
             sku: typeof record.sku === 'string' ? record.sku : '',
             barcode: typeof record.barcode === 'string' ? record.barcode : '',
@@ -430,7 +430,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             router.push(productVariantsHref)
           }}
           onDelete={async () => {
-            await deleteCrud('catalog/variants', variantId, {
+            await deleteCrud('catalog/variants', variantId!, {
               errorMessage: t('catalog.variants.form.deleteError', 'Failed to delete variant.'),
             })
             flash(t('catalog.variants.form.deleted', 'Variant deleted.'), 'success')

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
+import type { ZodType } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -47,6 +48,8 @@ import {
   updateWeightValue,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
+
+const productFormTypedSchema = productFormSchema as unknown as ZodType<ProductFormValues>
 
 type VariantPriceRequest = {
   variantDraftId: string
@@ -219,7 +222,7 @@ export default function CreateCatalogProductPage() {
           fields={[]}
           groups={groups}
           initialValues={initialValuesRef.current ?? createInitialProductFormValues()}
-          schema={productFormSchema}
+          schema={productFormTypedSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
           cancelHref="/backend/catalog/products"
           onSubmit={async (formValues) => {

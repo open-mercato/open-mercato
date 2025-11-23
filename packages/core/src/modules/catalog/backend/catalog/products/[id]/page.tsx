@@ -33,6 +33,7 @@ import {
   type PriceKindSummary,
   type PriceKindApiPayload,
   productFormSchema,
+  BASE_INITIAL_VALUES,
   createLocalId,
   slugify,
   formatTaxRateLabel,
@@ -48,6 +49,7 @@ import {
   updateDimensionValue,
   updateWeightValue,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
+import type { CatalogProductOptionSchema } from '@open-mercato/core/modules/catalog/data/types'
 import { MetadataEditor } from '@open-mercato/core/modules/catalog/components/products/MetadataEditor'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import {
@@ -210,7 +212,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
       setError(null)
       try {
         const productRes = await apiCall<ProductResponse>(
-          `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+          `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1&withDeleted=false`,
         )
         if (!productRes.ok) throw new Error('load_failed')
         const record = Array.isArray(productRes.result?.items) ? productRes.result?.items?.[0] : undefined
@@ -241,13 +243,12 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
               ? (record as any).optionSchemaId
               : null
         const optionSchemaTemplate = optionSchemaId ? await fetchOptionSchemaTemplate(optionSchemaId) : null
-        let optionInputs = optionSchemaTemplate?.schema
-          ? convertSchemaToProductOptions(optionSchemaTemplate.schema)
-          : []
+        const normalizedSchema = normalizeOptionSchemaRecord(optionSchemaTemplate?.schema)
+        let optionInputs = normalizedSchema ? convertSchemaToProductOptions(normalizedSchema) : []
         if (!optionInputs.length) {
           optionInputs = readOptionSchema(metadata)
         }
-        const attachments = await fetchAttachments(productId)
+        const attachments = await fetchAttachments(productId!)
         const { customValues } = extractCustomFields(record)
         const offers = readOfferSnapshots(record)
         offerSnapshotsRef.current = offers
@@ -264,7 +265,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           description: typeof record.description === 'string' ? record.description : '',
           useMarkdown: Boolean(metadata.__useMarkdown),
           taxRateId: null,
-          mediaDraftId: productId,
+          mediaDraftId: productId!,
           mediaItems: attachments,
           defaultMediaId,
           defaultMediaUrl,
@@ -293,7 +294,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
             tags: tagOptions,
           })
         }
-        await loadVariants(productId)
+        await loadVariants(productId!)
       } catch (err) {
         console.error('catalog.products.edit.load failed', err)
         if (!cancelled) {
@@ -475,22 +476,22 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     {
       id: 'dimensions',
       column: 1,
-      component: ({ values, setValue }) => (
-        <ProductDimensionsSection values={values as ProductFormValues} setValue={setValue} />
+      component: ({ values, setValue, errors }) => (
+        <ProductDimensionsSection values={values as ProductFormValues} setValue={setValue} errors={errors} />
       ),
     },
     {
       id: 'metadata',
       column: 1,
-      component: ({ values, setValue }) => (
-        <ProductMetadataSection values={values as ProductFormValues} setValue={setValue} />
+      component: ({ values, setValue, errors }) => (
+        <ProductMetadataSection values={values as ProductFormValues} setValue={setValue} errors={errors} />
       ),
     },
     {
       id: 'options',
       column: 1,
-      component: ({ values, setValue }) => (
-        <ProductOptionsSection values={values as ProductFormValues} setValue={setValue} />
+      component: ({ values, setValue, errors }) => (
+        <ProductOptionsSection values={values as ProductFormValues} setValue={setValue} errors={errors} />
       ),
     },
     {
@@ -557,7 +558,31 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       const message = issues[0]?.message ?? t('catalog.products.edit.errors.validation', 'Fix highlighted fields.')
       throw createCrudFormError(message, fieldErrors)
     }
-    const values = parsed.data
+    const values: ProductFormValues = {
+      ...BASE_INITIAL_VALUES,
+      ...parsed.data,
+      title: parsed.data.title ?? '',
+      subtitle: parsed.data.subtitle ?? '',
+      handle: parsed.data.handle ?? '',
+      description: parsed.data.description ?? '',
+      useMarkdown: parsed.data.useMarkdown ?? false,
+      taxRateId: parsed.data.taxRateId ?? null,
+      mediaDraftId: parsed.data.mediaDraftId ?? productId!,
+      mediaItems: Array.isArray(parsed.data.mediaItems) ? parsed.data.mediaItems : [],
+      defaultMediaId: parsed.data.defaultMediaId ?? null,
+      defaultMediaUrl: parsed.data.defaultMediaUrl ?? '',
+      hasVariants: parsed.data.hasVariants ?? false,
+      options: Array.isArray(parsed.data.options) ? parsed.data.options : [],
+      variants: Array.isArray(parsed.data.variants) ? parsed.data.variants : [],
+      metadata: parsed.data.metadata ?? {},
+      dimensions: parsed.data.dimensions ?? null,
+      weight: parsed.data.weight ?? null,
+      customFieldsetCode: parsed.data.customFieldsetCode ?? null,
+      categoryIds: parsed.data.categoryIds ?? [],
+      channelIds: parsed.data.channelIds ?? [],
+      tags: parsed.data.tags ?? [],
+      optionSchemaId: parsed.data.optionSchemaId ?? null,
+    }
     const title = values.title?.trim()
     if (!title) {
       const message = t('catalog.products.create.errors.title', 'Provide a product title.')
@@ -681,27 +706,22 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
 }
 
 
-type ProductDetailsSectionProps = {
-  values: ProductFormValues
-  setValue: (id: string, value: unknown) => void
-  errors: Record<string, string>
-  productId: string
-}
+type ProductFormGroupProps = CrudFormGroupComponentProps & { values: ProductFormValues }
 
-type ProductMetaSectionProps = {
-  values: ProductFormValues
-  setValue: (id: string, value: unknown) => void
-  errors: Record<string, string>
-  taxRates: TaxRateSummary[]
-}
+type ProductDetailsSectionProps = ProductFormGroupProps & { productId: string }
 
-type ProductVariantsSectionProps = CrudFormGroupComponentProps<ProductFormValues> & {
+type ProductMetaSectionProps = ProductFormGroupProps & { taxRates: TaxRateSummary[] }
+
+type ProductVariantsSectionProps = Omit<CrudFormGroupComponentProps, 'values'> & {
+  values: ProductFormValues
   productId: string
   variants: VariantSummary[]
   priceKinds: PriceKindSummary[]
   onVariantDeleted: (variantId: string) => void
   onVariantsReload?: () => Promise<void> | void
 }
+
+type ProductDimensionsSectionProps = ProductFormGroupProps
 
 function ProductDetailsSection({ values, setValue, errors, productId }: ProductDetailsSectionProps) {
   const t = useT()
@@ -809,7 +829,7 @@ function ProductDetailsSection({ values, setValue, errors, productId }: ProductD
   )
 }
 
-function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
+function ProductDimensionsSection({ values, setValue }: ProductDimensionsSectionProps) {
   const t = useT()
   const dimensionValues = normalizeProductDimensions(values.dimensions)
   const weightValues = normalizeProductWeight(values.weight)
@@ -875,7 +895,7 @@ function ProductDimensionsSection({ values, setValue }: CrudFormGroupComponentPr
   )
 }
 
-function ProductMetadataSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
+function ProductMetadataSection({ values, setValue }: ProductFormGroupProps) {
   const metadata = normalizeMetadata(values.metadata)
   const handleMetadataChange = React.useCallback((next: Record<string, unknown>) => {
     setValue('metadata', next)
@@ -884,7 +904,7 @@ function ProductMetadataSection({ values, setValue }: CrudFormGroupComponentProp
   return <MetadataEditor value={metadata} onChange={handleMetadataChange} embedded />
 }
 
-function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps<ProductFormValues>) {
+function ProductOptionsSection({ values, setValue }: ProductFormGroupProps) {
   const t = useT()
   const [schemaDialogOpen, setSchemaDialogOpen] = React.useState(false)
   const [schemaTemplates, setSchemaTemplates] = React.useState<OptionSchemaTemplateSummary[]>([])
@@ -927,7 +947,7 @@ function ProductOptionsSection({ values, setValue }: CrudFormGroupComponentProps
       throw createCrudFormError(message, { name: message })
     }
     const schemaPayload = buildSchemaFromOptions(Array.isArray(values.options) ? values.options : [], name)
-    if (!schemaPayload.options.length) {
+    if (!schemaPayload.options?.length) {
       throw createCrudFormError(t('catalog.products.edit.schemas.empty', 'Add at least one option before saving.'), {})
     }
     const payload: Record<string, unknown> = {
@@ -1482,7 +1502,11 @@ function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
                 ? { id: String(value.id ?? createLocalId()), label: typeof value.label === 'string' ? value.label : '' }
                 : null,
             )
-            .filter((entry): entry is { id: string; label: string } => !!entry)
+            .filter(
+              (
+                entry: { id?: string; label?: string } | null,
+              ): entry is { id: string; label: string } => !!entry,
+            )
         : []
       return {
         id: String((option as any).id ?? createLocalId()),
@@ -1544,7 +1568,11 @@ function readCategorySelections(record: Record<string, unknown>): {
         parentName && !label.toLowerCase().includes(parentName.toLowerCase()) ? parentName : null
       return { value, label, description }
     })
-    .filter((option): option is ProductCategorizePickerOption => !!option)
+    .filter(
+      (
+        option: { value: string; label: string; description: string | null } | null,
+      ): option is { value: string; label: string; description: string | null } => !!option,
+    )
   const fallbackIds = normalizeIdList((record as Record<string, unknown>).categoryIds)
   const combinedIds = Array.from(new Set([...options.map((option) => option.value), ...fallbackIds]))
   return { ids: combinedIds, options }
@@ -1701,6 +1729,39 @@ function buildMetadataPayload(values: ProductFormValues): Record<string, unknown
   return metadata
 }
 
+function normalizeOptionSchemaRecord(
+  schema: OptionSchemaRecord | null | undefined,
+): CatalogProductOptionSchema | null {
+  if (!schema || !Array.isArray(schema.options)) return null
+  return {
+    version: typeof schema.version === 'number' ? schema.version : undefined,
+    name: schema.name ?? null,
+    description: schema.description ?? null,
+    options: schema.options.map((option) => {
+      const code = option.code?.trim() || createLocalId()
+      const label = option.label?.trim() || code
+      const inputType =
+        option.inputType === 'text' || option.inputType === 'textarea' || option.inputType === 'number'
+          ? option.inputType
+          : 'select'
+      const choices = Array.isArray(option.choices)
+        ? option.choices.map((choice) => {
+            const choiceCode = choice.code?.trim() || createLocalId()
+            const choiceLabel = choice.label?.trim() || choiceCode
+            return { code: choiceCode, label: choiceLabel }
+          })
+        : []
+      return {
+        code,
+        label,
+        description: option.description ?? undefined,
+        inputType,
+        choices,
+      }
+    }),
+  }
+}
+
 function buildSchemaFromOptions(options: ProductOptionInput[], name: string): OptionSchemaRecord {
   return {
     version: 1,
@@ -1715,8 +1776,8 @@ function buildSchemaFromOptions(options: ProductOptionInput[], name: string): Op
 }
 
 function extractOptionsFromTemplate(template: OptionSchemaTemplateSummary): ProductOptionInput[] {
-  const schema = template?.schema
-  if (!schema || !Array.isArray(schema.options)) return []
+  const schema = normalizeOptionSchemaRecord(template?.schema)
+  if (!schema) return []
   return convertSchemaToProductOptions(schema)
 }
 
@@ -1738,7 +1799,13 @@ function OptionSchemaDialog({
         </DialogHeader>
         {isLoading ? (
           <div className="py-6">
-            <DataLoader />
+            <DataLoader
+              isLoading
+              loadingMessage={t('catalog.products.edit.schemas.loading', 'Loading…')}
+              spinnerSize="md"
+            >
+              <></>
+            </DataLoader>
           </div>
         ) : templates.length ? (
           <div className="divide-y rounded-md border">
@@ -1747,7 +1814,7 @@ function OptionSchemaDialog({
               return (
                 <div key={id ?? template.name ?? createLocalId()} className="flex items-center justify-between px-4 py-3">
                   <div>
-                    <p className="text-sm font-medium">{template.name ?? template.code ?? 'Schema'}</p>
+                    <p className="text-sm font-medium">{template.name ?? template.id ?? 'Schema'}</p>
                     {template.description ? (
                       <p className="text-xs text-muted-foreground">{template.description}</p>
                     ) : null}

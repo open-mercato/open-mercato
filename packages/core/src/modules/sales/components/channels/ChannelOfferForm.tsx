@@ -187,6 +187,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
             ...attachments,
             ...buildVariantMediaOptions(variants),
           ])
+          attachmentCache.current.set(productId, mergedMedia)
           setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
         }
@@ -1272,6 +1273,7 @@ function OfferFormWatchers({
             ...attachments,
             ...buildVariantMediaOptions(variants),
           ])
+          attachmentCache.current.set(productId, mergedMedia)
           setMediaOptions(mergedMedia)
           setVariantPreviews(variants)
         }

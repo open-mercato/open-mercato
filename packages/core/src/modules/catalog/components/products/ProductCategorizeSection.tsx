@@ -121,7 +121,11 @@ export function ProductCategorizeSection({
               parentName && !label.toLowerCase().includes(parentName.toLowerCase()) ? parentName : null
             return { value, label, description }
           })
-          .filter((option): option is ProductCategorizePickerOption => !!option)
+          .filter(
+            (
+              option: { value: string; label: string; description: string | null } | null,
+            ): option is { value: string; label: string; description: string | null } => !!option,
+          )
         registerPickerOptions(setCategoryOptionsMap, options)
         return options
       } catch {

@@ -240,16 +240,20 @@ function normalizeCatalogOptionSchema(
           typeof option.description === 'string' && option.description.trim().length
             ? option.description.trim()
             : null,
-        inputType: option.inputType ?? 'select',
+        inputType:
+          option.inputType === 'text' ||
+          option.inputType === 'textarea' ||
+          option.inputType === 'number'
+            ? option.inputType
+            : 'select',
         isRequired: option.isRequired ?? false,
         isMultiple: option.isMultiple ?? false,
         choices,
       }
     })
-    .filter(
-      (entry): entry is CatalogProductOptionSchema['options'][number] =>
-        !!entry && entry.code.trim().length > 0
-    )
+    .filter((entry) => !!entry && entry.code.trim().length > 0) as Array<
+    CatalogProductOptionSchema['options'][number]
+  >
   if (!options.length) return null
   return {
     version: typeof input.version === 'number' && input.version > 0 ? input.version : 1,
@@ -291,7 +295,7 @@ function convertLegacyOptionSchema(raw: unknown): CatalogProductOptionSchema | n
         choices: values,
       }
     })
-    .filter((option): option is CatalogProductOptionSchema['options'][number] => !!option)
+    .filter((option) => !!option) as CatalogProductOptionSchema['options']
   if (!options.length) return null
   return {
     version: 1,
@@ -1104,13 +1108,6 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.defaultMediaUrl !== undefined) {
       record.defaultMediaUrl = parsed.defaultMediaUrl ?? null
     }
-    if (normalizedDimensions !== null || parsed.dimensions !== undefined) {
-      record.dimensions = normalizedDimensions ? cloneJson(normalizedDimensions) : null
-    }
-    if (weightProvided) {
-      record.weightValue = weightValueFromInput
-      record.weightUnit = weightUnitFromInput
-    }
     const metadataProvided =
       rawInput && typeof rawInput === 'object' && Object.prototype.hasOwnProperty.call(rawInput, 'metadata')
     const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
@@ -1132,6 +1129,13 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
       parsed.weightUnit !== undefined ||
       measurements.weightValue !== null ||
       measurements.weightUnit !== null
+    if (normalizedDimensions !== null || parsed.dimensions !== undefined) {
+      record.dimensions = normalizedDimensions ? cloneJson(normalizedDimensions) : null
+    }
+    if (weightProvided) {
+      record.weightValue = weightValueFromInput
+      record.weightUnit = weightUnitFromInput
+    }
     if (metadataProvided) {
       record.metadata = measurements.metadata ? cloneJson(measurements.metadata) : null
     }
@@ -1426,7 +1430,7 @@ function resolveProductUniqueConstraint(error: unknown): 'handle' | 'sku' | null
   const message = typeof (error as { message?: string }).message === 'string'
     ? (error as { message?: string }).message
     : ''
-  const normalized = message.toLowerCase()
+  const normalized = message ? message.toLowerCase() : ''
   if (
     normalized.includes('catalog_products_handle_scope_unique') ||
     normalized.includes(' handle')

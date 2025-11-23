@@ -235,9 +235,7 @@ export async function decorateOffersWithDetails(
     const entryChannelId = typeof entry.channelId === 'string' && entry.channelId.length
       ? entry.channelId
       : null
-    const priceKind = entry.priceKind && typeof entry.priceKind === 'object'
-      ? (entry.priceKind as Record<string, unknown>)
-      : null
+    const priceKind = entry.priceKind ?? null
     const priceKindId =
       typeof priceKind?.id === 'string'
         ? priceKind.id
@@ -252,8 +250,8 @@ export async function decorateOffersWithDetails(
         : null
     const displayMode = typeof priceKind?.displayMode === 'string'
       ? priceKind.displayMode
-      : typeof priceKind?.display_mode === 'string'
-        ? priceKind.display_mode
+      : typeof (priceKind as any)?.display_mode === 'string'
+        ? (priceKind as any).display_mode
         : 'excluding-tax'
     const payload = {
       priceKindId,

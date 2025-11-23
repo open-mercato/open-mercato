@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -40,7 +40,7 @@ export const metadata = routeMetadata
 
 export async function buildOptionSchemaFilters(
   query: SchemaQuery,
-  ctx: { container: any; auth?: { tenantId?: string | null } },
+  ctx: CrudCtx,
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
   if (query.id) {

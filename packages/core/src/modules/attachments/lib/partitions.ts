@@ -47,6 +47,7 @@ export async function ensureDefaultPartitions(em: EntityManager): Promise<void> 
       code: seed.code,
       title: seed.title,
       description: seed.description ?? null,
+      storageDriver: 'local',
       isPublic: seed.isPublic ?? false,
     })
     em.persist(record)

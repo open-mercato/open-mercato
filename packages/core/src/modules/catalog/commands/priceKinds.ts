@@ -12,6 +12,7 @@ import {
   type PriceKindUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import type { CatalogPriceDisplayMode } from '../data/types'
 
 type PriceKindSnapshot = {
   id: string
@@ -268,6 +269,8 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogPriceKind, { id: before.id })
+    const displayMode: CatalogPriceDisplayMode =
+      before.displayMode === 'including-tax' ? 'including-tax' : 'excluding-tax'
     if (!record) {
       record = em.create(CatalogPriceKind, {
         id: before.id,
@@ -275,7 +278,7 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
         tenantId: before.tenantId,
         code: before.code,
         title: before.title,
-        displayMode: before.displayMode,
+        displayMode,
         currencyCode: before.currencyCode,
         isPromotion: before.isPromotion,
         isActive: before.isActive,
@@ -290,7 +293,7 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
       record.isActive = before.isActive
       record.code = before.code
       record.title = before.title
-      record.displayMode = before.displayMode as CatalogPriceKind['displayMode']
+      record.displayMode = displayMode
       record.currencyCode = before.currencyCode
       record.isPromotion = before.isPromotion
     }
