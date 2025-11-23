@@ -329,8 +329,53 @@ async function decorateProductsAfterList(
       description: offer.description ?? null,
       isActive: offer.isActive,
       localizedContent: offer.localizedContent ?? null,
+      defaultMediaId: offer.defaultMediaId ?? null,
+      defaultMediaUrl: offer.defaultMediaUrl ?? null,
+      metadata: offer.metadata ?? null,
     })
     offersByProduct.set(productId, entry)
+  }
+
+  const categoryAssignments = await em.find(
+    CatalogProductCategoryAssignment,
+    { product: { $in: productIds } },
+    { populate: ['category'], orderBy: { position: 'asc' } }
+  )
+  const categoriesByProduct = new Map<string, Array<{ id: string; name: string | null; treePath: string | null }>>()
+  for (const assignment of categoryAssignments) {
+    const productId =
+      typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
+    if (!productId) continue
+    const category =
+      typeof assignment.category === 'string' ? null : assignment.category ?? null
+    if (!category) continue
+    const bucket = categoriesByProduct.get(productId) ?? []
+    bucket.push({
+      id: category.id,
+      name: category.name ?? null,
+      treePath: category.treePath ?? null,
+    })
+    categoriesByProduct.set(productId, bucket)
+  }
+
+  const tagAssignments = await em.find(
+    CatalogProductTagAssignment,
+    { product: { $in: productIds } },
+    { populate: ['tag'] }
+  )
+  const tagsByProduct = new Map<string, string[]>()
+  for (const assignment of tagAssignments) {
+    const productId =
+      typeof assignment.product === 'string' ? assignment.product : assignment.product?.id ?? null
+    if (!productId) continue
+    const tag =
+      typeof assignment.tag === 'string' ? null : assignment.tag ?? null
+    if (!tag) continue
+    const label = typeof tag.label === 'string' && tag.label.trim().length ? tag.label : null
+    if (!label) continue
+    const bucket = tagsByProduct.get(productId) ?? []
+    bucket.push(label)
+    tagsByProduct.set(productId, bucket)
   }
 
   const variants = await em.find(
@@ -382,7 +427,20 @@ async function decorateProductsAfterList(
   for (const item of items) {
     const id = typeof item.id === 'string' ? item.id : null
     if (!id) continue
-    item.offers = offersByProduct.get(id) ?? []
+    const offerEntries = offersByProduct.get(id) ?? []
+    item.offers = offerEntries
+    const channelIds = Array.from(
+      new Set(
+        offerEntries
+          .map((offer) => (typeof offer.channelId === 'string' ? offer.channelId : null))
+          .filter((channelId): channelId is string => !!channelId)
+      )
+    )
+    item.channelIds = channelIds
+    const categories = categoriesByProduct.get(id) ?? []
+    item.categories = categories
+    item.categoryIds = categories.map((category) => category.id)
+    item.tags = tagsByProduct.get(id) ?? []
     const priceCandidates = pricesByProduct.get(id) ?? []
     const best = await pricingService.resolvePrice(priceCandidates, pricingContext)
     if (best) {

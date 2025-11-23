@@ -14,6 +14,8 @@ import { deletePartitionFile } from '../../../lib/storage'
 import { splitCustomFieldPayload, loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../../lib/assignmentDetails'
 
 const updateSchema = z.object({
   tags: z.array(z.string()).optional(),
@@ -65,6 +67,12 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
   }
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  let queryEngine: QueryEngine | null = null
+  try {
+    queryEngine = resolve('queryEngine') as QueryEngine
+  } catch {
+    queryEngine = null
+  }
   const record = await em.findOne(Attachment, {
     id: attachmentId,
     organizationId: auth.orgId,
@@ -86,6 +94,13 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     tenantFallbacks: [auth.tenantId ?? null].filter((value): value is string => !!value),
   })
   const customFields = normalizeCustomFieldResponse(customFieldValues[record.id])
+  const assignments = metadata.assignments ?? []
+  const enrichments = await resolveAssignmentEnrichments(assignments, {
+    queryEngine,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  })
+  const enrichedAssignments = applyAssignmentEnrichments(assignments, enrichments)
   return NextResponse.json({
     item: {
       id: record.id,
@@ -95,7 +110,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       partitionCode: record.partitionCode,
       partitionTitle: partition?.title ?? null,
       tags: metadata.tags ?? [],
-      assignments: metadata.assignments ?? [],
+      assignments: enrichedAssignments,
       customFields,
     },
   })
@@ -118,6 +133,12 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   }
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  let queryEngine: QueryEngine | null = null
+  try {
+    queryEngine = resolve('queryEngine') as QueryEngine
+  } catch {
+    queryEngine = null
+  }
   const dataEngine = resolve('dataEngine') as any
   const record = await em.findOne(Attachment, {
     id: attachmentId,
@@ -150,12 +171,19 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   }
 
   const metadata = readAttachmentMetadata(record.storageMetadata)
+  const assignments = metadata.assignments ?? []
+  const enrichments = await resolveAssignmentEnrichments(assignments, {
+    queryEngine,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  })
+  const enrichedAssignments = applyAssignmentEnrichments(assignments, enrichments)
   return NextResponse.json({
     ok: true,
     item: {
       id: record.id,
       tags: metadata.tags ?? [],
-      assignments: metadata.assignments ?? [],
+      assignments: enrichedAssignments,
       customFields: normalizeCustomFieldResponse(custom ?? null),
     },
   })

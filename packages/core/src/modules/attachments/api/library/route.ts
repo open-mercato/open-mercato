@@ -6,6 +6,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../../lib/imageUrls'
 import { readAttachmentMetadata } from '../../lib/metadata'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
 
 const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -59,6 +61,12 @@ export async function GET(req: Request) {
   const offset = (page - 1) * pageSize
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
+  let queryEngine: QueryEngine | null = null
+  try {
+    queryEngine = resolve('queryEngine') as QueryEngine
+  } catch {
+    queryEngine = null
+  }
   const qb = em.createQueryBuilder(Attachment, 'a')
   qb.where({
     organizationId: auth.orgId,
@@ -119,6 +127,19 @@ export async function GET(req: Request) {
     }
   })
 
+  const allAssignments = items.flatMap((item) => item.assignments ?? [])
+  const enrichments = await resolveAssignmentEnrichments(allAssignments, {
+    queryEngine,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+  })
+  const enrichedItems = enrichments.size
+    ? items.map((item) => ({
+        ...item,
+        assignments: applyAssignmentEnrichments(item.assignments ?? [], enrichments),
+      }))
+    : items
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const knex = (em as any).getConnection().getKnex()
   const tagRows: Array<{ tag?: string | null }> = await knex
@@ -134,7 +155,7 @@ export async function GET(req: Request) {
     .filter((tag) => tag.length > 0)
 
   return NextResponse.json({
-    items,
+    items: enrichedItems,
     page,
     pageSize,
     total,
