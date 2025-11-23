@@ -476,7 +476,11 @@ async function decorateProductsAfterList(
     item.categoryIds = categories.map((category) => category.id)
     item.tags = tagsByProduct.get(id) ?? []
     const priceCandidates = pricesByProduct.get(id) ?? []
-    const best = await pricingService.resolvePrice(priceCandidates, pricingContext)
+    const channelScopedContext =
+      pricingContext.channelId || channelIds.length !== 1
+        ? pricingContext
+        : { ...pricingContext, channelId: channelIds[0] }
+    const best = await pricingService.resolvePrice(priceCandidates, channelScopedContext)
     if (best) {
       item.pricing = {
         kind: resolvePriceKindCode(best),

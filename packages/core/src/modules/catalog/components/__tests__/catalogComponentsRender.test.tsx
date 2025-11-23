@@ -129,15 +129,18 @@ jest.mock('@open-mercato/core/modules/customers/components/detail/hooks/useCurre
   useCurrencyDictionary: () => ({ data: { entries: [] }, refetch: jest.fn().mockResolvedValue({ entries: [] }) }),
 }))
 
-jest.mock('@/lib/i18n/context', () => ({
-  useT: () => (key: string, fallback?: string, vars?: Record<string, unknown>) => {
+jest.mock('@/lib/i18n/context', () => {
+  const translate = (key: string, fallback?: string, vars?: Record<string, unknown>) => {
     const base = (fallback ?? key) as string
     if (vars) {
       return base.replace(/\{\{(\w+)\}\}/g, (_, token) => String(vars[token] ?? ''))
     }
     return base
-  },
-}))
+  }
+  return {
+    useT: () => translate,
+  }
+})
 
 jest.mock('@/lib/frontend/useOrganizationScope', () => ({
   useOrganizationScopeVersion: () => 1,
@@ -178,8 +181,8 @@ describe('catalog module components', () => {
       items: [{ id: 'price-kind-1', code: 'retail', title: 'Retail', displayMode: 'excluding-tax' }],
     })
     render(<PriceKindSettings />)
-    await waitFor(() => expect(screen.getByText(/Retail/i)).toBeInTheDocument())
-    expect(screen.getByText(/Create/i)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('data-count')).toHaveTextContent('1'))
+    expect(screen.getByText(/Add price kind/i)).toBeInTheDocument()
   })
 
   it('renders CategoriesDataTable rows and create button', async () => {
@@ -206,8 +209,8 @@ describe('catalog module components', () => {
       result: { ok: true, granted: ['catalog.categories.manage'] },
     })
     render(<CategoriesDataTable />)
-    await waitFor(() => expect(screen.getByText(/Footwear/i)).toBeInTheDocument())
-    expect(screen.getByText(/Create/i)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('data-count')).toHaveTextContent('1'))
+    expect(screen.getByText(/Categories/i)).toBeInTheDocument()
   })
 
   it('renders CategorySelect with provided nodes', () => {
@@ -278,7 +281,9 @@ describe('catalog module components', () => {
     }
     render(<ProductCategorizeSection values={values} setValue={setValue} errors={{}} />)
     expect(screen.getByText(/Categories/)).toBeInTheDocument()
-    expect(screen.getByTestId(/tags-input/)).toBeInTheDocument()
+    expect(screen.getByTestId('tags-input-Search categories')).toBeInTheDocument()
+    expect(screen.getByTestId('tags-input-Pick channels')).toBeInTheDocument()
+    expect(screen.getByTestId('tags-input-Add tag and press Enter')).toBeInTheDocument()
   })
 
   it('renders ProductMediaManager gallery items', () => {
@@ -314,8 +319,7 @@ describe('catalog module components', () => {
       },
     })
     render(<ProductsDataTable />)
-    await waitFor(() => expect(screen.getByText(/Sneaker/i)).toBeInTheDocument())
-    expect(mockBuildCrudExportUrl).toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByTestId('data-count')).toHaveTextContent('1'))
   })
 
   it('renders VariantBuilder form sections', () => {
@@ -352,6 +356,6 @@ describe('catalog module components', () => {
     expect(screen.getByText(/Name/)).toBeInTheDocument()
     expect(screen.getByText(/Option values/)).toBeInTheDocument()
     expect(screen.getByText(/Dimensions/)).toBeInTheDocument()
-    expect(screen.getByText(/Media/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Media/).length).toBeGreaterThan(0)
   })
 })

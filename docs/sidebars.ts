@@ -177,6 +177,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         "framework/events/overview",
+        "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         {
           type: "category",
