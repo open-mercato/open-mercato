@@ -28,6 +28,8 @@ const mockEm = {
 
 const mockDataEngine = {
   setCustomFields: jest.fn(async () => {}),
+  markOrmEntityChange: jest.fn(),
+  flushOrmEntityChanges: jest.fn(async () => {}),
 }
 
 jest.mock('@/lib/di/container', () => ({
