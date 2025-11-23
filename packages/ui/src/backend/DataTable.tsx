@@ -602,11 +602,11 @@ export function DataTable<T>({
         }
       }
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to load perspectives')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
       }
       setPerspectiveApiMissing(false)
       const payload = call.result
-      if (!payload) throw new Error('Failed to load perspectives')
+      if (!payload) throw new Error(t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
       return payload
     },
     enabled: canUsePerspectives,
@@ -865,13 +865,13 @@ export function DataTable<T>({
         },
       )
       if (call.status === 404) {
-        throw new Error('Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.')
+        throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.'))
       }
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to save perspective')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
       }
       const result = call.result
-      if (!result) throw new Error('Failed to save perspective')
+      if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
       return result
     },
     onSuccess: (data) => {
@@ -929,9 +929,9 @@ export function DataTable<T>({
         `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
         { method: 'DELETE' },
       )
-      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.'))
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to delete perspective')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
       }
     },
     onMutate: ({ perspectiveId }) => {
@@ -965,9 +965,9 @@ export function DataTable<T>({
         `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
         { method: 'DELETE' },
       )
-      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.'))
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to clear role perspectives')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
       }
     },
     onMutate: ({ roleId }) => {
@@ -1046,7 +1046,7 @@ export function DataTable<T>({
   }, [table])
 
   const perspectiveApiWarning = perspectiveApiMissing && canUsePerspectives
-    ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
+    ? t('ui.dataTable.perspectives.warning.apiUnavailable', 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.')
     : null
 
   const loadStartRef = React.useRef<number | null>(null)

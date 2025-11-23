@@ -1460,6 +1460,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
 }: FieldControlProps) {
+  const t = useT()
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
     [setValue, field.id]
@@ -1576,7 +1577,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           data-crud-focus-target=""
           disabled={disabled}
         >
-          <option value="">—</option>
+          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
           {options.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}

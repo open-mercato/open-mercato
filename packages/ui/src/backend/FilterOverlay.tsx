@@ -215,7 +215,7 @@ export function FilterOverlay({ title, filters, initialValues, open, onOpenChang
                           value={values[f.id] ?? ''}
                           onChange={(e) => setValue(f.id, e.target.value || undefined)}
                         >
-                          <option value="">—</option>
+                          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
                           {(f.options || dynamicOptions[f.id] || []).map((opt) => (
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
@@ -258,7 +258,7 @@ export function FilterOverlay({ title, filters, initialValues, open, onOpenChang
                           else if (v === 'false') setValue(f.id, false)
                         }}
                       >
-                        <option value="">—</option>
+                        <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
                         <option value="true">{t('common.yes', 'Yes')}</option>
                         <option value="false">{t('common.no', 'No')}</option>
                       </select>
