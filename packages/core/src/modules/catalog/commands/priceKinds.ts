@@ -11,12 +11,12 @@ import {
   type PriceKindCreateInput,
   type PriceKindUpdateInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import { ensureTenantScope, extractUndoPayload } from './shared'
 import type { CatalogPriceDisplayMode } from '../data/types'
 
 type PriceKindSnapshot = {
   id: string
-  organizationId: string
+  organizationId: string | null
   tenantId: string
   code: string
   title: string
@@ -47,7 +47,7 @@ async function loadPriceKindSnapshot(em: EntityManager, id: string): Promise<Pri
   if (!record) return null
   return {
     id: record.id,
-    organizationId: record.organizationId,
+    organizationId: record.organizationId ?? null,
     tenantId: record.tenantId,
     code: record.code,
     title: record.title,
@@ -65,21 +65,19 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
   async execute(input, ctx) {
     const parsed = priceKindCreateSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
-    ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CatalogPriceKind, {
       code: parsed.code,
-      organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       deletedAt: null,
     })
     if (existing) {
-      throw new CrudHttpError(400, { error: 'Price kind code already exists for this organization.' })
+      throw new CrudHttpError(400, { error: 'Price kind code already exists for this tenant.' })
     }
     const now = new Date()
     const record = em.create(CatalogPriceKind, {
-      organizationId: parsed.organizationId,
+      organizationId: null,
       tenantId: parsed.tenantId,
       code: parsed.code,
       title: parsed.title,
@@ -123,7 +121,6 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     const record = await em.findOne(CatalogPriceKind, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
   },
@@ -137,7 +134,6 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
     const snapshot = await loadPriceKindSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
-      ensureOrganizationScope(ctx, snapshot.organizationId)
     }
     return snapshot ? { before: snapshot } : {}
   },
@@ -147,12 +143,10 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
     const record = await em.findOne(CatalogPriceKind, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price kind not found' })
     ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
 
     if (parsed.code && parsed.code !== record.code) {
       const conflict = await em.findOne(CatalogPriceKind, {
         code: parsed.code,
-        organizationId: record.organizationId,
         tenantId: record.tenantId,
         deletedAt: null,
       })
@@ -205,7 +199,6 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
     const record = await em.findOne(CatalogPriceKind, { id: before.id })
     if (!record) return
     ensureTenantScope(ctx, before.tenantId)
-    ensureOrganizationScope(ctx, before.organizationId)
     record.code = before.code
     record.title = before.title
     record.displayMode = before.displayMode as CatalogPriceKind['displayMode']
@@ -225,7 +218,6 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
     const snapshot = await loadPriceKindSnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
-      ensureOrganizationScope(ctx, snapshot.organizationId)
     }
     return snapshot ? { before: snapshot } : {}
   },
@@ -235,7 +227,6 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
     const record = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price kind not found' })
     ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
 
     const usage = await em.count(CatalogProductPrice, { priceKind: record })
     if (usage > 0) {
@@ -288,7 +279,6 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
       em.persist(record)
     } else {
       ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
       record.deletedAt = null
       record.isActive = before.isActive
       record.code = before.code

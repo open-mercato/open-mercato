@@ -179,7 +179,7 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -283,20 +283,18 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "catalog_price_kinds_scope_idx",
+          "keyName": "catalog_price_kinds_tenant_idx",
           "columnNames": [
-            "organization_id",
             "tenant_id"
           ],
-          "composite": true,
+          "composite": false,
           "constraint": false,
           "primary": false,
           "unique": false
         },
         {
-          "keyName": "catalog_price_kinds_code_scope_unique",
+          "keyName": "catalog_price_kinds_code_tenant_unique",
           "columnNames": [
-            "organization_id",
             "tenant_id",
             "code"
           ],
@@ -2010,6 +2008,7 @@
           ],
           "referencedTableName": "public.catalog_price_kinds",
           "createForeignKeyConstraint": true,
+          "deleteRule": "restrict",
           "updateRule": "cascade"
         }
       },

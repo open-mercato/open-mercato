@@ -42,6 +42,10 @@ jest.mock('../../frontend/LanguageSwitcher', () => ({
   LanguageSwitcher: () => <div data-testid="language-switcher" />,
 }))
 
+jest.mock('../upgrades/UpgradeActionBanner', () => ({
+  UpgradeActionBanner: () => <div data-testid="upgrade-action-banner" />,
+}))
+
 const dict = {
   'appShell.productName': 'Mercato',
   'appShell.menu': 'Menu',

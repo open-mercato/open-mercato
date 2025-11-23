@@ -8,6 +8,10 @@ const scoped = z.object({
   tenantId: uuid(),
 })
 
+const tenantScoped = z.object({
+  tenantId: uuid(),
+})
+
 const currencyCodeSchema = z
   .string()
   .trim()
@@ -206,7 +210,7 @@ export const optionSchemaTemplateUpdateSchema = z
 
 const priceDisplayModeSchema = z.enum(CATALOG_PRICE_DISPLAY_MODES)
 
-export const priceKindCreateSchema = scoped.extend({
+export const priceKindCreateSchema = tenantScoped.extend({
   code: slugSchema,
   title: z.string().trim().min(1).max(255),
   displayMode: priceDisplayModeSchema.default('excluding-tax'),
