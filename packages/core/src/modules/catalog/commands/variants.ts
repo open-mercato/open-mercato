@@ -7,6 +7,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CatalogProductVariant, CatalogProductPrice } from '../data/entities'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import {
   variantCreateSchema,
   variantUpdateSchema,
@@ -50,6 +51,7 @@ type VariantSnapshot = {
 type VariantUndoPayload = {
   before?: VariantSnapshot | null
   after?: VariantSnapshot | null
+  previousDefaultVariantId?: string | null
 }
 
 const VARIANT_CHANGE_KEYS = [
@@ -168,7 +170,97 @@ function normalizeOptionValues(input: unknown): Record<string, string> | null {
   return Object.keys(normalized).length ? normalized : null
 }
 
-const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string }> = {
+function resolveProductId(record: CatalogProductVariant): string {
+  return typeof record.product === 'string' ? record.product : record.product.id
+}
+
+async function enforceSingleDefaultVariant(
+  em: EntityManager,
+  variant: CatalogProductVariant
+): Promise<string | null> {
+  if (!variant.isDefault) return null
+  const productId = resolveProductId(variant)
+  const existingDefault = await em.findOne(
+    CatalogProductVariant,
+    { product: productId, isDefault: true, deletedAt: null, id: { $ne: variant.id } },
+    { fields: ['id'] }
+  )
+  if (existingDefault) {
+    existingDefault.isDefault = false
+    return existingDefault.id
+  }
+  return null
+}
+
+async function aggregateVariantMediaToProduct(
+  em: EntityManager,
+  variant: CatalogProductVariant
+): Promise<void> {
+  const productId = resolveProductId(variant)
+  const attachments = await em.find(
+    Attachment,
+    {
+      entityId: E.catalog.catalog_product_variant,
+      recordId: variant.id,
+      organizationId: variant.organizationId ?? undefined,
+      tenantId: variant.tenantId ?? undefined,
+    },
+    {
+      fields: [
+        'id',
+        'partitionCode',
+        'fileName',
+        'mimeType',
+        'fileSize',
+        'storageDriver',
+        'storagePath',
+        'storageMetadata',
+        'url',
+        'organizationId',
+        'tenantId',
+      ],
+    }
+  )
+  if (!attachments.length) return
+  const existing = await em.find(
+    Attachment,
+    {
+      entityId: E.catalog.catalog_product,
+      recordId: productId,
+      organizationId: variant.organizationId ?? undefined,
+      tenantId: variant.tenantId ?? undefined,
+    },
+    { fields: ['storagePath', 'fileName'] }
+  )
+  const existingKeys = new Set(existing.map((item) => `${item.storagePath}|${item.fileName}`))
+  let created = 0
+  for (const source of attachments) {
+    const key = `${source.storagePath}|${source.fileName}`
+    if (existingKeys.has(key)) continue
+    const clone = em.create(Attachment, {
+      entityId: E.catalog.catalog_product,
+      recordId: productId,
+      organizationId: source.organizationId ?? variant.organizationId ?? null,
+      tenantId: source.tenantId ?? variant.tenantId ?? null,
+      partitionCode: source.partitionCode,
+      fileName: source.fileName,
+      mimeType: source.mimeType,
+      fileSize: source.fileSize,
+      storageDriver: source.storageDriver,
+      storagePath: source.storagePath,
+      storageMetadata: source.storageMetadata ? cloneJson(source.storageMetadata) : null,
+      url: source.url,
+    })
+    em.persist(clone)
+    existingKeys.add(key)
+    created += 1
+  }
+  if (created > 0) {
+    await em.flush()
+  }
+}
+
+const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
   id: 'catalog.variants.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
@@ -205,7 +297,12 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     })
     em.persist(record)
     await em.flush()
-    await em.flush()
+    let previousDefaultVariantId: string | null = null
+    if (record.isDefault) {
+      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+      await em.flush()
+    }
+    await aggregateVariantMediaToProduct(em, record)
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_variant,
@@ -221,7 +318,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       tenantId: record.tenantId,
       action: 'created',
     })
-    return { variantId: record.id }
+    return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -242,6 +339,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       payload: {
         undo: {
           after,
+          previousDefaultVariantId: (result as { previousDefaultVariantId?: string | null })?.previousDefaultVariantId ?? null,
         } satisfies VariantUndoPayload,
       },
     }
@@ -257,6 +355,13 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    if (payload?.previousDefaultVariantId) {
+      const previousDefault = await em.findOne(CatalogProductVariant, { id: payload.previousDefaultVariantId })
+      if (previousDefault) {
+        previousDefault.isDefault = true
+        await em.flush()
+      }
+    }
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -271,7 +376,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
   },
 }
 
-const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string }> = {
+const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
   id: 'catalog.variants.update',
   async prepare(input, ctx) {
     const id = requireId(input, 'Variant id is required')
@@ -320,7 +425,12 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
 
+    let previousDefaultVariantId: string | null = null
+    if (parsed.isDefault === true) {
+      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+    }
     await em.flush()
+    await aggregateVariantMediaToProduct(em, record)
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -338,7 +448,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       tenantId: record.tenantId,
       action: 'updated',
     })
-    return { variantId: record.id }
+    return { variantId: record.id, previousDefaultVariantId }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -367,6 +477,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         undo: {
           before,
           after,
+          previousDefaultVariantId:
+            (result as { previousDefaultVariantId?: string | null })?.previousDefaultVariantId ?? null,
         } satisfies VariantUndoPayload,
       },
     }
@@ -406,6 +518,14 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     ensureOrganizationScope(ctx, before.organizationId)
     applyVariantSnapshot(record, before)
     await em.flush()
+    const previousDefaultId = payload?.previousDefaultVariantId
+    if (previousDefaultId) {
+      const previousDefault = await em.findOne(CatalogProductVariant, { id: previousDefaultId })
+      if (previousDefault) {
+        previousDefault.isDefault = true
+        await em.flush()
+      }
+    }
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined

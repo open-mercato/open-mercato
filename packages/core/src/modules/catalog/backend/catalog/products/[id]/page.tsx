@@ -3,6 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -139,6 +140,7 @@ type OfferSnapshot = {
 export default function EditCatalogProductPage({ params }: { params?: { id?: string } }) {
   const productId = params?.id ? String(params.id) : null
   const t = useT()
+  const router = useRouter()
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   const [variants, setVariants] = React.useState<VariantSummary[]>([])
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
@@ -589,6 +591,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     await updateCrud('catalog/products', payload)
     offerSnapshotsRef.current = mergeOfferSnapshots(previousSnapshots, offersPayload)
     flash(t('catalog.products.edit.success', 'Product updated.'), 'success')
+    router.push('/backend/catalog/products')
   }, [productId, t])
 
   if (!productId) {

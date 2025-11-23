@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/dictionaries",
         "user-guide/user-entities",
         "user-guide/system-status",
+        "user-guide/products-and-sales-channels",
         "user-guide/cache-management",
         "user-guide/taxes",
         "user-guide/vector-search",

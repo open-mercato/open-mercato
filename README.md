@@ -69,6 +69,16 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Customer Notes</td>
   </tr>
   <tr>
+    <td><a href="docs/static/screenshots/open-mercato-catalog-products.png"><img src="docs/static/screenshots/open-mercato-catalog-products.png" alt="Catalog products list" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-sales-channels.png"><img src="docs/static/screenshots/open-mercato-sales-channels.png" alt="Sales channels overview" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-all-sales-channels-offers.png"><img src="docs/static/screenshots/open-mercato-all-sales-channels-offers.png" alt="Sales channel offers listing" width="260"/></a></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;">Catalog Products</td>
+    <td style="text-align:center;">Sales Channels</td>
+    <td style="text-align:center;">Channel Offers</td>
+  </tr>
+  <tr>
     <td colspan="3" style="text-align:center;" halign="center">
       <a href="docs/static/screenshots/open-mercato-homepage.png"><img src="docs/static/screenshots/open-mercato-homepage.png" alt="Home page showing enabled modules" width="520"/></a>
     </td>

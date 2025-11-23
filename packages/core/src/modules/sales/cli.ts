@@ -4,8 +4,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesTaxRate } from './data/entities'
 
 const DEFAULT_TAX_RATES = [
-  { code: 'vat-0', name: '0% VAT', rate: '0' },
   { code: 'vat-23', name: '23% VAT', rate: '23' },
+  { code: 'vat-0', name: '0% VAT', rate: '0' },
 ] as const
 
 function parseArgs(rest: string[]) {
