@@ -14,7 +14,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { Building2, Mail, Store, UserRound } from 'lucide-react'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 
@@ -112,6 +112,25 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
   const [channelLoading, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
+  const currencyLabels = React.useMemo<DictionarySelectLabels>(() => ({
+    placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
+    addLabel: t('sales.documents.form.currency.add', 'Add currency'),
+    addPrompt: t('sales.documents.form.currency.prompt', 'Currency code'),
+    dialogTitle: t('sales.documents.form.currency.dialogTitle', 'Add currency'),
+    valueLabel: t('sales.documents.form.currency.valueLabel', 'Currency code'),
+    valuePlaceholder: t('sales.documents.form.currency.valuePlaceholder', 'e.g. USD'),
+    labelLabel: t('sales.documents.form.currency.labelLabel', 'Label'),
+    labelPlaceholder: t('sales.documents.form.currency.labelPlaceholder', 'Display name'),
+    emptyError: t('sales.documents.form.currency.emptyError', 'Currency code is required'),
+    cancelLabel: t('sales.documents.form.currency.cancel', 'Cancel'),
+    saveLabel: t('sales.documents.form.currency.save', 'Save'),
+    saveShortcutHint: '⌘/Ctrl + Enter',
+    successCreateLabel: t('sales.documents.form.currency.created', 'Currency saved.'),
+    errorLoad: t('sales.documents.form.currency.errorLoad', 'Failed to load currencies.'),
+    errorSave: t('sales.documents.form.currency.errorSave', 'Failed to save currency.'),
+    loadingLabel: t('sales.documents.form.currency.loading', 'Loading currencies…'),
+    manageTitle: t('sales.documents.form.currency.manage', 'Manage currency dictionary'),
+  }), [t])
 
   const loadCustomers = React.useCallback(async (query?: string) => {
     setCustomerLoading(true)
@@ -136,11 +155,11 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     }
   }, [t])
 
-  const loadChannels = React.useCallback(async () => {
-    if (channels.length) return channels
+  const loadChannels = React.useCallback(async (query?: string) => {
     setChannelLoading(true)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '50' })
+      const params = new URLSearchParams({ page: '1', pageSize: '20' })
+      if (query && query.trim().length) params.set('search', query.trim())
       const call = await apiCall<{ items?: Array<{ id?: string; name?: string; code?: string | null }> }>(
         `/api/sales/channels?${params.toString()}`
       )
@@ -154,7 +173,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
             return { id, label: code ? `${label} (${code})` : label }
           })
           .filter((opt): opt is ChannelOption => !!opt)
-        setChannels(options)
+        if (!query) setChannels(options)
         return options
       } else {
         setChannels([])
@@ -167,7 +186,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     } finally {
       setChannelLoading(false)
     }
-  }, [channels])
+  }, [])
 
   const loadAddresses = React.useCallback(async (customerId?: string | null) => {
     if (!customerId) {
@@ -247,6 +266,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
           allowAppearance
           manageHref="/backend/config/dictionaries?key=currency"
           selectClassName="w-full"
+          labels={currencyLabels}
         />
       ),
     },
@@ -254,41 +274,25 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       id: 'channelId',
       label: t('sales.documents.form.channel', 'Sales channel'),
       type: 'custom',
-      description: t('sales.documents.form.channel.help', 'Optional. Only for orders.'),
-      component: ({ value, setValue, values }) => {
-        const isOrder = values?.documentKind === 'order'
-        if (!isOrder) {
-          return <div className="text-sm text-muted-foreground">{t('sales.documents.form.channel.skip', 'Channel only applies to orders.')}</div>
-        }
-        return (
-          <LookupSelect
-            value={typeof value === 'string' ? value : null}
-            onChange={(next) => setValue(next)}
-            fetchItems={async (query) => {
-              const options = await loadChannels()
-              if (query && query.trim().length) {
-                const term = query.trim().toLowerCase()
-                return options
-                  .filter((opt) => opt.label.toLowerCase().includes(term))
-                  .map<LookupSelectItem>((opt) => ({
-                    id: opt.id,
-                    title: opt.label,
-                    icon: <Store className="h-5 w-5 text-muted-foreground" />,
-                  }))
-              }
-              return options.map<LookupSelectItem>((opt) => ({
-                id: opt.id,
-                title: opt.label,
-                icon: <Store className="h-5 w-5 text-muted-foreground" />,
-              }))
-            }}
-            searchPlaceholder={t('sales.documents.form.channel.placeholder', 'Select a channel')}
-            loadingLabel={t('sales.documents.form.channel.loading', 'Loading channels…')}
-            emptyLabel={t('sales.documents.form.channel.empty', 'No channels found.')}
-            selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
-          />
-        )
-      },
+      description: t('sales.documents.form.channel.help', 'Optional.'),
+      component: ({ value, setValue }) => (
+        <LookupSelect
+          value={typeof value === 'string' ? value : null}
+          onChange={(next) => setValue(next)}
+          fetchItems={async (query) => {
+            const options = await loadChannels(query)
+            return options.map<LookupSelectItem>((opt) => ({
+              id: opt.id,
+              title: opt.label,
+              icon: <Store className="h-5 w-5 text-muted-foreground" />,
+            }))
+          }}
+          searchPlaceholder={t('sales.documents.form.channel.placeholder', 'Select a channel')}
+          loadingLabel={t('sales.documents.form.channel.loading', 'Loading channels…')}
+          emptyLabel={t('sales.documents.form.channel.empty', 'No channels found.')}
+          selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
+        />
+      ),
     },
     {
       id: 'shippingAddressSection',
