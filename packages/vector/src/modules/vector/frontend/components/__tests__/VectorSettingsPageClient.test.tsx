@@ -2,8 +2,10 @@
  * @jest-environment jsdom
  */
 
+import '@testing-library/jest-dom'
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '../../../../../../../../tests/helpers/renderWithProviders'
 import { VectorSettingsPageClient } from '../VectorSettingsPageClient'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -45,7 +47,7 @@ describe('VectorSettingsPageClient', () => {
   it('loads and displays vector settings', async () => {
     ;(readApiResultOrThrow as jest.Mock).mockResolvedValueOnce({ settings })
 
-    render(<VectorSettingsPageClient {...baseProps} />)
+    renderWithProviders(<VectorSettingsPageClient {...baseProps} />)
 
     await waitFor(() => {
       expect(screen.getAllByText('OpenAI connected').length).toBeGreaterThan(0)
@@ -58,7 +60,7 @@ describe('VectorSettingsPageClient', () => {
       .mockResolvedValueOnce({ settings })
       .mockRejectedValueOnce(new Error('nope'))
 
-    render(<VectorSettingsPageClient {...baseProps} />)
+    renderWithProviders(<VectorSettingsPageClient {...baseProps} />)
     const checkbox = await screen.findByLabelText('Auto indexing')
 
     fireEvent.click(checkbox)
