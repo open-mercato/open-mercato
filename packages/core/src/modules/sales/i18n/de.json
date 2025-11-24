@@ -367,6 +367,73 @@
         }
       }
     }
+    ,
+    "documents": {
+      "create": {
+        "title": "Verkaufsdokument erstellen"
+      },
+      "form": {
+        "title": "Verkaufsdokument erstellen",
+        "submit": "Erstellen",
+        "currency": "Währung",
+        "channel": "Vertriebskanal",
+        "channel.skip": "Kanal gilt nur für Bestellungen.",
+        "channel.placeholder": "Kanal auswählen",
+        "channel.help": "Optional. Nur für Bestellungen.",
+        "kind": "Dokumenttyp",
+        "customer": "Kunde",
+        "customer.placeholder": "Kunden-ID auswählen oder einfügen",
+        "customer.addPerson": "Neue Person",
+        "customer.addCompany": "Neues Unternehmen",
+        "customer.loading": "Kunden werden geladen…",
+        "customer.help": "Zum Filtern tippen.",
+        "email": "Kunden-E-Mail",
+        "email.placeholder": "E-Mail für dieses Dokument",
+        "shipping.title": "Lieferadresse",
+        "shipping.custom": "Neue Adresse definieren",
+        "billing.title": "Rechnungsadresse",
+        "address.loading": "Adressen werden geladen…",
+        "address.placeholder": "Adresse auswählen",
+        "address.name": "Vollständiger Name",
+        "address.company": "Firma (optional)",
+        "address.line1": "Adresszeile 1",
+        "address.line2": "Adresszeile 2",
+        "address.city": "Stadt",
+        "address.region": "Bundesland/Region",
+        "address.postal": "PLZ",
+        "address.country": "Land",
+        "address.saveToCustomer": "Diese Adresse beim Kunden speichern",
+        "customer.group": "Kunde",
+        "addresses": "Adressen",
+        "customFields": "Benutzerdefinierte Felder",
+        "comments": "Kommentare",
+        "details": "Dokumentdetails",
+        "errors.submit": "Dokument konnte nicht erstellt werden.",
+        "errors.id": "Dokument-ID fehlt nach dem Erstellen.",
+        "errors.customers": "Kunden konnten nicht geladen werden.",
+        "success": "Verkaufsdokument erstellt.",
+        "nextStep": "Nach dem Erstellen fügst du Positionen, Preise und Versanddetails hinzu."
+      },
+      "detail": {
+        "title": "Verkaufsdokument",
+        "error": "Dokument nicht gefunden oder kein Zugriff.",
+        "loading": "Dokument wird geladen…",
+        "backToCreate": "Neues Dokument erstellen",
+        "order": "Bestellung",
+        "quote": "Angebot",
+        "edit": "Details bearbeiten",
+        "edit.stub": "Positionsbearbeitung folgt in Kürze.",
+        "back": "Zurück zu Sales",
+        "customer": "Kunde",
+        "customer.empty": "Nicht verknüpft",
+        "currency": "Währung",
+        "shipping": "Lieferadresse",
+        "billing": "Rechnungsadresse",
+        "timestamps": "Zeitpunkte",
+        "created": "Erstellt",
+        "updated": "Aktualisiert"
+      }
+    }
   },
   "sales.order-statuses.create": "Bestellstatus hinzufügen",
   "sales.order-statuses.update": "Bestellstatus aktualisieren",
@@ -378,5 +445,9 @@
   "sales.channels.update": "Vertriebskanal aktualisieren",
   "sales.tax-rates.create": "Steuersatz erstellen",
   "sales.tax-rates.update": "Steuersatz aktualisieren",
-  "sales.tax-rates.delete": "Steuersatz löschen"
+  "sales.tax-rates.delete": "Steuersatz löschen",
+  "sales.audit.orders.create": "Bestellung erstellen",
+  "sales.audit.orders.delete": "Bestellung löschen",
+  "sales.audit.quotes.create": "Angebot erstellen",
+  "sales.audit.quotes.delete": "Angebot löschen"
 }

@@ -367,8 +367,73 @@
           "delete": "Failed to delete tax rate."
         }
       }
-    }
-    ,
+    },
+    "documents": {
+      "create": {
+        "title": "Create sales document"
+      },
+      "form": {
+        "title": "Create sales document",
+        "submit": "Create",
+        "currency": "Currency",
+        "channel": "Sales channel",
+        "channel.skip": "Channel only applies to orders.",
+        "channel.placeholder": "Select a channel",
+        "channel.help": "Optional. Only for orders.",
+        "kind": "Document type",
+        "customer": "Customer",
+        "customer.placeholder": "Select or paste customer id",
+        "customer.addPerson": "New person",
+        "customer.addCompany": "New company",
+        "customer.loading": "Loading customers…",
+        "customer.help": "Start typing to filter.",
+        "email": "Customer email",
+        "email.placeholder": "Email used for the document",
+        "shipping.title": "Shipping address",
+        "shipping.custom": "Define new address",
+        "billing.title": "Billing address",
+        "address.loading": "Loading addresses…",
+        "address.placeholder": "Select address",
+        "address.name": "Full name",
+        "address.company": "Company (optional)",
+        "address.line1": "Address line 1",
+        "address.line2": "Address line 2",
+        "address.city": "City",
+        "address.region": "Region/state",
+        "address.postal": "Postal code",
+        "address.country": "Country",
+        "address.saveToCustomer": "Save this address to the customer",
+        "customer.group": "Customer",
+        "addresses": "Addresses",
+        "customFields": "Custom fields",
+        "comments": "Comments",
+        "details": "Document details",
+        "errors.submit": "Failed to create document.",
+        "errors.id": "Document id missing after create.",
+        "errors.customers": "Failed to load customers.",
+        "success": "Sales document created.",
+        "nextStep": "After creation you will add items, prices, and fulfillment details."
+      },
+      "detail": {
+        "title": "Sales document",
+        "error": "Document not found or inaccessible.",
+        "loading": "Loading document…",
+        "backToCreate": "Create a new document",
+        "order": "Sales order",
+        "quote": "Sales quote",
+        "edit": "Edit details",
+        "edit.stub": "Line item editing will be available soon.",
+        "back": "Back to Sales",
+        "customer": "Customer",
+        "customer.empty": "Not linked",
+        "currency": "Currency",
+        "shipping": "Shipping address",
+        "billing": "Billing address",
+        "timestamps": "Timestamps",
+        "created": "Created",
+        "updated": "Updated"
+      }
+    },
     "order-statuses": {
       "create": "Add sales order status",
       "update": "Update sales order status",
@@ -396,5 +461,9 @@
   "sales.channels.update": "Update sales channel",
   "sales.tax-rates.create": "Create tax rate",
   "sales.tax-rates.update": "Update tax rate",
-  "sales.tax-rates.delete": "Delete tax rate"
+  "sales.tax-rates.delete": "Delete tax rate",
+  "sales.audit.orders.create": "Create sales order",
+  "sales.audit.orders.delete": "Delete sales order",
+  "sales.audit.quotes.create": "Create sales quote",
+  "sales.audit.quotes.delete": "Delete sales quote"
 }

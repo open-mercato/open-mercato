@@ -368,6 +368,73 @@
         }
       }
     }
+    ,
+    "documents": {
+      "create": {
+        "title": "Utwórz dokument sprzedaży"
+      },
+      "form": {
+        "title": "Utwórz dokument sprzedaży",
+        "submit": "Utwórz",
+        "currency": "Waluta",
+        "channel": "Kanał sprzedaży",
+        "channel.skip": "Kanał dotyczy tylko zamówień.",
+        "channel.placeholder": "Wybierz kanał",
+        "channel.help": "Opcjonalnie. Tylko dla zamówień.",
+        "kind": "Typ dokumentu",
+        "customer": "Klient",
+        "customer.placeholder": "Wybierz lub wklej ID klienta",
+        "customer.addPerson": "Nowa osoba",
+        "customer.addCompany": "Nowa firma",
+        "customer.loading": "Ładowanie klientów…",
+        "customer.help": "Zacznij pisać aby filtrować.",
+        "email": "Email klienta",
+        "email.placeholder": "Email użyty dla dokumentu",
+        "shipping.title": "Adres dostawy",
+        "shipping.custom": "Zdefiniuj nowy adres",
+        "billing.title": "Adres rozliczeniowy",
+        "address.loading": "Ładowanie adresów…",
+        "address.placeholder": "Wybierz adres",
+        "address.name": "Pełne imię i nazwisko",
+        "address.company": "Firma (opcjonalnie)",
+        "address.line1": "Adres linia 1",
+        "address.line2": "Adres linia 2",
+        "address.city": "Miasto",
+        "address.region": "Region/województwo",
+        "address.postal": "Kod pocztowy",
+        "address.country": "Kraj",
+        "address.saveToCustomer": "Zapisz ten adres do klienta",
+        "customer.group": "Klient",
+        "addresses": "Adresy",
+        "customFields": "Pola niestandardowe",
+        "comments": "Komentarze",
+        "details": "Szczegóły dokumentu",
+        "errors.submit": "Nie udało się utworzyć dokumentu.",
+        "errors.id": "Brakuje ID dokumentu po utworzeniu.",
+        "errors.customers": "Nie udało się wczytać klientów.",
+        "success": "Dokument sprzedaży utworzony.",
+        "nextStep": "Po utworzeniu dodasz pozycje, ceny i szczegóły dostawy."
+      },
+      "detail": {
+        "title": "Dokument sprzedaży",
+        "error": "Dokument nie znaleziony lub brak dostępu.",
+        "loading": "Ładowanie dokumentu…",
+        "backToCreate": "Utwórz nowy dokument",
+        "order": "Zamówienie",
+        "quote": "Oferta",
+        "edit": "Edytuj szczegóły",
+        "edit.stub": "Edycja pozycji będzie dostępna wkrótce.",
+        "back": "Wróć do sprzedaży",
+        "customer": "Klient",
+        "customer.empty": "Brak powiązania",
+        "currency": "Waluta",
+        "shipping": "Adres dostawy",
+        "billing": "Adres rozliczeniowy",
+        "timestamps": "Daty",
+        "created": "Utworzono",
+        "updated": "Zaktualizowano"
+      }
+    }
   },
   "sales.order-statuses.create": "Dodaj status zamówienia",
   "sales.order-statuses.update": "Zaktualizuj status zamówienia",
@@ -379,5 +446,9 @@
   "sales.channels.update": "Zaktualizuj kanał sprzedaży",
   "sales.tax-rates.create": "Utwórz stawkę podatku",
   "sales.tax-rates.update": "Aktualizuj stawkę podatku",
-  "sales.tax-rates.delete": "Usuń stawkę podatku"
+  "sales.tax-rates.delete": "Usuń stawkę podatku",
+  "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
+  "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
+  "sales.audit.quotes.create": "Utwórz ofertę",
+  "sales.audit.quotes.delete": "Usuń ofertę"
 }
