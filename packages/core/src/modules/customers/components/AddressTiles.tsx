@@ -32,6 +32,7 @@ export type Translator = (
 export type CustomerAddressInput = {
   name?: string
   purpose?: string
+  companyName?: string
   addressLine1: string
   addressLine2?: string
   buildingNumber?: string
@@ -46,6 +47,7 @@ export type CustomerAddressInput = {
 export type CustomerAddressValue = CustomerAddressInput & {
   id: string
   purpose?: string | null
+  companyName?: string | null
 }
 
 type CustomerAddressTilesProps = {
@@ -66,6 +68,7 @@ type CustomerAddressTilesProps = {
 type DraftAddressState = {
   name: string
   purpose: string
+  companyName: string
   addressLine1: string
   addressLine2: string
   buildingNumber: string
@@ -91,6 +94,7 @@ type AddressValidationDetail = {
 const defaultDraft: DraftAddressState = {
   name: '',
   purpose: '',
+  companyName: '',
   addressLine1: '',
   addressLine2: '',
   buildingNumber: '',
@@ -105,6 +109,7 @@ const defaultDraft: DraftAddressState = {
 const serverFieldMap: Record<string, DraftFieldKey> = {
   name: 'name',
   purpose: 'purpose',
+  companyName: 'companyName',
   addressLine1: 'addressLine1',
   addressLine2: 'addressLine2',
   buildingNumber: 'buildingNumber',
@@ -196,6 +201,7 @@ export function CustomerAddressTiles({
     () => ({
       name: t('customers.people.detail.addresses.fields.label'),
       purpose: t('customers.people.detail.addresses.fields.type'),
+      companyName: t('customers.people.detail.addresses.fields.companyName', 'Company name'),
       addressLine1: t('customers.people.detail.addresses.fields.line1'),
       addressLine2: t('customers.people.detail.addresses.fields.line2'),
       street: t('customers.people.detail.addresses.fields.street', 'Street'),
@@ -403,6 +409,7 @@ export function CustomerAddressTiles({
       setDraft({
         name: address.name ?? '',
         purpose: address.purpose ?? '',
+        companyName: address.companyName ?? '',
         addressLine1: address.addressLine1,
         addressLine2: address.addressLine2 ?? '',
         buildingNumber: address.buildingNumber ?? '',
@@ -448,6 +455,8 @@ export function CustomerAddressTiles({
     if (purpose !== undefined) payload.purpose = purpose
     const name = normalizeOptional(draft.name)
     if (name !== undefined) payload.name = name
+    const companyName = normalizeOptional(draft.companyName)
+    if (companyName !== undefined) payload.companyName = companyName
     const line2 = normalizeOptional(draft.addressLine2)
     if (line2 !== undefined) payload.addressLine2 = line2
     const buildingNumber = normalizeOptional(draft.buildingNumber)
@@ -668,6 +677,17 @@ export function CustomerAddressTiles({
             ) : null}
             {typeError ? <p className="text-xs text-red-600">{typeError}</p> : null}
             {fieldErrors.purpose ? <p className="text-xs text-red-600">{fieldErrors.purpose}</p> : null}
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">{fieldLabels.companyName}</label>
+            <input
+              className={getInputClass('companyName')}
+              value={draft.companyName}
+              onChange={(event) => handleFieldChange('companyName', event.target.value)}
+              disabled={disableActions}
+              aria-invalid={fieldErrors.companyName ? 'true' : undefined}
+            />
+            {fieldErrors.companyName ? <p className="text-xs text-red-600">{fieldErrors.companyName}</p> : null}
           </div>
           {formatLoading ? (
             <p className="text-xs text-muted-foreground">{t('customers.people.detail.addresses.formatLoading', 'Loading address preferences…')}</p>

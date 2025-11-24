@@ -8,9 +8,17 @@ import {
   SalesQuote,
   SalesQuoteLine,
   SalesQuoteAdjustment,
+  SalesShippingMethod,
+  SalesDeliveryWindow,
+  SalesPaymentMethod,
   type SalesLineKind,
   type SalesAdjustmentKind,
 } from '../data/entities'
+import {
+  CustomerAddress,
+  CustomerEntity,
+  CustomerPersonProfile,
+} from '../customers/data/entities'
 import {
   quoteCreateSchema,
   quoteLineCreateSchema,
@@ -44,10 +52,25 @@ type QuoteGraphSnapshot = {
     status: string | null
     customerEntityId: string | null
     customerContactId: string | null
+    customerSnapshot: Record<string, unknown> | null
+    billingAddressId: string | null
+    shippingAddressId: string | null
+    billingAddressSnapshot: Record<string, unknown> | null
+    shippingAddressSnapshot: Record<string, unknown> | null
     currencyCode: string
     validFrom: string | null
     validUntil: string | null
     comments: string | null
+    taxInfo: Record<string, unknown> | null
+    shippingMethodId: string | null
+    shippingMethodCode: string | null
+    deliveryWindowId: string | null
+    deliveryWindowCode: string | null
+    paymentMethodId: string | null
+    paymentMethodCode: string | null
+    shippingMethodSnapshot: Record<string, unknown> | null
+    deliveryWindowSnapshot: Record<string, unknown> | null
+    paymentMethodSnapshot: Record<string, unknown> | null
     metadata: Record<string, unknown> | null
     customFieldSetId: string | null
     subtotalNetAmount: string
@@ -119,6 +142,100 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+async function resolveCustomerSnapshot(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  customerEntityId?: string | null,
+  customerContactId?: string | null
+): Promise<Record<string, unknown> | null> {
+  if (!customerEntityId) return null
+  const customer = await em.findOne(
+    CustomerEntity,
+    { id: customerEntityId, organizationId, tenantId },
+    { populate: ['personProfile', 'companyProfile'] }
+  )
+  if (!customer) return null
+
+  const contact = customerContactId
+    ? await em.findOne(CustomerPersonProfile, {
+        id: customerContactId,
+        organizationId,
+        tenantId,
+      })
+    : null
+
+  return {
+    customer: {
+      id: customer.id,
+      kind: customer.kind,
+      displayName: customer.displayName,
+      primaryEmail: customer.primaryEmail ?? null,
+      primaryPhone: customer.primaryPhone ?? null,
+      personProfile: customer.personProfile
+        ? {
+            id: customer.personProfile.id,
+            firstName: customer.personProfile.firstName ?? null,
+            lastName: customer.personProfile.lastName ?? null,
+            preferredName: customer.personProfile.preferredName ?? null,
+          }
+        : null,
+      companyProfile: customer.companyProfile
+        ? {
+            id: customer.companyProfile.id,
+            legalName: customer.companyProfile.legalName ?? null,
+            brandName: customer.companyProfile.brandName ?? null,
+            domain: customer.companyProfile.domain ?? null,
+            websiteUrl: customer.companyProfile.websiteUrl ?? null,
+          }
+        : null,
+    },
+    contact: contact
+      ? {
+          id: contact.id,
+          firstName: contact.firstName ?? null,
+          lastName: contact.lastName ?? null,
+          preferredName: contact.preferredName ?? null,
+          jobTitle: contact.jobTitle ?? null,
+          department: contact.department ?? null,
+        }
+      : null,
+  }
+}
+
+async function resolveAddressSnapshot(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  addressId?: string | null
+): Promise<Record<string, unknown> | null> {
+  if (!addressId) return null
+  const address = await em.findOne(CustomerAddress, {
+    id: addressId,
+    organizationId,
+    tenantId,
+  })
+  if (!address) return null
+
+  return {
+    id: address.id,
+    name: address.name ?? null,
+    purpose: address.purpose ?? null,
+    companyName: address.companyName ?? null,
+    addressLine1: address.addressLine1,
+    addressLine2: address.addressLine2 ?? null,
+    buildingNumber: address.buildingNumber ?? null,
+    flatNumber: address.flatNumber ?? null,
+    city: address.city ?? null,
+    region: address.region ?? null,
+    postalCode: address.postalCode ?? null,
+    country: address.country ?? null,
+    latitude: address.latitude ?? null,
+    longitude: address.longitude ?? null,
+    isPrimary: address.isPrimary,
+  }
+}
+
 async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGraphSnapshot | null> {
   const quote = await em.findOne(SalesQuote, { id, deletedAt: null })
   if (!quote) return null
@@ -135,10 +252,25 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       status: quote.status ?? null,
       customerEntityId: quote.customerEntityId ?? null,
       customerContactId: quote.customerContactId ?? null,
+      customerSnapshot: quote.customerSnapshot ? cloneJson(quote.customerSnapshot) : null,
+      billingAddressId: quote.billingAddressId ?? null,
+      shippingAddressId: quote.shippingAddressId ?? null,
+      billingAddressSnapshot: quote.billingAddressSnapshot ? cloneJson(quote.billingAddressSnapshot) : null,
+      shippingAddressSnapshot: quote.shippingAddressSnapshot ? cloneJson(quote.shippingAddressSnapshot) : null,
       currencyCode: quote.currencyCode,
       validFrom: quote.validFrom ? quote.validFrom.toISOString() : null,
       validUntil: quote.validUntil ? quote.validUntil.toISOString() : null,
       comments: quote.comments ?? null,
+      taxInfo: quote.taxInfo ? cloneJson(quote.taxInfo) : null,
+      shippingMethodId: quote.shippingMethodId ?? null,
+      shippingMethodCode: quote.shippingMethodCode ?? null,
+      deliveryWindowId: quote.deliveryWindowId ?? null,
+      deliveryWindowCode: quote.deliveryWindowCode ?? null,
+      paymentMethodId: quote.paymentMethodId ?? null,
+      paymentMethodCode: quote.paymentMethodCode ?? null,
+      shippingMethodSnapshot: quote.shippingMethodSnapshot ? cloneJson(quote.shippingMethodSnapshot) : null,
+      deliveryWindowSnapshot: quote.deliveryWindowSnapshot ? cloneJson(quote.deliveryWindowSnapshot) : null,
+      paymentMethodSnapshot: quote.paymentMethodSnapshot ? cloneJson(quote.paymentMethodSnapshot) : null,
       metadata: quote.metadata ? cloneJson(quote.metadata) : null,
       customFieldSetId: quote.customFieldSetId ?? null,
       subtotalNetAmount: quote.subtotalNetAmount,
@@ -402,10 +534,29 @@ function applyQuoteSnapshot(quote: SalesQuote, snapshot: QuoteGraphSnapshot['quo
   quote.status = snapshot.status ?? null
   quote.customerEntityId = snapshot.customerEntityId ?? null
   quote.customerContactId = snapshot.customerContactId ?? null
+  quote.customerSnapshot = snapshot.customerSnapshot ? cloneJson(snapshot.customerSnapshot) : null
+  quote.billingAddressId = snapshot.billingAddressId ?? null
+  quote.shippingAddressId = snapshot.shippingAddressId ?? null
+  quote.billingAddressSnapshot = snapshot.billingAddressSnapshot ? cloneJson(snapshot.billingAddressSnapshot) : null
+  quote.shippingAddressSnapshot = snapshot.shippingAddressSnapshot
+    ? cloneJson(snapshot.shippingAddressSnapshot)
+    : null
   quote.currencyCode = snapshot.currencyCode
   quote.validFrom = snapshot.validFrom ? new Date(snapshot.validFrom) : null
   quote.validUntil = snapshot.validUntil ? new Date(snapshot.validUntil) : null
   quote.comments = snapshot.comments ?? null
+  quote.taxInfo = snapshot.taxInfo ? cloneJson(snapshot.taxInfo) : null
+  quote.shippingMethodId = snapshot.shippingMethodId ?? null
+  quote.shippingMethodCode = snapshot.shippingMethodCode ?? null
+  quote.deliveryWindowId = snapshot.deliveryWindowId ?? null
+  quote.deliveryWindowCode = snapshot.deliveryWindowCode ?? null
+  quote.paymentMethodId = snapshot.paymentMethodId ?? null
+  quote.paymentMethodCode = snapshot.paymentMethodCode ?? null
+  quote.shippingMethodSnapshot = snapshot.shippingMethodSnapshot ? cloneJson(snapshot.shippingMethodSnapshot) : null
+  quote.deliveryWindowSnapshot = snapshot.deliveryWindowSnapshot
+    ? cloneJson(snapshot.deliveryWindowSnapshot)
+    : null
+  quote.paymentMethodSnapshot = snapshot.paymentMethodSnapshot ? cloneJson(snapshot.paymentMethodSnapshot) : null
   quote.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   quote.customFieldSetId = snapshot.customFieldSetId ?? null
   quote.subtotalNetAmount = snapshot.subtotalNetAmount
@@ -432,10 +583,35 @@ async function restoreQuoteGraph(
       status: snapshot.quote.status ?? null,
       customerEntityId: snapshot.quote.customerEntityId ?? null,
       customerContactId: snapshot.quote.customerContactId ?? null,
+      customerSnapshot: snapshot.quote.customerSnapshot ? cloneJson(snapshot.quote.customerSnapshot) : null,
+      billingAddressId: snapshot.quote.billingAddressId ?? null,
+      shippingAddressId: snapshot.quote.shippingAddressId ?? null,
+      billingAddressSnapshot: snapshot.quote.billingAddressSnapshot
+        ? cloneJson(snapshot.quote.billingAddressSnapshot)
+        : null,
+      shippingAddressSnapshot: snapshot.quote.shippingAddressSnapshot
+        ? cloneJson(snapshot.quote.shippingAddressSnapshot)
+        : null,
       currencyCode: snapshot.quote.currencyCode,
       validFrom: snapshot.quote.validFrom ? new Date(snapshot.quote.validFrom) : null,
       validUntil: snapshot.quote.validUntil ? new Date(snapshot.quote.validUntil) : null,
       comments: snapshot.quote.comments ?? null,
+      taxInfo: snapshot.quote.taxInfo ? cloneJson(snapshot.quote.taxInfo) : null,
+      shippingMethodId: snapshot.quote.shippingMethodId ?? null,
+      shippingMethodCode: snapshot.quote.shippingMethodCode ?? null,
+      deliveryWindowId: snapshot.quote.deliveryWindowId ?? null,
+      deliveryWindowCode: snapshot.quote.deliveryWindowCode ?? null,
+      paymentMethodId: snapshot.quote.paymentMethodId ?? null,
+      paymentMethodCode: snapshot.quote.paymentMethodCode ?? null,
+      shippingMethodSnapshot: snapshot.quote.shippingMethodSnapshot
+        ? cloneJson(snapshot.quote.shippingMethodSnapshot)
+        : null,
+      deliveryWindowSnapshot: snapshot.quote.deliveryWindowSnapshot
+        ? cloneJson(snapshot.quote.deliveryWindowSnapshot)
+        : null,
+      paymentMethodSnapshot: snapshot.quote.paymentMethodSnapshot
+        ? cloneJson(snapshot.quote.paymentMethodSnapshot)
+        : null,
       metadata: snapshot.quote.metadata ? cloneJson(snapshot.quote.metadata) : null,
       customFieldSetId: snapshot.quote.customFieldSetId ?? null,
       subtotalNetAmount: snapshot.quote.subtotalNetAmount,
@@ -526,6 +702,61 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     const parsed = quoteCreateSchema.parse(rawInput)
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const [
+      resolvedCustomerSnapshot,
+      resolvedBillingSnapshot,
+      resolvedShippingSnapshot,
+      shippingMethod,
+      deliveryWindow,
+      paymentMethod,
+    ] = await Promise.all([
+      parsed.customerSnapshot
+        ? Promise.resolve(cloneJson(parsed.customerSnapshot))
+        : resolveCustomerSnapshot(
+            em,
+            parsed.organizationId,
+            parsed.tenantId,
+            parsed.customerEntityId ?? null,
+            parsed.customerContactId ?? null
+          ),
+      parsed.billingAddressSnapshot
+        ? Promise.resolve(cloneJson(parsed.billingAddressSnapshot))
+        : resolveAddressSnapshot(
+            em,
+            parsed.organizationId,
+            parsed.tenantId,
+            parsed.billingAddressId ?? null
+          ),
+      parsed.shippingAddressSnapshot
+        ? Promise.resolve(cloneJson(parsed.shippingAddressSnapshot))
+        : resolveAddressSnapshot(
+            em,
+            parsed.organizationId,
+            parsed.tenantId,
+            parsed.shippingAddressId ?? null
+          ),
+      parsed.shippingMethodId
+        ? em.findOne(SalesShippingMethod, {
+            id: parsed.shippingMethodId,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+          })
+        : Promise.resolve(null),
+      parsed.deliveryWindowId
+        ? em.findOne(SalesDeliveryWindow, {
+            id: parsed.deliveryWindowId,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+          })
+        : Promise.resolve(null),
+      parsed.paymentMethodId
+        ? em.findOne(SalesPaymentMethod, {
+            id: parsed.paymentMethodId,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+          })
+        : Promise.resolve(null),
+    ])
     const quoteStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
     const quote = em.create(SalesQuote, {
       organizationId: parsed.organizationId,
@@ -535,10 +766,64 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,
       customerContactId: parsed.customerContactId ?? null,
+      customerSnapshot: resolvedCustomerSnapshot ? cloneJson(resolvedCustomerSnapshot) : null,
+      billingAddressId: parsed.billingAddressId ?? null,
+      shippingAddressId: parsed.shippingAddressId ?? null,
+      billingAddressSnapshot: resolvedBillingSnapshot ? cloneJson(resolvedBillingSnapshot) : null,
+      shippingAddressSnapshot: resolvedShippingSnapshot ? cloneJson(resolvedShippingSnapshot) : null,
       currencyCode: parsed.currencyCode,
       validFrom: parsed.validFrom ?? null,
       validUntil: parsed.validUntil ?? null,
       comments: parsed.comments ?? null,
+      taxInfo: parsed.taxInfo ? cloneJson(parsed.taxInfo) : null,
+      shippingMethodId: parsed.shippingMethodId ?? null,
+      shippingMethod: shippingMethod ?? null,
+      shippingMethodCode: parsed.shippingMethodCode ?? shippingMethod?.code ?? null,
+      deliveryWindowId: parsed.deliveryWindowId ?? null,
+      deliveryWindow: deliveryWindow ?? null,
+      deliveryWindowCode: parsed.deliveryWindowCode ?? deliveryWindow?.code ?? null,
+      paymentMethodId: parsed.paymentMethodId ?? null,
+      paymentMethod: paymentMethod ?? null,
+      paymentMethodCode: parsed.paymentMethodCode ?? paymentMethod?.code ?? null,
+      shippingMethodSnapshot: parsed.shippingMethodSnapshot
+        ? cloneJson(parsed.shippingMethodSnapshot)
+        : shippingMethod
+          ? {
+              id: shippingMethod.id,
+              code: shippingMethod.code,
+              name: shippingMethod.name,
+              description: shippingMethod.description ?? null,
+              carrierCode: shippingMethod.carrierCode ?? null,
+              serviceLevel: shippingMethod.serviceLevel ?? null,
+              estimatedTransitDays: shippingMethod.estimatedTransitDays ?? null,
+              currencyCode: shippingMethod.currencyCode ?? null,
+            }
+          : null,
+      deliveryWindowSnapshot: parsed.deliveryWindowSnapshot
+        ? cloneJson(parsed.deliveryWindowSnapshot)
+        : deliveryWindow
+          ? {
+              id: deliveryWindow.id,
+              code: deliveryWindow.code,
+              name: deliveryWindow.name,
+              description: deliveryWindow.description ?? null,
+              leadTimeDays: deliveryWindow.leadTimeDays ?? null,
+              cutoffTime: deliveryWindow.cutoffTime ?? null,
+              timezone: deliveryWindow.timezone ?? null,
+            }
+          : null,
+      paymentMethodSnapshot: parsed.paymentMethodSnapshot
+        ? cloneJson(parsed.paymentMethodSnapshot)
+        : paymentMethod
+          ? {
+              id: paymentMethod.id,
+              code: paymentMethod.code,
+              name: paymentMethod.name,
+              description: paymentMethod.description ?? null,
+              providerKey: paymentMethod.providerKey ?? null,
+              terms: paymentMethod.terms ?? null,
+            }
+          : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       subtotalNetAmount: '0',

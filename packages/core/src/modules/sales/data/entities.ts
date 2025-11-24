@@ -356,11 +356,20 @@ export class SalesOrder {
   @Property({ name: 'customer_contact_id', type: 'uuid', nullable: true })
   customerContactId?: string | null
 
+  @Property({ name: 'customer_snapshot', type: 'jsonb', nullable: true })
+  customerSnapshot?: Record<string, unknown> | null
+
   @Property({ name: 'billing_address_id', type: 'uuid', nullable: true })
   billingAddressId?: string | null
 
   @Property({ name: 'shipping_address_id', type: 'uuid', nullable: true })
   shippingAddressId?: string | null
+
+  @Property({ name: 'billing_address_snapshot', type: 'jsonb', nullable: true })
+  billingAddressSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'shipping_address_snapshot', type: 'jsonb', nullable: true })
+  shippingAddressSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -392,8 +401,14 @@ export class SalesOrder {
   @Property({ name: 'discount_strategy_key', type: 'text', nullable: true })
   discountStrategyKey?: string | null
 
+  @Property({ name: 'tax_info', type: 'jsonb', nullable: true })
+  taxInfo?: Record<string, unknown> | null
+
   @Property({ name: 'shipping_method_snapshot', type: 'jsonb', nullable: true })
   shippingMethodSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'delivery_window_snapshot', type: 'jsonb', nullable: true })
+  deliveryWindowSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'payment_method_snapshot', type: 'jsonb', nullable: true })
   paymentMethodSnapshot?: Record<string, unknown> | null
@@ -467,17 +482,26 @@ export class SalesOrder {
   @Property({ name: 'shipping_method_id', type: 'uuid', nullable: true })
   shippingMethodId?: string | null
 
+  @Property({ name: 'shipping_method_code', type: 'text', nullable: true })
+  shippingMethodCode?: string | null
+
   @ManyToOne(() => SalesShippingMethod, { fieldName: 'shipping_method_ref_id', nullable: true })
   shippingMethod?: SalesShippingMethod | null
 
   @Property({ name: 'delivery_window_id', type: 'uuid', nullable: true })
   deliveryWindowId?: string | null
 
+  @Property({ name: 'delivery_window_code', type: 'text', nullable: true })
+  deliveryWindowCode?: string | null
+
   @ManyToOne(() => SalesDeliveryWindow, { fieldName: 'delivery_window_ref_id', nullable: true })
   deliveryWindow?: SalesDeliveryWindow | null
 
   @Property({ name: 'payment_method_id', type: 'uuid', nullable: true })
   paymentMethodId?: string | null
+
+  @Property({ name: 'payment_method_code', type: 'text', nullable: true })
+  paymentMethodCode?: string | null
 
   @ManyToOne(() => SalesPaymentMethod, { fieldName: 'payment_method_ref_id', nullable: true })
   paymentMethod?: SalesPaymentMethod | null
@@ -731,6 +755,21 @@ export class SalesQuote {
   @Property({ name: 'customer_contact_id', type: 'uuid', nullable: true })
   customerContactId?: string | null
 
+  @Property({ name: 'customer_snapshot', type: 'jsonb', nullable: true })
+  customerSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'billing_address_id', type: 'uuid', nullable: true })
+  billingAddressId?: string | null
+
+  @Property({ name: 'shipping_address_id', type: 'uuid', nullable: true })
+  shippingAddressId?: string | null
+
+  @Property({ name: 'billing_address_snapshot', type: 'jsonb', nullable: true })
+  billingAddressSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'shipping_address_snapshot', type: 'jsonb', nullable: true })
+  shippingAddressSnapshot?: Record<string, unknown> | null
+
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
@@ -742,6 +781,45 @@ export class SalesQuote {
 
   @Property({ name: 'comments', type: 'text', nullable: true })
   comments?: string | null
+
+  @Property({ name: 'tax_info', type: 'jsonb', nullable: true })
+  taxInfo?: Record<string, unknown> | null
+
+  @Property({ name: 'shipping_method_id', type: 'uuid', nullable: true })
+  shippingMethodId?: string | null
+
+  @Property({ name: 'shipping_method_code', type: 'text', nullable: true })
+  shippingMethodCode?: string | null
+
+  @ManyToOne(() => SalesShippingMethod, { fieldName: 'shipping_method_ref_id', nullable: true })
+  shippingMethod?: SalesShippingMethod | null
+
+  @Property({ name: 'delivery_window_id', type: 'uuid', nullable: true })
+  deliveryWindowId?: string | null
+
+  @Property({ name: 'delivery_window_code', type: 'text', nullable: true })
+  deliveryWindowCode?: string | null
+
+  @ManyToOne(() => SalesDeliveryWindow, { fieldName: 'delivery_window_ref_id', nullable: true })
+  deliveryWindow?: SalesDeliveryWindow | null
+
+  @Property({ name: 'payment_method_id', type: 'uuid', nullable: true })
+  paymentMethodId?: string | null
+
+  @Property({ name: 'payment_method_code', type: 'text', nullable: true })
+  paymentMethodCode?: string | null
+
+  @ManyToOne(() => SalesPaymentMethod, { fieldName: 'payment_method_ref_id', nullable: true })
+  paymentMethod?: SalesPaymentMethod | null
+
+  @Property({ name: 'shipping_method_snapshot', type: 'jsonb', nullable: true })
+  shippingMethodSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'delivery_window_snapshot', type: 'jsonb', nullable: true })
+  deliveryWindowSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'payment_method_snapshot', type: 'jsonb', nullable: true })
+  paymentMethodSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'subtotal_net_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   subtotalNetAmount: string = '0'

@@ -12,10 +12,12 @@ export type AddressValue = {
   region?: string | null
   postalCode?: string | null
   country?: string | null
+  companyName?: string | null
 }
 
 export type AddressJsonShape = {
   format: AddressFormatStrategy
+  companyName: string | null
   addressLine1: string | null
   addressLine2: string | null
   buildingNumber: string | null
@@ -46,6 +48,7 @@ function mergeStreetLine(address: AddressValue): string | null {
 export function formatAddressJson(address: AddressValue, format: AddressFormatStrategy): AddressJsonShape {
   return {
     format,
+    companyName: normalize(address.companyName),
     addressLine1: normalize(address.addressLine1),
     addressLine2: normalize(address.addressLine2),
     buildingNumber: normalize(address.buildingNumber),
@@ -60,6 +63,8 @@ export function formatAddressJson(address: AddressValue, format: AddressFormatSt
 export function formatAddressLines(address: AddressValue, format: AddressFormatStrategy): string[] {
   const json = formatAddressJson(address, format)
   const lines: string[] = []
+
+  if (json.companyName) lines.push(json.companyName)
 
   if (format === 'street_first') {
     const streetLine = mergeStreetLine(address)

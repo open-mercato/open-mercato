@@ -539,49 +539,39 @@
       "indexes": [
         {
           "keyName": "idx_ce_tenant_person_id",
-          "columnNames": [
-            "tenant_id",
-            "id"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"idx_ce_tenant_person_id\" on \"customer_entities\" (\"tenant_id\", \"id\") where deleted_at is null and kind = 'person'"
         },
         {
           "keyName": "idx_ce_tenant_company_id",
-          "columnNames": [
-            "tenant_id",
-            "id"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"idx_ce_tenant_company_id\" on \"customer_entities\" (\"tenant_id\", \"id\") where deleted_at is null and kind = 'company'"
         },
         {
           "keyName": "idx_ce_tenant_org_company_id",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "id"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"idx_ce_tenant_org_company_id\" on \"customer_entities\" (\"tenant_id\", \"organization_id\", \"id\") where deleted_at is null and kind = 'company'"
         },
         {
           "keyName": "idx_ce_tenant_org_person_id",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "id"
-          ],
-          "composite": true,
+          "columnNames": [],
+          "composite": false,
           "constraint": false,
           "primary": false,
-          "unique": false
+          "unique": false,
+          "expression": "create index \"idx_ce_tenant_org_person_id\" on \"customer_entities\" (\"tenant_id\", \"organization_id\", \"id\") where deleted_at is null and kind = 'person'"
         },
         {
           "keyName": "customer_entities_org_tenant_kind_idx",
@@ -1263,6 +1253,15 @@
         },
         "purpose": {
           "name": "purpose",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "company_name": {
+          "name": "company_name",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
