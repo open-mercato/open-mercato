@@ -112,6 +112,7 @@
   "appShell.closeMenu": "Zamknij menu",
   "appShell.userFallback": "Użytkownik",
   "appShell.productName": "Open Mercato",
+  "appShell.version": "Wersja {{version}}",
   "appShell.customizeSidebar": "Dostosuj pasek boczny",
   "appShell.sidebarCustomizationHeading": "Dostosowanie paska bocznego",
   "appShell.sidebarCustomizationHint": "Zmiany dotyczą tylko Twojego paska bocznego w języku {locale}. Pozostałe wersje pozostają bez zmian.",
@@ -325,5 +326,12 @@
   "notices.demo.and": "i",
   "notices.cookies.description": "Używamy niezbędnych plików cookie, aby zapamiętać Twoje preferencje. Dowiedz się, jak obsługujemy dane w naszej",
   "notices.cookies.dismiss": "Odrzuć",
-  "notices.cookies.accept": "Zaakceptuj pliki cookie"
+  "upgrades.versionLabel": "Wersja {{version}}",
+  "upgrades.scopeRequired": "Wybierz organizację i tenant, aby zastosować tę aktualizację.",
+  "upgrades.v034.message": "Wersja {{version}} została zainstalowana. Aby w pełni korzystać z tej edycji, uruchom „Zainstaluj przykładowe produkty i kategorie katalogu”.",
+  "upgrades.v034.cta": "Zainstaluj przykładowe produkty i kategorie katalogu",
+  "upgrades.v034.loading": "Instalowanie…",
+  "upgrades.v034.success": "Przykładowe produkty i kategorie katalogu zostały zainstalowane.",
+  "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
+  "upgrades.loading": "Ładowanie aktualizacji…"
 }

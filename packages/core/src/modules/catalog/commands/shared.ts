@@ -87,6 +87,12 @@ export function ensureSameScope(
   }
 }
 
+export function ensureSameTenant(entity: Pick<{ tenantId: string }, 'tenantId'>, tenantId: string): void {
+  if (entity.tenantId !== tenantId) {
+    throw new CrudHttpError(403, { error: 'Cross-tenant relation forbidden' })
+  }
+}
+
 export function assertFound<T>(value: T | null | undefined, message: string): T {
   if (!value) throw new CrudHttpError(404, { error: message })
   return value
@@ -175,7 +181,7 @@ export async function requireVariant(
   id: string,
   message = 'Catalog variant not found'
 ): Promise<CatalogProductVariant> {
-  const variant = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
+  const variant = await em.findOne(CatalogProductVariant, { id, deletedAt: null }, { populate: ['product'] })
   if (!variant) throw new CrudHttpError(404, { error: message })
   return variant
 }

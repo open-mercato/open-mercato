@@ -37,7 +37,7 @@ const crud = makeCrudRoute({
   orm: {
     entity: CatalogPriceKind,
     idField: 'id',
-    orgField: 'organizationId',
+    orgField: null,
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
@@ -89,7 +89,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(priceKindCreateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(priceKindCreateSchema, raw ?? {}, ctx, translate, { requireOrganization: false })
       },
       response: ({ result }) => ({ id: result?.priceKindId ?? null }),
       status: 201,
@@ -99,7 +99,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(priceKindUpdateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(priceKindUpdateSchema, raw ?? {}, ctx, translate, { requireOrganization: false })
       },
       response: () => ({ ok: true }),
     },

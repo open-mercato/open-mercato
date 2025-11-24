@@ -724,7 +724,6 @@ async function loadPriceKinds(
 ): Promise<Map<string, CatalogPriceKind>> {
   const kinds = await em.find(CatalogPriceKind, {
     tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
     code: { $in: ['regular', 'sale'] },
     deletedAt: null,
   })
@@ -744,14 +743,12 @@ export async function seedCatalogExamples(
   await ensureDefaultPartitions(em)
 
   const handles = PRODUCT_SEEDS.map((seed) => seed.handle)
-  const existingProducts = await em.count(CatalogProduct, {
+  const existingProducts = await em.find(CatalogProduct, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     handle: { $in: handles as any },
   })
-  if (existingProducts >= PRODUCT_SEEDS.length) {
-    return false
-  }
+  const existingByHandle = new Map(existingProducts.map((product) => [product.handle?.toLowerCase(), product]))
 
   const categoryMap = await ensureCategories(em, scope)
   const channel = await ensureChannel(em, scope)
@@ -764,8 +761,14 @@ export async function seedCatalogExamples(
 
   const dataEngine = new DefaultDataEngine(em, container)
   const customFieldAssignments: Array<() => Promise<void>> = []
+  let createdAny = false
 
   for (const productSeed of PRODUCT_SEEDS) {
+    const existing = existingByHandle.get(productSeed.handle.toLowerCase())
+    if (existing) {
+      continue
+    }
+    createdAny = true
     const product = em.create(CatalogProduct, {
       id: randomUUID(),
       organizationId: scope.organizationId,
@@ -924,6 +927,10 @@ export async function seedCatalogExamples(
         )
       }
     }
+  }
+
+  if (!createdAny) {
+    return false
   }
 
   await em.flush()

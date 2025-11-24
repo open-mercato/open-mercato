@@ -18,6 +18,7 @@ import {
   cloneJson,
   ensureOrganizationScope,
   ensureSameScope,
+  ensureSameTenant,
   ensureTenantScope,
   extractUndoPayload,
   requireVariant,
@@ -270,7 +271,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, scopeSource.organizationId)
 
     const priceKind = await requirePriceKind(em, parsed.priceKindId)
-    ensureSameScope(priceKind, scopeSource.organizationId, scopeSource.tenantId)
+    ensureSameTenant(priceKind, scopeSource.tenantId)
 
     let offer: CatalogOffer | null = null
     if (parsed.offerId) {
@@ -439,6 +440,10 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       }
     }
 
+    if (targetVariant && (targetVariant as CatalogProductVariant | null)?.product === undefined) {
+      targetVariant = await requireVariant(em, targetVariant.id)
+    }
+
     if (parsed.productId !== undefined) {
       if (!parsed.productId) {
         targetProduct = null
@@ -513,7 +518,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (!targetPriceKind) {
       throw new CrudHttpError(400, { error: 'Price kind is required.' })
     }
-    ensureSameScope(targetPriceKind, targetProduct.organizationId, targetProduct.tenantId)
+    ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
     const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
     const amountInput = resolveAmountInputFromParsed(parsed)

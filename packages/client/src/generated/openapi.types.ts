@@ -1001,6 +1001,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/configs/upgrade-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /configs/upgrade-actions
+         * @description Requires features: configs.manage
+         */
+        get: operations["configs_get_configs_upgrade_actions"];
+        put?: never;
+        /**
+         * POST /configs/upgrade-actions
+         * @description Requires features: configs.manage
+         */
+        post: operations["configs_post_configs_upgrade_actions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/customers/activities": {
         parameters: {
             query?: never;
@@ -4749,6 +4773,24 @@ export interface components {
             error: components["schemas"]["DocPathsConfigsSystemStatusPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsConfigsSystemStatusPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsConfigsUpgradeActionsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsConfigsUpgradeActionsGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsConfigsUpgradeActionsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsConfigsUpgradeActionsGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsConfigsUpgradeActionsGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsConfigsUpgradeActionsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsConfigsUpgradeActionsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsConfigsUpgradeActionsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsConfigsUpgradeActionsPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsConfigsUpgradeActionsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsConfigsUpgradeActionsPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsConfigsUpgradeActionsPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsConfigsUpgradeActionsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsConfigsUpgradeActionsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsCustomersActivitiesDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsCustomersActivitiesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -16949,6 +16991,102 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsConfigsSystemStatusPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    configs_get_configs_upgrade_actions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsConfigsUpgradeActionsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsConfigsUpgradeActionsGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsConfigsUpgradeActionsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    configs_post_configs_upgrade_actions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsConfigsUpgradeActionsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsConfigsUpgradeActionsPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsConfigsUpgradeActionsPostResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
