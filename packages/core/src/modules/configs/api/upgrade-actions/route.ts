@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { executeUpgradeAction, getCurrentVersion, listPendingUpgradeActions } from '../../services/upgradeActionsService'
+import { executeUpgradeAction, getCurrentVersion, isUpgradeActionsEnabled, listPendingUpgradeActions } from '../../services/upgradeActionsService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata = {
@@ -44,6 +44,9 @@ async function resolveScope(
 }
 
 export async function GET(req: Request) {
+  if (!isUpgradeActionsEnabled()) {
+    return NextResponse.json({ version: getCurrentVersion(), actions: [] })
+  }
   const { translate } = await resolveTranslations()
   const scopedTranslate = (key: string, fallback?: string, params?: Record<string, unknown>) =>
     translate(key, fallback, params as any)
@@ -83,6 +86,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!isUpgradeActionsEnabled()) {
+    return NextResponse.json({ error: 'Upgrade actions are disabled' }, { status: 403 })
+  }
   const { translate } = await resolveTranslations()
   const scopedTranslate = (key: string, fallback?: string, params?: Record<string, unknown>) =>
     translate(key, fallback, params as any)

@@ -13,8 +13,71 @@ const widgetsChecksumFile = path.resolve('generated/dashboard-widgets.generated.
 const vectorOutFile = path.resolve('generated/vector.generated.ts')
 const vectorChecksumFile = path.resolve('generated/vector.generated.checksum')
 
+type ChecksumRecord = { content: string; structure: string }
+
 function calculateChecksum(content: string): string {
   return crypto.createHash('md5').update(content).digest('hex')
+}
+
+function readChecksum(filePath: string): ChecksumRecord | null {
+  if (!fs.existsSync(filePath)) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<ChecksumRecord>
+    if (parsed && typeof parsed.content === 'string' && typeof parsed.structure === 'string') {
+      return { content: parsed.content, structure: parsed.structure }
+    } else {
+      console.warn(`[generate-module-registry] Warning: Checksum file "${filePath}" exists but has invalid structure. This may indicate corruption or a version mismatch.`)
+    }
+  } catch (err) {
+    console.warn(`[generate-module-registry] Warning: Failed to parse checksum file "${filePath}": ${(err as Error).message}`)
+  }
+  return null
+}
+
+function writeChecksum(filePath: string, record: ChecksumRecord) {
+  fs.writeFileSync(filePath, JSON.stringify(record) + '\n')
+}
+
+function collectStructureEntries(target: string, base: string, acc: string[]) {
+  const entries = fs.readdirSync(target, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of entries) {
+    const fullPath = path.join(target, entry.name)
+    const rel = path.relative(base, fullPath)
+    const stat = fs.statSync(fullPath)
+    if (entry.isDirectory()) {
+      acc.push(`dir:${rel}:${stat.mtimeMs}`)
+      collectStructureEntries(fullPath, base, acc)
+    } else if (entry.isFile()) {
+      acc.push(`file:${rel}:${stat.size}:${stat.mtimeMs}`)
+    } else {
+      acc.push(`other:${rel}:${stat.mtimeMs}`)
+    }
+  }
+}
+
+function calculateStructureChecksum(paths: string[]): string {
+  const normalized = Array.from(new Set(paths.map((p) => path.resolve(p)))).sort()
+  const entries: string[] = []
+  for (const target of normalized) {
+    if (!fs.existsSync(target)) {
+      entries.push(`missing:${target}`)
+      continue
+    }
+    const stat = fs.statSync(target)
+    entries.push(`${stat.isDirectory() ? 'dir' : 'file'}:${target}:${stat.mtimeMs}`)
+    if (stat.isDirectory()) collectStructureEntries(target, target, entries)
+  }
+  return calculateChecksum(entries.join('\n'))
+}
+
+function logGenerationResult(label: string, changed: boolean) {
+  if (changed) {
+    console.log(`✅ Generated ${label}`)
+  } else {
+    console.log(`ℹ️ ${label} already up to date`)
+  }
 }
 
 function toVar(s: string) { return s.replace(/[^a-zA-Z0-9_]/g, '_') }
@@ -34,6 +97,7 @@ function scan() {
   const imports: string[] = []
   const moduleDecls: string[] = []
   let importId = 0
+  const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const allDashboardWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
   const vectorConfigs: string[] = []
@@ -43,6 +107,8 @@ function scan() {
     const modId = entry.id
     const roots = moduleFsRoots(entry)
     const imps = moduleImportBase(entry)
+    trackedRoots.add(roots.appBase)
+    trackedRoots.add(roots.pkgBase)
 
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
@@ -639,50 +705,40 @@ export const vectorModuleConfigs: VectorModuleConfig[] = entries.map((entry) => 
     }
   }
 
-  // Check if content has changed
-  const newChecksum = calculateChecksum(output)
-  let shouldWrite = true
-  
-  if (fs.existsSync(checksumFile)) {
-    const existingChecksum = fs.readFileSync(checksumFile, 'utf8').trim()
-    if (existingChecksum === newChecksum) {
-      shouldWrite = false
-    }
-  }
-  
-  if (shouldWrite) {
-    fs.writeFileSync(outFile, output)
-    fs.writeFileSync(checksumFile, newChecksum)
-    console.log('Generated', path.relative(process.cwd(), outFile))
-  }
+  const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
 
-  const newWidgetsChecksum = calculateChecksum(widgetsOutput)
-  let shouldWriteWidgets = true
-  if (fs.existsSync(widgetsChecksumFile)) {
-    const existingChecksum = fs.readFileSync(widgetsChecksumFile, 'utf8').trim()
-    if (existingChecksum === newWidgetsChecksum) {
-      shouldWriteWidgets = false
-    }
+  const modulesChecksum = { content: calculateChecksum(output), structure: structureChecksum }
+  const existingModulesChecksum = readChecksum(checksumFile)
+  const shouldWriteModules = !existingModulesChecksum
+    || existingModulesChecksum.content !== modulesChecksum.content
+    || existingModulesChecksum.structure !== modulesChecksum.structure
+  if (shouldWriteModules) {
+    fs.writeFileSync(outFile, output)
+    writeChecksum(checksumFile, modulesChecksum)
   }
+  logGenerationResult(path.relative(process.cwd(), outFile), shouldWriteModules)
+
+  const widgetsChecksum = { content: calculateChecksum(widgetsOutput), structure: structureChecksum }
+  const existingWidgetsChecksum = readChecksum(widgetsChecksumFile)
+  const shouldWriteWidgets = !existingWidgetsChecksum
+    || existingWidgetsChecksum.content !== widgetsChecksum.content
+    || existingWidgetsChecksum.structure !== widgetsChecksum.structure
   if (shouldWriteWidgets) {
     fs.writeFileSync(widgetsOutFile, widgetsOutput)
-    fs.writeFileSync(widgetsChecksumFile, newWidgetsChecksum)
-    console.log('Generated', path.relative(process.cwd(), widgetsOutFile))
+    writeChecksum(widgetsChecksumFile, widgetsChecksum)
   }
+  logGenerationResult(path.relative(process.cwd(), widgetsOutFile), shouldWriteWidgets)
 
-  const newVectorChecksum = calculateChecksum(vectorOutput)
-  let shouldWriteVector = true
-  if (fs.existsSync(vectorChecksumFile)) {
-    const existingChecksum = fs.readFileSync(vectorChecksumFile, 'utf8').trim()
-    if (existingChecksum === newVectorChecksum) {
-      shouldWriteVector = false
-    }
-  }
+  const vectorChecksum = { content: calculateChecksum(vectorOutput), structure: structureChecksum }
+  const existingVectorChecksum = readChecksum(vectorChecksumFile)
+  const shouldWriteVector = !existingVectorChecksum
+    || existingVectorChecksum.content !== vectorChecksum.content
+    || existingVectorChecksum.structure !== vectorChecksum.structure
   if (shouldWriteVector) {
     fs.writeFileSync(vectorOutFile, vectorOutput)
-    fs.writeFileSync(vectorChecksumFile, newVectorChecksum)
-    console.log('Generated', path.relative(process.cwd(), vectorOutFile))
+    writeChecksum(vectorChecksumFile, vectorChecksum)
   }
+  logGenerationResult(path.relative(process.cwd(), vectorOutFile), shouldWriteVector)
 }
 
 scan()

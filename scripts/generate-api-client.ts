@@ -109,9 +109,9 @@ async function main() {
   const wroteTypes = await writeIfChanged(typesOutputPath, typeSerialized)
 
   if (wroteTypes) {
-    console.log('[api-client] generated OpenAPI artifacts')
+    console.log('✅ Generated Open API artifacts')
   } else {
-    console.log('[api-client] OpenAPI artifacts already up to date')
+    console.log('ℹ️ Open API artifacts already up to date')
   }
 }
 
