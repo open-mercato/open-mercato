@@ -1082,6 +1082,24 @@
           "nullable": true,
           "mappedType": "uuid"
         },
+        "channel_id": {
+          "name": "channel_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "channel_ref_id": {
+          "name": "channel_ref_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "shipping_method_snapshot": {
           "name": "shipping_method_snapshot",
           "type": "jsonb",
@@ -1338,6 +1356,20 @@
             "id"
           ],
           "referencedTableName": "public.sales_payment_methods",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "set null",
+          "updateRule": "cascade"
+        },
+        "sales_quotes_channel_ref_id_foreign": {
+          "constraintName": "sales_quotes_channel_ref_id_foreign",
+          "columnNames": [
+            "channel_ref_id"
+          ],
+          "localTableName": "public.sales_quotes",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.sales_channels",
           "createForeignKeyConstraint": true,
           "deleteRule": "set null",
           "updateRule": "cascade"

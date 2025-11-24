@@ -3,8 +3,10 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -12,6 +14,9 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { Building2, Mail, Store, UserRound } from 'lucide-react'
+import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 
 type DocumentKind = 'quote' | 'order'
 
@@ -30,6 +35,7 @@ type CustomerOption = {
   id: string
   label: string
   subtitle?: string | null
+  kind: 'person' | 'company'
 }
 
 type ChannelOption = { id: string; label: string }
@@ -75,7 +81,7 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
       const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
       const label = displayName ?? (email ?? domain ?? id)
       const subtitle = kind === 'person' ? email : domain ?? email
-      return { id, label: `${label}`, subtitle }
+      return { id, label: `${label}`, subtitle, kind }
     })
     .filter((entry): entry is CustomerOption => !!entry?.id)
 }
@@ -120,15 +126,18 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       const companyItems = Array.isArray(companies.result?.items) ? companies.result?.items ?? [] : []
       const merged = [...parseCustomerOptions(peopleItems, 'person'), ...parseCustomerOptions(companyItems, 'company')]
       setCustomers(merged)
+      return merged
     } catch (err) {
       console.error('sales.documents.loadCustomers', err)
       flash(t('sales.documents.form.errors.customers', 'Failed to load customers.'), 'error')
+      return []
     } finally {
       setCustomerLoading(false)
     }
   }, [t])
 
   const loadChannels = React.useCallback(async () => {
+    if (channels.length) return channels
     setChannelLoading(true)
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '50' })
@@ -146,16 +155,19 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
           })
           .filter((opt): opt is ChannelOption => !!opt)
         setChannels(options)
+        return options
       } else {
         setChannels([])
+        return []
       }
     } catch (err) {
       console.error('sales.documents.loadChannels', err)
       setChannels([])
+      return []
     } finally {
       setChannelLoading(false)
     }
-  }, [])
+  }, [channels])
 
   const loadAddresses = React.useCallback(async (customerId?: string | null) => {
     if (!customerId) {
@@ -224,9 +236,19 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     {
       id: 'currencyCode',
       label: t('sales.documents.form.currency', 'Currency'),
-      type: 'text',
+      type: 'custom',
       required: true,
-      placeholder: 'USD',
+      component: ({ value, setValue }) => (
+        <DictionaryEntrySelect
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next ?? '')}
+          kind="currency"
+          allowInlineCreate
+          allowAppearance
+          manageHref="/backend/config/dictionaries?key=currency"
+          selectClassName="w-full"
+        />
+      ),
     },
     {
       id: 'channelId',
@@ -239,68 +261,34 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
           return <div className="text-sm text-muted-foreground">{t('sales.documents.form.channel.skip', 'Channel only applies to orders.')}</div>
         }
         return (
-          <select
-            className="w-full rounded border px-2 py-2 text-sm"
-            value={typeof value === 'string' ? value : ''}
-            onChange={(evt) => setValue(evt.target.value || null)}
-            disabled={channelLoading}
-          >
-            <option value="">{t('sales.documents.form.channel.placeholder', 'Select a channel')}</option>
-            {channels.map((channel) => (
-              <option key={channel.id} value={channel.id}>{channel.label}</option>
-            ))}
-          </select>
+          <LookupSelect
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => setValue(next)}
+            fetchItems={async (query) => {
+              const options = await loadChannels()
+              if (query && query.trim().length) {
+                const term = query.trim().toLowerCase()
+                return options
+                  .filter((opt) => opt.label.toLowerCase().includes(term))
+                  .map<LookupSelectItem>((opt) => ({
+                    id: opt.id,
+                    title: opt.label,
+                    icon: <Store className="h-5 w-5 text-muted-foreground" />,
+                  }))
+              }
+              return options.map<LookupSelectItem>((opt) => ({
+                id: opt.id,
+                title: opt.label,
+                icon: <Store className="h-5 w-5 text-muted-foreground" />,
+              }))
+            }}
+            searchPlaceholder={t('sales.documents.form.channel.placeholder', 'Select a channel')}
+            loadingLabel={t('sales.documents.form.channel.loading', 'Loading channels…')}
+            emptyLabel={t('sales.documents.form.channel.empty', 'No channels found.')}
+            selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
+          />
         )
       },
-    },
-    {
-      id: 'customerEntityId',
-      label: t('sales.documents.form.customer', 'Customer'),
-      type: 'custom',
-      component: ({ value, setValue }) => (
-        <div className="space-y-2">
-          <div className="flex gap-2">
-            <input
-              className="w-full rounded border px-2 py-2 text-sm"
-              list="sales-document-customers"
-              value={typeof value === 'string' ? value : ''}
-              onChange={(evt) => {
-                const next = evt.target.value || null
-                setValue(next)
-                loadAddresses(next)
-                loadCustomers(evt.target.value)
-              }}
-              placeholder={t('sales.documents.form.customer.placeholder', 'Select or paste customer id')}
-            />
-            <Button asChild size="sm" variant="outline">
-              <Link href="/backend/customers/people/create" target="_blank" rel="noreferrer">
-                {t('sales.documents.form.customer.addPerson', 'New person')}
-              </Link>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href="/backend/customers/companies/create" target="_blank" rel="noreferrer">
-                {t('sales.documents.form.customer.addCompany', 'New company')}
-              </Link>
-            </Button>
-          </div>
-          <datalist id="sales-document-customers">
-            {customers.map((customer) => (
-              <option key={customer.id} value={customer.id}>{customer.label}{customer.subtitle ? ` • ${customer.subtitle}` : ''}</option>
-            ))}
-          </datalist>
-          <div className="text-xs text-muted-foreground">
-            {customerLoading
-              ? t('sales.documents.form.customer.loading', 'Loading customers…')
-              : t('sales.documents.form.customer.help', 'Start typing to filter.')}
-          </div>
-        </div>
-      ),
-    },
-    {
-      id: 'customerEmail',
-      label: t('sales.documents.form.email', 'Customer email'),
-      type: 'text',
-      placeholder: t('sales.documents.form.email.placeholder', 'Email used for the document'),
     },
     {
       id: 'shippingAddressSection',
@@ -311,29 +299,34 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         const selectedId = typeof values?.shippingAddressId === 'string' ? values.shippingAddressId : ''
         const draft = (values?.shippingAddressDraft ?? {}) as AddressDraft
         return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={useCustom}
-                  onChange={(evt) => setValue('useCustomShipping', evt.target.checked)}
-                />
-                {t('sales.documents.form.shipping.custom', 'Define new address')}
-              </label>
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center gap-3">
+              <div className="min-w-32 text-sm font-medium">
+                {t('sales.documents.form.shipping.title', 'Shipping address')}
+              </div>
               {!useCustom ? (
                 <select
                   className="w-full rounded border px-2 py-2 text-sm"
                   value={selectedId}
                   onChange={(evt) => setValue('shippingAddressId', evt.target.value || null)}
-                  disabled={addressesLoading || !addressOptions.length}
+                  disabled={addressesLoading}
                 >
                   <option value="">{addressesLoading ? t('sales.documents.form.address.loading', 'Loading addresses…') : t('sales.documents.form.address.placeholder', 'Select address')}</option>
                   {addressOptions.map((addr) => (
                     <option key={addr.id} value={addr.id}>{addr.label}</option>
                   ))}
                 </select>
-              ) : null}
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  {t('sales.documents.form.shipping.custom', 'Define new address')}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={useCustom} onCheckedChange={(checked) => setValue('useCustomShipping', checked)} />
+              <span className="text-sm">
+                {t('sales.documents.form.shipping.custom', 'Define new address')}
+              </span>
             </div>
             {useCustom ? (
               <div className="grid gap-2 sm:grid-cols-2">
@@ -380,10 +373,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                   onChange={(evt) => setValue('shippingAddressDraft', { ...draft, country: evt.target.value })}
                 />
                 <label className="col-span-2 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={values?.saveShippingAddress === true}
-                    onChange={(evt) => setValue('saveShippingAddress', evt.target.checked)}
+                    onCheckedChange={(checked) => setValue('saveShippingAddress', checked)}
                   />
                   {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
                 </label>
@@ -402,29 +394,34 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         const selectedId = typeof values?.billingAddressId === 'string' ? values.billingAddressId : ''
         const draft = (values?.billingAddressDraft ?? {}) as AddressDraft
         return (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={useCustom}
-                  onChange={(evt) => setValue('useCustomBilling', evt.target.checked)}
-                />
-                {t('sales.documents.form.shipping.custom', 'Define new address')}
-              </label>
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center gap-3">
+              <div className="min-w-32 text-sm font-medium">
+                {t('sales.documents.form.billing.title', 'Billing address')}
+              </div>
               {!useCustom ? (
                 <select
                   className="w-full rounded border px-2 py-2 text-sm"
                   value={selectedId}
                   onChange={(evt) => setValue('billingAddressId', evt.target.value || null)}
-                  disabled={addressesLoading || !addressOptions.length}
+                  disabled={addressesLoading}
                 >
                   <option value="">{addressesLoading ? t('sales.documents.form.address.loading', 'Loading addresses…') : t('sales.documents.form.address.placeholder', 'Select address')}</option>
                   {addressOptions.map((addr) => (
                     <option key={addr.id} value={addr.id}>{addr.label}</option>
                   ))}
                 </select>
-              ) : null}
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  {t('sales.documents.form.shipping.custom', 'Define new address')}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch checked={useCustom} onCheckedChange={(checked) => setValue('useCustomBilling', checked)} />
+              <span className="text-sm">
+                {t('sales.documents.form.shipping.custom', 'Define new address')}
+              </span>
             </div>
             {useCustom ? (
               <div className="grid gap-2 sm:grid-cols-2">
@@ -471,10 +468,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                   onChange={(evt) => setValue('billingAddressDraft', { ...draft, country: evt.target.value })}
                 />
                 <label className="col-span-2 flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={values?.saveBillingAddress === true}
-                    onChange={(evt) => setValue('saveBillingAddress', evt.target.checked)}
+                    onCheckedChange={(checked) => setValue('saveBillingAddress', checked)}
                   />
                   {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
                 </label>
@@ -489,14 +485,104 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       label: t('sales.documents.form.comments', 'Comments'),
       type: 'textarea',
     },
-  ], [addressOptions, addressesLoading, channelLoading, channels, customerLoading, customers, loadAddresses, loadCustomers, t])
+  ], [addressOptions, addressesLoading, channelLoading, loadAddresses, loadChannels, loadCustomers, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'details', title: t('sales.documents.form.details', 'Document details'), column: 1, fields: ['documentKind', 'currencyCode', 'channelId', 'comments'] },
-    { id: 'customer', title: t('sales.documents.form.customer.group', 'Customer'), column: 1, fields: ['customerEntityId', 'customerEmail'] },
+    {
+      id: 'customer',
+      title: t('sales.documents.form.customer.group', 'Customer'),
+      column: 1,
+      component: ({ values, setValue }) => {
+        const emailValue = typeof values.customerEmail === 'string' ? values.customerEmail : ''
+        const { duplicate, checking } = useEmailDuplicateCheck(emailValue, {
+          disabled: false,
+          debounceMs: 400,
+          matchMode: 'prefix',
+        })
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <LookupSelect
+                value={typeof values.customerEntityId === 'string' ? values.customerEntityId : null}
+                onChange={(next) => {
+                  setValue('customerEntityId', next)
+                  loadAddresses(next)
+                }}
+                fetchItems={async (query) => {
+                  const options = await loadCustomers(query)
+                  return options.map<LookupSelectItem>((opt) => ({
+                    id: opt.id,
+                    title: opt.label,
+                    subtitle: opt.subtitle ?? undefined,
+                    icon:
+                      opt.kind === 'person' ? (
+                        <UserRound className="h-5 w-5 text-muted-foreground" />
+                      ) : (
+                        <Building2 className="h-5 w-5 text-muted-foreground" />
+                      ),
+                  }))
+                }}
+                searchPlaceholder={t('sales.documents.form.customer.placeholder', 'Search customers…')}
+                loadingLabel={t('sales.documents.form.customer.loading', 'Loading customers…')}
+                emptyLabel={t('sales.documents.form.customer.empty', 'No customers found.')}
+                selectedHintLabel={(id) => t('sales.documents.form.customer.selected', 'Selected customer: {{id}}', { id })}
+              />
+              <div className="flex gap-2 text-sm">
+                <Button asChild size="sm" variant="outline" className="gap-2">
+                  <Link href="/backend/customers/people/create" target="_blank" rel="noreferrer">
+                    <UserRound className="h-4 w-4" />
+                    {t('sales.documents.form.customer.addPerson', 'New person')}
+                  </Link>
+                </Button>
+                <Button asChild size="sm" variant="outline" className="gap-2">
+                  <Link href="/backend/customers/companies/create" target="_blank" rel="noreferrer">
+                    <Building2 className="h-4 w-4" />
+                    {t('sales.documents.form.customer.addCompany', 'New company')}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="email"
+                  className="w-full rounded border pl-8 pr-2 py-2 text-sm"
+                  value={emailValue}
+                  onChange={(event) => setValue('customerEmail', event.target.value)}
+                  placeholder={t('sales.documents.form.email.placeholder', 'Email used for the document')}
+                  spellCheck={false}
+                />
+              </div>
+              {duplicate ? (
+                <div className="flex items-center justify-between rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  <span>
+                    {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}
+                  </span>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => {
+                      setValue('customerEntityId', duplicate.id)
+                      loadAddresses(duplicate.id)
+                    }}
+                  >
+                    {t('sales.documents.form.email.selectCustomer', 'Select customer')}
+                  </Button>
+                </div>
+              ) : null}
+              {!duplicate && checking ? (
+                <p className="text-xs text-muted-foreground">{t('customers.people.form.emailChecking')}</p>
+              ) : null}
+            </div>
+          </div>
+        )
+      },
+    },
     { id: 'addresses', title: t('sales.documents.form.addresses', 'Addresses'), column: 2, fields: ['shippingAddressSection', 'billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
-  ], [t])
+  ], [loadAddresses, loadCustomers, t])
 
   const initialValues = React.useMemo<Partial<SalesDocumentFormValues>>(
     () => ({
@@ -521,9 +607,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         comments: base.comments ?? undefined,
         metadata: base.customerEmail ? { customerEmail: base.customerEmail } : undefined,
       }
-      if (documentKind === 'order') {
-        payload.channelId = base.channelId || undefined
-      }
+      payload.channelId = base.channelId || undefined
       const shippingSnapshot = base.useCustomShipping ? normalizeAddressDraft(base.shippingAddressDraft) : null
       const billingSnapshot = base.useCustomBilling ? normalizeAddressDraft(base.billingAddressDraft) : null
       if (shippingSnapshot) payload.shippingAddressSnapshot = shippingSnapshot

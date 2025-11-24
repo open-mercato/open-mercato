@@ -77,6 +77,7 @@ type QuoteGraphSnapshot = {
     deliveryWindowCode: string | null
     paymentMethodId: string | null
     paymentMethodCode: string | null
+    channelId: string | null
     shippingMethodSnapshot: Record<string, unknown> | null
     deliveryWindowSnapshot: Record<string, unknown> | null
     paymentMethodSnapshot: Record<string, unknown> | null
@@ -492,6 +493,7 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       deliveryWindowCode: quote.deliveryWindowCode ?? null,
       paymentMethodId: quote.paymentMethodId ?? null,
       paymentMethodCode: quote.paymentMethodCode ?? null,
+      channelId: quote.channelId ?? null,
       shippingMethodSnapshot: quote.shippingMethodSnapshot ? cloneJson(quote.shippingMethodSnapshot) : null,
       deliveryWindowSnapshot: quote.deliveryWindowSnapshot ? cloneJson(quote.deliveryWindowSnapshot) : null,
       paymentMethodSnapshot: quote.paymentMethodSnapshot ? cloneJson(quote.paymentMethodSnapshot) : null,
@@ -981,6 +983,7 @@ function applyQuoteSnapshot(quote: SalesQuote, snapshot: QuoteGraphSnapshot['quo
     : null
   quote.paymentMethodSnapshot = snapshot.paymentMethodSnapshot ? cloneJson(snapshot.paymentMethodSnapshot) : null
   quote.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  quote.channelId = snapshot.channelId ?? null
   quote.customFieldSetId = snapshot.customFieldSetId ?? null
   quote.subtotalNetAmount = snapshot.subtotalNetAmount
   quote.subtotalGrossAmount = snapshot.subtotalGrossAmount
@@ -1094,6 +1097,7 @@ async function restoreQuoteGraph(
         ? cloneJson(snapshot.quote.paymentMethodSnapshot)
         : null,
       metadata: snapshot.quote.metadata ? cloneJson(snapshot.quote.metadata) : null,
+      channelId: snapshot.quote.channelId ?? null,
       customFieldSetId: snapshot.quote.customFieldSetId ?? null,
       subtotalNetAmount: snapshot.quote.subtotalNetAmount,
       subtotalGrossAmount: snapshot.quote.subtotalGrossAmount,
@@ -1407,9 +1411,10 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
               description: paymentMethod.description ?? null,
               providerKey: paymentMethod.providerKey ?? null,
               terms: paymentMethod.terms ?? null,
-            }
-          : null,
+          }
+        : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      channelId: parsed.channelId ?? null,
       customFieldSetId: parsed.customFieldSetId ?? null,
       subtotalNetAmount: '0',
       subtotalGrossAmount: '0',

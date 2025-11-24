@@ -812,6 +812,12 @@ export class SalesQuote {
   @ManyToOne(() => SalesPaymentMethod, { fieldName: 'payment_method_ref_id', nullable: true })
   paymentMethod?: SalesPaymentMethod | null
 
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
+
+  @ManyToOne(() => SalesChannel, { fieldName: 'channel_ref_id', nullable: true })
+  channel?: SalesChannel | null
+
   @Property({ name: 'shipping_method_snapshot', type: 'jsonb', nullable: true })
   shippingMethodSnapshot?: Record<string, unknown> | null
 

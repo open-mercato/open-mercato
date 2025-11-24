@@ -371,6 +371,7 @@ export const quoteCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
+  channelId: uuid().optional(),
   customerSnapshot: jsonRecord.optional(),
   billingAddressId: uuid().optional(),
   shippingAddressId: uuid().optional(),
