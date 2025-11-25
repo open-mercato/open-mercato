@@ -13,6 +13,11 @@ import { CatalogProductCategory } from '../../data/entities'
 import { categoryCreateSchema, categoryUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { computeHierarchyForCategories } from '../../lib/categoryHierarchy'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.categories.view'] },
@@ -278,3 +283,41 @@ export async function GET(req: Request) {
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const categoryListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  parentId: z.string().uuid().nullable().optional(),
+  parentName: z.string().nullable().optional(),
+  depth: z.number(),
+  treePath: z.string(),
+  pathLabel: z.string(),
+  childCount: z.number(),
+  descendantCount: z.number(),
+  isActive: z.boolean(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+})
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Category',
+  pluralName: 'Categories',
+  querySchema: viewSchema,
+  listResponseSchema: createPagedListResponseSchema(categoryListItemSchema),
+  create: {
+    schema: categoryCreateSchema,
+    description: 'Creates a new product category.',
+  },
+  update: {
+    schema: categoryUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing category by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a category by id.',
+  },
+})

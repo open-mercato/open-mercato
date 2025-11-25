@@ -10,6 +10,11 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FV from '@open-mercato/core/generated/entities/catalog_product_variant'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -234,3 +239,43 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const variantListItemSchema = z.object({
+  id: z.string().uuid(),
+  product_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  sku: z.string().nullable().optional(),
+  barcode: z.string().nullable().optional(),
+  status_entry_id: z.string().uuid().nullable().optional(),
+  is_default: z.boolean().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  weight_value: z.number().nullable().optional(),
+  weight_unit: z.string().nullable().optional(),
+  dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  option_values: z.record(z.string(), z.unknown()).nullable().optional(),
+  custom_fieldset_code: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Variant',
+  pluralName: 'Variants',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(variantListItemSchema),
+  create: {
+    schema: variantCreateSchema,
+    description: 'Creates a new product variant.',
+  },
+  update: {
+    schema: variantUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing variant by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a variant by id.',
+  },
+})
