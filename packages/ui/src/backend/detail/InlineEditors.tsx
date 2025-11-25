@@ -22,6 +22,7 @@ export type InlineTextEditorProps = {
   containerClassName?: string
   triggerClassName?: string
   hideLabel?: boolean
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string; type?: string }) => React.ReactNode
 }
 
 export function InlineTextEditor({
@@ -37,6 +38,7 @@ export function InlineTextEditor({
   containerClassName,
   triggerClassName,
   hideLabel = false,
+  renderDisplay,
 }: InlineTextEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -153,7 +155,9 @@ export function InlineTextEditor({
             </form>
           ) : (
             <div className={variant === 'plain' ? 'flex items-center gap-2' : 'mt-1 text-sm'}>
-              {value && value.length ? (
+              {renderDisplay ? (
+                renderDisplay({ value, emptyLabel, type: inputType })
+              ) : value && value.length ? (
                 <span className={variant === 'plain' ? 'text-2xl font-semibold leading-tight' : 'break-words'}>
                   {value}
                 </span>
@@ -191,6 +195,7 @@ export type InlineMultilineEditorProps = {
   activateOnClick?: boolean
   containerClassName?: string
   triggerClassName?: string
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
 }
 
 export function InlineMultilineEditor({
@@ -204,6 +209,7 @@ export function InlineMultilineEditor({
   activateOnClick = false,
   containerClassName,
   triggerClassName,
+  renderDisplay,
 }: InlineMultilineEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -299,7 +305,13 @@ export function InlineMultilineEditor({
             </form>
           ) : (
             <div className="mt-1 text-sm whitespace-pre-wrap">
-              {value && value.length ? <span>{value}</span> : <span className="text-muted-foreground">{emptyLabel}</span>}
+              {renderDisplay ? (
+                renderDisplay({ value, emptyLabel })
+              ) : value && value.length ? (
+                <span>{value}</span>
+              ) : (
+                <span className="text-muted-foreground">{emptyLabel}</span>
+              )}
             </div>
           )}
         </div>

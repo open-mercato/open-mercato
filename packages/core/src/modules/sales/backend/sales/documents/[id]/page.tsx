@@ -21,6 +21,10 @@ type DocumentRecord = {
   customerEntityId?: string | null
   billingAddressId?: string | null
   shippingAddressId?: string | null
+  customerReference?: string | null
+  externalReference?: string | null
+  channelId?: string | null
+  placedAt?: string | null
   customerName?: string | null
   contactEmail?: string | null
   channelCode?: string | null
@@ -127,7 +131,18 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
         label: t('sales.documents.detail.externalRef', 'External reference'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.externalRef.placeholder', 'Add external reference'),
-        value: record?.customerEntityId ?? null,
+        value: record?.externalReference ?? null,
+        onSave: async () => {
+          flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')
+        },
+      },
+      {
+        key: 'customerRef',
+        kind: 'text' as const,
+        label: t('sales.documents.detail.customerRef', 'Customer reference'),
+        emptyLabel: t('sales.documents.detail.empty', 'Not set'),
+        placeholder: t('sales.documents.detail.customerRef.placeholder', 'Customer PO or note'),
+        value: record?.customerReference ?? null,
         onSave: async () => {
           flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')
         },
@@ -174,7 +189,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     {
       key: 'channel',
       title: t('sales.documents.detail.channel', 'Channel'),
-      value: record?.channelCode ?? null,
+      value: record?.channelId ?? null,
     },
     {
       key: 'status',
@@ -184,7 +199,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     {
       key: 'date',
       title: t('sales.documents.detail.date', 'Date'),
-      value: record?.createdAt ?? null,
+      value: record?.placedAt ?? record?.createdAt ?? null,
     },
   ]
 

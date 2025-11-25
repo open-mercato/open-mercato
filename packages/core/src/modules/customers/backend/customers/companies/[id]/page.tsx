@@ -14,6 +14,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
+import { DetailFieldsSection, type DetailFieldConfig, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import {
   ActivitiesSection,
 } from '../../../../components/detail/ActivitiesSection'
@@ -27,18 +28,17 @@ import {
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { AddressesSection } from '../../../../components/detail/AddressesSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
-import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
-import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
 import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
-import { renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
+import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
   type CompanyPersonSummary,
 } from '../../../../components/detail/CompanyPeopleSection'
+import { AnnualRevenueField } from '../../../../components/detail/AnnualRevenueField'
 import type {
   ActivitySummary,
   CommentSummary,
@@ -571,23 +571,39 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
     {
       key: 'lifecycleStage',
-      kind: 'dictionary',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.lifecycleStage', 'Lifecycle stage'),
-      value: company.lifecycleStage ?? null,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      dictionaryKind: 'lifecycle-stages',
-      onSave: (next) => updateCompanyField('lifecycleStage', next),
-      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+      render: () => (
+        <InlineDictionaryEditor
+          label={t('customers.companies.detail.fields.lifecycleStage', 'Lifecycle stage')}
+          value={company.lifecycleStage ?? null}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          kind="lifecycle-stages"
+          onSave={(next) => updateCompanyField('lifecycleStage', next)}
+          selectClassName="h-9 w-full rounded border px-3 text-sm"
+          variant="muted"
+          activateOnClick
+        />
+      ),
     },
     {
       key: 'source',
-      kind: 'dictionary',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.source', 'Source'),
-      value: company.source ?? null,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      dictionaryKind: 'sources',
-      onSave: (next) => updateCompanyField('source', next),
-      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+      render: () => (
+        <InlineDictionaryEditor
+          label={t('customers.companies.detail.fields.source', 'Source')}
+          value={company.source ?? null}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          kind="sources"
+          onSave={(next) => updateCompanyField('source', next)}
+          selectClassName="h-9 w-full rounded border px-3 text-sm"
+          variant="muted"
+          activateOnClick
+        />
+      ),
     },
     {
       key: 'domain',
@@ -600,13 +616,21 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
     {
       key: 'industry',
-      kind: 'dictionary',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.industry', 'Industry'),
-      value: profile?.industry ?? null,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      dictionaryKind: 'industries',
-      onSave: (next) => updateProfileField('industry', next),
-      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+      render: () => (
+        <InlineDictionaryEditor
+          label={t('customers.companies.detail.fields.industry', 'Industry')}
+          value={profile?.industry ?? null}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          kind="industries"
+          onSave={(next) => updateProfileField('industry', next)}
+          selectClassName="h-9 w-full rounded border px-3 text-sm"
+          variant="muted"
+          activateOnClick
+        />
+      ),
     },
     {
       key: 'sizeBucket',
@@ -619,13 +643,19 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
     {
       key: 'annualRevenue',
-      kind: 'annualRevenue',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.annualRevenue', 'Annual revenue'),
-      value: profile?.annualRevenue ?? null,
-      currency: annualRevenueCurrency,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      validator: validators.annualRevenue,
-      onSave: handleAnnualRevenueChange,
+      render: () => (
+        <AnnualRevenueField
+          label={t('customers.companies.detail.fields.annualRevenue', 'Annual revenue')}
+          amount={profile?.annualRevenue ?? null}
+          currency={annualRevenueCurrency}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          validator={validators.annualRevenue}
+          onSave={handleAnnualRevenueChange}
+        />
+      ),
     },
     {
       key: 'websiteUrl',

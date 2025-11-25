@@ -32,9 +32,10 @@ import {
   renderLinkedInDisplay,
   renderTwitterDisplay,
   renderMultilineMarkdownDisplay,
+  InlineDictionaryEditor,
 } from '../../../../components/detail/InlineEditors'
-import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
-import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
+import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type {
   ActivitySummary,
@@ -474,51 +475,75 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       },
       {
         key: 'jobTitle',
-        kind: 'dictionary',
+        kind: 'custom',
         label: t('customers.people.form.jobTitle'),
-        value: profile?.jobTitle ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
-        dictionaryKind: 'job-titles',
-        onSave: async (next) => updateProfileField('jobTitle', next),
-        selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+        render: () => (
+          <InlineDictionaryEditor
+            label={t('customers.people.form.jobTitle')}
+            value={profile?.jobTitle ?? null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            kind="job-titles"
+            onSave={async (next) => updateProfileField('jobTitle', next)}
+            selectClassName="h-9 w-full rounded border px-3 text-sm"
+            variant="muted"
+            activateOnClick
+          />
+        ),
       },
       {
         key: 'lifecycleStage',
-        kind: 'dictionary',
+        kind: 'custom',
         label: t('customers.people.detail.fields.lifecycleStage'),
-        value: person.lifecycleStage ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
-        dictionaryKind: 'lifecycle-stages',
-        onSave: async (next) => {
-          const send = typeof next === 'string' ? next : ''
-          await savePerson(
-            { lifecycleStage: send },
-            (prev) => ({
-              ...prev,
-              person: { ...prev.person, lifecycleStage: next && next.length ? next : null },
-            })
-          )
-        },
-        selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+        render: () => (
+          <InlineDictionaryEditor
+            label={t('customers.people.detail.fields.lifecycleStage')}
+            value={person.lifecycleStage ?? null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            kind="lifecycle-stages"
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { lifecycleStage: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, lifecycleStage: next && next.length ? next : null },
+                })
+              )
+            }}
+            selectClassName="h-9 w-full rounded border px-3 text-sm"
+            variant="muted"
+            activateOnClick
+          />
+        ),
       },
       {
         key: 'source',
-        kind: 'dictionary',
+        kind: 'custom',
         label: t('customers.people.form.source'),
-        value: person.source ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
-        dictionaryKind: 'sources',
-        onSave: async (next) => {
-          const send = typeof next === 'string' ? next : ''
-          await savePerson(
-            { source: send },
-            (prev) => ({
-              ...prev,
-              person: { ...prev.person, source: next && next.length ? next : null },
-            })
-          )
-        },
-        selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+        render: () => (
+          <InlineDictionaryEditor
+            label={t('customers.people.form.source')}
+            value={person.source ?? null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            kind="sources"
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { source: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, source: next && next.length ? next : null },
+                })
+              )
+            }}
+            selectClassName="h-9 w-full rounded border px-3 text-sm"
+            variant="muted"
+            activateOnClick
+          />
+        ),
       },
       {
         key: 'description',
