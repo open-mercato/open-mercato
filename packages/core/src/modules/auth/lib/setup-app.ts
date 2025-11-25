@@ -415,43 +415,80 @@ async function ensureSalesNumberingDefaults(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
 ) {
-  const repo = em.getRepository(SalesSettings)
-  const exists = await repo.findOne({
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
-  if (!exists) {
-    const settings = repo.create({
+  const repo = (em as any).getRepository?.(SalesSettings)
+  const findSettings = async () =>
+    repo?.findOne({
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
-      quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    }) ??
+    (em as any).findOne?.(SalesSettings, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
     })
-    em.persist(settings)
-  }
 
-  const sequenceRepo = em.getRepository(SalesDocumentSequence)
-  const kinds: Array<'order' | 'quote'> = ['order', 'quote']
-  for (const kind of kinds) {
-    const seq = await sequenceRepo.findOne({
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      documentKind: kind,
-    })
-    if (!seq) {
-      const entry = sequenceRepo.create({
+  const exists = await findSettings()
+  if (!exists) {
+    const settings =
+      repo?.create?.({
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-        documentKind: kind,
-        currentValue: 0,
+        orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
+        quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }) ??
+      (em as any).create?.(SalesSettings, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
+        quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
-      em.persist(entry)
+    if (settings && (em as any).persist) {
+      em.persist(settings)
     }
   }
 
-  await em.flush()
+  const sequenceRepo = (em as any).getRepository?.(SalesDocumentSequence)
+  const kinds: Array<'order' | 'quote'> = ['order', 'quote']
+  for (const kind of kinds) {
+    const seq =
+      sequenceRepo?.findOne({
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        documentKind: kind,
+      }) ??
+      (em as any).findOne?.(SalesDocumentSequence, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        documentKind: kind,
+      })
+    if (!seq) {
+      const entry =
+        sequenceRepo?.create?.({
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          documentKind: kind,
+          currentValue: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }) ??
+        (em as any).create?.(SalesDocumentSequence, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          documentKind: kind,
+          currentValue: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+      if (entry && (em as any).persist) {
+        em.persist(entry)
+      }
+    }
+  }
+
+  if ((em as any).flush) {
+    await em.flush()
+  }
 }
