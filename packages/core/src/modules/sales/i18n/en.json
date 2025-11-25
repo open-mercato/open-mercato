@@ -472,6 +472,7 @@
         "address.postal": "Postal code",
         "address.country": "Country",
         "address.saveToCustomer": "Save this address to the customer",
+        "address.sameAsShipping": "Same as shipping address",
         "customer.group": "Customer",
         "addresses": "Addresses",
         "customFields": "Custom fields",

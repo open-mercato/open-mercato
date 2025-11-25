@@ -427,6 +427,7 @@
         "address.postal": "PLZ",
         "address.country": "Land",
         "address.saveToCustomer": "Diese Adresse beim Kunden speichern",
+        "address.sameAsShipping": "Gleich wie Lieferadresse",
         "customer.group": "Kunde",
         "addresses": "Adressen",
         "customFields": "Benutzerdefinierte Felder",

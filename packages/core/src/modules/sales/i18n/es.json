@@ -428,6 +428,7 @@
         "address.postal": "Código postal",
         "address.country": "País",
         "address.saveToCustomer": "Guardar esta dirección en el cliente",
+        "address.sameAsShipping": "Igual que la dirección de envío",
         "customer.group": "Cliente",
         "addresses": "Direcciones",
         "customFields": "Campos personalizados",
