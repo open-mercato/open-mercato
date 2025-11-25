@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Loader2, Search } from 'lucide-react'
+import { Loader2, Search, X } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { cn } from '@/lib/utils'
 
@@ -46,6 +46,11 @@ export function LookupSelect({
   const [loading, setLoading] = React.useState(false)
   const [hasTyped, setHasTyped] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const fetchItemsRef = React.useRef(fetchItems)
+
+  React.useEffect(() => {
+    fetchItemsRef.current = fetchItems
+  }, [fetchItems])
 
   const shouldSearch = query.trim().length >= minQuery
   React.useEffect(() => {
@@ -61,7 +66,7 @@ export function LookupSelect({
     setError(null)
     timer = setTimeout(() => {
       const requestId = Date.now()
-      fetchItems(query.trim())
+      fetchItemsRef.current(query.trim())
         .then((result) => {
           if (cancelled) return
           setItems(result)
@@ -80,9 +85,7 @@ export function LookupSelect({
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [fetchItems, query, shouldSearch])
-
-  const selectedHint = value && selectedHintLabel ? selectedHintLabel(value) : null
+  }, [query, shouldSearch])
 
   return (
     <div className="space-y-3">
@@ -101,14 +104,6 @@ export function LookupSelect({
         </div>
         {actionSlot ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
-      {selectedHint ? (
-        <div className="rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">{selectedHint}</div>
-      ) : null}
-      {value ? (
-        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>
-          {clearLabel}
-        </Button>
-      ) : null}
       {shouldSearch ? (
         <div className="space-y-2">
           {loading ? (
@@ -123,13 +118,27 @@ export function LookupSelect({
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {items.map((item) => {
               const isSelected = value === item.id
+              const handleSelect = () => {
+                if (item.disabled && !isSelected) return
+                onChange(item.id)
+              }
               return (
                 <div
                   key={item.id}
                   className={cn(
-                    'flex gap-3 rounded border bg-card p-3 transition-colors',
+                    'flex gap-3 rounded border bg-card p-3 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary',
                     isSelected ? 'border-primary/70 bg-primary/5' : 'hover:border-primary/50'
                   )}
+                  role="button"
+                  tabIndex={item.disabled ? -1 : 0}
+                  onClick={handleSelect}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      handleSelect()
+                    }
+                  }}
+                  aria-pressed={isSelected}
                 >
                   <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded border bg-muted">
                     {item.icon ?? <span className="text-muted-foreground">•</span>}
@@ -154,7 +163,10 @@ export function LookupSelect({
                         type="button"
                         variant={isSelected ? 'secondary' : 'outline'}
                         size="sm"
-                        onClick={() => onChange(item.id)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleSelect()
+                        }}
                         disabled={item.disabled && !isSelected}
                       >
                         {isSelected ? 'Selected' : 'Select'}
@@ -165,6 +177,18 @@ export function LookupSelect({
               )
             })}
           </div>
+          {value ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-fit gap-1 text-sm font-normal"
+              onClick={() => onChange(null)}
+            >
+              <X className="h-4 w-4" />
+              {clearLabel}
+            </Button>
+          ) : null}
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">

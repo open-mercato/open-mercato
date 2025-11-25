@@ -506,17 +506,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       id: 'documentKind',
       label: '',
       type: 'custom',
-      required: true,
+      required: false,
       component: ({ value, setValue }) => {
         const current = value === 'order' ? 'order' : 'quote'
         const label = t('sales.documents.form.kind', 'Document type')
         return (
-          <div className="space-y-2">
+          <div className="space-y-2 pt-0">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
-                <span className="text-destructive">*</span>
-                <span>{label}</span>
-              </div>
+              <div className="text-sm font-semibold text-foreground">{label}</div>
               <div className="inline-flex rounded-lg border bg-background p-1 shadow-sm">
                 {(['quote', 'order'] as DocumentKind[]).map((kind) => (
                   <Button
@@ -599,7 +596,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {customerRequired
-                    ? t('sales.documents.form.address.customerRequired', 'Select a customer or define new custom address')
+                    ? t('sales.documents.form.address.customerRequired', 'Select customer first or define custom address')
                     : t('sales.documents.form.shipping.hint', 'Select an address or define a new one.')}
                 </p>
               </div>
