@@ -15,15 +15,17 @@ describe('customers utils - address formatting', () => {
         postalCode: ' NW1 ',
         city: ' London ',
         region: '  Greater London ',
-        country: '  UK ',
-      },
-      'street_first'
-    )
-    expect(json).toEqual({
-      format: 'street_first',
-      addressLine1: '123 Baker Street',
-      addressLine2: 'Suite 5',
-      buildingNumber: '10',
+      country: '  UK ',
+      companyName: '  Widgets Inc. ',
+    },
+    'street_first'
+  )
+  expect(json).toEqual({
+    format: 'street_first',
+    companyName: 'Widgets Inc.',
+    addressLine1: '123 Baker Street',
+    addressLine2: 'Suite 5',
+    buildingNumber: '10',
       flatNumber: '2B',
       postalCode: 'NW1',
       city: 'London',
@@ -53,6 +55,21 @@ describe('customers utils - address formatting', () => {
       'Greater London',
       'UK',
     ])
+  })
+
+  it('adds company name as the first line when present', () => {
+    const lines = formatAddressLines(
+      {
+        companyName: 'Widgets Inc.',
+        addressLine1: 'Baker Street',
+        buildingNumber: '10',
+        postalCode: 'NW1',
+        city: 'London',
+      },
+      'street_first'
+    )
+    expect(lines[0]).toBe('Widgets Inc.')
+    expect(lines.slice(1)).toEqual(['Baker Street 10', 'NW1 London'])
   })
 
   it('formats lines in line_first mode preserving primary line', () => {
@@ -86,4 +103,3 @@ describe('customers utils - address formatting', () => {
     expect(formatAddressString(address, 'line_first', ' | ')).toBe('Baker Street 10 | NW1 London')
   })
 })
-

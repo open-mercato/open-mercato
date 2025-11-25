@@ -9,6 +9,10 @@ import { loadEnabledModules, moduleFsRoots, moduleImportBase, type ModuleEntry }
 
 type Cmd = 'generate' | 'apply' | 'greenfield'
 
+function formatResult(modId: string, message: string, emoji = '•') {
+  return `${emoji} ${modId}: ${message}`
+}
+
 async function loadModuleEntities(entry: ModuleEntry) {
   const modId = entry.id
   // Prefer app overrides, then core; data/, fallback to legacy db/
@@ -120,23 +124,23 @@ async function run(cmd: Cmd) {
           const stem = base.replace(ext, '')
           const suffix = `_${modId}`
           const newBase = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
-          const newPath = path.join(dir, newBase)
-          let content = fs.readFileSync(orig, 'utf8')
-          // Rename class to ensure uniqueness as well
-          content = content.replace(/export class (Migration\d+)/, `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`)
-          fs.writeFileSync(newPath, content, 'utf8')
-          if (newPath !== orig) fs.unlinkSync(orig)
-          results.push(`${modId}: generated ${newBase}`)
-        } catch (e) {
-          results.push(`${modId}: generated ${path.basename(diff.fileName)} (rename failed)`)  
-        }
-      } else {
-        results.push(`${modId}: no changes`)
+        const newPath = path.join(dir, newBase)
+        let content = fs.readFileSync(orig, 'utf8')
+        // Rename class to ensure uniqueness as well
+        content = content.replace(/export class (Migration\d+)/, `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`)
+        fs.writeFileSync(newPath, content, 'utf8')
+        if (newPath !== orig) fs.unlinkSync(orig)
+        results.push(formatResult(modId, `generated ${newBase}`, '✨'))
+      } catch (e) {
+        results.push(formatResult(modId, `generated ${path.basename(diff.fileName)} (rename failed)`, '✨'))  
       }
-    } else if (cmd === 'apply') {
-      await migrator.up()
-      results.push(`${modId}: applied`)
+    } else {
+      results.push(formatResult(modId, 'no changes', 'ℹ️'))
     }
+  } else if (cmd === 'apply') {
+    await migrator.up()
+    results.push(formatResult(modId, 'applied', '✅'))
+  }
     await orm.close(true)
   }
   console.log(results.join('\n'))
@@ -191,28 +195,28 @@ async function runGreenfield() {
       }
       
       if (migrationFiles.length > 0 || snapshotFiles.length > 0) {
-        results.push(`${modId}: cleaned ${migrationFiles.length} migrations, ${snapshotFiles.length} snapshots`)
+        results.push(formatResult(modId, `cleaned ${migrationFiles.length} migrations, ${snapshotFiles.length} snapshots`, '🧹'))
       } else {
-        results.push(`${modId}: already clean`)
+        results.push(formatResult(modId, 'already clean', 'ℹ️'))
       }
-      } else {
-        results.push(`${modId}: no migrations directory`)
+    } else {
+      results.push(formatResult(modId, 'no migrations directory', 'ℹ️'))
+    }
+    
+    // Clean up checksum files using glob pattern
+    const generatedDir = 'generated'
+    if (fs.existsSync(generatedDir)) {
+      const files = fs.readdirSync(generatedDir)
+      const checksumFiles = files.filter(file => file.endsWith('.checksum'))
+      
+      for (const file of checksumFiles) {
+        fs.unlinkSync(path.join(generatedDir, file))
       }
-            
-            // Clean up checksum files using glob pattern
-            const generatedDir = 'generated'
-            if (fs.existsSync(generatedDir)) {
-              const files = fs.readdirSync(generatedDir)
-              const checksumFiles = files.filter(file => file.endsWith('.checksum'))
-              
-              for (const file of checksumFiles) {
-                fs.unlinkSync(path.join(generatedDir, file))
-              }
-              
-              if (checksumFiles.length > 0) {
-                results.push(`${modId}: cleaned ${checksumFiles.length} checksum files`)
-              }
-            }
+      
+      if (checksumFiles.length > 0) {
+        results.push(formatResult(modId, `cleaned ${checksumFiles.length} checksum files`, '🧹'))
+      }
+    }
   }
   
   console.log(results.join('\n'))

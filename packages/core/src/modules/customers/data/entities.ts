@@ -474,6 +474,9 @@ export class CustomerAddress {
   @Property({ name: 'purpose', type: 'text', nullable: true })
   purpose?: string | null
 
+  @Property({ name: 'company_name', type: 'text', nullable: true })
+  companyName?: string | null
+
   @Property({ name: 'address_line1', type: 'text' })
   addressLine1!: string
 

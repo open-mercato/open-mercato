@@ -63,6 +63,7 @@ function mapAddress(input: unknown): AddressSummary | null {
     id,
     name: readString(record, 'name'),
     purpose: readString(record, 'purpose'),
+    companyName: readString(record, 'company_name', 'companyName'),
     addressLine1,
     addressLine2: readString(record, 'address_line2', 'addressLine2'),
     buildingNumber: readString(record, 'building_number', 'buildingNumber'),
@@ -155,6 +156,7 @@ export function AddressesSection({
         if (normalizedEntityId && !base.id) bodyPayload.entityId = normalizedEntityId
         if (typeof payload.name === 'string') bodyPayload.name = payload.name
         if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
+        if (typeof payload.companyName === 'string') bodyPayload.companyName = payload.companyName
         if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
         if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
         if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
@@ -190,6 +192,7 @@ export function AddressesSection({
           id: typeof body?.id === 'string' ? body.id : generateTempId(),
           name: payload.name ?? null,
           purpose: payload.purpose ?? null,
+          companyName: payload.companyName ?? null,
           addressLine1: payload.addressLine1,
           addressLine2: payload.addressLine2 ?? null,
           buildingNumber: payload.buildingNumber ?? null,
@@ -247,6 +250,7 @@ export function AddressesSection({
               ...address,
               name: payload.name ?? null,
               purpose: payload.purpose ?? null,
+              companyName: payload.companyName ?? null,
               addressLine1: payload.addressLine1,
               addressLine2: payload.addressLine2 ?? null,
               buildingNumber: payload.buildingNumber ?? null,
@@ -313,6 +317,7 @@ export function AddressesSection({
       id: address.id,
       name: address.name ?? undefined,
       purpose: address.purpose ?? undefined,
+      companyName: address.companyName ?? undefined,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? undefined,
       buildingNumber: address.buildingNumber ?? undefined,

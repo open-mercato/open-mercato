@@ -244,6 +244,12 @@
       },
       "channels": {
         "title": "Sales Channels"
+      },
+      "errors": {
+        "unauthorized": "Unauthorized",
+        "organization_required": "Organization context is required.",
+        "load_failed": "Failed to load sales settings",
+        "save_failed": "Failed to save sales settings"
       }
     },
     "configuration": {
@@ -366,9 +372,139 @@
           "save": "Failed to save tax rate.",
           "delete": "Failed to delete tax rate."
         }
+      },
+      "numbering": {
+        "title": "Document numbers",
+        "description": "Control numbering for sales orders and quotes.",
+        "actions": {
+          "save": "Save settings",
+          "reset": "Reset changes",
+          "refresh": "Refresh",
+          "refreshing": "Refreshing…",
+          "saving": "Saving…"
+        },
+        "orderFormat": "Order number format",
+        "quoteFormat": "Quote number format",
+        "orderNext": "Next order sequence",
+        "quoteNext": "Next quote sequence",
+        "orderHint": "Example: ORDER/{yyyy}/{seq:5}",
+        "quoteHint": "Example: QUOTE/{yy}/{mm}/{seq:4}",
+        "sequenceHint": "Applied on the next generated number for this type.",
+        "sequenceHintQuote": "Resets the quote counter for the next document.",
+        "tokensTitle": "Available tokens",
+        "tokensHint": "Combine tokens to shape your identifiers, e.g. ORDER/{yyyy}/{seq:5}.",
+        "errors": {
+          "load": "Failed to load numbering settings.",
+          "save": "Failed to save numbering settings."
+        },
+        "messages": {
+          "saved": "Numbering settings saved."
+        }
       }
-    }
-    ,
+    },
+    "documents": {
+      "errors": {
+        "unauthorized": "Unauthorized",
+        "organization_required": "Organization context is required.",
+        "forbidden": "You do not have access to generate numbers.",
+        "number_generate_failed": "Failed to generate document number."
+      },
+      "create": {
+        "title": "Create sales document"
+      },
+      "form": {
+        "title": "Create sales document",
+        "submit": "Create",
+        "currency": "Currency",
+        "channel": "Sales channel",
+        "channel.skip": "Channel only applies to orders.",
+        "channel.placeholder": "Select a channel",
+        "channel.help": "Optional. Only for orders.",
+        "channel.loading": "Loading channels…",
+        "channel.empty": "No channels found.",
+        "channel.selected": "Selected channel: {{id}}",
+        "kind": "Document type",
+        "number": "Document number",
+        "numberLoading": "Generating…",
+        "numberRefresh": "Generate",
+        "numberHintOrder": "Format applies to orders and uses the configured counter.",
+        "numberHintQuote": "Format applies to quotes and uses the configured counter.",
+        "customer": "Customer",
+        "customer.placeholder": "Search customers…",
+        "customer.addPerson": "New person",
+        "customer.addCompany": "New company",
+        "customer.create": "Create customer",
+        "customer.loading": "Loading customers…",
+        "customer.help": "Start typing to filter.",
+        "customer.empty": "No customers found.",
+        "customer.selected": "Selected customer: {{id}}",
+        "email": "Customer email",
+        "email.placeholder": "Email used for the document",
+        "email.selectCustomer": "Select customer",
+        "currency.placeholder": "Select currency",
+        "currency.add": "Add currency",
+        "currency.prompt": "Currency code",
+        "currency.dialogTitle": "Add currency",
+        "currency.valueLabel": "Currency code",
+        "currency.valuePlaceholder": "e.g. USD",
+        "currency.labelLabel": "Label",
+        "currency.labelPlaceholder": "Display name",
+        "currency.emptyError": "Currency code is required",
+        "currency.cancel": "Cancel",
+        "currency.save": "Save",
+        "currency.created": "Currency saved.",
+        "currency.errorLoad": "Failed to load currencies.",
+        "currency.errorSave": "Failed to save currency.",
+        "currency.loading": "Loading currencies…",
+        "currency.manage": "Manage currency dictionary",
+        "shipping.title": "Shipping address",
+        "shipping.custom": "Define new address",
+        "address.customerRequired": "Select a customer first",
+        "billing.title": "Billing address",
+        "address.loading": "Loading addresses…",
+        "address.placeholder": "Select address",
+        "address.name": "Full name",
+        "address.company": "Company (optional)",
+        "address.line1": "Address line 1",
+        "address.line2": "Address line 2",
+        "address.city": "City",
+        "address.region": "Region/state",
+        "address.postal": "Postal code",
+        "address.country": "Country",
+        "address.saveToCustomer": "Save this address to the customer",
+        "customer.group": "Customer",
+        "addresses": "Addresses",
+        "customFields": "Custom fields",
+        "comments": "Comments",
+        "details": "Document details",
+        "errors.submit": "Failed to create document.",
+        "errors.id": "Document id missing after create.",
+        "errors.customers": "Failed to load customers.",
+        "errors.numberGenerate": "Could not generate a document number.",
+        "errors.numberRequired": "Document number is required.",
+        "success": "Sales document created.",
+        "nextStep": "After creation you will add items, prices, and fulfillment details."
+      },
+      "detail": {
+        "title": "Sales document",
+        "error": "Document not found or inaccessible.",
+        "loading": "Loading document…",
+        "backToCreate": "Create a new document",
+        "order": "Sales order",
+        "quote": "Sales quote",
+        "edit": "Edit details",
+        "edit.stub": "Line item editing will be available soon.",
+        "back": "Back to Sales",
+        "customer": "Customer",
+        "customer.empty": "Not linked",
+        "currency": "Currency",
+        "shipping": "Shipping address",
+        "billing": "Billing address",
+        "timestamps": "Timestamps",
+        "created": "Created",
+        "updated": "Updated"
+      }
+    },
     "order-statuses": {
       "create": "Add sales order status",
       "update": "Update sales order status",
@@ -396,5 +532,9 @@
   "sales.channels.update": "Update sales channel",
   "sales.tax-rates.create": "Create tax rate",
   "sales.tax-rates.update": "Update tax rate",
-  "sales.tax-rates.delete": "Delete tax rate"
+  "sales.tax-rates.delete": "Delete tax rate",
+  "sales.audit.orders.create": "Create sales order",
+  "sales.audit.orders.delete": "Delete sales order",
+  "sales.audit.quotes.create": "Create sales quote",
+  "sales.audit.quotes.delete": "Delete sales quote"
 }
