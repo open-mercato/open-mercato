@@ -6,6 +6,8 @@ import { createRequestContainer } from '@/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductTag } from '../../data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createPagedListResponseSchema } from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -88,4 +90,31 @@ export async function GET(req: Request) {
     })),
     total,
   })
+}
+
+const tagListItemSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  slug: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Catalog',
+  summary: 'Product Tag management',
+  methods: {
+    GET: {
+      summary: 'List product tags',
+      description: 'Returns a paginated collection of product tags scoped to the authenticated organization.',
+      query: querySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Paginated product tags',
+          schema: createPagedListResponseSchema(tagListItemSchema),
+        },
+      ],
+    },
+  },
 }

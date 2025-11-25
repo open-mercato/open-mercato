@@ -33,6 +33,11 @@ import {
 import type { CatalogPricingService } from '../../services/catalogPricingService'
 import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -605,3 +610,55 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const productListItemSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().nullable().optional(),
+  subtitle: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  sku: z.string().nullable().optional(),
+  handle: z.string().nullable().optional(),
+  product_type: z.string().nullable().optional(),
+  status_entry_id: z.string().uuid().nullable().optional(),
+  primary_currency_code: z.string().nullable().optional(),
+  default_unit: z.string().nullable().optional(),
+  default_media_id: z.string().uuid().nullable().optional(),
+  default_media_url: z.string().nullable().optional(),
+  weight_value: z.number().nullable().optional(),
+  weight_unit: z.string().nullable().optional(),
+  dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
+  is_configurable: z.boolean().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  custom_fieldset_code: z.string().nullable().optional(),
+  option_schema_id: z.string().uuid().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  offers: z.array(z.record(z.string(), z.unknown())).optional(),
+  channelIds: z.array(z.string()).optional(),
+  categories: z.array(z.record(z.string(), z.unknown())).optional(),
+  categoryIds: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Product',
+  pluralName: 'Products',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(productListItemSchema),
+  create: {
+    schema: productCreateSchema,
+    description: 'Creates a new product in the catalog.',
+  },
+  update: {
+    schema: productUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing product by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a product by id.',
+  },
+})
