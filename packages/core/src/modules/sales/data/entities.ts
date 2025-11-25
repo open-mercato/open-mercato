@@ -1159,7 +1159,7 @@ export class SalesShipment {
   currencyCode?: string | null
 
   @Property({ name: 'notes', type: 'text', nullable: true })
-  notes?: string | null
+  notesText?: string | null
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
