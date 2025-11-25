@@ -10,10 +10,8 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -114,7 +112,6 @@ type CustomerQuickCreateProps = {
 function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
   const [menuOpen, setMenuOpen] = React.useState(false)
   const [dialog, setDialog] = React.useState<'person' | 'company' | null>(null)
-  const [saving, setSaving] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const menuRef = React.useRef<HTMLDivElement | null>(null)
   const { organizationId } = useOrganizationScopeDetail()
@@ -139,12 +136,10 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
   const closeDialog = React.useCallback(() => {
     setDialog(null)
     setFormError(null)
-    setSaving(false)
   }, [])
 
   const handlePersonCreate = React.useCallback(
     async (values: PersonFormValues) => {
-      setSaving(true)
       try {
         const payload = buildPersonPayload(values, organizationId)
         const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
@@ -176,8 +171,6 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
             : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
         setFormError(message)
         throw err
-      } finally {
-        setSaving(false)
       }
     },
     [closeDialog, onCreated, organizationId, t],
@@ -185,7 +178,6 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
 
   const handleCompanyCreate = React.useCallback(
     async (values: CompanyFormValues) => {
-      setSaving(true)
       try {
         const payload = buildCompanyPayload(values, organizationId)
         const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/companies', payload, {
@@ -220,8 +212,6 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
             : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
         setFormError(message)
         throw err
-      } finally {
-        setSaving(false)
       }
     },
     [closeDialog, onCreated, organizationId, t],
@@ -390,9 +380,9 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
 export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocumentFormProps) {
   const t = useT()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
-  const [customerLoading, setCustomerLoading] = React.useState(false)
-  const [channels, setChannels] = React.useState<ChannelOption[]>([])
-  const [channelLoading, setChannelLoading] = React.useState(false)
+  const [, setCustomerLoading] = React.useState(false)
+  const [, setChannels] = React.useState<ChannelOption[]>([])
+  const [, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
