@@ -1073,6 +1073,24 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "external_reference": {
+          "name": "external_reference",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "customer_reference": {
+          "name": "customer_reference",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "status_entry_id": {
           "name": "status_entry_id",
           "type": "uuid",
@@ -1175,6 +1193,16 @@
         },
         "valid_until": {
           "name": "valid_until",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "placed_at": {
+          "name": "placed_at",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,

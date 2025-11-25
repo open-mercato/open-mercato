@@ -12,6 +12,32 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
+type CustomerSnapshot = {
+  customer?: {
+    id?: string | null
+    displayName?: string | null
+    primaryEmail?: string | null
+    primaryPhone?: string | null
+  } | null
+  contact?: {
+    id?: string | null
+    firstName?: string | null
+    lastName?: string | null
+    preferredName?: string | null
+  } | null
+}
+
+type AddressSnapshot = {
+  name?: string | null
+  companyName?: string | null
+  addressLine1?: string | null
+  addressLine2?: string | null
+  city?: string | null
+  region?: string | null
+  postalCode?: string | null
+  country?: string | null
+}
+
 type DocumentRecord = {
   id: string
   orderNumber?: string | null
@@ -25,6 +51,9 @@ type DocumentRecord = {
   externalReference?: string | null
   channelId?: string | null
   placedAt?: string | null
+  customerSnapshot?: Record<string, unknown> | null
+  billingAddressSnapshot?: Record<string, unknown> | null
+  shippingAddressSnapshot?: Record<string, unknown> | null
   customerName?: string | null
   contactEmail?: string | null
   channelCode?: string | null
@@ -40,6 +69,40 @@ async function fetchDocument(id: string, kind: 'order' | 'quote'): Promise<Docum
   if (!call.ok) return null
   const items = Array.isArray(call.result?.items) ? call.result?.items : []
   return items.length ? (items[0] as DocumentRecord) : null
+}
+
+function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined, fallback?: string | null) {
+  if (!snapshot) return fallback ?? null
+  const base = snapshot.customer?.displayName ?? null
+  if (base) return base
+  const contact = snapshot.contact
+  if (contact) {
+    const parts = [contact.firstName, contact.lastName].filter((part) => part && part.trim().length)
+    if (parts.length) return parts.join(' ')
+  }
+  return fallback ?? null
+}
+
+function resolveCustomerEmail(snapshot: CustomerSnapshot | null | undefined) {
+  if (!snapshot) return null
+  if (snapshot.customer?.primaryEmail) return snapshot.customer.primaryEmail
+  return null
+}
+
+function formatAddress(snapshot: AddressSnapshot | null | undefined) {
+  if (!snapshot) return null
+  const lines = [
+    snapshot.name,
+    snapshot.companyName,
+    snapshot.addressLine1,
+    snapshot.addressLine2,
+    [snapshot.postalCode, snapshot.city].filter(Boolean).join(' '),
+    [snapshot.region, snapshot.country].filter(Boolean).join(', '),
+  ]
+    .filter((value) => typeof value === 'string' && value.trim().length)
+    .map((value) => value.trim())
+  if (!lines.length) return null
+  return lines.join(', ')
 }
 
 function SectionCard({
@@ -82,7 +145,9 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
       setError(null)
       const requestedKind = searchParams.get('kind')
       const preferredKind = requestedKind === 'order' ? 'order' : requestedKind === 'quote' ? 'quote' : null
-      const kindsToTry: Array<'order' | 'quote'> = preferredKind ? [preferredKind] : ['quote', 'order']
+      const kindsToTry: Array<'order' | 'quote'> = preferredKind
+        ? [preferredKind, preferredKind === 'order' ? 'quote' : 'order']
+        : ['quote', 'order']
       for (const candidate of kindsToTry) {
         try {
           const entry = await fetchDocument(params.id, candidate)
@@ -106,6 +171,11 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
   }, [params.id, searchParams, t])
 
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
+  const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
+  const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
+  const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
+  const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
+  const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
 
   const handleGenerateNumber = React.useCallback(async () => {
     setGenerating(true)
@@ -181,7 +251,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     {
       key: 'email',
       title: t('sales.documents.detail.email', 'Primary email'),
-      value: record?.contactEmail ?? null,
+      value: contactEmail,
       placeholder: t('sales.documents.detail.email.placeholder', 'Add email'),
       emptyLabel: t('sales.documents.detail.empty', 'Not set'),
       type: 'email' as const,
@@ -226,10 +296,18 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
       return (
         <div className="grid gap-3 md:grid-cols-2">
           <SectionCard title={t('sales.documents.detail.shipping', 'Shipping address')} muted>
-            <p className="text-sm">{record?.shippingAddressId ?? t('sales.documents.detail.customer.empty', 'Not linked')}</p>
+            <p className="text-sm">
+              {formatAddress(shippingSnapshot) ??
+                record?.shippingAddressId ??
+                t('sales.documents.detail.customer.empty', 'Not linked')}
+            </p>
           </SectionCard>
           <SectionCard title={t('sales.documents.detail.billing', 'Billing address')} muted>
-            <p className="text-sm">{record?.billingAddressId ?? t('sales.documents.detail.customer.empty', 'Not linked')}</p>
+            <p className="text-sm">
+              {formatAddress(billingSnapshot) ??
+                record?.billingAddressId ??
+                t('sales.documents.detail.customer.empty', 'Not linked')}
+            </p>
           </SectionCard>
         </div>
       )
@@ -253,7 +331,10 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     return (
       <Page>
         <PageBody>
-          <LoadingMessage label={t('sales.documents.detail.loading', 'Loading document…')} />
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Spinner className="h-6 w-6" />
+            <span>{t('sales.documents.detail.loading', 'Loading document…')}</span>
+          </div>
         </PageBody>
       </Page>
     )
@@ -329,9 +410,9 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-full bg-muted" />
               <div>
-                <p className="text-sm font-medium">{record.customerName ?? record.customerEntityId}</p>
+                <p className="text-sm font-medium">{customerName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {t('sales.documents.detail.customer.optional', 'Customer assignment is optional.')}
+                  {contactEmail ?? t('sales.documents.detail.customer.optional', 'Customer assignment is optional.')}
                 </p>
               </div>
             </div>

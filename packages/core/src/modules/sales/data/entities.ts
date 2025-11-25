@@ -802,6 +802,12 @@ export class SalesQuote {
   @Property({ name: 'quote_number', type: 'text' })
   quoteNumber!: string
 
+  @Property({ name: 'external_reference', type: 'text', nullable: true })
+  externalReference?: string | null
+
+  @Property({ name: 'customer_reference', type: 'text', nullable: true })
+  customerReference?: string | null
+
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
 
@@ -837,6 +843,9 @@ export class SalesQuote {
 
   @Property({ name: 'valid_until', type: Date, nullable: true })
   validUntil?: Date | null
+
+  @Property({ name: 'placed_at', type: Date, nullable: true })
+  placedAt?: Date | null
 
   @Property({ name: 'comments', type: 'text', nullable: true })
   comments?: string | null
