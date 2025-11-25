@@ -130,5 +130,9 @@
   "upgrades.v034.loading": "Installiere…",
   "upgrades.v034.success": "Beispielkatalog-Produkte und -Kategorien wurden installiert.",
   "upgrades.runFailed": "Die Upgrade-Aktion konnte nicht ausgeführt werden.",
-  "upgrades.loading": "Upgrade wird geladen…"
+  "upgrades.loading": "Upgrade wird geladen…",
+  "sales.documents.form.customer.quick.error": "Kunde konnte nicht erstellt werden.",
+  "sales.documents.form.customer.quick.personSuccess": "Privatkunde erstellt.",
+  "sales.documents.form.customer.quick.companySuccess": "Firmenkunde erstellt.",
+  "sales.documents.form.customer.quick.dialogDescription": "Kunde hinzufügen, ohne dieses Formular zu verlassen."
 }
