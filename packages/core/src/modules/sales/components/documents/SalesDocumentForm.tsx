@@ -1164,8 +1164,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
           payload.billingAddressId = base.shippingAddressId || undefined
         }
       }
-      if (shippingSnapshot) payload.shippingAddressSnapshot = shippingSnapshot
-      if (billingSnapshot) payload.billingAddressSnapshot = billingSnapshot
+      if (shippingSnapshot) {
+        payload.shippingAddressSnapshot = shippingSnapshot
+        payload.shippingAddressId = undefined
+      }
+      if (billingSnapshot) {
+        payload.billingAddressSnapshot = billingSnapshot
+        payload.billingAddressId = undefined
+      }
       if (!base.useCustomShipping) payload.shippingAddressId = base.shippingAddressId || undefined
       if (!base.useCustomBilling && !sameAsShipping) payload.billingAddressId = base.billingAddressId || undefined
 
@@ -1206,8 +1212,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
           })
           if (res?.result?.id) billingId = res.result.id
         }
-        if (shippingId) payload.shippingAddressId = shippingId
-        if (billingId) payload.billingAddressId = billingId
+        if (!base.useCustomShipping && shippingId) payload.shippingAddressId = shippingId
+        if (!base.useCustomBilling && !sameAsShipping && billingId) payload.billingAddressId = billingId
         if (Object.keys(customFields).length) payload.customFields = customFields
 
         const endpoint = documentKind === 'order' ? 'sales/orders' : 'sales/quotes'
