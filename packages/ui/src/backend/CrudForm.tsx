@@ -1552,6 +1552,7 @@ function RelationSelect({
   placeholder?: string
   autoFocus?: boolean
 }) {
+  const t = useT()
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -1566,7 +1567,7 @@ function RelationSelect({
       <input
         ref={inputRef}
         className="w-full h-9 rounded border px-2 text-sm"
-        placeholder={placeholder || 'Search...'}
+        placeholder={placeholder || t('ui.forms.listbox.searchPlaceholder', 'Search...')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         autoFocus={autoFocus}
@@ -2058,6 +2059,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
 }: FieldControlProps) {
+  const t = useT()
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
     [setValue, field.id]
@@ -2174,7 +2176,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           data-crud-focus-target=""
           disabled={disabled}
         >
-          <option value="">—</option>
+          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
           {options.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
