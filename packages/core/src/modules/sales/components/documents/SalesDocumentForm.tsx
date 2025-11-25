@@ -29,6 +29,19 @@ import {
 import { Building2, Mail, Plus, Store, UserRound } from 'lucide-react'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
+import {
+  buildCompanyPayload,
+  buildPersonPayload,
+  createCompanyFormFields,
+  createCompanyFormGroups,
+  createCompanyFormSchema,
+  createPersonFormFields,
+  createPersonFormGroups,
+  createPersonFormSchema,
+  type CompanyFormValues,
+  type PersonFormValues,
+} from '@open-mercato/core/modules/customers/components/formConfig'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 
 type DocumentKind = 'quote' | 'order'
 
@@ -48,6 +61,7 @@ type CustomerOption = {
   label: string
   subtitle?: string | null
   kind: 'person' | 'company'
+  primaryEmail?: string | null
 }
 
 type ChannelOption = { id: string; label: string }
@@ -79,7 +93,13 @@ type SalesDocumentFormProps = {
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
-type QuickCreatePayload = { id: string; kind: 'person' | 'company'; email?: string | null }
+type QuickCreatePayload = {
+  id: string
+  kind: 'person' | 'company'
+  email?: string | null
+  label: string
+  subtitle?: string | null
+}
 
 type CustomerQuickCreateProps = {
   t: Translator
@@ -91,9 +111,14 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
   const [dialog, setDialog] = React.useState<'person' | 'company' | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
-  const [personForm, setPersonForm] = React.useState({ firstName: '', lastName: '', email: '' })
-  const [companyForm, setCompanyForm] = React.useState({ name: '', email: '', domain: '' })
   const menuRef = React.useRef<HTMLDivElement | null>(null)
+  const { organizationId } = useOrganizationScopeDetail()
+  const personSchema = React.useMemo(() => createPersonFormSchema(), [])
+  const personFields = React.useMemo(() => createPersonFormFields(t), [t])
+  const personGroups = React.useMemo(() => createPersonFormGroups(t), [t])
+  const companySchema = React.useMemo(() => createCompanyFormSchema(), [])
+  const companyFields = React.useMemo(() => createCompanyFormFields(t), [t])
+  const companyGroups = React.useMemo(() => createCompanyFormGroups(t), [t])
 
   React.useEffect(() => {
     if (!menuOpen) return
@@ -106,93 +131,96 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [menuOpen])
 
-  const resetForms = React.useCallback(() => {
-    setPersonForm({ firstName: '', lastName: '', email: '' })
-    setCompanyForm({ name: '', email: '', domain: '' })
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
     setFormError(null)
     setSaving(false)
   }, [])
 
-  const closeDialog = React.useCallback(() => {
-    setDialog(null)
-    resetForms()
-  }, [resetForms])
-
-  const handlePersonCreate = React.useCallback(async () => {
-    const firstName = personForm.firstName.trim()
-    const lastName = personForm.lastName.trim()
-    const email = personForm.email.trim()
-    if (!firstName || !lastName) {
-      setFormError(t('sales.documents.form.customer.quick.personRequired', 'Provide first and last name.'))
-      return
-    }
-    setSaving(true)
-    try {
-      const displayName = `${firstName} ${lastName}`.trim()
-      const payload: Record<string, unknown> = {
-        displayName,
-        firstName,
-        lastName,
+  const handlePersonCreate = React.useCallback(
+    async (values: PersonFormValues) => {
+      setSaving(true)
+      try {
+        const payload = buildPersonPayload(values, organizationId)
+        const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
+          errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
+        })
+        const id =
+          (result && typeof result.entityId === 'string' && result.entityId) ||
+          (result && typeof result.id === 'string' && result.id) ||
+          null
+        if (!id) throw new Error('Missing customer id')
+        const displayName =
+          typeof values.displayName === 'string' && values.displayName.trim().length
+            ? values.displayName.trim()
+            : t('customers.people.form.displayName.placeholder', 'New person')
+        flash(t('sales.documents.form.customer.quick.personSuccess', 'Customer created.'), 'success')
+        onCreated({
+          id,
+          kind: 'person',
+          email: typeof values.primaryEmail === 'string' ? values.primaryEmail : null,
+          label: displayName,
+          subtitle: typeof values.primaryEmail === 'string' ? values.primaryEmail : null,
+        })
+        closeDialog()
+      } catch (err) {
+        console.error('sales.documents.quickCreate.person', err)
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
+        setFormError(message)
+        throw err
+      } finally {
+        setSaving(false)
       }
-      if (email) payload.primaryEmail = email
-      const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
-        errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
-      })
-      const id =
-        (result && typeof result.entityId === 'string' && result.entityId) ||
-        (result && typeof result.id === 'string' && result.id) ||
-        null
-      if (!id) throw new Error('Missing customer id')
-      flash(t('sales.documents.form.customer.quick.personSuccess', 'Customer created.'), 'success')
-      onCreated({ id, kind: 'person', email })
-      closeDialog()
-    } catch (err) {
-      console.error('sales.documents.quickCreate.person', err)
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
-      setFormError(message)
-    } finally {
-      setSaving(false)
-    }
-  }, [closeDialog, onCreated, personForm.email, personForm.firstName, personForm.lastName, resetForms, t])
+    },
+    [closeDialog, onCreated, organizationId, t],
+  )
 
-  const handleCompanyCreate = React.useCallback(async () => {
-    const name = companyForm.name.trim()
-    const domain = companyForm.domain.trim()
-    const email = companyForm.email.trim()
-    if (!name) {
-      setFormError(t('sales.documents.form.customer.quick.companyRequired', 'Provide a company name.'))
-      return
-    }
-    setSaving(true)
-    try {
-      const payload: Record<string, unknown> = { displayName: name }
-      if (domain) payload.domain = domain
-      if (email) payload.primaryEmail = email
-      const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/companies', payload, {
-        errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
-      })
-      const id =
-        (result && typeof result.entityId === 'string' && result.entityId) ||
-        (result && typeof result.id === 'string' && result.id) ||
-        null
-      if (!id) throw new Error('Missing customer id')
-      flash(t('sales.documents.form.customer.quick.companySuccess', 'Customer created.'), 'success')
-      onCreated({ id, kind: 'company', email })
-      closeDialog()
-    } catch (err) {
-      console.error('sales.documents.quickCreate.company', err)
-      const message =
-        err instanceof Error && err.message
-          ? err.message
-          : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
-      setFormError(message)
-    } finally {
-      setSaving(false)
-    }
-  }, [closeDialog, companyForm.domain, companyForm.email, companyForm.name, onCreated, resetForms, t])
+  const handleCompanyCreate = React.useCallback(
+    async (values: CompanyFormValues) => {
+      setSaving(true)
+      try {
+        const payload = buildCompanyPayload(values, organizationId)
+        const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/companies', payload, {
+          errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
+        })
+        const id =
+          (result && typeof result.entityId === 'string' && result.entityId) ||
+          (result && typeof result.id === 'string' && result.id) ||
+          null
+        if (!id) throw new Error('Missing customer id')
+        const displayName =
+          typeof values.displayName === 'string' && values.displayName.trim().length
+            ? values.displayName.trim()
+            : t('customers.companies.form.displayName.placeholder', 'New company')
+        const email = typeof values.primaryEmail === 'string' ? values.primaryEmail : null
+        const domain =
+          typeof values.domain === 'string' && values.domain.trim().length ? values.domain.trim() : null
+        flash(t('sales.documents.form.customer.quick.companySuccess', 'Customer created.'), 'success')
+        onCreated({
+          id,
+          kind: 'company',
+          email,
+          label: displayName,
+          subtitle: domain || email || null,
+        })
+        closeDialog()
+      } catch (err) {
+        console.error('sales.documents.quickCreate.company', err)
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
+        setFormError(message)
+        throw err
+      } finally {
+        setSaving(false)
+      }
+    },
+    [closeDialog, onCreated, organizationId, t],
+  )
 
   const renderMenu = () => (
     <div className="absolute right-0 z-30 mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
@@ -239,80 +267,70 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
       {menuOpen ? renderMenu() : null}
 
       <Dialog open={dialog === 'person'} onOpenChange={(open) => (open ? setDialog('person') : closeDialog())}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('sales.documents.form.customer.addPerson', 'Create person')}</DialogTitle>
             <DialogDescription>
               {t('sales.documents.form.customer.quick.dialogDescription', 'Add a person without leaving this form.')}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Input
-                placeholder={t('customers.people.form.firstName.placeholder', 'First name')}
-                value={personForm.firstName}
-                onChange={(event) => setPersonForm((prev) => ({ ...prev, firstName: event.target.value }))}
-              />
-              <Input
-                placeholder={t('customers.people.form.lastName.placeholder', 'Last name')}
-                value={personForm.lastName}
-                onChange={(event) => setPersonForm((prev) => ({ ...prev, lastName: event.target.value }))}
+          <div className="space-y-2">
+            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+            <div
+              onSubmit={(event) => {
+                event.stopPropagation()
+                if (typeof (event as any).nativeEvent?.stopImmediatePropagation === 'function') {
+                  (event as any).nativeEvent.stopImmediatePropagation()
+                }
+              }}
+            >
+              <CrudForm<PersonFormValues>
+                embedded
+                fields={personFields}
+                groups={personGroups}
+                schema={personSchema}
+                initialValues={{ addresses: [] as PersonFormValues['addresses'] }}
+                submitLabel={t('common.save', 'Save')}
+                cancelHref={undefined}
+                onSubmit={(values) => handlePersonCreate(values)}
+                entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
               />
             </div>
-            <Input
-              placeholder={t('customers.people.form.primaryEmail.placeholder', 'Email (optional)')}
-              type="email"
-              value={personForm.email}
-              onChange={(event) => setPersonForm((prev) => ({ ...prev, email: event.target.value }))}
-            />
-            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button type="button" onClick={handlePersonCreate} disabled={saving}>
-              {saving ? t('common.saving', 'Saving…') : t('common.save', 'Save')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={dialog === 'company'} onOpenChange={(open) => (open ? setDialog('company') : closeDialog())}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('sales.documents.form.customer.addCompany', 'Create company')}</DialogTitle>
             <DialogDescription>
               {t('sales.documents.form.customer.quick.dialogDescription', 'Add a company without leaving this form.')}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder={t('customers.companies.form.displayName.placeholder', 'Company name')}
-              value={companyForm.name}
-              onChange={(event) => setCompanyForm((prev) => ({ ...prev, name: event.target.value }))}
-            />
-            <Input
-              placeholder={t('customers.companies.form.domain.placeholder', 'Domain (optional)')}
-              value={companyForm.domain}
-              onChange={(event) => setCompanyForm((prev) => ({ ...prev, domain: event.target.value }))}
-            />
-            <Input
-              placeholder={t('customers.companies.form.primaryEmail.placeholder', 'Email (optional)')}
-              type="email"
-              value={companyForm.email}
-              onChange={(event) => setCompanyForm((prev) => ({ ...prev, email: event.target.value }))}
-            />
+          <div className="space-y-2">
             {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+            <div
+              onSubmit={(event) => {
+                event.stopPropagation()
+                if (typeof (event as any).nativeEvent?.stopImmediatePropagation === 'function') {
+                  (event as any).nativeEvent.stopImmediatePropagation()
+                }
+              }}
+            >
+              <CrudForm<CompanyFormValues>
+                embedded
+                fields={companyFields}
+                groups={companyGroups}
+                schema={companySchema}
+                initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
+                submitLabel={t('common.save', 'Save')}
+                cancelHref={undefined}
+                onSubmit={(values) => handleCompanyCreate(values)}
+                entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
+              />
+            </div>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button type="button" onClick={handleCompanyCreate} disabled={saving}>
-              {saving ? t('common.saving', 'Saving…') : t('common.save', 'Save')}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -336,7 +354,7 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
       const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
       const label = displayName ?? (email ?? domain ?? id)
       const subtitle = kind === 'person' ? email : domain ?? email
-      return { id, label: `${label}`, subtitle, kind }
+      return { id, label: `${label}`, subtitle, kind, primaryEmail: email }
     })
     .filter((entry): entry is CustomerOption => !!entry?.id)
 }
@@ -367,6 +385,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
   const [channelLoading, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
+  const customerQuerySetter = React.useRef<(value: string) => void>()
   const currencyLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
     addLabel: t('sales.documents.form.currency.add', 'Add currency'),
@@ -582,11 +601,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       id: 'shippingAddressSection',
       label: '',
       type: 'custom',
-      component: ({ values, setValue }) => {
-        const useCustom = values?.useCustomShipping === true
-        const selectedId = typeof values?.shippingAddressId === 'string' ? values.shippingAddressId : ''
-        const draft = (values?.shippingAddressDraft ?? {}) as AddressDraft
-        const customerRequired = !values?.customerEntityId
+      component: ({ values, setFormValue }) => {
+        const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
+        const updateValue = setFormValue ?? (() => {})
+        const useCustom = formValues.useCustomShipping === true
+        const selectedId = typeof formValues.shippingAddressId === 'string' ? formValues.shippingAddressId : ''
+        const draft = (formValues.shippingAddressDraft ?? {}) as AddressDraft
+        const customerRequired = !formValues.customerEntityId
         return (
           <div className="space-y-3">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -603,7 +624,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
               <label className="flex items-center gap-2 text-sm">
                 <Switch
                   checked={useCustom}
-                  onCheckedChange={(checked) => setValue('useCustomShipping', checked)}
+                  onCheckedChange={(checked) => updateValue('useCustomShipping', checked)}
                 />
                 <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
               </label>
@@ -612,7 +633,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
               <select
                 className="w-full rounded border px-2 py-2 text-sm"
                 value={selectedId}
-                onChange={(evt) => setValue('shippingAddressId', evt.target.value || null)}
+                onChange={(evt) => updateValue('shippingAddressId', evt.target.value || null)}
                 disabled={addressesLoading || customerRequired}
               >
                 <option value="">
@@ -630,49 +651,49 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 <Input
                   placeholder={t('sales.documents.form.address.name', 'Full name')}
                   value={draft.name ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, name: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, name: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.company', 'Company (optional)')}
                   value={draft.companyName ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, companyName: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, companyName: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.line1', 'Address line 1')}
                   className="sm:col-span-2"
                   value={draft.addressLine1 ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, addressLine1: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, addressLine1: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.line2', 'Address line 2')}
                   className="sm:col-span-2"
                   value={draft.addressLine2 ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, addressLine2: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, addressLine2: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.city', 'City')}
                   value={draft.city ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, city: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, city: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.region', 'Region/state')}
                   value={draft.region ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, region: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, region: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.postal', 'Postal code')}
                   value={draft.postalCode ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, postalCode: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, postalCode: evt.target.value })}
                 />
                 <Input
                   placeholder={t('sales.documents.form.address.country', 'Country')}
                   value={draft.country ?? ''}
-                  onChange={(evt) => setValue('shippingAddressDraft', { ...draft, country: evt.target.value })}
+                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, country: evt.target.value })}
                 />
                 <label className="col-span-2 flex items-center gap-2 text-sm">
                   <Switch
-                    checked={values?.saveShippingAddress === true}
-                    onCheckedChange={(checked) => setValue('saveShippingAddress', checked)}
+                    checked={formValues.saveShippingAddress === true}
+                    onCheckedChange={(checked) => updateValue('saveShippingAddress', checked)}
                   />
                   {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
                 </label>
@@ -686,39 +707,41 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       id: 'billingAddressSection',
       label: '',
       type: 'custom',
-      component: ({ values, setValue }) => {
-        const useCustom = values?.useCustomBilling === true
-        const selectedId = typeof values?.billingAddressId === 'string' ? values.billingAddressId : ''
-        const draft = (values?.billingAddressDraft ?? {}) as AddressDraft
-        const customerRequired = !values?.customerEntityId
-        const sameAsShipping = values?.sameAsShipping !== false
-        const shippingId = typeof values?.shippingAddressId === 'string' ? values.shippingAddressId : null
-        const shippingDraft = (values?.shippingAddressDraft ?? {}) as AddressDraft
+      component: ({ values, setFormValue }) => {
+        const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
+        const updateValue = setFormValue ?? (() => {})
+        const useCustom = formValues.useCustomBilling === true
+        const selectedId = typeof formValues.billingAddressId === 'string' ? formValues.billingAddressId : ''
+        const draft = (formValues.billingAddressDraft ?? {}) as AddressDraft
+        const customerRequired = !formValues.customerEntityId
+        const sameAsShipping = formValues.sameAsShipping !== false
+        const shippingId = typeof formValues.shippingAddressId === 'string' ? formValues.shippingAddressId : null
+        const shippingDraft = (formValues.shippingAddressDraft ?? {}) as AddressDraft
         const shippingDraftKey = JSON.stringify(shippingDraft)
         const billingDraftKey = JSON.stringify(draft)
-        const useCustomShipping = values?.useCustomShipping === true
+        const useCustomShipping = formValues.useCustomShipping === true
 
         React.useEffect(() => {
           if (!sameAsShipping) return
-          if ((values?.billingAddressId ?? null) !== shippingId) {
-            setValue('billingAddressId', shippingId)
+          if ((formValues.billingAddressId ?? null) !== shippingId) {
+            updateValue('billingAddressId', shippingId)
           }
-          if (useCustomShipping !== (values?.useCustomBilling === true)) {
-            setValue('useCustomBilling', useCustomShipping)
+          if (useCustomShipping !== (formValues.useCustomBilling === true)) {
+            updateValue('useCustomBilling', useCustomShipping)
           }
           if (useCustomShipping && shippingDraftKey !== billingDraftKey) {
-            setValue('billingAddressDraft', shippingDraft)
+            updateValue('billingAddressDraft', shippingDraft)
           }
         }, [
           billingDraftKey,
           sameAsShipping,
-          setValue,
+          updateValue,
           shippingDraft,
           shippingDraftKey,
           shippingId,
           useCustomShipping,
-          values?.billingAddressId,
-          values?.useCustomBilling,
+          formValues.billingAddressId,
+          formValues.useCustomBilling,
         ])
 
         return (
@@ -738,11 +761,11 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 <Switch
                   checked={sameAsShipping}
                   onCheckedChange={(checked) => {
-                    setValue('sameAsShipping', checked)
+                    updateValue('sameAsShipping', checked)
                     if (checked) {
-                      setValue('useCustomBilling', useCustomShipping)
-                      setValue('billingAddressId', shippingId)
-                      setValue('billingAddressDraft', shippingDraft)
+                      updateValue('useCustomBilling', useCustomShipping)
+                      updateValue('billingAddressId', shippingId)
+                      updateValue('billingAddressDraft', shippingDraft)
                     }
                   }}
                 />
@@ -756,7 +779,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                   <select
                     className="w-full rounded border px-2 py-2 text-sm"
                     value={selectedId}
-                    onChange={(evt) => setValue('billingAddressId', evt.target.value || null)}
+                    onChange={(evt) => updateValue('billingAddressId', evt.target.value || null)}
                     disabled={addressesLoading || customerRequired}
                   >
                     <option value="">
@@ -773,7 +796,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 <label className="flex items-center gap-2 text-sm">
                   <Switch
                     checked={useCustom}
-                    onCheckedChange={(checked) => setValue('useCustomBilling', checked)}
+                    onCheckedChange={(checked) => updateValue('useCustomBilling', checked)}
                     disabled={false}
                   />
                   <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
@@ -784,49 +807,49 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                     <Input
                       placeholder={t('sales.documents.form.address.name', 'Full name')}
                       value={draft.name ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, name: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, name: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.company', 'Company (optional)')}
                       value={draft.companyName ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, companyName: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, companyName: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.line1', 'Address line 1')}
                       className="sm:col-span-2"
                       value={draft.addressLine1 ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, addressLine1: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, addressLine1: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.line2', 'Address line 2')}
                       className="sm:col-span-2"
                       value={draft.addressLine2 ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, addressLine2: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, addressLine2: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.city', 'City')}
                       value={draft.city ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, city: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, city: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.region', 'Region/state')}
                       value={draft.region ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, region: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, region: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.postal', 'Postal code')}
                       value={draft.postalCode ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, postalCode: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, postalCode: evt.target.value })}
                     />
                     <Input
                       placeholder={t('sales.documents.form.address.country', 'Country')}
                       value={draft.country ?? ''}
-                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, country: evt.target.value })}
+                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, country: evt.target.value })}
                     />
                     <label className="col-span-2 flex items-center gap-2 text-sm">
                       <Switch
-                        checked={values?.saveBillingAddress === true}
-                        onCheckedChange={(checked) => setValue('saveBillingAddress', checked)}
+                        checked={formValues.saveBillingAddress === true}
+                        onCheckedChange={(checked) => updateValue('saveBillingAddress', checked)}
                       />
                       {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
                     </label>
@@ -877,6 +900,16 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 onChange={(next) => {
                   setValue('customerEntityId', next)
                   loadAddresses(next)
+                  if (next) {
+                    const match = customers.find((entry) => entry.id === next)
+                    const possibleEmail =
+                      typeof match?.primaryEmail === 'string' && match.primaryEmail.length
+                        ? match.primaryEmail
+                        : null
+                    if (possibleEmail) {
+                      setValue('customerEmail', possibleEmail)
+                    }
+                  }
                 }}
                 fetchItems={async (query) => {
                   const options = await loadCustomers(query)
@@ -895,7 +928,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 actionSlot={
                   <CustomerQuickCreate
                     t={t}
-                    onCreated={({ id, email }) => {
+                    onCreated={({ id, email, label, kind, subtitle }) => {
+                      // Seed the search box with the new customer's display name so it renders immediately
+                      customerQuerySetter.current?.(label)
+                      setCustomers((prev) => {
+                        const exists = prev.some((entry) => entry.id === id)
+                        if (exists) return prev
+                        const next: CustomerOption = {
+                          id,
+                          label,
+                          subtitle: subtitle ?? undefined,
+                          kind,
+                          primaryEmail: email ?? null,
+                        }
+                        return [next, ...prev]
+                      })
                       setValue('customerEntityId', id)
                       loadAddresses(id)
                       if (email && !values.customerEmail) {
@@ -904,6 +951,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                     }}
                   />
                 }
+                onReady={({ setQuery }) => {
+                  customerQuerySetter.current = setQuery
+                }}
                 searchPlaceholder={t('sales.documents.form.customer.placeholder', 'Search customers…')}
                 loadingLabel={t('sales.documents.form.customer.loading', 'Loading customers…')}
                 emptyLabel={t('sales.documents.form.customer.empty', 'No customers found.')}
@@ -928,14 +978,20 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                     {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}
                   </span>
                   <Button
-                    size="xs"
-                    variant="outline"
+                    size="sm"
+                    variant="secondary"
+                    className="px-4"
+                    type="button"
+                    disabled={values.customerEntityId === duplicate.id}
+                    aria-disabled={values.customerEntityId === duplicate.id}
                     onClick={() => {
                       setValue('customerEntityId', duplicate.id)
                       loadAddresses(duplicate.id)
                     }}
                   >
-                    {t('sales.documents.form.email.selectCustomer', 'Select customer')}
+                    {values.customerEntityId === duplicate.id
+                      ? t('sales.documents.form.email.alreadySelected', 'Selected customer')
+                      : t('sales.documents.form.email.selectCustomer', 'Select customer')}
                   </Button>
                 </div>
               ) : null}
@@ -967,8 +1023,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
-      const { customFields, rest } = collectCustomFieldValues(values)
-      const base = rest as SalesDocumentFormValues
+      const { customFields, rest } = collectCustomFieldValues(values ?? {})
+      const base = (rest as SalesDocumentFormValues) ?? {}
       const documentKind: DocumentKind = base.documentKind === 'order' ? 'order' : 'quote'
       const payload: Record<string, unknown> = {
         currencyCode: typeof base.currencyCode === 'string' && base.currencyCode.trim().length

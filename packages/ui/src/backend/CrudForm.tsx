@@ -101,7 +101,10 @@ export type CrudCustomFieldRenderProps = {
   error?: string
   autoFocus?: boolean
   disabled?: boolean
+  values?: Record<string, unknown>
   setValue: (value: unknown) => void
+  // Optional helper to update other form values from within a custom field
+  setFormValue?: (id: string, value: unknown) => void
   // Optional context for advanced custom inputs
   entityId?: string
   recordId?: string
@@ -1101,6 +1104,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
               setValue={setValue}
+              values={values}
               loadFieldOptions={loadFieldOptions}
               autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
@@ -1502,6 +1506,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
                     setValue={setValue}
+                    values={values}
                     loadFieldOptions={loadFieldOptions}
                     autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
@@ -1969,6 +1974,7 @@ type FieldControlProps = {
   error?: string
   options: CrudFieldOption[]
   setValue: (id: string, v: unknown) => void
+  values: Record<string, unknown>
   loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
   autoFocus: boolean
   onSubmitRequest: () => void
@@ -2051,6 +2057,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   error,
   options,
   setValue,
+  values,
   loadFieldOptions,
   autoFocus,
   onSubmitRequest,
@@ -2061,6 +2068,10 @@ const FieldControl = React.memo(function FieldControlImpl({
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
     [setValue, field.id]
+  )
+  const setFormValue = React.useCallback(
+    (targetId: string, nextValue: unknown) => setValue(targetId, nextValue),
+    [setValue],
   )
   const builtin = field.type === 'custom' ? null : field
   const hasLoader = typeof builtin?.loadOptions === 'function'
@@ -2243,6 +2254,8 @@ const FieldControl = React.memo(function FieldControlImpl({
             value,
             error,
             setValue: fieldSetValue,
+            setFormValue,
+            values,
             entityId: entityIdForField,
             recordId,
             autoFocus,
@@ -2270,5 +2283,6 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.onSubmitRequest === next.onSubmitRequest &&
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
-  prev.recordId === next.recordId
+  prev.recordId === next.recordId &&
+  (prev.field.type !== 'custom' || prev.values === next.values)
 )

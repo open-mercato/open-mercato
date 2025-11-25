@@ -22,6 +22,7 @@ type LookupSelectProps = {
   fetchItems: (query: string) => Promise<LookupSelectItem[]>
   minQuery?: number
   actionSlot?: React.ReactNode
+  onReady?: (controls: { setQuery: (value: string) => void }) => void
   searchPlaceholder?: string
   clearLabel?: string
   emptyLabel?: string
@@ -35,6 +36,7 @@ export function LookupSelect({
   fetchItems,
   minQuery = 2,
   actionSlot,
+  onReady,
   searchPlaceholder = 'Search…',
   clearLabel = 'Clear selection',
   emptyLabel = 'No results',
@@ -47,10 +49,16 @@ export function LookupSelect({
   const [hasTyped, setHasTyped] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const fetchItemsRef = React.useRef(fetchItems)
+  const setQueryRef = React.useRef(setQuery)
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems
   }, [fetchItems])
+
+  React.useEffect(() => {
+    setQueryRef.current = setQuery
+    if (onReady) onReady({ setQuery })
+  }, [onReady, setQuery])
 
   const shouldSearch = query.trim().length >= minQuery
   React.useEffect(() => {
