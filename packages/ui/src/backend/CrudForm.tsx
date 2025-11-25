@@ -51,6 +51,7 @@ import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDt
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
+import { ComboboxInput } from './inputs/ComboboxInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
@@ -85,6 +86,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'tags'
     | 'richtext'
     | 'relation'
+    | 'combobox'
   placeholder?: string
   options?: CrudFieldOption[]
   multiple?: boolean
@@ -95,6 +97,8 @@ export type CrudBuiltinField = CrudFieldBase & {
   editor?: 'simple' | 'uiw' | 'html'
   // for text fields; provides datalist suggestions while allowing free-text input
   suggestions?: string[]
+  // for combobox fields; allow custom values or restrict to suggestions only
+  allowCustomValues?: boolean
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -2174,6 +2178,29 @@ const FieldControl = React.memo(function FieldControlImpl({
                 }
               : undefined
           }
+        />
+      )}
+      {field.type === 'combobox' && (
+        <ComboboxInput
+          value={typeof value === 'string' ? value : String(value ?? '')}
+          onChange={(next) => fieldSetValue(next)}
+          placeholder={placeholder}
+          autoFocus={autoFocusField}
+          suggestions={
+            builtin?.suggestions
+              ? builtin.suggestions
+              : options.map((opt) => ({ value: opt.value, label: opt.label }))
+          }
+          loadSuggestions={
+            typeof builtin?.loadOptions === 'function'
+              ? async (query?: string) => {
+                  const opts = await loadFieldOptions(field, query)
+                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
+                }
+              : undefined
+          }
+          allowCustomValues={builtin?.allowCustomValues ?? true}
+          disabled={disabled}
         />
       )}
       {field.type === 'checkbox' && (

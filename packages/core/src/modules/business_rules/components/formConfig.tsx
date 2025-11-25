@@ -114,19 +114,21 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
     {
       id: 'entityType',
       label: t('business_rules.rules.form.entityType'),
-      type: 'text',
+      type: 'combobox',
       required: true,
       placeholder: t('business_rules.rules.form.placeholders.entityType'),
       suggestions: getEntityTypeSuggestions(),
       description: t('business_rules.rules.form.descriptions.entityType'),
+      allowCustomValues: true,
     },
     {
       id: 'eventType',
       label: t('business_rules.rules.form.eventType'),
-      type: 'text',
+      type: 'combobox',
       placeholder: t('business_rules.rules.form.placeholders.eventType'),
       suggestions: getEventTypeSuggestions(),
       description: t('business_rules.rules.form.descriptions.eventType'),
+      allowCustomValues: true,
     },
     {
       id: 'priority',
