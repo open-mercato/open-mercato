@@ -2791,6 +2791,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/document-numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate next number
+         * @description Generates the next sales order or quote number using configured formatting rules.
+         */
+        post: operations["sales_post_sales_document_numbers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/documents/factory": {
         parameters: {
             query?: never;
@@ -3026,6 +3046,30 @@ export interface paths {
          *     Requires features: sales.quotes.manage
          */
         delete: operations["sales_delete_sales_quotes"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/settings/document-numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get document numbering settings
+         * @description Requires features: sales.settings.manage
+         */
+        get: operations["sales_get_sales_settings_document_numbers"];
+        /**
+         * Update document numbering settings
+         * @description Requires features: sales.settings.manage
+         */
+        put: operations["sales_put_sales_settings_document_numbers"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -11586,6 +11630,35 @@ export interface components {
             error: components["schemas"]["DocPathsSalesDeliveryWindowsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDeliveryWindowsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchema: {
+            format?: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesFormat"];
+            kind: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
+            organizationId: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesFormat: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesKind: "order" | "quote";
+        /** Format: uuid */
+        DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchema: {
+            format: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchemaPropertiesFormat"];
+            number: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchemaPropertiesNumber"];
+            sequence: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchemaPropertiesSequence"];
+        };
+        DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchemaPropertiesFormat: string;
+        DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchemaPropertiesNumber: string;
+        DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchemaPropertiesSequence: number;
+        DocPathsSalesDocumentNumbersPostResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesDocumentNumbersPostResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesOrderLineStatusesDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesOrderLineStatusesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -11868,7 +11941,7 @@ export interface components {
             lineItemCount?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLineItemCount"];
             lines?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLines"];
             metadata?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerSnapshot"];
-            orderNumber: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesOrderNumber"];
+            orderNumber?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesOrderNumber"];
             organizationId: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
             outstandingAmount?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesOutstandingAmount"];
             paidTotalAmount?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesPaidTotalAmount"];
@@ -12524,7 +12597,7 @@ export interface components {
             paymentMethodCode?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesPaymentMethodCode"];
             paymentMethodId?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesPaymentMethodId"];
             paymentMethodSnapshot?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerSnapshot"];
-            quoteNumber: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteNumber"];
+            quoteNumber?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteNumber"];
             shippingAddressId?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesShippingAddressId"];
             shippingAddressSnapshot?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerSnapshot"];
             shippingMethodCode?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesShippingMethodCode"];
@@ -12692,6 +12765,81 @@ export interface components {
             error: components["schemas"]["DocPathsSalesQuotesPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesQuotesPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchema: {
+            nextOrderNumber: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesNextOrderNumber"];
+            nextQuoteNumber: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesNextQuoteNumber"];
+            orderNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
+            quoteNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesQuoteNumberFormat"];
+            tokens?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokens"];
+        };
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesNextOrderNumber: number;
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesNextQuoteNumber: number;
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesOrderNumberFormat: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesQuoteNumberFormat: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokens: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokensItems"][];
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokensItems: {
+            description: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesDescription"];
+            token: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesToken"];
+        };
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesDescription: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesToken: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsDocumentNumbersGetResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsDocumentNumbersGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsDocumentNumbersGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsDocumentNumbersGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchema: {
+            orderNextNumber?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNextNumber"];
+            orderNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
+            organizationId: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            quoteNextNumber?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesQuoteNextNumber"];
+            quoteNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
+            tenantId: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNextNumber: number;
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat: string;
+        /** Format: uuid */
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesQuoteNextNumber: number;
+        /** Format: uuid */
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchema: {
+            nextOrderNumber: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesNextOrderNumber"];
+            nextQuoteNumber: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesNextQuoteNumber"];
+            orderNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
+            quoteNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesQuoteNumberFormat"];
+            tokens?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokens"];
+        };
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesNextOrderNumber: number;
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesNextQuoteNumber: number;
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesOrderNumberFormat: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesQuoteNumberFormat: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokens: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokensItems"][];
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokensItems: {
+            description: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesDescription"];
+            token: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesToken"];
+        };
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesDescription: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchemaPropertiesTokensItemsPropertiesToken: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsDocumentNumbersPutResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsDocumentNumbersPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -26557,6 +26705,72 @@ export interface operations {
             };
         };
     };
+    sales_post_sales_document_numbers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "kind": "order"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Generated number */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "number": "string",
+                     *       "format": "string",
+                     *       "sequence": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentNumbersPostResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Invalid input or scope missing */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentNumbersPostResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     sales_get_sales_order_line_statuses: {
         parameters: {
             query?: {
@@ -27173,7 +27387,6 @@ export interface operations {
                  * @example {
                  *       "organizationId": "00000000-0000-4000-8000-000000000000",
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
-                 *       "orderNumber": "string",
                  *       "currencyCode": "string"
                  *     }
                  */
@@ -27686,7 +27899,6 @@ export interface operations {
                  * @example {
                  *       "organizationId": "00000000-0000-4000-8000-000000000000",
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
-                 *       "quoteNumber": "string",
                  *       "currencyCode": "string"
                  *     }
                  */
@@ -27797,6 +28009,158 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesQuotesDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_settings_document_numbers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current numbering formats and counters */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "orderNumberFormat": "string",
+                     *       "quoteNumberFormat": "string",
+                     *       "nextOrderNumber": 1,
+                     *       "nextQuoteNumber": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Missing scope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_settings_document_numbers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "orderNumberFormat": "string",
+                 *       "quoteNumberFormat": "string"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Updated numbering formats and counters */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "orderNumberFormat": "string",
+                     *       "quoteNumberFormat": "string",
+                     *       "nextOrderNumber": 1,
+                     *       "nextQuoteNumber": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

@@ -4,10 +4,12 @@ import {
   Index,
   ManyToOne,
   OneToMany,
+  OptionalProps,
   PrimaryKey,
   Property,
   Unique,
 } from '@mikro-orm/core'
+import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
@@ -718,6 +720,63 @@ export class SalesOrderAdjustment {
 
   @Property({ name: 'position', type: 'integer', default: 0 })
   position: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_settings' })
+@Unique({ name: 'sales_settings_scope_unique', properties: ['organizationId', 'tenantId'] })
+export class SalesSettings {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'order_number_format', type: 'text', default: DEFAULT_ORDER_NUMBER_FORMAT })
+  orderNumberFormat: string = DEFAULT_ORDER_NUMBER_FORMAT
+
+  @Property({ name: 'quote_number_format', type: 'text', default: DEFAULT_QUOTE_NUMBER_FORMAT })
+  quoteNumberFormat: string = DEFAULT_QUOTE_NUMBER_FORMAT
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_document_sequences' })
+@Unique({
+  name: 'sales_document_sequences_scope_unique',
+  properties: ['organizationId', 'tenantId', 'documentKind'],
+})
+export class SalesDocumentSequence {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'document_kind', type: 'text' })
+  documentKind!: SalesDocumentKind
+
+  @Property({ name: 'current_value', type: 'integer', default: 0 })
+  currentValue: number = 0
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -244,6 +244,12 @@
       },
       "channels": {
         "title": "Sales Channels"
+      },
+      "errors": {
+        "unauthorized": "Unauthorized",
+        "organization_required": "Organization context is required.",
+        "load_failed": "Failed to load sales settings",
+        "save_failed": "Failed to save sales settings"
       }
     },
     "configuration": {
@@ -366,9 +372,43 @@
           "save": "Failed to save tax rate.",
           "delete": "Failed to delete tax rate."
         }
+      },
+      "numbering": {
+        "title": "Document numbers",
+        "description": "Control numbering for sales orders and quotes.",
+        "actions": {
+          "save": "Save settings",
+          "reset": "Reset changes",
+          "refresh": "Refresh",
+          "refreshing": "Refreshing…",
+          "saving": "Saving…"
+        },
+        "orderFormat": "Order number format",
+        "quoteFormat": "Quote number format",
+        "orderNext": "Next order sequence",
+        "quoteNext": "Next quote sequence",
+        "orderHint": "Example: ORDER/{yyyy}/{seq:5}",
+        "quoteHint": "Example: QUOTE/{yy}/{mm}/{seq:4}",
+        "sequenceHint": "Applied on the next generated number for this type.",
+        "sequenceHintQuote": "Resets the quote counter for the next document.",
+        "tokensTitle": "Available tokens",
+        "tokensHint": "Combine tokens to shape your identifiers, e.g. ORDER/{yyyy}/{seq:5}.",
+        "errors": {
+          "load": "Failed to load numbering settings.",
+          "save": "Failed to save numbering settings."
+        },
+        "messages": {
+          "saved": "Numbering settings saved."
+        }
       }
     },
     "documents": {
+      "errors": {
+        "unauthorized": "Unauthorized",
+        "organization_required": "Organization context is required.",
+        "forbidden": "You do not have access to generate numbers.",
+        "number_generate_failed": "Failed to generate document number."
+      },
       "create": {
         "title": "Create sales document"
       },
@@ -384,6 +424,11 @@
         "channel.empty": "No channels found.",
         "channel.selected": "Selected channel: {{id}}",
         "kind": "Document type",
+        "number": "Document number",
+        "numberLoading": "Generating…",
+        "numberRefresh": "Generate",
+        "numberHintOrder": "Format applies to orders and uses the configured counter.",
+        "numberHintQuote": "Format applies to quotes and uses the configured counter.",
         "customer": "Customer",
         "customer.placeholder": "Search customers…",
         "customer.addPerson": "New person",
@@ -435,6 +480,8 @@
         "errors.submit": "Failed to create document.",
         "errors.id": "Document id missing after create.",
         "errors.customers": "Failed to load customers.",
+        "errors.numberGenerate": "Could not generate a document number.",
+        "errors.numberRequired": "Document number is required.",
         "success": "Sales document created.",
         "nextStep": "After creation you will add items, prices, and fulfillment details."
       },

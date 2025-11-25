@@ -317,6 +317,7 @@ export function AddressesSection({
       id: address.id,
       name: address.name ?? undefined,
       purpose: address.purpose ?? undefined,
+      companyName: address.companyName ?? undefined,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? undefined,
       buildingNumber: address.buildingNumber ?? undefined,

@@ -36,6 +36,17 @@ const channelCodeSchema = z
   .regex(/^[a-z0-9\-_]+$/)
   .max(120)
 
+const numberFormatSchema = z.string().trim().min(1).max(191)
+
+export const salesSettingsUpsertSchema = scoped.extend({
+  orderNumberFormat: numberFormatSchema,
+  quoteNumberFormat: numberFormatSchema,
+  orderNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+  quoteNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+})
+
+export type SalesSettingsUpsertInput = z.infer<typeof salesSettingsUpsertSchema>
+
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: channelCodeSchema,
@@ -320,7 +331,7 @@ const quoteTotalsSchema = z.object({
 })
 
 export const orderCreateSchema = scoped.extend({
-  orderNumber: z.string().trim().min(1).max(191),
+  orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
   customerReference: z.string().trim().max(191).optional(),
   customerEntityId: uuid().optional(),
@@ -367,7 +378,7 @@ export const orderUpdateSchema = z
   .merge(orderCreateSchema.partial())
 
 export const quoteCreateSchema = scoped.extend({
-  quoteNumber: z.string().trim().min(1).max(191),
+  quoteNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
@@ -583,6 +594,13 @@ export const noteUpdateSchema = z
         authorUserId: uuid().optional(),
       })
   )
+
+export const documentNumberRequestSchema = scoped.extend({
+  kind: z.enum(['order', 'quote']),
+  format: numberFormatSchema.optional(),
+})
+
+export type DocumentNumberRequestInput = z.infer<typeof documentNumberRequestSchema>
 
 export type ChannelCreateInput = z.infer<typeof channelCreateSchema>
 export type ChannelUpdateInput = z.infer<typeof channelUpdateSchema>

@@ -4,6 +4,11 @@ import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/d
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { normalizeTenantId } from './tenantAccess'
+import { SalesSettings, SalesDocumentSequence } from '@open-mercato/core/modules/sales/data/entities'
+import {
+  DEFAULT_ORDER_NUMBER_FORMAT,
+  DEFAULT_QUOTE_NUMBER_FORMAT,
+} from '@open-mercato/core/modules/sales/lib/documentNumberTokens'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
@@ -239,6 +244,7 @@ export async function setupInitialTenant(
 
   await ensureDefaultRoleAcls(em, tenantId, { includeSuperadminRole })
   await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
+  await ensureSalesNumberingDefaults(em, { tenantId, organizationId })
 
   return {
     tenantId,
@@ -403,4 +409,49 @@ async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager
   } catch (error) {
     console.error('[auth.setup] failed to deactivate demo superadmin user', error)
   }
+}
+
+async function ensureSalesNumberingDefaults(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+) {
+  const repo = em.getRepository(SalesSettings)
+  const exists = await repo.findOne({
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  if (!exists) {
+    const settings = repo.create({
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      orderNumberFormat: DEFAULT_ORDER_NUMBER_FORMAT,
+      quoteNumberFormat: DEFAULT_QUOTE_NUMBER_FORMAT,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(settings)
+  }
+
+  const sequenceRepo = em.getRepository(SalesDocumentSequence)
+  const kinds: Array<'order' | 'quote'> = ['order', 'quote']
+  for (const kind of kinds) {
+    const seq = await sequenceRepo.findOne({
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      documentKind: kind,
+    })
+    if (!seq) {
+      const entry = sequenceRepo.create({
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        documentKind: kind,
+        currentValue: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(entry)
+    }
+  }
+
+  await em.flush()
 }

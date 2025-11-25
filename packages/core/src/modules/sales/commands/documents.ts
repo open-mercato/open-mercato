@@ -50,6 +50,7 @@ import {
   type SalesDocumentCalculationResult,
 } from '../lib/types'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 
 type QuoteGraphSnapshot = {
   quote: {
@@ -264,13 +265,6 @@ type QuoteUndoPayload = {
 
 type DocumentLineCreateInput = QuoteLineCreateInput | OrderLineCreateInput
 type DocumentAdjustmentCreateInput = QuoteAdjustmentCreateInput | OrderAdjustmentCreateInput
-
-function generateDocumentNumber(kind: 'quote' | 'order'): string {
-  const prefix = kind === 'order' ? 'SO' : 'SQ'
-  const timestamp = Date.now().toString(36).toUpperCase()
-  const random = Math.random().toString(36).slice(-4).toUpperCase()
-  return `${prefix}-${timestamp}-${random}`
-}
 
 function cloneJson<T>(value: T): T {
   if (value === null || value === undefined) return value
@@ -1332,10 +1326,19 @@ async function restoreOrderGraph(
 const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> = {
   id: 'sales.quotes.create',
   async execute(rawInput, ctx) {
-    const parsed = quoteCreateSchema.parse({
-      ...rawInput,
-      quoteNumber: rawInput?.quoteNumber ?? generateDocumentNumber('quote'),
-    })
+    const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
+    const initial = quoteCreateSchema.parse(rawInput ?? {})
+    const quoteNumber =
+      typeof initial.quoteNumber === 'string' && initial.quoteNumber.trim().length
+        ? initial.quoteNumber.trim()
+        : (
+            await generator.generate({
+              kind: 'quote',
+              organizationId: initial.organizationId,
+              tenantId: initial.tenantId,
+            })
+          ).number
+    const parsed = quoteCreateSchema.parse({ ...initial, quoteNumber })
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const {
@@ -1569,10 +1572,19 @@ const deleteQuoteCommand: CommandHandler<
 const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> = {
   id: 'sales.orders.create',
   async execute(rawInput, ctx) {
-    const parsed = orderCreateSchema.parse({
-      ...rawInput,
-      orderNumber: rawInput?.orderNumber ?? generateDocumentNumber('order'),
-    })
+    const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
+    const initial = orderCreateSchema.parse(rawInput ?? {})
+    const orderNumber =
+      typeof initial.orderNumber === 'string' && initial.orderNumber.trim().length
+        ? initial.orderNumber.trim()
+        : (
+            await generator.generate({
+              kind: 'order',
+              organizationId: initial.organizationId,
+              tenantId: initial.tenantId,
+            })
+          ).number
+    const parsed = orderCreateSchema.parse({ ...initial, orderNumber })
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([

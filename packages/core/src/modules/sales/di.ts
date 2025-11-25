@@ -4,6 +4,7 @@ import type { EventBus } from '@open-mercato/events'
 import type { AppContainer } from '@/lib/di/container'
 import { DefaultSalesCalculationService } from './services/salesCalculationService'
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
+import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
 
 type AppCradle = AppContainer['cradle'] & {
   em: EntityManager
@@ -19,6 +20,11 @@ export function register(container: AppContainer) {
       .proxy(),
     taxCalculationService: asFunction(({ em, eventBus }: AppCradle) => {
       return new DefaultTaxCalculationService(em, eventBus ?? null)
+    })
+      .singleton()
+      .proxy(),
+    salesDocumentNumberGenerator: asFunction(({ em }: AppCradle) => {
+      return new SalesDocumentNumberGenerator(em)
     })
       .singleton()
       .proxy(),

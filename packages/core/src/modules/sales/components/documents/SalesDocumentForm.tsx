@@ -13,6 +13,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -42,19 +43,16 @@ import {
   type PersonFormValues,
 } from '@open-mercato/core/modules/customers/components/formConfig'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import {
+  formatAddressString,
+  type AddressFormatStrategy,
+  type AddressValue,
+} from '@open-mercato/core/modules/customers/utils/addressFormat'
+import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 
 type DocumentKind = 'quote' | 'order'
 
-type AddressDraft = {
-  name?: string
-  companyName?: string
-  addressLine1?: string
-  addressLine2?: string
-  city?: string
-  region?: string
-  postalCode?: string
-  country?: string
-}
+type AddressDraft = AddressEditorDraft
 
 type CustomerOption = {
   id: string
@@ -66,10 +64,17 @@ type CustomerOption = {
 
 type ChannelOption = { id: string; label: string }
 
-type AddressOption = { id: string; label: string }
+type AddressOption = {
+  id: string
+  label: string
+  summary: string | null
+  name?: string | null
+  value: AddressValue
+}
 
 export type SalesDocumentFormValues = {
   documentKind: DocumentKind
+  documentNumber?: string
   currencyCode: string
   channelId?: string | null
   customerEntityId?: string | null
@@ -365,15 +370,20 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
   const assign = (key: keyof AddressDraft, target: string) => {
     const value = draft[key]
     if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
+    if (typeof value === 'boolean') normalized[target] = value
   }
   assign('name', 'name')
+  assign('purpose', 'purpose')
   assign('companyName', 'companyName')
   assign('addressLine1', 'addressLine1')
   assign('addressLine2', 'addressLine2')
+  assign('buildingNumber', 'buildingNumber')
+  assign('flatNumber', 'flatNumber')
   assign('city', 'city')
   assign('region', 'region')
   assign('postalCode', 'postalCode')
   assign('country', 'country')
+  assign('isPrimary', 'isPrimary')
   return Object.keys(normalized).length ? normalized : null
 }
 
@@ -385,6 +395,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
   const [channelLoading, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
+  const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
   const customerQuerySetter = React.useRef<(value: string) => void>()
   const currencyLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
@@ -448,6 +459,33 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     }
   }, [t])
 
+  const fetchCustomerEmail = React.useCallback(
+    async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
+      try {
+        const kind = kindHint ?? customers.find((item) => item.id === id)?.kind ?? null
+        const endpoint = kind === 'company' ? '/api/customers/companies' : '/api/customers/people'
+        const params = new URLSearchParams({ id, pageSize: '1', page: '1' })
+        const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(`${endpoint}?${params.toString()}`)
+        if (!call.ok || !Array.isArray(call.result?.items) || !call.result.items.length) return null
+        const item = call.result.items[0]
+        const email =
+          (typeof item?.primary_email === 'string' && item.primary_email) ||
+          (typeof (item as any)?.primaryEmail === 'string' && (item as any).primaryEmail) ||
+          null
+        if (email) {
+          setCustomers((prev) =>
+            prev.map((entry) => (entry.id === id ? { ...entry, primaryEmail: email } : entry))
+          )
+        }
+        return email ?? null
+      } catch (err) {
+        console.error('sales.documents.fetchCustomerEmail', err)
+        return null
+      }
+    },
+    [customers],
+  )
+
   const loadChannels = React.useCallback(async (query?: string) => {
     setChannelLoading(true)
     try {
@@ -497,12 +535,23 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
           .map((item) => {
             const id = typeof item.id === 'string' ? item.id : null
             if (!id) return null
-            const name = typeof item.name === 'string' ? item.name : null
-            const line1 = typeof item.address_line1 === 'string' ? item.address_line1 : null
-            const label = name ?? line1 ?? id
-            return { id, label }
+            const value: AddressValue = {
+              addressLine1: typeof item.address_line1 === 'string' ? item.address_line1 : null,
+              addressLine2: typeof item.address_line2 === 'string' ? item.address_line2 : null,
+              buildingNumber: typeof item.building_number === 'string' ? item.building_number : null,
+              flatNumber: typeof item.flat_number === 'string' ? item.flat_number : null,
+              city: typeof item.city === 'string' ? item.city : null,
+              region: typeof item.region === 'string' ? item.region : null,
+              postalCode: typeof item.postal_code === 'string' ? item.postal_code : null,
+              country: typeof item.country === 'string' ? item.country : null,
+              companyName: typeof item.company_name === 'string' ? item.company_name : null,
+            }
+            const name = typeof item.name === 'string' ? item.name.trim() : ''
+            const summary = formatAddressString(value, addressFormat)
+            const label = name || summary || id
+            return { id, label, summary, value, name: name || null }
           })
-          .filter((opt): opt is AddressOption => !!opt)
+          .filter((opt): opt is AddressOption => !!opt?.id)
         setAddressOptions(options)
       } else {
         setAddressOptions([])
@@ -513,12 +562,42 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     } finally {
       setAddressesLoading(false)
     }
-  }, [])
+  }, [addressFormat])
 
   React.useEffect(() => {
     loadCustomers().catch(() => {})
     loadChannels().catch(() => {})
   }, [loadChannels, loadCustomers])
+
+  React.useEffect(() => {
+    setAddressOptions((prev) =>
+      prev.map((entry) => {
+        const summary = formatAddressString(entry.value, addressFormat)
+        const label = (entry.name && entry.name.trim().length ? entry.name : '') || summary || entry.id
+        return { ...entry, summary, label }
+      }),
+    )
+  }, [addressFormat])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function fetchAddressFormat() {
+      try {
+        const call = await apiCall<{ addressFormat?: string }>('/api/customers/settings/address-format')
+        const format = typeof call.result?.addressFormat === 'string' ? call.result.addressFormat : null
+        if (!cancelled && (format === 'street_first' || format === 'line_first')) {
+          setAddressFormat(format)
+        }
+      } catch (err) {
+        console.error('sales.documents.addressFormat', err)
+      } finally {
+      }
+    }
+    fetchAddressFormat().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -553,6 +632,83 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 "Please select which kind of sales document you want to create. When creating Quotes - it's kind of Shopping cart or Request for negotiation and could be converted to regular order later",
               )}
             </p>
+          </div>
+        )
+      },
+    },
+    {
+      id: 'documentNumber',
+      label: t('sales.documents.form.number', 'Document number'),
+      type: 'custom',
+      required: true,
+      component: ({ value, setValue, values }) => {
+        const updateValue = setValue ?? (() => {})
+        const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
+        const kind: DocumentKind = formValues.documentKind === 'order' ? 'order' : 'quote'
+        const [loading, setLoading] = React.useState(false)
+        const [error, setError] = React.useState<string | null>(null)
+        const autoValueRef = React.useRef<string | null>(null)
+        const lastKindRef = React.useRef<DocumentKind | null>(null)
+
+        const requestNumber = React.useCallback(async () => {
+          setLoading(true)
+          setError(null)
+          try {
+            const call = await apiCall<{ number?: string; error?: string }>('/api/sales/document-numbers', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ kind }),
+            })
+            const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
+            if (call.ok && nextNumber) {
+              autoValueRef.current = nextNumber
+              lastKindRef.current = kind
+              updateValue(nextNumber)
+            } else {
+              setError(
+                call.result?.error ||
+                  t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.')
+              )
+            }
+          } catch (err) {
+            console.error('sales.documents.generateNumber', err)
+            setError(t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
+          } finally {
+            setLoading(false)
+          }
+        }, [kind, updateValue, t])
+
+        React.useEffect(() => {
+          const current = typeof value === 'string' ? value.trim() : ''
+          const wasAuto = autoValueRef.current && current === autoValueRef.current
+          if (!current.length || (wasAuto && lastKindRef.current && lastKindRef.current !== kind)) {
+            void requestNumber()
+          } else {
+            lastKindRef.current = kind
+          }
+        }, [kind, requestNumber, value])
+
+        return (
+          <div className="space-y-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Input
+                value={typeof value === 'string' ? value : ''}
+                onChange={(event) => updateValue(event.target.value)}
+                disabled={loading}
+                spellCheck={false}
+              />
+              <Button type="button" variant="outline" onClick={requestNumber} disabled={loading}>
+                {loading
+                  ? t('sales.documents.form.numberLoading', 'Generating…')
+                  : t('sales.documents.form.numberRefresh', 'Generate')}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {kind === 'order'
+                ? t('sales.documents.form.numberHintOrder', 'Format applies to orders and uses the configured counter.')
+                : t('sales.documents.form.numberHintQuote', 'Format applies to quotes and uses the configured counter.')}
+            </p>
+            {error ? <p className="text-xs text-destructive">{error}</p> : null}
           </div>
         )
       },
@@ -641,54 +797,22 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                     ? t('sales.documents.form.address.loading', 'Loading addresses…')
                     : t('sales.documents.form.address.placeholder', 'Select address')}
                 </option>
-                {addressOptions.map((addr) => (
-                  <option key={addr.id} value={addr.id}>{addr.label}</option>
-                ))}
+                {addressOptions.map((addr) => {
+                  const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+                  return (
+                    <option key={addr.id} value={addr.id}>{optionLabel}</option>
+                  )
+                })}
               </select>
             ) : null}
             {useCustom ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Input
-                  placeholder={t('sales.documents.form.address.name', 'Full name')}
-                  value={draft.name ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, name: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.company', 'Company (optional)')}
-                  value={draft.companyName ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, companyName: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.line1', 'Address line 1')}
-                  className="sm:col-span-2"
-                  value={draft.addressLine1 ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, addressLine1: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.line2', 'Address line 2')}
-                  className="sm:col-span-2"
-                  value={draft.addressLine2 ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, addressLine2: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.city', 'City')}
-                  value={draft.city ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, city: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.region', 'Region/state')}
-                  value={draft.region ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, region: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.postal', 'Postal code')}
-                  value={draft.postalCode ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, postalCode: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.country', 'Country')}
-                  value={draft.country ?? ''}
-                  onChange={(evt) => updateValue('shippingAddressDraft', { ...draft, country: evt.target.value })}
+              <div className="space-y-3">
+                <AddressEditor
+                  value={draft}
+                  format={addressFormat}
+                  t={t}
+                  onChange={(next) => updateValue('shippingAddressDraft', next)}
+                  hidePrimaryToggle
                 />
                 <label className="col-span-2 flex items-center gap-2 text-sm">
                   <Switch
@@ -787,9 +911,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                         ? t('sales.documents.form.address.loading', 'Loading addresses…')
                         : t('sales.documents.form.address.placeholder', 'Select address')}
                     </option>
-                    {addressOptions.map((addr) => (
-                      <option key={addr.id} value={addr.id}>{addr.label}</option>
-                    ))}
+                    {addressOptions.map((addr) => {
+                      const optionLabel = addr.summary ? `${addr.label} — ${addr.summary}` : addr.label
+                      return (
+                        <option key={addr.id} value={addr.id}>{optionLabel}</option>
+                      )
+                    })}
                   </select>
                 ) : null}
 
@@ -803,48 +930,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                 </label>
 
                 {useCustom ? (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Input
-                      placeholder={t('sales.documents.form.address.name', 'Full name')}
-                      value={draft.name ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, name: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.company', 'Company (optional)')}
-                      value={draft.companyName ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, companyName: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.line1', 'Address line 1')}
-                      className="sm:col-span-2"
-                      value={draft.addressLine1 ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, addressLine1: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.line2', 'Address line 2')}
-                      className="sm:col-span-2"
-                      value={draft.addressLine2 ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, addressLine2: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.city', 'City')}
-                      value={draft.city ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, city: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.region', 'Region/state')}
-                      value={draft.region ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, region: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.postal', 'Postal code')}
-                      value={draft.postalCode ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, postalCode: evt.target.value })}
-                    />
-                    <Input
-                      placeholder={t('sales.documents.form.address.country', 'Country')}
-                      value={draft.country ?? ''}
-                      onChange={(evt) => updateValue('billingAddressDraft', { ...draft, country: evt.target.value })}
+                  <div className="space-y-3">
+                    <AddressEditor
+                      value={draft}
+                      format={addressFormat}
+                      t={t}
+                      onChange={(next) => updateValue('billingAddressDraft', next)}
+                      hidePrimaryToggle
                     />
                     <label className="col-span-2 flex items-center gap-2 text-sm">
                       <Switch
@@ -876,10 +968,20 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         </div>
       ),
     },
-  ], [addressOptions, addressesLoading, fetchCurrencyOptions, loadAddresses, loadChannels, loadCustomers, t, currencyLabels])
+  ], [
+    addressFormat,
+    addressOptions,
+    addressesLoading,
+    fetchCurrencyOptions,
+    loadAddresses,
+    loadChannels,
+    loadCustomers,
+    t,
+    currencyLabels,
+  ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'docType', title: '', column: 1, fields: ['documentKind'] },
+    { id: 'docType', title: '', column: 1, fields: ['documentKind', 'documentNumber'] },
     {
       id: 'customer',
       title: '',
@@ -908,6 +1010,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                         : null
                     if (possibleEmail) {
                       setValue('customerEmail', possibleEmail)
+                    } else {
+                      fetchCustomerEmail(next, match?.kind).then((email) => {
+                        if (email) setValue('customerEmail', email)
+                      }).catch(() => {})
                     }
                   }
                 }}
@@ -1013,6 +1119,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
   const initialValues = React.useMemo<Partial<SalesDocumentFormValues>>(
     () => ({
       documentKind: 'quote',
+      documentNumber: '',
       currencyCode: 'USD',
       useCustomShipping: false,
       useCustomBilling: false,
@@ -1023,8 +1130,11 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
 
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
-      const { customFields, rest } = collectCustomFieldValues(values ?? {})
-      const base = (rest as SalesDocumentFormValues) ?? {}
+      const safeValues = values ?? {}
+      const customFields = collectCustomFieldValues(safeValues)
+      const base = Object.fromEntries(
+        Object.entries(safeValues).filter(([key]) => !key.startsWith('cf_') && !key.startsWith('cf:'))
+      ) as SalesDocumentFormValues
       const documentKind: DocumentKind = base.documentKind === 'order' ? 'order' : 'quote'
       const payload: Record<string, unknown> = {
         currencyCode: typeof base.currencyCode === 'string' && base.currencyCode.trim().length
@@ -1035,6 +1145,15 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         metadata: base.customerEmail ? { customerEmail: base.customerEmail } : undefined,
       }
       payload.channelId = base.channelId || undefined
+      const documentNumber = typeof base.documentNumber === 'string' ? base.documentNumber.trim() : ''
+      if (!documentNumber) {
+        throw createCrudFormError(t('sales.documents.form.errors.numberRequired', 'Document number is required.'))
+      }
+      if (documentKind === 'order') {
+        payload.orderNumber = documentNumber
+      } else {
+        payload.quoteNumber = documentNumber
+      }
       const shippingSnapshot = base.useCustomShipping ? normalizeAddressDraft(base.shippingAddressDraft) : null
       let billingSnapshot = base.useCustomBilling ? normalizeAddressDraft(base.billingAddressDraft) : null
       const sameAsShipping = base.sameAsShipping !== false
@@ -1059,10 +1178,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
             addressLine1: shippingSnapshot.addressLine1 ?? shippingSnapshot.name ?? 'Address',
             name: shippingSnapshot.name ?? undefined,
             addressLine2: shippingSnapshot.addressLine2 ?? undefined,
+            buildingNumber: shippingSnapshot.buildingNumber ?? undefined,
+            flatNumber: shippingSnapshot.flatNumber ?? undefined,
             city: shippingSnapshot.city ?? undefined,
             region: shippingSnapshot.region ?? undefined,
             postalCode: shippingSnapshot.postalCode ?? undefined,
             country: shippingSnapshot.country ?? undefined,
+            purpose: shippingSnapshot.purpose ?? undefined,
+            isPrimary: shippingSnapshot.isPrimary ?? undefined,
           })
           if (res?.result?.id) shippingId = res.result.id
         }
@@ -1072,10 +1195,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
             addressLine1: billingSnapshot.addressLine1 ?? billingSnapshot.name ?? 'Address',
             name: billingSnapshot.name ?? undefined,
             addressLine2: billingSnapshot.addressLine2 ?? undefined,
+            buildingNumber: billingSnapshot.buildingNumber ?? undefined,
+            flatNumber: billingSnapshot.flatNumber ?? undefined,
             city: billingSnapshot.city ?? undefined,
             region: billingSnapshot.region ?? undefined,
             postalCode: billingSnapshot.postalCode ?? undefined,
             country: billingSnapshot.country ?? undefined,
+            purpose: billingSnapshot.purpose ?? undefined,
+            isPrimary: billingSnapshot.isPrimary ?? undefined,
           })
           if (res?.result?.id) billingId = res.result.id
         }
