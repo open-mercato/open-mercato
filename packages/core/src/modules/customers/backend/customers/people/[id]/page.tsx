@@ -102,7 +102,14 @@ type SectionLoaderProps = { isLoading: boolean; label?: string }
 
 function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
   if (!isLoading) return null
-  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
+  return (
+    <div className="flex justify-center">
+      <LoadingMessage
+        label={label}
+        className="mb-4 mt-4 min-h-[160px] w-full justify-center border-0 bg-transparent p-0"
+      />
+    </div>
+  )
 }
 
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {

@@ -5,6 +5,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
+import { LoadingMessage } from './LoadingMessage'
 import type { AddressSummary, SectionAction, TabEmptyState, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -89,13 +90,14 @@ export function AddressesSection({
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
 
-  const [addresses, setAddresses] = React.useState<AddressSummary[]>([])
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
   const normalizedEntityId = React.useMemo(() => {
     if (typeof entityId !== 'string') return null
     const trimmed = entityId.trim()
     return trimmed.length ? trimmed : null
   }, [entityId])
+  const [addresses, setAddresses] = React.useState<AddressSummary[]>([])
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(normalizedEntityId))
 
   const loadingCounterRef = React.useRef(0)
   const pushLoading = React.useCallback(() => {
@@ -114,8 +116,10 @@ export function AddressesSection({
   const loadAddresses = React.useCallback(async () => {
     if (!normalizedEntityId) {
       setAddresses([])
+      setIsLoading(false)
       return
     }
+    setIsLoading(true)
     pushLoading()
     try {
       const params = new URLSearchParams({ entityId: normalizedEntityId, pageSize: '100' })
@@ -137,6 +141,7 @@ export function AddressesSection({
       flash(message, 'error')
       setAddresses([])
     } finally {
+      setIsLoading(false)
       popLoading()
     }
   }, [normalizedEntityId, pushLoading, popLoading, t])
@@ -348,19 +353,28 @@ export function AddressesSection({
 
   return (
     <div className="mt-4">
-      <CustomerAddressTiles
-        addresses={displayAddresses}
-        onCreate={handleCreate}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
-        isSubmitting={isSubmitting}
-        emptyLabel={emptyLabel}
-        t={t}
-        hideAddButton
-        onAddActionChange={handleAddActionChange}
-        emptyStateTitle={emptyState.title}
-        emptyStateActionLabel={emptyState.actionLabel}
-      />
+      {isLoading ? (
+        <div className="flex justify-center">
+          <LoadingMessage
+            label={t('customers.people.detail.addresses.loading', 'Loading addresses…')}
+            className="min-h-[120px] w-full justify-center border-0 bg-transparent p-0"
+          />
+        </div>
+      ) : (
+        <CustomerAddressTiles
+          addresses={displayAddresses}
+          onCreate={handleCreate}
+          onUpdate={handleUpdate}
+          onDelete={handleDelete}
+          isSubmitting={isSubmitting}
+          emptyLabel={emptyLabel}
+          t={t}
+          hideAddButton
+          onAddActionChange={handleAddActionChange}
+          emptyStateTitle={emptyState.title}
+          emptyStateActionLabel={emptyState.actionLabel}
+        />
+      )}
     </div>
   )
 }

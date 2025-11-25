@@ -24,6 +24,7 @@ import { TimelineItemHeader } from './TimelineItemHeader'
 import { ActivityDialog } from './ActivityDialog'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
+import { LoadingMessage } from './LoadingMessage'
 
 type DictionaryOption = {
   value: string
@@ -91,7 +92,11 @@ export function ActivitiesSection({
   const customFieldResources = useCustomFieldDisplay(E.customers.customer_activity)
   const customFieldEmptyLabel = t('customers.people.detail.noValue', 'Not provided')
   const [activities, setActivities] = React.useState<ActivitySummary[]>([])
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => {
+    const entity = typeof entityId === 'string' ? entityId.trim() : ''
+    const deal = typeof dealId === 'string' ? dealId.trim() : ''
+    return Boolean(entity || deal || resolvedDefaultEntityId)
+  })
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)

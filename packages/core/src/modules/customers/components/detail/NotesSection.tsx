@@ -240,7 +240,7 @@ export function NotesSection({
   const hasEntity = resolvedEntityId.length > 0
 
   const [notes, setNotes] = React.useState<CommentSummary[]>([])
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(entityId || dealId))
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const pendingCounterRef = React.useRef(0)
@@ -906,7 +906,10 @@ export function NotesSection({
 
       <div className="space-y-3">
         {isLoading ? (
-          <LoadingMessage label={t('customers.people.detail.notes.loading', 'Loading notes…')} className="py-8" />
+          <LoadingMessage
+            label={t('customers.people.detail.notes.loading', 'Loading notes…')}
+            className="border-0 bg-transparent p-0 py-8"
+          />
         ) : hasVisibleNotes ? (
           visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
@@ -1073,16 +1076,14 @@ export function NotesSection({
             )
           })
         ) : (
-          <div className="rounded-xl bg-background p-6">
-            <EmptyState
-              title={emptyState.title}
-              action={{
-                label: emptyState.actionLabel,
-                onClick: focusComposer,
-                disabled: isSubmitting || !hasEntity,
-              }}
-            />
-          </div>
+          <EmptyState
+            title={emptyState.title}
+            action={{
+              label: emptyState.actionLabel,
+              onClick: focusComposer,
+              disabled: isSubmitting || !hasEntity,
+            }}
+          />
         )}
         {isLoading || visibleCount >= notes.length ? null : (
           <div className="flex justify-center">

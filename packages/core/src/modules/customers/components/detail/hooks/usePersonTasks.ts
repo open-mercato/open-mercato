@@ -145,7 +145,7 @@ export function usePersonTasks({
     totalPages: 1,
     total: initialTasks.length,
   })
-  const [isInitialLoading, setIsInitialLoading] = React.useState(false)
+  const [isInitialLoading, setIsInitialLoading] = React.useState<boolean>(() => Boolean(entityId))
   const [isLoadingMore, setIsLoadingMore] = React.useState(false)
   const [isMutating, setIsMutating] = React.useState(false)
   const [pendingTaskId, setPendingTaskId] = React.useState<string | null>(null)
@@ -230,6 +230,7 @@ export function usePersonTasks({
       setTasks([])
       setPageInfo({ page: 1, totalPages: 1, total: 0 })
       setError(null)
+      setIsInitialLoading(false)
       return
     }
     setTasks(initialTasks)

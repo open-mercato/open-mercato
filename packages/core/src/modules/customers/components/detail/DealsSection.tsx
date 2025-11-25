@@ -325,7 +325,7 @@ export function DealsSection({
   const customFieldResources = useCustomFieldDisplay(E.customers.customer_deal)
 
   const [deals, setDeals] = React.useState<NormalizedDeal[]>([])
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(scope))
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null)
   const [hasMore, setHasMore] = React.useState(false)
@@ -362,6 +362,9 @@ export function DealsSection({
       setDeals([])
       setLoadError(null)
       setHasMore(false)
+      setIsLoading(false)
+      pendingCounterRef.current = 0
+      onLoadingChange?.(false)
       pageRef.current = 0
       hasMoreRef.current = false
       return
