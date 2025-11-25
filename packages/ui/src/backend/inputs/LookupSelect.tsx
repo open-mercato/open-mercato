@@ -21,6 +21,7 @@ type LookupSelectProps = {
   onChange: (next: string | null) => void
   fetchItems: (query: string) => Promise<LookupSelectItem[]>
   minQuery?: number
+  actionSlot?: React.ReactNode
   searchPlaceholder?: string
   clearLabel?: string
   emptyLabel?: string
@@ -33,6 +34,7 @@ export function LookupSelect({
   onChange,
   fetchItems,
   minQuery = 2,
+  actionSlot,
   searchPlaceholder = 'Search…',
   clearLabel = 'Clear selection',
   emptyLabel = 'No results',
@@ -48,31 +50,35 @@ export function LookupSelect({
   const shouldSearch = query.trim().length >= minQuery
   React.useEffect(() => {
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
     if (!shouldSearch) {
       setItems([])
       setLoading(false)
       setError(null)
-      return
+      return () => { cancelled = true }
     }
     setLoading(true)
     setError(null)
-    const controller = new AbortController()
-    fetchItems(query.trim())
-      .then((result) => {
-        if (cancelled) return
-        setItems(result)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        console.error('LookupSelect.fetchItems', err)
-        setError('error')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    timer = setTimeout(() => {
+      const requestId = Date.now()
+      fetchItems(query.trim())
+        .then((result) => {
+          if (cancelled) return
+          setItems(result)
+        })
+        .catch((err) => {
+          if (cancelled) return
+          console.error('LookupSelect.fetchItems', err)
+          setError('error')
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+      return requestId
+    }, 220)
     return () => {
       cancelled = true
-      controller.abort()
+      if (timer) clearTimeout(timer)
     }
   }, [fetchItems, query, shouldSearch])
 
@@ -80,17 +86,20 @@ export function LookupSelect({
 
   return (
     <div className="space-y-3">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-        <input
-          className="w-full rounded border pl-8 pr-2 py-2 text-sm"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value)
-            setHasTyped(true)
-          }}
-          placeholder={searchPlaceholder}
-        />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <input
+            className="w-full rounded border pl-8 pr-2 py-2 text-sm"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value)
+              setHasTyped(true)
+            }}
+            placeholder={searchPlaceholder}
+          />
+        </div>
+        {actionSlot ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
       {selectedHint ? (
         <div className="rounded border bg-muted px-3 py-2 text-xs text-muted-foreground">{selectedHint}</div>
@@ -168,4 +177,3 @@ export function LookupSelect({
     </div>
   )
 }
-

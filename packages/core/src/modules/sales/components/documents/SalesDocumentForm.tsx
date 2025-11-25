@@ -1,12 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -14,9 +21,14 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { Building2, Mail, Store, UserRound } from 'lucide-react'
+import {
+  DictionaryEntrySelect,
+  type DictionaryOption,
+  type DictionarySelectLabels,
+} from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { Building2, Mail, Plus, Store, UserRound } from 'lucide-react'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
+import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 
 type DocumentKind = 'quote' | 'order'
 
@@ -52,6 +64,7 @@ export type SalesDocumentFormValues = {
   billingAddressId?: string | null
   useCustomShipping?: boolean
   useCustomBilling?: boolean
+  sameAsShipping?: boolean
   saveShippingAddress?: boolean
   saveBillingAddress?: boolean
   shippingAddressDraft?: AddressDraft
@@ -62,6 +75,248 @@ export type SalesDocumentFormValues = {
 type SalesDocumentFormProps = {
   onCreated: (params: { id: string; kind: DocumentKind }) => void
   isSubmitting?: boolean
+}
+
+type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+type QuickCreatePayload = { id: string; kind: 'person' | 'company'; email?: string | null }
+
+type CustomerQuickCreateProps = {
+  t: Translator
+  onCreated: (payload: QuickCreatePayload) => void
+}
+
+function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
+  const [menuOpen, setMenuOpen] = React.useState(false)
+  const [dialog, setDialog] = React.useState<'person' | 'company' | null>(null)
+  const [saving, setSaving] = React.useState(false)
+  const [formError, setFormError] = React.useState<string | null>(null)
+  const [personForm, setPersonForm] = React.useState({ firstName: '', lastName: '', email: '' })
+  const [companyForm, setCompanyForm] = React.useState({ name: '', email: '', domain: '' })
+  const menuRef = React.useRef<HTMLDivElement | null>(null)
+
+  React.useEffect(() => {
+    if (!menuOpen) return
+    const handleClick = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [menuOpen])
+
+  const resetForms = React.useCallback(() => {
+    setPersonForm({ firstName: '', lastName: '', email: '' })
+    setCompanyForm({ name: '', email: '', domain: '' })
+    setFormError(null)
+    setSaving(false)
+  }, [])
+
+  const closeDialog = React.useCallback(() => {
+    setDialog(null)
+    resetForms()
+  }, [resetForms])
+
+  const handlePersonCreate = React.useCallback(async () => {
+    const firstName = personForm.firstName.trim()
+    const lastName = personForm.lastName.trim()
+    const email = personForm.email.trim()
+    if (!firstName || !lastName) {
+      setFormError(t('sales.documents.form.customer.quick.personRequired', 'Provide first and last name.'))
+      return
+    }
+    setSaving(true)
+    try {
+      const displayName = `${firstName} ${lastName}`.trim()
+      const payload: Record<string, unknown> = {
+        displayName,
+        firstName,
+        lastName,
+      }
+      if (email) payload.primaryEmail = email
+      const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
+        errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
+      })
+      const id =
+        (result && typeof result.entityId === 'string' && result.entityId) ||
+        (result && typeof result.id === 'string' && result.id) ||
+        null
+      if (!id) throw new Error('Missing customer id')
+      flash(t('sales.documents.form.customer.quick.personSuccess', 'Customer created.'), 'success')
+      onCreated({ id, kind: 'person', email })
+      closeDialog()
+    } catch (err) {
+      console.error('sales.documents.quickCreate.person', err)
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
+      setFormError(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [closeDialog, onCreated, personForm.email, personForm.firstName, personForm.lastName, resetForms, t])
+
+  const handleCompanyCreate = React.useCallback(async () => {
+    const name = companyForm.name.trim()
+    const domain = companyForm.domain.trim()
+    const email = companyForm.email.trim()
+    if (!name) {
+      setFormError(t('sales.documents.form.customer.quick.companyRequired', 'Provide a company name.'))
+      return
+    }
+    setSaving(true)
+    try {
+      const payload: Record<string, unknown> = { displayName: name }
+      if (domain) payload.domain = domain
+      if (email) payload.primaryEmail = email
+      const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/companies', payload, {
+        errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
+      })
+      const id =
+        (result && typeof result.entityId === 'string' && result.entityId) ||
+        (result && typeof result.id === 'string' && result.id) ||
+        null
+      if (!id) throw new Error('Missing customer id')
+      flash(t('sales.documents.form.customer.quick.companySuccess', 'Customer created.'), 'success')
+      onCreated({ id, kind: 'company', email })
+      closeDialog()
+    } catch (err) {
+      console.error('sales.documents.quickCreate.company', err)
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.form.customer.quick.error', 'Failed to create customer.')
+      setFormError(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [closeDialog, companyForm.domain, companyForm.email, companyForm.name, onCreated, resetForms, t])
+
+  const renderMenu = () => (
+    <div className="absolute right-0 z-30 mt-2 w-48 rounded border bg-popover p-1 shadow-lg">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm hover:bg-muted"
+        onClick={() => {
+          setDialog('person')
+          setMenuOpen(false)
+          setFormError(null)
+        }}
+      >
+        <UserRound className="h-4 w-4 text-muted-foreground" />
+        {t('sales.documents.form.customer.addPerson', 'Create person')}
+      </button>
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded px-2 py-2 text-sm hover:bg-muted"
+        onClick={() => {
+          setDialog('company')
+          setMenuOpen(false)
+          setFormError(null)
+        }}
+      >
+        <Building2 className="h-4 w-4 text-muted-foreground" />
+        {t('sales.documents.form.customer.addCompany', 'Create company')}
+      </button>
+    </div>
+  )
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="gap-2"
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-expanded={menuOpen}
+      >
+        <Plus className="h-4 w-4" />
+        {t('sales.documents.form.customer.create', 'Create customer')}
+      </Button>
+      {menuOpen ? renderMenu() : null}
+
+      <Dialog open={dialog === 'person'} onOpenChange={(open) => (open ? setDialog('person') : closeDialog())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('sales.documents.form.customer.addPerson', 'Create person')}</DialogTitle>
+            <DialogDescription>
+              {t('sales.documents.form.customer.quick.dialogDescription', 'Add a person without leaving this form.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input
+                placeholder={t('customers.people.form.firstName.placeholder', 'First name')}
+                value={personForm.firstName}
+                onChange={(event) => setPersonForm((prev) => ({ ...prev, firstName: event.target.value }))}
+              />
+              <Input
+                placeholder={t('customers.people.form.lastName.placeholder', 'Last name')}
+                value={personForm.lastName}
+                onChange={(event) => setPersonForm((prev) => ({ ...prev, lastName: event.target.value }))}
+              />
+            </div>
+            <Input
+              placeholder={t('customers.people.form.primaryEmail.placeholder', 'Email (optional)')}
+              type="email"
+              value={personForm.email}
+              onChange={(event) => setPersonForm((prev) => ({ ...prev, email: event.target.value }))}
+            />
+            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button type="button" onClick={handlePersonCreate} disabled={saving}>
+              {saving ? t('common.saving', 'Saving…') : t('common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dialog === 'company'} onOpenChange={(open) => (open ? setDialog('company') : closeDialog())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('sales.documents.form.customer.addCompany', 'Create company')}</DialogTitle>
+            <DialogDescription>
+              {t('sales.documents.form.customer.quick.dialogDescription', 'Add a company without leaving this form.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder={t('customers.companies.form.displayName.placeholder', 'Company name')}
+              value={companyForm.name}
+              onChange={(event) => setCompanyForm((prev) => ({ ...prev, name: event.target.value }))}
+            />
+            <Input
+              placeholder={t('customers.companies.form.domain.placeholder', 'Domain (optional)')}
+              value={companyForm.domain}
+              onChange={(event) => setCompanyForm((prev) => ({ ...prev, domain: event.target.value }))}
+            />
+            <Input
+              placeholder={t('customers.companies.form.primaryEmail.placeholder', 'Email (optional)')}
+              type="email"
+              value={companyForm.email}
+              onChange={(event) => setCompanyForm((prev) => ({ ...prev, email: event.target.value }))}
+            />
+            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={closeDialog} disabled={saving}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button type="button" onClick={handleCompanyCreate} disabled={saving}>
+              {saving ? t('common.saving', 'Saving…') : t('common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
 }
 
 function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): CustomerOption[] {
@@ -131,6 +386,25 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     loadingLabel: t('sales.documents.form.currency.loading', 'Loading currencies…'),
     manageTitle: t('sales.documents.form.currency.manage', 'Manage currency dictionary'),
   }), [t])
+  const { data: currencyDictionary, refetch: refetchCurrencyDictionary } = useCurrencyDictionary()
+
+  const fetchCurrencyOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
+    try {
+      const source = currencyDictionary ?? (await refetchCurrencyDictionary())
+      if (source && Array.isArray(source.entries)) {
+        return source.entries.map((entry) => ({
+          value: entry.value,
+          label: entry.label,
+          color: entry.color ?? null,
+          icon: entry.icon ?? null,
+        }))
+      }
+      return []
+    } catch (err) {
+      console.error('sales.documents.currency', err)
+      return []
+    }
+  }, [currencyDictionary, refetchCurrencyDictionary])
 
   const loadCustomers = React.useCallback(async (query?: string) => {
     setCustomerLoading(true)
@@ -230,24 +504,39 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'documentKind',
-      label: t('sales.documents.form.kind', 'Document type'),
+      label: '',
       type: 'custom',
       required: true,
       component: ({ value, setValue }) => {
         const current = value === 'order' ? 'order' : 'quote'
+        const label = t('sales.documents.form.kind', 'Document type')
         return (
-          <div className="flex gap-3">
-            {(['quote', 'order'] as DocumentKind[]).map((kind) => (
-              <Button
-                key={kind}
-                type="button"
-                variant={current === kind ? 'default' : 'outline'}
-                onClick={() => setValue(kind)}
-                className="capitalize"
-              >
-                {kind}
-              </Button>
-            ))}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
+                <span className="text-destructive">*</span>
+                <span>{label}</span>
+              </div>
+              <div className="inline-flex rounded-lg border bg-background p-1 shadow-sm">
+                {(['quote', 'order'] as DocumentKind[]).map((kind) => (
+                  <Button
+                    key={kind}
+                    type="button"
+                    variant={current === kind ? 'default' : 'ghost'}
+                    onClick={() => setValue(kind)}
+                    className="capitalize"
+                  >
+                    {kind}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                'sales.documents.form.kind.hint',
+                "Please select which kind of sales document you want to create. When creating Quotes - it's kind of Shopping cart or Request for negotiation and could be converted to regular order later",
+              )}
+            </p>
           </div>
         )
       },
@@ -261,9 +550,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         <DictionaryEntrySelect
           value={typeof value === 'string' ? value : undefined}
           onChange={(next) => setValue(next ?? '')}
-          kind="currency"
-          allowInlineCreate
-          allowAppearance
+          fetchOptions={fetchCurrencyOptions}
+          allowInlineCreate={false}
           manageHref="/backend/config/dictionaries?key=currency"
           selectClassName="w-full"
           labels={currencyLabels}
@@ -274,7 +562,6 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       id: 'channelId',
       label: t('sales.documents.form.channel', 'Sales channel'),
       type: 'custom',
-      description: t('sales.documents.form.channel.help', 'Optional.'),
       component: ({ value, setValue }) => (
         <LookupSelect
           value={typeof value === 'string' ? value : null}
@@ -296,42 +583,51 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     },
     {
       id: 'shippingAddressSection',
-      label: t('sales.documents.form.shipping.title', 'Shipping address'),
+      label: '',
       type: 'custom',
       component: ({ values, setValue }) => {
         const useCustom = values?.useCustomShipping === true
         const selectedId = typeof values?.shippingAddressId === 'string' ? values.shippingAddressId : ''
         const draft = (values?.shippingAddressDraft ?? {}) as AddressDraft
+        const customerRequired = !values?.customerEntityId
         return (
-          <div className="space-y-2 rounded-lg border p-3">
-            <div className="flex items-center gap-3">
-              <div className="min-w-32 text-sm font-medium">
-                {t('sales.documents.form.shipping.title', 'Shipping address')}
+          <div className="space-y-3">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-base font-semibold">
+                  {t('sales.documents.form.shipping.title', 'Shipping address')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {customerRequired
+                    ? t('sales.documents.form.address.customerRequired', 'Select a customer or define new custom address')
+                    : t('sales.documents.form.shipping.hint', 'Select an address or define a new one.')}
+                </p>
               </div>
-              {!useCustom ? (
-                <select
-                  className="w-full rounded border px-2 py-2 text-sm"
-                  value={selectedId}
-                  onChange={(evt) => setValue('shippingAddressId', evt.target.value || null)}
-                  disabled={addressesLoading}
-                >
-                  <option value="">{addressesLoading ? t('sales.documents.form.address.loading', 'Loading addresses…') : t('sales.documents.form.address.placeholder', 'Select address')}</option>
-                  {addressOptions.map((addr) => (
-                    <option key={addr.id} value={addr.id}>{addr.label}</option>
-                  ))}
-                </select>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  {t('sales.documents.form.shipping.custom', 'Define new address')}
-                </div>
-              )}
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={useCustom}
+                  onCheckedChange={(checked) => setValue('useCustomShipping', checked)}
+                />
+                <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
+              </label>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch checked={useCustom} onCheckedChange={(checked) => setValue('useCustomShipping', checked)} />
-              <span className="text-sm">
-                {t('sales.documents.form.shipping.custom', 'Define new address')}
-              </span>
-            </div>
+            {!useCustom ? (
+              <select
+                className="w-full rounded border px-2 py-2 text-sm"
+                value={selectedId}
+                onChange={(evt) => setValue('shippingAddressId', evt.target.value || null)}
+                disabled={addressesLoading || customerRequired}
+              >
+                <option value="">
+                  {addressesLoading
+                    ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                    : t('sales.documents.form.address.placeholder', 'Select address')}
+                </option>
+                {addressOptions.map((addr) => (
+                  <option key={addr.id} value={addr.id}>{addr.label}</option>
+                ))}
+              </select>
+            ) : null}
             {useCustom ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input
@@ -391,94 +687,155 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
     },
     {
       id: 'billingAddressSection',
-      label: t('sales.documents.form.billing.title', 'Billing address'),
+      label: '',
       type: 'custom',
       component: ({ values, setValue }) => {
         const useCustom = values?.useCustomBilling === true
         const selectedId = typeof values?.billingAddressId === 'string' ? values.billingAddressId : ''
         const draft = (values?.billingAddressDraft ?? {}) as AddressDraft
+        const customerRequired = !values?.customerEntityId
+        const sameAsShipping = values?.sameAsShipping !== false
+        const shippingId = typeof values?.shippingAddressId === 'string' ? values.shippingAddressId : null
+        const shippingDraft = (values?.shippingAddressDraft ?? {}) as AddressDraft
+        const shippingDraftKey = JSON.stringify(shippingDraft)
+        const billingDraftKey = JSON.stringify(draft)
+        const useCustomShipping = values?.useCustomShipping === true
+
+        React.useEffect(() => {
+          if (!sameAsShipping) return
+          if ((values?.billingAddressId ?? null) !== shippingId) {
+            setValue('billingAddressId', shippingId)
+          }
+          if (useCustomShipping !== (values?.useCustomBilling === true)) {
+            setValue('useCustomBilling', useCustomShipping)
+          }
+          if (useCustomShipping && shippingDraftKey !== billingDraftKey) {
+            setValue('billingAddressDraft', shippingDraft)
+          }
+        }, [
+          billingDraftKey,
+          sameAsShipping,
+          setValue,
+          shippingDraft,
+          shippingDraftKey,
+          shippingId,
+          useCustomShipping,
+          values?.billingAddressId,
+          values?.useCustomBilling,
+        ])
+
         return (
-          <div className="space-y-2 rounded-lg border p-3">
-            <div className="flex items-center gap-3">
-              <div className="min-w-32 text-sm font-medium">
-                {t('sales.documents.form.billing.title', 'Billing address')}
+          <div className="space-y-3">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-base font-semibold">
+                  {t('sales.documents.form.billing.title', 'Billing address')}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {sameAsShipping
+                    ? t('sales.documents.form.address.sameAsShippingHint', 'Billing will mirror the shipping address. Uncheck to edit.')
+                    : t('sales.documents.form.billing.hint', 'Select an address or define a new one.')}
+                </p>
               </div>
-              {!useCustom ? (
-                <select
-                  className="w-full rounded border px-2 py-2 text-sm"
-                  value={selectedId}
-                  onChange={(evt) => setValue('billingAddressId', evt.target.value || null)}
-                  disabled={addressesLoading}
-                >
-                  <option value="">{addressesLoading ? t('sales.documents.form.address.loading', 'Loading addresses…') : t('sales.documents.form.address.placeholder', 'Select address')}</option>
-                  {addressOptions.map((addr) => (
-                    <option key={addr.id} value={addr.id}>{addr.label}</option>
-                  ))}
-                </select>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  {t('sales.documents.form.shipping.custom', 'Define new address')}
-                </div>
-              )}
+              <label className="flex items-center gap-2 text-sm">
+                <Switch
+                  checked={sameAsShipping}
+                  onCheckedChange={(checked) => {
+                    setValue('sameAsShipping', checked)
+                    if (checked) {
+                      setValue('useCustomBilling', useCustomShipping)
+                      setValue('billingAddressId', shippingId)
+                      setValue('billingAddressDraft', shippingDraft)
+                    }
+                  }}
+                />
+                <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping address')}</span>
+              </label>
             </div>
-            <div className="flex items-center gap-2">
-              <Switch checked={useCustom} onCheckedChange={(checked) => setValue('useCustomBilling', checked)} />
-              <span className="text-sm">
-                {t('sales.documents.form.shipping.custom', 'Define new address')}
-              </span>
-            </div>
-            {useCustom ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Input
-                  placeholder={t('sales.documents.form.address.name', 'Full name')}
-                  value={draft.name ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, name: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.company', 'Company (optional)')}
-                  value={draft.companyName ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, companyName: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.line1', 'Address line 1')}
-                  className="sm:col-span-2"
-                  value={draft.addressLine1 ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, addressLine1: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.line2', 'Address line 2')}
-                  className="sm:col-span-2"
-                  value={draft.addressLine2 ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, addressLine2: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.city', 'City')}
-                  value={draft.city ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, city: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.region', 'Region/state')}
-                  value={draft.region ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, region: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.postal', 'Postal code')}
-                  value={draft.postalCode ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, postalCode: evt.target.value })}
-                />
-                <Input
-                  placeholder={t('sales.documents.form.address.country', 'Country')}
-                  value={draft.country ?? ''}
-                  onChange={(evt) => setValue('billingAddressDraft', { ...draft, country: evt.target.value })}
-                />
-                <label className="col-span-2 flex items-center gap-2 text-sm">
+
+            {!sameAsShipping ? (
+              <>
+                {!useCustom ? (
+                  <select
+                    className="w-full rounded border px-2 py-2 text-sm"
+                    value={selectedId}
+                    onChange={(evt) => setValue('billingAddressId', evt.target.value || null)}
+                    disabled={addressesLoading || customerRequired}
+                  >
+                    <option value="">
+                      {addressesLoading
+                        ? t('sales.documents.form.address.loading', 'Loading addresses…')
+                        : t('sales.documents.form.address.placeholder', 'Select address')}
+                    </option>
+                    {addressOptions.map((addr) => (
+                      <option key={addr.id} value={addr.id}>{addr.label}</option>
+                    ))}
+                  </select>
+                ) : null}
+
+                <label className="flex items-center gap-2 text-sm">
                   <Switch
-                    checked={values?.saveBillingAddress === true}
-                    onCheckedChange={(checked) => setValue('saveBillingAddress', checked)}
+                    checked={useCustom}
+                    onCheckedChange={(checked) => setValue('useCustomBilling', checked)}
+                    disabled={false}
                   />
-                  {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                  <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
                 </label>
-              </div>
+
+                {useCustom ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      placeholder={t('sales.documents.form.address.name', 'Full name')}
+                      value={draft.name ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, name: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.company', 'Company (optional)')}
+                      value={draft.companyName ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, companyName: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.line1', 'Address line 1')}
+                      className="sm:col-span-2"
+                      value={draft.addressLine1 ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, addressLine1: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.line2', 'Address line 2')}
+                      className="sm:col-span-2"
+                      value={draft.addressLine2 ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, addressLine2: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.city', 'City')}
+                      value={draft.city ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, city: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.region', 'Region/state')}
+                      value={draft.region ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, region: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.postal', 'Postal code')}
+                      value={draft.postalCode ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, postalCode: evt.target.value })}
+                    />
+                    <Input
+                      placeholder={t('sales.documents.form.address.country', 'Country')}
+                      value={draft.country ?? ''}
+                      onChange={(evt) => setValue('billingAddressDraft', { ...draft, country: evt.target.value })}
+                    />
+                    <label className="col-span-2 flex items-center gap-2 text-sm">
+                      <Switch
+                        checked={values?.saveBillingAddress === true}
+                        onCheckedChange={(checked) => setValue('saveBillingAddress', checked)}
+                      />
+                      {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
+                    </label>
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         )
@@ -489,14 +846,25 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       label: t('sales.documents.form.comments', 'Comments'),
       type: 'textarea',
     },
-  ], [addressOptions, addressesLoading, channelLoading, loadAddresses, loadChannels, loadCustomers, t])
+    {
+      id: 'infoNote',
+      label: '',
+      type: 'custom',
+      component: () => (
+        <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+          {t('sales.documents.form.nextStep', 'After creation you will add items, prices, and fulfillment details.')}
+        </div>
+      ),
+    },
+  ], [addressOptions, addressesLoading, fetchCurrencyOptions, loadAddresses, loadChannels, loadCustomers, t, currencyLabels])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'details', title: t('sales.documents.form.details', 'Document details'), column: 1, fields: ['documentKind', 'currencyCode', 'channelId', 'comments'] },
+    { id: 'docType', title: '', column: 1, fields: ['documentKind'] },
     {
       id: 'customer',
-      title: t('sales.documents.form.customer.group', 'Customer'),
+      title: '',
       column: 1,
+      fields: [],
       component: ({ values, setValue }) => {
         const emailValue = typeof values.customerEmail === 'string' ? values.customerEmail : ''
         const { duplicate, checking } = useEmailDuplicateCheck(emailValue, {
@@ -506,7 +874,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         })
         return (
           <div className="space-y-4">
-            <div className="space-y-2">
+            <div className="space-y-3">
               <LookupSelect
                 value={typeof values.customerEntityId === 'string' ? values.customerEntityId : null}
                 onChange={(next) => {
@@ -527,25 +895,23 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
                       ),
                   }))
                 }}
+                actionSlot={
+                  <CustomerQuickCreate
+                    t={t}
+                    onCreated={({ id, email }) => {
+                      setValue('customerEntityId', id)
+                      loadAddresses(id)
+                      if (email && !values.customerEmail) {
+                        setValue('customerEmail', email)
+                      }
+                    }}
+                  />
+                }
                 searchPlaceholder={t('sales.documents.form.customer.placeholder', 'Search customers…')}
                 loadingLabel={t('sales.documents.form.customer.loading', 'Loading customers…')}
                 emptyLabel={t('sales.documents.form.customer.empty', 'No customers found.')}
                 selectedHintLabel={(id) => t('sales.documents.form.customer.selected', 'Selected customer: {{id}}', { id })}
               />
-              <div className="flex gap-2 text-sm">
-                <Button asChild size="sm" variant="outline" className="gap-2">
-                  <Link href="/backend/customers/people/create" target="_blank" rel="noreferrer">
-                    <UserRound className="h-4 w-4" />
-                    {t('sales.documents.form.customer.addPerson', 'New person')}
-                  </Link>
-                </Button>
-                <Button asChild size="sm" variant="outline" className="gap-2">
-                  <Link href="/backend/customers/companies/create" target="_blank" rel="noreferrer">
-                    <Building2 className="h-4 w-4" />
-                    {t('sales.documents.form.customer.addCompany', 'New company')}
-                  </Link>
-                </Button>
-              </div>
             </div>
             <div className="space-y-2">
               <div className="relative">
@@ -584,7 +950,10 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         )
       },
     },
-    { id: 'addresses', title: t('sales.documents.form.addresses', 'Addresses'), column: 2, fields: ['shippingAddressSection', 'billingAddressSection'] },
+    { id: 'channels-comments', title: '', column: 1, fields: ['channelId', 'comments'] },
+    { id: 'currency', title: '', column: 2, fields: ['currencyCode'] },
+    { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
+    { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [loadAddresses, loadCustomers, t])
 
@@ -594,6 +963,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       currencyCode: 'USD',
       useCustomShipping: false,
       useCustomBilling: false,
+      sameAsShipping: true,
     }),
     []
   )
@@ -613,11 +983,19 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       }
       payload.channelId = base.channelId || undefined
       const shippingSnapshot = base.useCustomShipping ? normalizeAddressDraft(base.shippingAddressDraft) : null
-      const billingSnapshot = base.useCustomBilling ? normalizeAddressDraft(base.billingAddressDraft) : null
+      let billingSnapshot = base.useCustomBilling ? normalizeAddressDraft(base.billingAddressDraft) : null
+      const sameAsShipping = base.sameAsShipping !== false
+      if (sameAsShipping) {
+        if (shippingSnapshot) {
+          billingSnapshot = shippingSnapshot
+        } else if (!base.useCustomShipping) {
+          payload.billingAddressId = base.shippingAddressId || undefined
+        }
+      }
       if (shippingSnapshot) payload.shippingAddressSnapshot = shippingSnapshot
       if (billingSnapshot) payload.billingAddressSnapshot = billingSnapshot
       if (!base.useCustomShipping) payload.shippingAddressId = base.shippingAddressId || undefined
-      if (!base.useCustomBilling) payload.billingAddressId = base.billingAddressId || undefined
+      if (!base.useCustomBilling && !sameAsShipping) payload.billingAddressId = base.billingAddressId || undefined
 
       try {
         let shippingId = payload.shippingAddressId as string | undefined
