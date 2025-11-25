@@ -15,22 +15,23 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
 import type { AddressFormatStrategy } from '../utils/addressFormat'
-import type { Translator } from './detail/hooks/useCustomerDictionary'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 
+type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
 export type AddressEditorDraft = {
-  name?: string
-  purpose?: string
-  companyName?: string
-  addressLine1?: string
-  addressLine2?: string
-  buildingNumber?: string
-  flatNumber?: string
-  city?: string
-  region?: string
-  postalCode?: string
-  country?: string
-  isPrimary?: boolean
+  name: string
+  purpose: string
+  companyName: string
+  addressLine1: string
+  addressLine2: string
+  buildingNumber: string
+  flatNumber: string
+  city: string
+  region: string
+  postalCode: string
+  country: string
+  isPrimary: boolean
 }
 
 export type AddressEditorField =
@@ -114,7 +115,7 @@ export function AddressEditor({
   }, [countryOptions, countryQuery])
 
   const selectedCountry = React.useMemo(() => {
-    const code = current.country.toUpperCase()
+    const code = (current.country ?? '').toUpperCase()
     if (!code.length) return null
     return countryOptions.find((option) => option.code === code) ?? null
   }, [countryOptions, current.country])

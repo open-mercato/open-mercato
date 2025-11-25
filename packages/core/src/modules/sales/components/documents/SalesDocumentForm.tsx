@@ -67,7 +67,7 @@ type ChannelOption = { id: string; label: string }
 type AddressOption = {
   id: string
   label: string
-  summary: string | null
+  summary: string
   name?: string | null
   value: AddressValue
 }
@@ -343,25 +343,25 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
 }
 
 function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): CustomerOption[] {
-  return items
-    .map((item) => {
-      if (typeof item !== 'object' || item === null) return null
-      const record = item as Record<string, unknown>
-      const id = typeof record.id === 'string' ? record.id : null
-      if (!id) return null
-      const displayName =
-        typeof record.display_name === 'string'
-          ? record.display_name
-          : typeof record.name === 'string'
-            ? record.name
-            : null
-      const email = typeof record.primary_email === 'string' ? record.primary_email : null
-      const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
-      const label = displayName ?? (email ?? domain ?? id)
-      const subtitle = kind === 'person' ? email : domain ?? email
-      return { id, label: `${label}`, subtitle, kind, primaryEmail: email }
-    })
-    .filter((entry): entry is CustomerOption => !!entry?.id)
+  const parsed: CustomerOption[] = []
+  for (const item of items) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    const id = typeof record.id === 'string' ? record.id : null
+    if (!id) continue
+    const displayName =
+      typeof record.display_name === 'string'
+        ? record.display_name
+        : typeof record.name === 'string'
+          ? record.name
+          : null
+    const email = typeof record.primary_email === 'string' ? record.primary_email : null
+    const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
+    const label = displayName ?? (email ?? domain ?? id)
+    const subtitle = kind === 'person' ? email : domain ?? email
+    parsed.push({ id, label: `${label}`, subtitle, kind, primaryEmail: email })
+  }
+  return parsed
 }
 
 function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
@@ -396,7 +396,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
-  const customerQuerySetter = React.useRef<(value: string) => void>()
+  const customerQuerySetter = React.useRef<((value: string) => void) | null>(null)
   const currencyLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
     addLabel: t('sales.documents.form.currency.add', 'Add currency'),
@@ -531,27 +531,26 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
         `/api/customers/addresses?${params.toString()}`
       )
       if (call.ok && Array.isArray(call.result?.items)) {
-        const options = call.result.items
-          .map((item) => {
-            const id = typeof item.id === 'string' ? item.id : null
-            if (!id) return null
-            const value: AddressValue = {
-              addressLine1: typeof item.address_line1 === 'string' ? item.address_line1 : null,
-              addressLine2: typeof item.address_line2 === 'string' ? item.address_line2 : null,
-              buildingNumber: typeof item.building_number === 'string' ? item.building_number : null,
-              flatNumber: typeof item.flat_number === 'string' ? item.flat_number : null,
-              city: typeof item.city === 'string' ? item.city : null,
-              region: typeof item.region === 'string' ? item.region : null,
-              postalCode: typeof item.postal_code === 'string' ? item.postal_code : null,
-              country: typeof item.country === 'string' ? item.country : null,
-              companyName: typeof item.company_name === 'string' ? item.company_name : null,
-            }
-            const name = typeof item.name === 'string' ? item.name.trim() : ''
-            const summary = formatAddressString(value, addressFormat)
-            const label = name || summary || id
-            return { id, label, summary, value, name: name || null }
-          })
-          .filter((opt): opt is AddressOption => !!opt?.id)
+        const options = call.result.items.reduce<AddressOption[]>((acc, item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          if (!id) return acc
+          const value: AddressValue = {
+            addressLine1: typeof item.address_line1 === 'string' ? item.address_line1 : null,
+            addressLine2: typeof item.address_line2 === 'string' ? item.address_line2 : null,
+            buildingNumber: typeof item.building_number === 'string' ? item.building_number : null,
+            flatNumber: typeof item.flat_number === 'string' ? item.flat_number : null,
+            city: typeof item.city === 'string' ? item.city : null,
+            region: typeof item.region === 'string' ? item.region : null,
+            postalCode: typeof item.postal_code === 'string' ? item.postal_code : null,
+            country: typeof item.country === 'string' ? item.country : null,
+            companyName: typeof item.company_name === 'string' ? item.company_name : null,
+          }
+          const name = typeof item.name === 'string' ? item.name.trim() : ''
+          const summary = formatAddressString(value, addressFormat)
+          const label = name || summary || id
+          acc.push({ id, label, summary, value, name: name || null })
+          return acc
+        }, [])
         setAddressOptions(options)
       } else {
         setAddressOptions([])
@@ -1249,7 +1248,6 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
       submitLabel={t('sales.documents.form.submit', 'Create')}
       cancelHref="/backend/sales/channels"
       onSubmit={handleSubmit}
-      isSubmitting={isSubmitting}
     />
   )
 }

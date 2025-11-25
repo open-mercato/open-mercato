@@ -694,7 +694,11 @@ function createLineSnapshotFromInput(
 function createAdjustmentDraftFromInput(
   adjustment: DocumentAdjustmentCreateInput
 ): SalesAdjustmentDraft {
-  if (adjustment.scope === 'line' && ('quoteLineId' in adjustment ? adjustment.quoteLineId : adjustment.orderLineId)) {
+  const lineRef =
+    'quoteLineId' in adjustment
+      ? (adjustment as any).quoteLineId
+      : (adjustment as any).orderLineId
+  if (adjustment.scope === 'line' && lineRef) {
     throw new CrudHttpError(400, { error: 'Line-scoped adjustments are not supported yet.' })
   }
   return {
@@ -1339,6 +1343,10 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
             })
           ).number
     const parsed = quoteCreateSchema.parse({ ...initial, quoteNumber })
+    const ensuredQuoteNumber = parsed.quoteNumber ?? quoteNumber
+    if (!ensuredQuoteNumber) {
+      throw new CrudHttpError(400, { error: 'Quote number is required.' })
+    }
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const {
@@ -1353,7 +1361,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     const quote = em.create(SalesQuote, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      quoteNumber: parsed.quoteNumber,
+      quoteNumber: ensuredQuoteNumber,
       statusEntryId: parsed.statusEntryId ?? null,
       status: quoteStatus,
       customerEntityId: parsed.customerEntityId ?? null,
@@ -1585,6 +1593,10 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
             })
           ).number
     const parsed = orderCreateSchema.parse({ ...initial, orderNumber })
+    const ensuredOrderNumber = parsed.orderNumber ?? orderNumber
+    if (!ensuredOrderNumber) {
+      throw new CrudHttpError(400, { error: 'Order number is required.' })
+    }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
@@ -1604,7 +1616,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     const order = em.create(SalesOrder, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-      orderNumber: parsed.orderNumber,
+      orderNumber: ensuredOrderNumber,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       fulfillmentStatusEntryId: parsed.fulfillmentStatusEntryId ?? null,
@@ -1619,7 +1631,8 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       billingAddressSnapshot: resolvedBillingSnapshot ? cloneJson(resolvedBillingSnapshot) : null,
       shippingAddressSnapshot: resolvedShippingSnapshot ? cloneJson(resolvedShippingSnapshot) : null,
       currencyCode: parsed.currencyCode,
-      exchangeRate: parsed.exchangeRate ?? null,
+      exchangeRate:
+        typeof parsed.exchangeRate === 'number' ? toNumericString(parsed.exchangeRate) : null,
       taxStrategyKey: parsed.taxStrategyKey ?? null,
       discountStrategyKey: parsed.discountStrategyKey ?? null,
       taxInfo: parsed.taxInfo ? cloneJson(parsed.taxInfo) : null,
