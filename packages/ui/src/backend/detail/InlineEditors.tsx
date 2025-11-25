@@ -23,6 +23,8 @@ export type InlineTextEditorProps = {
   triggerClassName?: string
   hideLabel?: boolean
   renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string; type?: string }) => React.ReactNode
+  onEditingChange?: (editing: boolean) => void
+  renderActions?: React.ReactNode
 }
 
 export function InlineTextEditor({
@@ -39,6 +41,8 @@ export function InlineTextEditor({
   triggerClassName,
   hideLabel = false,
   renderDisplay,
+  onEditingChange,
+  renderActions,
 }: InlineTextEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -69,6 +73,14 @@ export function InlineTextEditor({
     triggerClassName ?? null,
   )
 
+  const setEditingSafe = React.useCallback(
+    (next: boolean) => {
+      setEditing(next)
+      if (onEditingChange) onEditingChange(next)
+    },
+    [onEditingChange],
+  )
+
   const handleSave = React.useCallback(async () => {
     const trimmed = draft.trim()
     if (validator) {
@@ -82,14 +94,14 @@ export function InlineTextEditor({
     setSaving(true)
     try {
       await onSave(trimmed.length ? trimmed : null)
-      setEditing(false)
+      setEditingSafe(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('ui.detail.inline.error', 'Failed to save value.')
       setError(message)
     } finally {
       setSaving(false)
     }
-  }, [draft, onSave, t, validator])
+  }, [draft, onSave, t, validator, setEditingSafe])
 
   const interactiveProps: React.HTMLAttributes<HTMLDivElement> =
     activateOnClick && !editing
@@ -108,7 +120,7 @@ export function InlineTextEditor({
 
   return (
     <div className={containerClasses}>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0" {...interactiveProps}>
           {hideLabel ? null : <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>}
           {editing ? (
@@ -121,7 +133,7 @@ export function InlineTextEditor({
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {
                   event.preventDefault()
-                  setEditing(false)
+                  setEditingSafe(false)
                   setError(null)
                   return
                 }
@@ -148,7 +160,7 @@ export function InlineTextEditor({
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
                   {t('ui.detail.inline.saveShortcut', 'Save (Ctrl/Cmd + Enter)')}
                 </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setEditingSafe(false)} disabled={saving}>
                   {t('ui.detail.inline.cancel', 'Cancel')}
                 </Button>
               </div>
@@ -167,6 +179,7 @@ export function InlineTextEditor({
             </div>
           )}
         </div>
+        {renderActions ? <div className="flex items-center gap-2">{renderActions}</div> : null}
         <Button
           type="button"
           variant="ghost"
@@ -174,7 +187,8 @@ export function InlineTextEditor({
           className={triggerClasses}
           onClick={(event) => {
             event.stopPropagation()
-            setEditing((state) => !state)
+            const next = !editing
+            setEditingSafe(next)
           }}
         >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -344,6 +358,7 @@ export type InlineSelectEditorProps = {
   activateOnClick?: boolean
   containerClassName?: string
   triggerClassName?: string
+  hideLabel?: boolean
 }
 
 export function InlineSelectEditor({
@@ -356,6 +371,7 @@ export function InlineSelectEditor({
   activateOnClick = false,
   containerClassName,
   triggerClassName,
+  hideLabel = false,
 }: InlineSelectEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -419,7 +435,7 @@ export function InlineSelectEditor({
     <div className={containerClasses}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0" {...interactiveProps}>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {hideLabel ? null : <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>}
           {editing ? (
             <div className={variant === 'plain' ? 'space-y-2 pt-1' : 'mt-2 space-y-2'}>
               <select

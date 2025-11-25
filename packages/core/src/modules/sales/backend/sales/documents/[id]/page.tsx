@@ -7,10 +7,13 @@ import { DetailFieldsSection, InlineSelectEditor, InlineTextEditor, LoadingMessa
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Mail, Trash2, Wand2 } from 'lucide-react'
+import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 
 type CustomerSnapshot = {
   customer?: {
@@ -137,6 +140,8 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<'comments' | 'addresses' | 'items' | 'shipments' | 'payments' | 'adjustments'>('comments')
   const [generating, setGenerating] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
+  const [numberEditing, setNumberEditing] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -192,6 +197,28 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     }
     setGenerating(false)
   }, [kind, t])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!record) return
+    const confirmed = window.confirm(
+      t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.')
+    )
+    if (!confirmed) return
+    setDeleting(true)
+    const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
+    const call = await apiCall(endpoint, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: record.id }),
+    })
+    if (call.ok) {
+      flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
+      router.push('/backend/sales/documents')
+    } else {
+      flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
+    }
+    setDeleting(false)
+  }, [kind, record, router, t])
 
   const detailFields = React.useMemo(() => {
     return [
@@ -272,6 +299,25 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
       value: record?.placedAt ?? record?.createdAt ?? null,
     },
   ]
+
+  const renderEmailDisplay = React.useCallback(
+    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => {
+      const emailValue = typeof value === 'string' ? value.trim() : ''
+      if (!emailValue.length) {
+        return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+      }
+      return (
+        <a
+          className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline"
+          href={`mailto:${emailValue}`}
+        >
+          <Mail className="h-4 w-4" aria-hidden />
+          <span className="truncate">{emailValue}</span>
+        </a>
+      )
+    },
+    []
+  )
 
   const tabButtons: Array<{ id: typeof activeTab; label: string }> = [
     { id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') },
@@ -362,72 +408,87 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
   return (
     <Page>
       <PageBody className="space-y-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-1">
-            <p className="text-xs uppercase text-muted-foreground">
-              {kind === 'order'
-                ? t('sales.documents.detail.order', 'Sales order')
-                : t('sales.documents.detail.quote', 'Sales quote')}
-            </p>
-            <InlineTextEditor
-              label={t('sales.documents.detail.number', 'Document number')}
-              value={number}
-              emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
-              onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
-              variant="plain"
-              activateOnClick
-              hideLabel
-              triggerClassName="mt-1"
-            />
-            {record.status ? (
-              <Badge variant="secondary" className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-blue-500" />
-                {record.status}
-              </Badge>
-            ) : null}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/backend/sales/documents"
+              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+            >
+              <span aria-hidden className="mr-1 text-base">←</span>
+              <span className="sr-only">{t('sales.documents.detail.back', 'Back to documents')}</span>
+            </Link>
+            <div className="space-y-1">
+              <p className="text-xs uppercase text-muted-foreground">
+                {kind === 'order'
+                  ? t('sales.documents.detail.order', 'Sales order')
+                  : t('sales.documents.detail.quote', 'Sales quote')}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <InlineTextEditor
+                  label={t('sales.documents.detail.number', 'Document number')}
+                  value={number}
+                  emptyLabel={t('sales.documents.detail.numberEmpty', 'No number yet')}
+                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving number will land soon.'), 'info')}
+                  variant="plain"
+                  activateOnClick
+                  hideLabel
+                  triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
+                  containerClassName="max-w-full"
+                  onEditingChange={setNumberEditing}
+                  renderActions={
+                    numberEditing ? (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => void handleGenerateNumber()}
+                        disabled={generating}
+                        className="h-9 w-9"
+                      >
+                        {generating ? <Spinner className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                        <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
+                      </Button>
+                    ) : null
+                  }
+                />
+              </div>
+              {record.status ? (
+                <Badge variant="secondary" className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-blue-500" />
+                  {record.status}
+                </Badge>
+              ) : null}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => router.push('/backend/sales/documents/create')}>
-              {t('sales.documents.detail.back', 'Back to documents')}
-            </Button>
-            <Button variant="outline" onClick={() => void handleGenerateNumber()} disabled={generating}>
-              {generating ? <Spinner className="mr-2 h-3.5 w-3.5" /> : null}
-              {t('sales.documents.detail.generateNumber', 'Generate number')}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/5 hover:text-destructive"
+            >
+              {deleting ? <Spinner className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" aria-hidden />}
+              {t('sales.documents.detail.delete', 'Delete')}
             </Button>
           </div>
         </div>
 
-        <SectionCard
-          title={t('sales.documents.detail.customer', 'Customer')}
-          muted
-          action={
-            <Button variant="ghost" size="sm" onClick={() => flash(t('sales.documents.detail.saveStub', 'Assigning customers will land soon.'), 'info')}>
-              {customerProvided ? t('sales.documents.detail.customer.change', 'Change') : t('sales.documents.detail.customer.assign', 'Assign')}
-            </Button>
-          }
-        >
-          {customerProvided ? (
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-muted" />
-              <div>
-                <p className="text-sm font-medium">{customerName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {contactEmail ?? t('sales.documents.detail.customer.optional', 'Customer assignment is optional.')}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.customer.empty', 'No customer linked yet. Keep it empty or assign one.')}
-            </p>
-          )}
-        </SectionCard>
+        <DocumentCustomerCard
+          label={undefined}
+          name={customerName}
+          email={contactEmail ?? undefined}
+          kind={customerProvided ? 'company' : 'company'}
+          onEdit={() => flash(t('sales.documents.detail.saveStub', 'Assigning customers will land soon.'), 'info')}
+        />
 
-        <div className="grid gap-3 lg:grid-cols-4 md:grid-cols-2">
-          {summaryCards.map((card) => (
-            <SectionCard key={card.key} title={card.title} muted>
-              {card.key === 'channel' ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => {
+            if (card.key === 'channel') {
+              return (
                 <InlineSelectEditor
+                  key={card.key}
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
@@ -437,11 +498,14 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                     { value: 'b2b', label: t('sales.documents.detail.channel.b2b', 'B2B storefront') },
                     { value: 'pos', label: t('sales.documents.detail.channel.pos', 'POS') },
                   ]}
-                  variant="plain"
                   activateOnClick
                 />
-              ) : card.key === 'status' ? (
+              )
+            }
+            if (card.key === 'status') {
+              return (
                 <InlineSelectEditor
+                  key={card.key}
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
@@ -452,33 +516,50 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                     { value: 'sent', label: t('sales.documents.detail.status.sent', 'Sent') },
                     { value: 'completed', label: t('sales.documents.detail.status.completed', 'Completed') },
                   ]}
-                  variant="plain"
                   activateOnClick
                 />
-              ) : card.key === 'date' ? (
+              )
+            }
+            if (card.key === 'date') {
+              return (
                 <InlineTextEditor
+                  key={card.key}
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
                   onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
-                  variant="plain"
                   inputType="date"
                   activateOnClick
+                  renderDisplay={({ value, emptyLabel }) =>
+                    value && value.length ? (
+                      <span className="text-sm text-foreground">{value}</span>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+                    )
+                  }
                 />
-              ) : (
-                <InlineTextEditor
-                  label={card.title}
-                  value={card.value}
-                  emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  placeholder={card.placeholder}
-                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
-                  inputType={card.type === 'email' ? 'email' : 'text'}
-                  variant="plain"
-                  activateOnClick
-                />
-              )}
-            </SectionCard>
-          ))}
+              )
+            }
+            return (
+              <InlineTextEditor
+                key={card.key}
+                label={card.title}
+                value={card.value}
+                emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
+                placeholder={card.placeholder}
+                onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
+                inputType={card.type === 'email' ? 'email' : 'text'}
+                activateOnClick
+                renderDisplay={(params) =>
+                  card.key === 'email'
+                    ? renderEmailDisplay(params)
+                    : params.value && params.value.length
+                      ? <span className="text-base font-medium">{params.value}</span>
+                      : <span className="text-sm text-muted-foreground">{params.emptyLabel}</span>
+                }
+              />
+            )
+          })}
         </div>
 
         <div>
