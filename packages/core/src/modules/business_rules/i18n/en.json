@@ -73,6 +73,8 @@
   "business_rules.rules.create.description": "Define a new business rule with conditions and actions",
   "business_rules.rules.edit.title": "Edit Business Rule",
   "business_rules.rules.edit.description": "Modify conditions and actions for",
+  "business_rules.rules.edit.loading": "Loading rule...",
+  "business_rules.rules.backToList": "Back to rules",
 
   "business_rules.rules.actions.edit": "Edit",
   "business_rules.rules.actions.delete": "Delete",
@@ -111,8 +113,10 @@
 
   "business_rules.sets.edit.title": "Edit Rule Set",
   "business_rules.sets.edit.description": "Modify rule set details and manage members for",
+  "business_rules.sets.edit.loading": "Loading rule set...",
   "business_rules.sets.edit.detailsSection": "Rule Set Details",
   "business_rules.sets.edit.membersSection": "Rule Set Members",
+  "business_rules.sets.backToList": "Back to rule sets",
 
   "business_rules.sets.fields.setId": "Set ID",
   "business_rules.sets.fields.setName": "Set Name",

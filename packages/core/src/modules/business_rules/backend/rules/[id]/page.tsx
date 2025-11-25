@@ -3,7 +3,10 @@
 import * as React from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -93,22 +96,29 @@ export default function EditBusinessRulePage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-6 px-4 max-w-5xl">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        </div>
-      </div>
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Spinner className="h-6 w-6" />
+            <span>{t('business_rules.rules.edit.loading')}</span>
+          </div>
+        </PageBody>
+      </Page>
     )
   }
 
   if (error || !rule) {
     return (
-      <div className="container mx-auto py-6 px-4 max-w-5xl">
-        <div className="bg-red-50 border border-red-200 rounded p-4">
-          <p className="text-red-800">{t('business_rules.errors.loadFailed')}</p>
-        </div>
-      </div>
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <p>{t('business_rules.errors.loadFailed')}</p>
+            <Button asChild variant="outline">
+              <a href="/backend/rules">{t('business_rules.rules.backToList')}</a>
+            </Button>
+          </div>
+        </PageBody>
+      </Page>
     )
   }
 
@@ -117,23 +127,21 @@ export default function EditBusinessRulePage() {
   }
 
   return (
-    <div className="container mx-auto py-6 px-4 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{t('business_rules.rules.edit.title')}</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          {t('business_rules.rules.edit.description')}: <strong>{rule.ruleName}</strong>
-        </p>
-      </div>
-      <CrudForm
-        key={ruleId}
-        schema={businessRuleFormSchema}
-        fields={fields}
-        initialValues={initialValues}
-        onSubmit={handleSubmit}
-        cancelHref="/backend/rules"
-        groups={formGroups}
-        submitLabel={t('business_rules.rules.form.update')}
-      />
-    </div>
+    <Page>
+      <PageBody>
+        <CrudForm
+          key={ruleId}
+          title={t('business_rules.rules.edit.title')}
+          backHref="/backend/rules"
+          schema={businessRuleFormSchema}
+          fields={fields}
+          initialValues={initialValues}
+          onSubmit={handleSubmit}
+          cancelHref="/backend/rules"
+          groups={formGroups}
+          submitLabel={t('business_rules.rules.form.update')}
+        />
+      </PageBody>
+    </Page>
   )
 }

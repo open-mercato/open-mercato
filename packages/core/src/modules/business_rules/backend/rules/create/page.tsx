@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
@@ -66,20 +67,20 @@ export default function CreateBusinessRulePage() {
   )
 
   return (
-    <div className="container mx-auto py-6 px-4 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{t('business_rules.rules.create.title')}</h1>
-        <p className="text-sm text-gray-600 mt-1">{t('business_rules.rules.create.description')}</p>
-      </div>
-      <CrudForm
-        schema={businessRuleFormSchema}
-        fields={fields}
-        initialValues={defaultFormValues}
-        onSubmit={handleSubmit}
-        cancelHref="/backend/rules"
-        groups={formGroups}
-        submitLabel={t('business_rules.rules.form.create')}
-      />
-    </div>
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('business_rules.rules.create.title')}
+          backHref="/backend/rules"
+          schema={businessRuleFormSchema}
+          fields={fields}
+          initialValues={defaultFormValues}
+          onSubmit={handleSubmit}
+          cancelHref="/backend/rules"
+          groups={formGroups}
+          submitLabel={t('business_rules.rules.form.create')}
+        />
+      </PageBody>
+    </Page>
   )
 }

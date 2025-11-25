@@ -3,8 +3,11 @@
 import * as React from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -153,7 +156,7 @@ export default function EditRuleSetPage() {
     }
   }
 
-  const fields: CrudField[] = [
+  const fields: CrudField[] = React.useMemo(() => [
     {
       id: 'setId',
       label: t('business_rules.sets.form.setId'),
@@ -181,77 +184,86 @@ export default function EditRuleSetPage() {
       type: 'checkbox',
       description: t('business_rules.sets.form.descriptions.enabled'),
     },
-  ]
+  ], [t])
 
-  if (isLoading) {
-    return (
-      <div className="container mx-auto py-6 px-4 max-w-5xl">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/3 mb-2"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        </div>
-      </div>
-    )
-  }
+  const initialValues: Partial<RuleSetFormValues> = React.useMemo(() => {
+    if (!ruleSet) return {}
+    return {
+      setId: ruleSet.setId,
+      setName: ruleSet.setName,
+      description: ruleSet.description,
+      enabled: ruleSet.enabled,
+    }
+  }, [ruleSet])
 
-  if (error || !ruleSet) {
-    return (
-      <div className="container mx-auto py-6 px-4 max-w-5xl">
-        <div className="bg-red-50 border border-red-200 rounded p-4">
-          <p className="text-red-800 font-semibold">{t('business_rules.sets.messages.loadFailed')}</p>
-          {error && (
-            <p className="text-red-700 text-sm mt-2">
-              {t('business_rules.sets.errors.errorDetails')}: {error instanceof Error ? error.message : String(error)}
-            </p>
-          )}
-          <p className="text-gray-600 text-sm mt-2">{t('business_rules.sets.fields.setId')}: {setId}</p>
-        </div>
-      </div>
-    )
-  }
-
-  const initialValues: Partial<RuleSetFormValues> = {
-    setId: ruleSet.setId,
-    setName: ruleSet.setName,
-    description: ruleSet.description,
-    enabled: ruleSet.enabled,
-  }
-
-  return (
-    <div className="container mx-auto py-6 px-4 max-w-5xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{t('business_rules.sets.edit.title')}</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          {t('business_rules.sets.edit.description')}: <strong>{ruleSet.setName}</strong>
-        </p>
-      </div>
-
-      <div className="space-y-8">
-        {/* Rule Set Details Form */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold mb-4">{t('business_rules.sets.edit.detailsSection')}</h2>
-          <CrudForm
-            schema={ruleSetFormSchema}
-            fields={fields}
-            initialValues={initialValues}
-            onSubmit={handleSubmit}
-            cancelHref="/backend/sets"
-            submitLabel={t('business_rules.sets.form.update')}
-            embedded
-          />
-        </div>
-
-        {/* Rule Set Members Management */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h2 className="text-xl font-semibold mb-4">{t('business_rules.sets.edit.membersSection')}</h2>
+  const formGroups = React.useMemo(() => {
+    if (!ruleSet) return []
+    return [
+      {
+        id: 'details',
+        title: t('business_rules.sets.edit.detailsSection'),
+        column: 1 as const,
+        fields: ['setId', 'setName', 'description', 'enabled'],
+      },
+      {
+        id: 'members',
+        title: t('business_rules.sets.edit.membersSection'),
+        column: 1 as const,
+        component: () => (
           <RuleSetMembers
             members={ruleSet.members}
             onAdd={handleAddMember}
             onUpdate={handleUpdateMember}
             onRemove={handleRemoveMember}
           />
-        </div>
-      </div>
-    </div>
+        ),
+      },
+    ]
+  }, [t, ruleSet, handleAddMember, handleUpdateMember, handleRemoveMember])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Spinner className="h-6 w-6" />
+            <span>{t('business_rules.sets.edit.loading')}</span>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error || !ruleSet) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <p>{t('business_rules.sets.messages.loadFailed')}</p>
+            <Button asChild variant="outline">
+              <a href="/backend/sets">{t('business_rules.sets.backToList')}</a>
+            </Button>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('business_rules.sets.edit.title')}
+          backHref="/backend/sets"
+          schema={ruleSetFormSchema}
+          fields={fields}
+          initialValues={initialValues}
+          onSubmit={handleSubmit}
+          cancelHref="/backend/sets"
+          submitLabel={t('business_rules.sets.form.update')}
+          groups={formGroups}
+        />
+      </PageBody>
+    </Page>
   )
 }

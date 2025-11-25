@@ -2,11 +2,11 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { z } from 'zod'
 
 const ruleSetFormSchema = z.object({
@@ -47,7 +47,7 @@ export default function CreateRuleSetPage() {
     router.refresh()
   }
 
-  const fields: CrudField[] = [
+  const fields: CrudField[] = React.useMemo(() => [
     {
       id: 'setId',
       label: t('business_rules.sets.form.setId'),
@@ -75,26 +75,35 @@ export default function CreateRuleSetPage() {
       type: 'checkbox',
       description: t('business_rules.sets.form.descriptions.enabled'),
     },
-  ]
+  ], [t])
 
   const initialValues: Partial<RuleSetFormValues> = {
     enabled: true,
   }
 
+  const formGroups = React.useMemo(() => [
+    {
+      id: 'details',
+      column: 1 as const,
+      fields: ['setId', 'setName', 'description', 'enabled'],
+    },
+  ], [])
+
   return (
-    <div className="container mx-auto py-6 px-4 max-w-3xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">{t('business_rules.sets.create.title')}</h1>
-        <p className="text-sm text-gray-600 mt-1">{t('business_rules.sets.create.description')}</p>
-      </div>
-      <CrudForm
-        schema={ruleSetFormSchema}
-        fields={fields}
-        initialValues={initialValues}
-        onSubmit={handleSubmit}
-        cancelHref="/backend/sets"
-        submitLabel={t('business_rules.sets.form.create')}
-      />
-    </div>
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('business_rules.sets.create.title')}
+          backHref="/backend/sets"
+          schema={ruleSetFormSchema}
+          fields={fields}
+          initialValues={initialValues}
+          onSubmit={handleSubmit}
+          cancelHref="/backend/sets"
+          submitLabel={t('business_rules.sets.form.create')}
+          groups={formGroups}
+        />
+      </PageBody>
+    </Page>
   )
 }
