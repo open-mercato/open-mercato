@@ -390,9 +390,9 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
 export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocumentFormProps) {
   const t = useT()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
-  const [customerLoading, setCustomerLoading] = React.useState(false)
+  const [, setCustomerLoading] = React.useState(false)
   const [channels, setChannels] = React.useState<ChannelOption[]>([])
-  const [channelLoading, setChannelLoading] = React.useState(false)
+  const [, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
