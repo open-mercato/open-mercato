@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -166,9 +165,11 @@ export function OrderEditingSettings() {
                 const checked = values?.includes(status.value) ?? false
                 return (
                   <label key={status.id} className="flex items-center gap-2 rounded-md border bg-background p-2 text-sm">
-                    <Checkbox
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border"
                       checked={checked}
-                      onCheckedChange={() => toggleStatus(kind, status.value)}
+                      onChange={() => toggleStatus(kind, status.value)}
                       disabled={loading || saving}
                     />
                     <span className="truncate" title={status.label || status.value}>

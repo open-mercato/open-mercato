@@ -17,7 +17,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadSalesSettings } from '../../commands/settings'
-import type { CustomerEntity, CustomerPersonProfile, CustomerAddress } from '../../customers/data/entities'
+import { CustomerEntity, CustomerPersonProfile, CustomerAddress } from '../../../customers/data/entities'
 import type { SalesSettings } from '../../data/entities'
 
 type DocumentKind = 'order' | 'quote'

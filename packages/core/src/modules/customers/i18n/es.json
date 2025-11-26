@@ -645,7 +645,7 @@
   "customers.people.detail.tags.unassignError": "No se pudo quitar la etiqueta.",
   "customers.people.detail.tags.success": "Etiquetas actualizadas.",
   "customers.people.detail.tags.error": "No se pudieron actualizar las etiquetas.",
-  "customers.people.detail.tags.saveShortcut": "Guardar (⌘/Ctrl + Enter)",
+  "customers.people.detail.tags.saveShortcut": "Guardar ⌘⏎ / Ctrl+Enter",
   "customers.people.detail.tags.cancelShortcut": "Cancelar (Esc)",
   "customers.people.detail.actions.manageTags": "Gestionar etiquetas",
   "customers.people.detail.empty.tags": "Sin etiquetas",

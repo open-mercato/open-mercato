@@ -10,6 +10,8 @@ import {
 } from '../data/validators'
 import { SalesDocumentAddress, SalesOrder, SalesQuote } from '../data/entities'
 import { ensureOrganizationScope, ensureSameScope, ensureTenantScope, assertFound } from './shared'
+import { loadSalesSettings } from './settings'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 async function requireDocument(
   em: EntityManager,
@@ -26,6 +28,25 @@ async function requireDocument(
   return doc
 }
 
+async function assertAddressEditable(
+  em: EntityManager,
+  params: { organizationId: string; tenantId: string; status: string | null }
+): Promise<void> {
+  const settings = await loadSalesSettings(em, {
+    tenantId: params.tenantId,
+    organizationId: params.organizationId,
+  })
+  const allowed = settings?.orderAddressEditableStatuses ?? null
+  if (!Array.isArray(allowed)) return
+  const { translate } = await resolveTranslations()
+  if (allowed.length === 0) {
+    throw new CrudHttpError(400, { error: translate('sales.orders.edit_addresses_blocked', 'Addresses cannot be changed for the current status.') })
+  }
+  if (!params.status || !allowed.includes(params.status)) {
+    throw new CrudHttpError(400, { error: translate('sales.orders.edit_addresses_blocked', 'Addresses cannot be changed for the current status.') })
+  }
+}
+
 const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: string }> = {
   id: 'sales.document-addresses.create',
   async execute(rawInput, ctx) {
@@ -34,6 +55,13 @@ const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: st
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
+    if (input.documentKind === 'order') {
+      await assertAddressEditable(em, {
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        status: (document as SalesOrder).status ?? null,
+      })
+    }
 
     const entity = em.create(SalesDocumentAddress, {
       organizationId: input.organizationId,
@@ -74,7 +102,14 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
-    await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
+    const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
+    if (input.documentKind === 'order') {
+      await assertAddressEditable(em, {
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        status: (document as SalesOrder).status ?? null,
+      })
+    }
 
     entity.documentId = input.documentId
     entity.documentKind = input.documentKind
@@ -113,7 +148,14 @@ const deleteDocumentAddress: CommandHandler<
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
-    await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
+    const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
+    if (input.documentKind === 'order') {
+      await assertAddressEditable(em, {
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        status: (document as SalesOrder).status ?? null,
+      })
+    }
     await em.removeAndFlush(entity)
     return { ok: true }
   },

@@ -327,6 +327,27 @@
           "delete": "Estado eliminado."
         }
       },
+      "orderEditing": {
+        "title": "Order editing guards",
+        "description": "Control when customers and addresses can be changed on an order.",
+        "customerLabel": "Customer can be changed at",
+        "addressLabel": "Addresses can be changed at",
+        "allowAny": "Allow at any status",
+        "anyStatus": "Allowed at any status",
+        "pickStatuses": "Select statuses that allow this change",
+        "note": "Changing the customer clears assigned addresses to avoid mixing contact data.",
+        "actions": {
+          "refresh": "Refresh",
+          "save": "Save settings"
+        },
+        "errors": {
+          "load": "Failed to load order editing settings.",
+          "save": "Failed to save order editing settings."
+        },
+        "success": {
+          "save": "Order editing settings saved."
+        }
+      },
       "taxRates": {
         "title": "Tipos de impuestos",
         "description": "Administra las clases de IVA aplicadas a los precios del catálogo.",
@@ -522,8 +543,16 @@
           "select": "Selecciona una dirección para agregar.",
           "removed": "Dirección eliminada.",
           "update": "Actualizar direcciones",
-          "delete": "Eliminar dirección"
+          "delete": "Eliminar dirección",
+          "deleteConfirm": "This will permanently remove this address from the document. This cannot be undone. Continue?",
+          "line1Required": "Add address line 1 to continue.",
+          "itemLabel": "Address",
+          "edit": "Edit address",
+          "save": "Save address",
+          "blocked": "Addresses cannot be changed for the current status."
         },
+        "customerChangeConfirm": "Change the customer? Existing shipping and billing addresses will be unassigned.",
+        "customerBlocked": "Customer cannot be changed for the current status.",
         "timestamps": "Fechas",
         "created": "Creado",
         "updated": "Actualizado",
@@ -547,5 +576,7 @@
   "sales.audit.orders.create": "Crear pedido de ventas",
   "sales.audit.orders.delete": "Eliminar pedido de ventas",
   "sales.audit.quotes.create": "Crear cotización",
-  "sales.audit.quotes.delete": "Eliminar cotización"
+  "sales.audit.quotes.delete": "Eliminar cotización",
+  "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

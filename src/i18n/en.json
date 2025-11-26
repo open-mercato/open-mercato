@@ -23,6 +23,7 @@
   "ui.forms.confirmDelete": "Delete this record? This action cannot be undone.",
   "ui.forms.flash.deleteSuccess": "Record deleted",
   "ui.forms.flash.deleteError": "Failed to delete record",
+  "ui.forms.flash.saveSuccess": "Saved successfully.",
   "ui.forms.flash.saveError": "Save failed",
   "catalog.products.edit.offers.deleteError": "Failed to remove sales channel offer.",
   "ui.forms.errors.required": "This field is required",

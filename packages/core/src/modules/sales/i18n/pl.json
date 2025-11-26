@@ -333,6 +333,27 @@
           "delete": "Status usunięty."
         }
       },
+      "orderEditing": {
+        "title": "Order editing guards",
+        "description": "Control when customers and addresses can be changed on an order.",
+        "customerLabel": "Customer can be changed at",
+        "addressLabel": "Addresses can be changed at",
+        "allowAny": "Allow at any status",
+        "anyStatus": "Allowed at any status",
+        "pickStatuses": "Select statuses that allow this change",
+        "note": "Changing the customer clears assigned addresses to avoid mixing contact data.",
+        "actions": {
+          "refresh": "Refresh",
+          "save": "Save settings"
+        },
+        "errors": {
+          "load": "Failed to load order editing settings.",
+          "save": "Failed to save order editing settings."
+        },
+        "success": {
+          "save": "Order editing settings saved."
+        }
+      },
       "taxRates": {
         "title": "Stawki podatkowe",
         "description": "Zarządzaj klasami VAT używanymi w cenniku katalogu.",
@@ -569,8 +590,16 @@
           "select": "Wybierz adres do dodania.",
           "removed": "Adres usunięty z dokumentu.",
           "update": "Zaktualizuj adresy",
-          "delete": "Usuń adres"
+          "delete": "Usuń adres",
+          "deleteConfirm": "This will permanently remove this address from the document. This cannot be undone. Continue?",
+          "line1Required": "Add address line 1 to continue.",
+          "itemLabel": "Address",
+          "edit": "Edit address",
+          "save": "Save address",
+          "blocked": "Addresses cannot be changed for the current status."
         },
+        "customerChangeConfirm": "Change the customer? Existing shipping and billing addresses will be unassigned.",
+        "customerBlocked": "Customer cannot be changed for the current status.",
         "timestamps": "Daty",
         "created": "Utworzono",
         "updated": "Zaktualizowano",
@@ -594,5 +623,7 @@
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
   "sales.audit.quotes.create": "Utwórz ofertę",
-  "sales.audit.quotes.delete": "Usuń ofertę"
+  "sales.audit.quotes.delete": "Usuń ofertę",
+  "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

@@ -77,7 +77,6 @@ async function loadStatusOptions(em: EntityManager, tenantId: string, organizati
       dictionary,
       tenantId,
       organizationId,
-      deletedAt: null,
     },
     { orderBy: { value: 'asc' } }
   )

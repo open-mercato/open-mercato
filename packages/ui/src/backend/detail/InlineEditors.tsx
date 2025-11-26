@@ -6,6 +6,27 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { mapCrudServerErrorToFormErrors } from '../utils/serverErrors'
+
+function resolveInlineErrorMessage(err: unknown, fallbackMessage: string): string {
+  const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
+  const firstFieldError = fieldErrors
+    ? Object.values(fieldErrors).find((text) => typeof text === 'string' && text.trim().length)
+    : null
+  if (typeof firstFieldError === 'string' && firstFieldError.trim().length) {
+    return firstFieldError.trim()
+  }
+  if (typeof message === 'string' && message.trim().length) {
+    return message.trim()
+  }
+  if (err instanceof Error && typeof err.message === 'string' && err.message.trim().length) {
+    return err.message.trim()
+  }
+  if (typeof err === 'string' && err.trim().length) {
+    return err.trim()
+  }
+  return fallbackMessage
+}
 
 type EditorVariant = 'default' | 'muted' | 'plain'
 
@@ -51,7 +72,11 @@ export function InlineTextEditor({
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
-  const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save (Ctrl/Cmd + Enter)')
+  const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
+  const fallbackError = React.useMemo(
+    () => t('ui.detail.inline.error', 'Failed to save value.'),
+    [t],
+  )
 
   React.useEffect(() => {
     if (!editing) setDraft(value ?? '')
@@ -99,12 +124,11 @@ export function InlineTextEditor({
       await onSave(trimmed.length ? trimmed : null)
       setEditingSafe(false)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('ui.detail.inline.error', 'Failed to save value.')
-      setError(message)
+      setError(resolveInlineErrorMessage(err, fallbackError))
     } finally {
       setSaving(false)
     }
-  }, [draft, onSave, t, validator, setEditingSafe])
+  }, [draft, fallbackError, onSave, setEditingSafe, validator])
 
   const interactiveProps: React.HTMLAttributes<HTMLDivElement> =
     activateOnClick && !editing
@@ -233,6 +257,10 @@ export function InlineMultilineEditor({
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const fallbackError = React.useMemo(
+    () => t('ui.detail.inline.error', 'Failed to save value.'),
+    [t],
+  )
 
   React.useEffect(() => {
     if (!editing) setDraft(value ?? '')
@@ -267,12 +295,11 @@ export function InlineMultilineEditor({
       await onSave(trimmed.length ? trimmed : null)
       setEditing(false)
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('ui.detail.inline.error', 'Failed to save value.')
-      setError(message)
+      setError(resolveInlineErrorMessage(err, fallbackError))
     } finally {
       setSaving(false)
     }
-  }, [draft, onSave, t, validator])
+  }, [draft, fallbackError, onSave, validator])
 
   return (
     <div className={containerClasses}>
@@ -313,7 +340,7 @@ export function InlineMultilineEditor({
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('ui.detail.inline.saveShortcut', 'Save (Ctrl/Cmd + Enter)')}
+                  {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('ui.detail.inline.cancel', 'Cancel')}
@@ -456,7 +483,7 @@ export function InlineSelectEditor({
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('ui.detail.inline.saveShortcut', 'Save (Ctrl/Cmd + Enter)')}
+                  {t('ui.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('ui.detail.inline.cancel', 'Cancel')}

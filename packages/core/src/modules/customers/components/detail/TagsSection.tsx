@@ -285,7 +285,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
               <div className="flex items-center gap-2 mt-3 mb-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>
                   {saving ? <span className="mr-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" /> : null}
-                  {t('customers.people.detail.tags.saveShortcut', 'Save (⌘/Ctrl + Enter)')}
+                  {t('customers.people.detail.tags.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={cancelEditing} disabled={saving || isSubmitting}>
                   {t('customers.people.detail.tags.cancelShortcut', 'Cancel (Esc)')}

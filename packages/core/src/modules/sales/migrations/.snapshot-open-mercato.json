@@ -904,6 +904,24 @@
           "default": "'QUOTE-{yyyy}{mm}{dd}-{seq:5}'",
           "mappedType": "text"
         },
+        "order_customer_editable_statuses": {
+          "name": "order_customer_editable_statuses",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "order_address_editable_statuses": {
+          "name": "order_address_editable_statuses",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",

@@ -20,6 +20,8 @@ import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictiona
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 
 function CurrencyInlineEditor({
   label,
@@ -414,6 +416,7 @@ type DocumentRecord = {
   comment?: string | null
   createdAt?: string
   updatedAt?: string
+  metadata?: Record<string, unknown> | null
 }
 
 type DocumentUpdateResult = {
@@ -427,6 +430,7 @@ type DocumentUpdateResult = {
   customerSnapshot?: Record<string, unknown> | null
   customerName?: string | null
   contactEmail?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -502,6 +506,187 @@ function SectionCard({
   )
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function ContactEmailInlineEditor({
+  label,
+  value,
+  placeholder,
+  emptyLabel,
+  onSave,
+  renderDisplay,
+  recordId,
+}: {
+  label: string
+  value: string | null | undefined
+  placeholder?: string
+  emptyLabel: string
+  renderDisplay: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
+  onSave: (next: string | null) => Promise<void>
+  recordId?: string | null
+}) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState(value ?? '')
+  const [error, setError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
+  const trimmedDraft = React.useMemo(() => draft.trim(), [draft])
+  const isValidEmail = React.useMemo(() => {
+    if (!trimmedDraft.length) return true
+    return EMAIL_REGEX.test(trimmedDraft)
+  }, [trimmedDraft])
+  const { duplicate, checking } = useEmailDuplicateCheck(draft, {
+    recordId: typeof recordId === 'string' ? recordId : null,
+    disabled: !editing || !!error || saving || !trimmedDraft.length || !isValidEmail,
+    matchMode: 'prefix',
+  })
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value ?? '')
+      setError(null)
+    }
+  }, [editing, value])
+
+  const handleSave = React.useCallback(async () => {
+    const normalized = trimmedDraft.length ? trimmedDraft : ''
+    if (normalized.length && !EMAIL_REGEX.test(normalized)) {
+      setError(t('customers.people.detail.inline.emailInvalid', 'Enter a valid email address.'))
+      return
+    }
+    setError(null)
+    setSaving(true)
+    try {
+      await onSave(normalized.length ? normalized : null)
+      setEditing(false)
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('customers.people.detail.inline.error', 'Failed to save value.')
+      setError(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [onSave, t, trimmedDraft])
+
+  const interactiveProps =
+    !editing && !saving
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          onClick: () => setEditing(true),
+          onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              setEditing(true)
+            }
+          },
+        }
+      : {}
+
+  return (
+    <div className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0" {...interactiveProps}>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <form
+              className="mt-2 space-y-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (!saving) void handleSave()
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  setError(null)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) void handleSave()
+                }
+              }}
+            >
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <input
+                  className="w-full rounded-md border pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={draft}
+                  onChange={(event) => {
+                    if (error) setError(null)
+                    setDraft(event.target.value)
+                  }}
+                  placeholder={placeholder}
+                  type="email"
+                  autoFocus
+                  spellCheck={false}
+                />
+              </div>
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              {!error && duplicate ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('customers.people.detail.inline.emailDuplicate', undefined, { name: duplicate.displayName })}{' '}
+                  <Link
+                    className="font-medium text-primary underline underline-offset-2"
+                    href={`/backend/customers/people/${duplicate.id}`}
+                  >
+                    {t('customers.people.detail.inline.emailDuplicateLink')}
+                  </Link>
+                </p>
+              ) : null}
+              {!error && !duplicate && checking ? (
+                <p className="text-xs text-muted-foreground">{t('customers.people.detail.inline.emailChecking')}</p>
+              ) : null}
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm" disabled={saving}>
+                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditing(false)
+                    setDraft(value ?? '')
+                    setError(null)
+                  }}
+                  disabled={saving}
+                >
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="mt-1">{renderDisplay({ value, emptyLabel })}</div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (editing) {
+              setDraft(value ?? '')
+              setError(null)
+            }
+            setEditing((prev) => !prev)
+          }}
+          aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
+          disabled={saving}
+        >
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function SalesDocumentDetailPage({
   params,
   initialKind,
@@ -526,8 +711,13 @@ export default function SalesDocumentDetailPage({
   const [customerLoading, setCustomerLoading] = React.useState(false)
   const [customerSaving, setCustomerSaving] = React.useState(false)
   const [customerError, setCustomerError] = React.useState<string | null>(null)
+  const [editingGuards, setEditingGuards] = React.useState<{
+    customer: string[] | null
+    addresses: string[] | null
+  } | null>(null)
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
+  const scopeVersion = useOrganizationScopeVersion()
 
   const loadErrorMessage = React.useMemo(
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
@@ -645,6 +835,43 @@ export default function SalesDocumentDetailPage({
     loadCustomers().catch(() => {})
   }, [loadCustomers])
 
+  const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
+    if (value === null) return null
+    if (!Array.isArray(value)) return []
+    const set = new Set<string>()
+    value.forEach((entry) => {
+      if (typeof entry === 'string' && entry.trim().length) set.add(entry.trim())
+    })
+    return Array.from(set)
+  }, [])
+
+  React.useEffect(() => {
+    if (kind !== 'order') {
+      setEditingGuards(null)
+      return
+    }
+    let cancelled = false
+    async function loadGuards() {
+      try {
+        const call = await apiCall<{
+          orderCustomerEditableStatuses?: unknown
+          orderAddressEditableStatuses?: unknown
+        }>('/api/sales/settings/order-editing')
+        if (!call.ok || cancelled) return
+        setEditingGuards({
+          customer: normalizeGuardList(call.result?.orderCustomerEditableStatuses ?? null),
+          addresses: normalizeGuardList(call.result?.orderAddressEditableStatuses ?? null),
+        })
+      } catch (err) {
+        console.error('sales.documents.loadGuards', err)
+      }
+    }
+    void loadGuards()
+    return () => {
+      cancelled = true
+    }
+  }, [kind, normalizeGuardList, scopeVersion])
+
   const handleRetry = React.useCallback(() => {
     setReloadKey((prev) => prev + 1)
   }, [])
@@ -655,6 +882,23 @@ export default function SalesDocumentDetailPage({
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
+  const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
+  const guardAllows = (list: string[] | null | undefined, status: string | null | undefined) => {
+    if (list === null || list === undefined) return true
+    if (list.length === 0) return false
+    if (!status) return false
+    return list.includes(status)
+  }
+  const customerGuardBlocked =
+    kind === 'order' && !guardAllows(editingGuards?.customer ?? null, record?.status ?? null)
+  const addressGuardBlocked =
+    kind === 'order' && !guardAllows(editingGuards?.addresses ?? null, record?.status ?? null)
+  const customerGuardMessage = customerGuardBlocked
+    ? t('sales.documents.detail.customerBlocked', 'Customer cannot be changed for the current status.')
+    : null
+  const addressGuardMessage = addressGuardBlocked
+    ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
+    : null
   React.useEffect(() => {
     const id = record?.customerEntityId ?? null
     if (!id) return
@@ -788,9 +1032,74 @@ export default function SalesDocumentDetailPage({
     [record, t, updateDocument]
   )
 
+  const handleUpdateContactEmail = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      if (customerGuardMessage) {
+        flash(customerGuardMessage, 'error')
+        throw new Error(customerGuardMessage)
+      }
+      const baseMetadata = (record.metadata ?? {}) as Record<string, unknown>
+      const trimmed = typeof next === 'string' ? next.trim() : ''
+      const nextValue = trimmed.length ? trimmed : null
+      const updatedMetadata =
+        nextValue === null
+          ? Object.fromEntries(Object.entries(baseMetadata).filter(([key]) => key !== 'customerEmail'))
+          : { ...baseMetadata, customerEmail: nextValue }
+      const metadataPayload = Object.keys(updatedMetadata).length ? updatedMetadata : null
+      try {
+        const call = await updateDocument({ metadata: metadataPayload })
+        const savedMetadata =
+          (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPayload ?? null
+        const savedEmail =
+          typeof call.result?.contactEmail === 'string'
+            ? call.result.contactEmail
+            : typeof savedMetadata?.customerEmail === 'string'
+              ? (savedMetadata.customerEmail as string)
+              : nextValue
+        setRecord((prev) => {
+          if (!prev) return prev
+          const resolvedEmail = savedEmail === undefined ? prev.contactEmail ?? null : savedEmail ?? null
+          return { ...prev, metadata: savedMetadata ?? null, contactEmail: resolvedEmail }
+        })
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+    },
+    [customerGuardMessage, record, t, updateDocument]
+  )
+
   const handleUpdateCustomer = React.useCallback(
     async (nextId: string | null, email: string | null) => {
       if (!record) return
+      const changedCustomer = nextId !== record.customerEntityId
+      if (customerGuardMessage) {
+        setCustomerError(customerGuardMessage)
+        flash(customerGuardMessage, 'error')
+        throw new Error(customerGuardMessage)
+      }
+      if (changedCustomer) {
+        const hasAddresses =
+          !!record.shippingAddressId ||
+          !!record.billingAddressId ||
+          !!record.shippingAddressSnapshot ||
+          !!record.billingAddressSnapshot
+        if (hasAddresses) {
+          const confirmed = window.confirm(
+            t(
+              'sales.documents.detail.customerChangeConfirm',
+              'Change the customer? Existing shipping and billing addresses will be unassigned.'
+            )
+          )
+          if (!confirmed) return
+        }
+      }
       setCustomerSaving(true)
       setCustomerError(null)
       try {
@@ -817,6 +1126,10 @@ export default function SalesDocumentDetailPage({
                 customerName: nextId ? resolvedName ?? prev.customerName : resolvedName ?? null,
                 contactEmail: resolvedEmail ?? (nextId ? prev.contactEmail ?? null : null),
                 customerSnapshot: snapshot ?? prev.customerSnapshot ?? null,
+                shippingAddressId: changedCustomer ? null : prev.shippingAddressId ?? null,
+                billingAddressId: changedCustomer ? null : prev.billingAddressId ?? null,
+                shippingAddressSnapshot: changedCustomer ? null : prev.shippingAddressSnapshot ?? null,
+                billingAddressSnapshot: changedCustomer ? null : prev.billingAddressSnapshot ?? null,
               }
             : prev
         )
@@ -1012,6 +1325,7 @@ export default function SalesDocumentDetailPage({
           billingAddressId={record.billingAddressId ?? null}
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
+          lockedReason={addressGuardMessage}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
         />
       )
@@ -1198,6 +1512,20 @@ export default function SalesDocumentDetailPage({
 
         <div className="grid gap-4 md:grid-cols-4">
           {summaryCards.map((card) => {
+            if (card.key === 'email') {
+              return (
+                <ContactEmailInlineEditor
+                  key={card.key}
+                  label={card.title}
+                  value={card.value}
+                  placeholder={card.placeholder}
+                  emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
+                  onSave={handleUpdateContactEmail}
+                  renderDisplay={renderEmailDisplay}
+                  recordId={contactRecordId}
+                />
+              )
+            }
             if (card.key === 'channel') {
               return (
                 <InlineSelectEditor

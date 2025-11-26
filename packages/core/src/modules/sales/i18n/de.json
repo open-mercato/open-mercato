@@ -326,6 +326,27 @@
           "delete": "Status gelöscht."
         }
       },
+      "orderEditing": {
+        "title": "Order editing guards",
+        "description": "Control when customers and addresses can be changed on an order.",
+        "customerLabel": "Customer can be changed at",
+        "addressLabel": "Addresses can be changed at",
+        "allowAny": "Allow at any status",
+        "anyStatus": "Allowed at any status",
+        "pickStatuses": "Select statuses that allow this change",
+        "note": "Changing the customer clears assigned addresses to avoid mixing contact data.",
+        "actions": {
+          "refresh": "Refresh",
+          "save": "Save settings"
+        },
+        "errors": {
+          "load": "Failed to load order editing settings.",
+          "save": "Failed to save order editing settings."
+        },
+        "success": {
+          "save": "Order editing settings saved."
+        }
+      },
       "taxRates": {
         "title": "Steuersätze",
         "description": "Verwalten Sie MwSt.-Klassen für Katalogpreise.",
@@ -521,8 +542,16 @@
           "select": "Wähle Adresse zum Hinzufügen.",
           "removed": "Adresse wurde entfernt.",
           "update": "Adressen aktualisieren",
-          "delete": "Adresse entfernen"
+          "delete": "Adresse entfernen",
+          "deleteConfirm": "This will permanently remove this address from the document. This cannot be undone. Continue?",
+          "line1Required": "Add address line 1 to continue.",
+          "itemLabel": "Address",
+          "edit": "Edit address",
+          "save": "Save address",
+          "blocked": "Addresses cannot be changed for the current status."
         },
+        "customerChangeConfirm": "Change the customer? Existing shipping and billing addresses will be unassigned.",
+        "customerBlocked": "Customer cannot be changed for the current status.",
         "timestamps": "Zeitpunkte",
         "created": "Erstellt",
         "updated": "Aktualisiert",
@@ -546,5 +575,7 @@
   "sales.audit.orders.create": "Bestellung erstellen",
   "sales.audit.orders.delete": "Bestellung löschen",
   "sales.audit.quotes.create": "Angebot erstellen",
-  "sales.audit.quotes.delete": "Angebot löschen"
+  "sales.audit.quotes.delete": "Angebot löschen",
+  "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

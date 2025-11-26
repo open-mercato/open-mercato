@@ -10,6 +10,7 @@ import {
   documentAddressDeleteSchema,
   documentAddressUpdateSchema,
 } from '../../data/validators'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -44,6 +45,7 @@ const crud = makeCrudRoute({
   },
   list: {
     schema: listSchema,
+    entityId: E.sales.sales_document_address,
     fields: [
       'id',
       'organization_id',

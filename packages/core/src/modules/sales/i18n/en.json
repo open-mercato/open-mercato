@@ -590,6 +590,11 @@
           "removed": "Address unassigned.",
           "update": "Update addresses",
           "delete": "Remove address",
+          "deleteConfirm": "This will permanently remove this address from the document. This cannot be undone. Continue?",
+          "line1Required": "Add address line 1 to continue.",
+          "itemLabel": "Address",
+          "edit": "Edit address",
+          "save": "Save address",
           "blocked": "Addresses cannot be changed for the current status."
         },
         "customerChangeConfirm": "Change the customer? Existing shipping and billing addresses will be unassigned.",

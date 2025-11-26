@@ -23,6 +23,7 @@
   "ui.forms.confirmDelete": "Usunąć ten rekord? Tej operacji nie można cofnąć.",
   "ui.forms.flash.deleteSuccess": "Rekord usunięty",
   "ui.forms.flash.deleteError": "Nie udało się usunąć rekordu",
+  "ui.forms.flash.saveSuccess": "Zapisano pomyślnie.",
   "ui.forms.flash.saveError": "Nie udało się zapisać",
   "catalog.products.edit.offers.deleteError": "Nie udało się usunąć oferty kanału sprzedaży.",
   "ui.forms.errors.required": "To pole jest wymagane",

@@ -36,6 +36,7 @@ export type SalesDocumentAddressesSectionProps = {
   billingAddressId?: string | null
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
+  lockedReason?: string | null
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
@@ -100,21 +101,6 @@ function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEd
   }
 }
 
-function addressValueFromRecord(record: Record<string, unknown>): AddressValue {
-  const read = (key: string) => (typeof record[key] === 'string' ? (record[key] as string) : null)
-  return {
-    addressLine1: read('addressLine1'),
-    addressLine2: read('addressLine2'),
-    buildingNumber: read('buildingNumber'),
-    flatNumber: read('flatNumber'),
-    city: read('city'),
-    region: read('region'),
-    postalCode: read('postalCode'),
-    country: read('country'),
-    companyName: read('companyName'),
-  }
-}
-
 function deepEqual(a: Record<string, unknown> | null | undefined, b: Record<string, unknown> | null | undefined) {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 }
@@ -129,22 +115,31 @@ type DocumentAddressAssignment = {
   companyName?: string | null
 }
 
+function readStringField(item: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = item[key]
+    if (typeof value === 'string') return value
+  }
+  return null
+}
+
 function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrategy): AddressOption | null {
   const id = typeof item.id === 'string' ? item.id : null
   if (!id) return null
+  const read = (keys: string[]) => readStringField(item, keys)
   const value: AddressValue = {
-    addressLine1: typeof item.address_line1 === 'string' ? item.address_line1 : null,
-    addressLine2: typeof item.address_line2 === 'string' ? item.address_line2 : null,
-    buildingNumber: typeof item.building_number === 'string' ? item.building_number : null,
-    flatNumber: typeof item.flat_number === 'string' ? item.flat_number : null,
-    city: typeof item.city === 'string' ? item.city : null,
-    region: typeof item.region === 'string' ? item.region : null,
-    postalCode: typeof item.postal_code === 'string' ? item.postal_code : null,
-    country: typeof item.country === 'string' ? item.country : null,
-    companyName: typeof item.company_name === 'string' ? item.company_name : null,
+    addressLine1: read(['address_line1', 'addressLine1']),
+    addressLine2: read(['address_line2', 'addressLine2']),
+    buildingNumber: read(['building_number', 'buildingNumber']),
+    flatNumber: read(['flat_number', 'flatNumber']),
+    city: read(['city']),
+    region: read(['region']),
+    postalCode: read(['postal_code', 'postalCode']),
+    country: read(['country']),
+    companyName: read(['company_name', 'companyName']),
   }
-  const name = typeof item.name === 'string' ? item.name.trim() : ''
-  const purpose = typeof item.purpose === 'string' ? item.purpose.trim() : ''
+  const name = (read(['name']) ?? '').trim()
+  const purpose = (read(['purpose']) ?? '').trim()
   const summary = formatAddressString(value, format)
   const label = name || summary || id
   return { id, label, summary, value, name: name || null, purpose: purpose || null }
@@ -175,6 +170,7 @@ export function SalesDocumentAddressesSection({
   billingAddressId,
   shippingAddressSnapshot,
   billingAddressSnapshot,
+  lockedReason,
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
@@ -215,6 +211,7 @@ export function SalesDocumentAddressesSection({
   const [additionalDraft, setAdditionalDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
+  const locked = Boolean(lockedReason)
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)
@@ -274,24 +271,25 @@ export function SalesDocumentAddressesSection({
           .map((item) => {
             const id = typeof item.id === 'string' ? item.id : null
             if (!id) return null
+            const read = (keys: string[]) => readStringField(item, keys)
             const value: AddressValue = {
-              addressLine1: typeof (item as any).address_line1 === 'string' ? (item as any).address_line1 : null,
-              addressLine2: typeof (item as any).address_line2 === 'string' ? (item as any).address_line2 : null,
-              buildingNumber: typeof (item as any).building_number === 'string' ? (item as any).building_number : null,
-              flatNumber: typeof (item as any).flat_number === 'string' ? (item as any).flat_number : null,
-              city: typeof (item as any).city === 'string' ? (item as any).city : null,
-              region: typeof (item as any).region === 'string' ? (item as any).region : null,
-              postalCode: typeof (item as any).postal_code === 'string' ? (item as any).postal_code : null,
-              country: typeof (item as any).country === 'string' ? (item as any).country : null,
-              companyName: typeof (item as any).company_name === 'string' ? (item as any).company_name : null,
+              addressLine1: read(['address_line1', 'addressLine1']),
+              addressLine2: read(['address_line2', 'addressLine2']),
+              buildingNumber: read(['building_number', 'buildingNumber']),
+              flatNumber: read(['flat_number', 'flatNumber']),
+              city: read(['city']),
+              region: read(['region']),
+              postalCode: read(['postal_code', 'postalCode']),
+              country: read(['country']),
+              companyName: read(['company_name', 'companyName']),
             }
             return {
               id,
               value,
               summary: resolveAddressSummary(value),
-              customerAddressId: typeof (item as any).customer_address_id === 'string' ? (item as any).customer_address_id : null,
-              name: typeof (item as any).name === 'string' ? (item as any).name : null,
-              purpose: typeof (item as any).purpose === 'string' ? (item as any).purpose : null,
+              customerAddressId: read(['customer_address_id', 'customerAddressId']),
+              name: read(['name']),
+              purpose: read(['purpose']),
               companyName: value.companyName ?? null,
             }
           })
@@ -407,6 +405,14 @@ export function SalesDocumentAddressesSection({
     loadAddresses(customerId).catch(() => {})
   }, [customerId, loadAddresses])
 
+  const guardLocked = React.useCallback(() => {
+    if (!locked) return false
+    if (lockedReason) {
+      flash(lockedReason, 'error')
+    }
+    return true
+  }, [locked, lockedReason])
+
   React.useEffect(() => {
     setAddressOptions((prev) =>
       prev.map((entry) => {
@@ -463,6 +469,7 @@ export function SalesDocumentAddressesSection({
   }, [addressOptions, billingAddressIdState])
 
   const handleAddAdditionalAddress = React.useCallback(async () => {
+    if (guardLocked()) return
     if (!customerId) {
       flash(t('sales.documents.form.address.customerRequired', 'Select a customer first'), 'error')
       return
@@ -577,8 +584,110 @@ export function SalesDocumentAddressesSection({
     t,
   ])
 
+  const handleCancelEdit = React.useCallback(() => {
+    setEditingAddressId(null)
+    setEditingDraft(emptyDraft)
+    setEditingSaving(false)
+  }, [])
+
+  const handleUpdateDocumentAddress = React.useCallback(async () => {
+    if (!editingAddressId) return
+    const current = documentAddresses.find((entry) => entry.id === editingAddressId)
+    if (!current) {
+      handleCancelEdit()
+      return
+    }
+    if (guardLocked()) return
+    const normalizedRecord = (normalizeAddressDraft(editingDraft) ?? {}) as Record<string, unknown>
+    const read = (key: string) => {
+      const value = normalizedRecord[key]
+      if (typeof value !== 'string') return ''
+      const trimmed = value.trim()
+      return trimmed.length ? trimmed : ''
+    }
+    const addressLine1 = read('addressLine1')
+    if (!addressLine1) {
+      flash(t('sales.documents.detail.addresses.line1Required', 'Add address line 1 to continue.'), 'error')
+      return
+    }
+    const updatedValue: AddressValue = {
+      addressLine1,
+      addressLine2: read('addressLine2') || null,
+      buildingNumber: read('buildingNumber') || null,
+      flatNumber: read('flatNumber') || null,
+      city: read('city') || null,
+      region: read('region') || null,
+      postalCode: read('postalCode') || null,
+      country: read('country') || null,
+      companyName: read('companyName') || null,
+    }
+    const nameValue = read('name') || null
+    const purposeValue = read('purpose') || null
+
+    setEditingSaving(true)
+    try {
+      await apiCallOrThrow(
+        '/api/sales/document-addresses',
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: editingAddressId,
+            documentId,
+            documentKind: kind,
+            customerAddressId: current.customerAddressId ?? undefined,
+            name: nameValue,
+            purpose: purposeValue,
+            companyName: updatedValue.companyName,
+            addressLine1: updatedValue.addressLine1,
+            addressLine2: updatedValue.addressLine2,
+            buildingNumber: updatedValue.buildingNumber,
+            flatNumber: updatedValue.flatNumber,
+            city: updatedValue.city,
+            region: updatedValue.region,
+            postalCode: updatedValue.postalCode,
+            country: updatedValue.country,
+          }),
+        },
+        { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') }
+      )
+      setDocumentAddresses((prev) =>
+        prev.map((entry) =>
+          entry.id === editingAddressId
+            ? {
+                ...entry,
+                value: updatedValue,
+                summary: resolveAddressSummary(updatedValue),
+                name: nameValue,
+                purpose: purposeValue,
+                companyName: updatedValue.companyName ?? null,
+              }
+            : entry
+        )
+      )
+      flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      handleCancelEdit()
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.')
+      flash(message, 'error')
+    } finally {
+      setEditingSaving(false)
+    }
+  }, [documentAddresses, documentId, editingAddressId, editingDraft, handleCancelEdit, kind, resolveAddressSummary, t])
+
   const handleDeleteDocumentAddress = React.useCallback(
     async (id: string) => {
+      if (guardLocked()) return
+      const confirmMessage = t(
+        'sales.documents.detail.addresses.deleteConfirm',
+        'This will permanently remove this address from the document. Continue?'
+      )
+      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) {
+        return
+      }
       setDeletingAddressIds((prev) => {
         const next = new Set(prev)
         next.add(id)
@@ -595,6 +704,9 @@ export function SalesDocumentAddressesSection({
           { errorMessage: t('sales.documents.detail.addresses.deleteError', 'Failed to remove address.') }
         )
         setDocumentAddresses((prev) => prev.filter((entry) => entry.id !== id))
+        if (editingAddressId === id) {
+          handleCancelEdit()
+        }
         flash(t('sales.documents.detail.addresses.removed', 'Address unassigned.'), 'success')
       } catch (err) {
         const message =
@@ -610,10 +722,11 @@ export function SalesDocumentAddressesSection({
         })
       }
     },
-    [documentId, kind, t]
+    [documentId, editingAddressId, handleCancelEdit, kind, t]
   )
 
   const handleSave = React.useCallback(async () => {
+    if (guardLocked()) return
     setSaving(true)
     try {
       const shippingSnapshot = useCustomShipping ? normalizeAddressDraft(shippingDraft) : null
@@ -759,6 +872,18 @@ export function SalesDocumentAddressesSection({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
+        {lockedReason ? (
+          <ErrorMessage
+            label={lockedReason}
+            className="md:col-span-2"
+            action={
+              <Button size="sm" variant="outline" disabled>
+                {t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')}
+              </Button>
+            }
+          />
+        ) : null}
+
         {addressesError ? (
           <ErrorMessage
             label={addressesError}
@@ -782,7 +907,11 @@ export function SalesDocumentAddressesSection({
               </p>
             </div>
             <label className="flex items-center gap-2 text-sm">
-              <Switch checked={useCustomShipping} onCheckedChange={(checked) => setUseCustomShipping(checked)} />
+              <Switch
+                checked={useCustomShipping}
+                onCheckedChange={(checked) => setUseCustomShipping(checked)}
+                disabled={customerRequired || locked}
+              />
               <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
             </label>
           </div>
@@ -791,7 +920,7 @@ export function SalesDocumentAddressesSection({
                 shippingAddressIdState ?? '',
                 shippingOptions,
                 setShippingAddressId,
-                addressesLoading || customerRequired
+                addressesLoading || customerRequired || locked
               )
             : null}
           {useCustomShipping ? (
@@ -807,7 +936,7 @@ export function SalesDocumentAddressesSection({
                 <Switch
                   checked={saveShippingAddress && !customerRequired}
                   onCheckedChange={(checked) => setSaveShippingAddress(checked)}
-                  disabled={customerRequired}
+                  disabled={customerRequired || locked}
                 />
                 {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
               </label>
@@ -839,6 +968,7 @@ export function SalesDocumentAddressesSection({
                     setBillingDraft(useCustomShipping ? shippingDraft : emptyDraft)
                   }
                 }}
+                disabled={locked}
               />
               <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping address')}</span>
             </label>
@@ -851,11 +981,15 @@ export function SalesDocumentAddressesSection({
                     billingAddressIdState ?? '',
                     billingOptions,
                     setBillingAddressId,
-                    addressesLoading || customerRequired
+                    addressesLoading || customerRequired || locked
                   )
                 : null}
               <label className="flex items-center gap-2 text-sm">
-                <Switch checked={useCustomBilling} onCheckedChange={(checked) => setUseCustomBilling(checked)} />
+                <Switch
+                  checked={useCustomBilling}
+                  onCheckedChange={(checked) => setUseCustomBilling(checked)}
+                  disabled={customerRequired || locked}
+                />
                 <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
               </label>
 
@@ -872,7 +1006,7 @@ export function SalesDocumentAddressesSection({
                     <Switch
                       checked={saveBillingAddress && !customerRequired}
                       onCheckedChange={(checked) => setSaveBillingAddress(checked)}
-                      disabled={customerRequired}
+                      disabled={customerRequired || locked}
                     />
                     {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
                   </label>
@@ -911,7 +1045,7 @@ export function SalesDocumentAddressesSection({
             variant="outline"
             size="sm"
             onClick={() => setAdditionalFormOpen(true)}
-            disabled={customerRequired}
+            disabled={customerRequired || locked}
           >
             <Plus className="mr-2 h-4 w-4" />
             {t('sales.documents.detail.addresses.add', 'Add address')}
@@ -931,27 +1065,105 @@ export function SalesDocumentAddressesSection({
           </p>
         ) : null}
 
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {documentAddresses.map((entry) => (
-            <div
-              key={entry.id}
-              className="flex items-start justify-between gap-3 rounded border px-3 py-2 text-sm"
-            >
-              <div className="flex-1">
-                <p className="text-sm text-foreground">{entry.summary}</p>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {documentAddresses.map((entry) => {
+            const isEditing = editingAddressId === entry.id
+            const title =
+              (entry.name && entry.name.trim()) ||
+              (entry.purpose && entry.purpose.trim()) ||
+              entry.summary ||
+              t('sales.documents.detail.addresses.itemLabel', 'Address')
+            return (
+              <div key={entry.id} className="space-y-2 rounded border bg-card p-3">
+                {isEditing ? (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold">{title}</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCancelEdit}
+                        aria-label={t('ui.detail.inline.cancel', 'Cancel')}
+                      >
+                        {t('ui.detail.inline.cancel', 'Cancel')}
+                      </Button>
+                    </div>
+                    <AddressEditor
+                      value={editingDraft}
+                      format={addressFormat}
+                      t={t as Translator}
+                      onChange={(next) => setEditingDraft(next)}
+                      hidePrimaryToggle
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancelEdit}
+                        disabled={editingSaving}
+                      >
+                        {t('ui.detail.inline.cancel', 'Cancel')}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void handleUpdateDocumentAddress()}
+                        disabled={editingSaving}
+                      >
+                        {editingSaving
+                          ? t('sales.documents.form.address.saving', 'Saving…')
+                          : t('sales.documents.detail.addresses.save', 'Save address')}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold">{title}</p>
+                        {entry.companyName ? (
+                          <p className="text-xs text-muted-foreground">{entry.companyName}</p>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditingAddressId(entry.id)
+                            setEditingDraft(draftFromDocumentAddress(entry))
+                          }}
+                          disabled={locked}
+                          aria-label={t('sales.documents.detail.addresses.edit', 'Edit address')}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteDocumentAddress(entry.id)}
+                          disabled={deletingAddressIds.has(entry.id) || locked}
+                          aria-label={t('sales.documents.detail.addresses.delete', 'Remove address')}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <AddressView
+                      address={entry.value}
+                      format={addressFormat}
+                      className="space-y-1 text-sm"
+                      lineClassName="text-sm text-foreground"
+                    />
+                  </>
+                )}
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => handleDeleteDocumentAddress(entry.id)}
-                disabled={deletingAddressIds.has(entry.id)}
-                aria-label={t('sales.documents.detail.addresses.delete', 'Remove address')}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {additionalFormOpen ? (
@@ -979,7 +1191,7 @@ export function SalesDocumentAddressesSection({
               <Switch
                 checked={additionalUseCustom}
                 onCheckedChange={(checked) => setAdditionalUseCustom(checked)}
-                disabled={customerRequired}
+                disabled={customerRequired || locked}
               />
               <span>{t('sales.documents.form.shipping.custom', 'Define new address')}</span>
             </label>
@@ -1007,7 +1219,7 @@ export function SalesDocumentAddressesSection({
               <Button
                 type="button"
                 onClick={handleAddAdditionalAddress}
-                disabled={additionalSaving || customerRequired}
+                disabled={additionalSaving || customerRequired || locked}
               >
                 {additionalSaving
                   ? t('sales.documents.form.address.saving', 'Saving…')
@@ -1028,7 +1240,7 @@ export function SalesDocumentAddressesSection({
           </div>
         ) : null}
         <div className="flex justify-end gap-2 sm:justify-start">
-          <Button type="button" onClick={handleSave} disabled={saving}>
+          <Button type="button" onClick={handleSave} disabled={saving || locked}>
             {saving ? (
               t('sales.documents.form.address.saving', 'Saving…')
             ) : (

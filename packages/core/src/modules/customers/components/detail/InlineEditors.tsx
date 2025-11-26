@@ -169,6 +169,7 @@ export function InlineTextEditor({
             return
           }
           event.preventDefault()
+          // Allow links to trigger edit instead of navigating away
         } else {
           return
         }
@@ -363,7 +364,7 @@ export function InlineTextEditor({
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut')}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
@@ -502,6 +503,7 @@ export function InlineMultilineEditor({
             return
           }
           event.preventDefault()
+          // Links should not block activation; let the click toggle edit mode
         } else {
           return
         }
@@ -622,7 +624,7 @@ export function InlineMultilineEditor({
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut')}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
@@ -656,7 +658,13 @@ export function InlineMultilineEditor({
               </div>
             </form>
           ) : (
-            <div className={cn('mt-1 text-sm break-words', renderDisplay ? null : 'whitespace-pre-wrap')}>
+            <div
+              className={cn(
+                'mt-1 text-sm break-words',
+                renderDisplay ? null : 'whitespace-pre-wrap',
+                activateOnClick && !editing ? 'cursor-pointer' : null,
+              )}
+            >
               {typeof value === 'string' && value.trim().length ? (
                 renderDisplay ? (
                   renderDisplay({ value, emptyLabel })
@@ -888,7 +896,7 @@ export function InlineDictionaryEditor({
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut')}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}
@@ -1238,7 +1246,7 @@ export function InlineNextInteractionEditor({
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('customers.people.detail.inline.saveShortcut')}
+                  {t('customers.people.detail.inline.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
                   {t('customers.people.detail.inline.cancel')}

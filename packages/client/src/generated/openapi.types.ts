@@ -3115,6 +3115,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/settings/order-editing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get order editing guards
+         * @description Requires features: sales.settings.manage
+         */
+        get: operations["sales_get_sales_settings_order_editing"];
+        /**
+         * Update order editing guards
+         * @description Requires features: sales.settings.manage
+         */
+        put: operations["sales_put_sales_settings_order_editing"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/shipping-methods": {
         parameters: {
             query?: never;
@@ -13316,7 +13340,7 @@ export interface components {
         };
         DocPathsSalesSettingsDocumentNumbersGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchema: {
-            orderAddressEditableStatuses?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
+            orderAddressEditableStatuses?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses"];
             orderCustomerEditableStatuses?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
             orderNextNumber?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNextNumber"];
             orderNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
@@ -13325,8 +13349,12 @@ export interface components {
             quoteNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
             tenantId: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
         };
-        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesItems"][];
-        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesItems: string;
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items"][];
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items: string;
         DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNextNumber: number;
         DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat: string;
         /** Format: uuid */
@@ -13364,6 +13392,95 @@ export interface components {
             error: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchema: {
+            orderAddressEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses"];
+            orderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
+            orderStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatuses"];
+        };
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1Items"][];
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1Items: string;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items"][];
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items: string;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItems"][];
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItems: {
+            id: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesId"];
+            label: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesLabel"];
+            value: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesValue"];
+        };
+        /** Format: uuid */
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesId: string;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesLabel: string;
+        DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesValue: string;
+        DocPathsSalesSettingsOrderEditingGetResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsOrderEditingGetResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsOrderEditingGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsOrderEditingGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsOrderEditingGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsOrderEditingGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchema: {
+            orderAddressEditableStatuses?: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses"];
+            orderCustomerEditableStatuses?: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
+            orderNumberFormat?: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
+            organizationId: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            quoteNumberFormat?: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
+            tenantId: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1: components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items"][];
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items: string;
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat: string;
+        /** Format: uuid */
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchema: {
+            orderAddressEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses"];
+            orderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
+            orderStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatuses"];
+        };
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1Items"][];
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderAddressEditableStatusesAnyOf1Items: string;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0"] | components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1"];
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf0: null;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items"][];
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesAnyOf1Items: string;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatuses: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItems"][];
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItems: {
+            id: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesId"];
+            label: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesLabel"];
+            value: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesValue"];
+        };
+        /** Format: uuid */
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesId: string;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesLabel: string;
+        DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchemaPropertiesOrderStatusesItemsPropertiesValue: string;
+        DocPathsSalesSettingsOrderEditingPutResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsOrderEditingPutResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsOrderEditingPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsOrderEditingPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesSettingsOrderEditingPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesSettingsOrderEditingPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -29038,7 +29155,9 @@ export interface operations {
                  *       "organizationId": "00000000-0000-4000-8000-000000000000",
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
                  *       "orderNumberFormat": "string",
-                 *       "quoteNumberFormat": "string"
+                 *       "quoteNumberFormat": "string",
+                 *       "orderCustomerEditableStatuses": null,
+                 *       "orderAddressEditableStatuses": null
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchema"];
@@ -29102,6 +29221,156 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_settings_order_editing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current order editing guards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "orderCustomerEditableStatuses": null,
+                     *       "orderAddressEditableStatuses": null,
+                     *       "orderStatuses": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Missing scope */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_settings_order_editing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "orderCustomerEditableStatuses": null,
+                 *       "orderAddressEditableStatuses": null
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Updated order editing guards */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "orderCustomerEditableStatuses": null,
+                     *       "orderAddressEditableStatuses": null,
+                     *       "orderStatuses": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses403ContentApplicationJsonSchema"];
                 };
             };
         };
