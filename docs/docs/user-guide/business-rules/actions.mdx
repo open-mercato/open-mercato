@@ -5,383 +5,121 @@ description: Configure actions that execute when business rule conditions pass o
 
 # Action Builder
 
-Actions define what happens when rule conditions are evaluated. Rules have two sets of actions:
-- **Success Actions** - Execute when conditions are true
-- **Failure Actions** - Execute when conditions are false
+Actions execute based on condition results:
+- **Success Actions** - When conditions are true
+- **Failure Actions** - When conditions are false
 
 ## Action Types
 
-Open Mercato supports 10 action types covering user feedback, state control, field updates, notifications, and integrations.
+| Action | Purpose | Configuration | Example |
+|--------|---------|---------------|---------|
+| **ALLOW_TRANSITION** | Allow state transition (GUARD rules) | None | Allow work order release |
+| **BLOCK_TRANSITION** | Block transition + error message | `message` | "Materials not available" |
+| **LOG** | Write to execution logs | `level` (info/warn/error/debug), `message` | "Order `{{orderId}}` approved" |
+| **SHOW_ERROR** | Display error to user | `message` | "Exceeds credit limit" |
+| **SHOW_WARNING** | Display warning to user | `message` | "Below minimum quantity" |
+| **SHOW_INFO** | Display info to user | `message` | "Submitted for approval" |
+| **NOTIFY** | Send notifications | `recipients`, `message` | Recipients: manager@co.com |
+| **SET_FIELD** | Update entity field | `field`, `value` | field: status, value: "APPROVED" |
+| **CALL_WEBHOOK** | HTTP request to external URL | `url`, `method`, `payload` | POST https://api.example.com |
+| **EMIT_EVENT** | Emit domain event | `eventName`, `payload` | Event: order.approved |
 
-### ALLOW_TRANSITION
-
-**Purpose**: Explicitly allow a state transition
-
-**Use case**: GUARD rules that permit operations when conditions are met
-
-**Configuration**: No configuration required
-
-**Example**: Allow work order release when materials are available
-
-### BLOCK_TRANSITION
-
-**Purpose**: Block a state transition and display an error message
-
-**Use case**: GUARD rules that prevent operations when conditions fail
-
-**Configuration**:
-- `message` (required) - Error message shown to user
-
-**Example**:
-```
-Message: "Cannot release work order. Required materials are not available."
-```
-
-> 💡 GUARD rules typically use BLOCK_TRANSITION as a failure action
-
-### LOG
-
-**Purpose**: Write a message to execution logs
-
-**Use case**: Audit trail, debugging, analytics
-
-**Configuration**:
-- `level` (required) - Log level: `info`, `warn`, `error`, `debug`
-- `message` (required) - Log message
-
-**Example**:
-```
-Level: info
-Message: "Order {{orderId}} approved by {{user.email}}"
-```
-
-### SHOW_ERROR
-
-**Purpose**: Display an error message to the user
-
-**Use case**: Validation failures, business rule violations
-
-**Configuration**:
-- `message` (required) - Error message text
-
-**Example**:
-```
-Message: "Order total exceeds customer credit limit. Please contact finance."
-```
-
-### SHOW_WARNING
-
-**Purpose**: Display a warning message to the user
-
-**Use case**: Non-blocking alerts, recommendations
-
-**Configuration**:
-- `message` (required) - Warning message text
-
-**Example**:
-```
-Message: "This order is below minimum quantity for free shipping."
-```
-
-### SHOW_INFO
-
-**Purpose**: Display an informational message to the user
-
-**Use case**: Confirmations, status updates, tips
-
-**Configuration**:
-- `message` (required) - Info message text
-
-**Example**:
-```
-Message: "Order has been submitted for approval. You will be notified when approved."
-```
-
-### NOTIFY
-
-**Purpose**: Send notifications to specified recipients
-
-**Use case**: Alert users about events, approvals, escalations
-
-**Configuration**:
-- `recipients` (required) - Comma-separated list of user emails or IDs
-- `message` (required) - Notification message
-
-**Example**:
-```
-Recipients: manager@company.com, supervisor@company.com
-Message: "Work order {{workOrderId}} requires approval. Priority: {{priority}}"
-```
-
-### SET_FIELD
-
-**Purpose**: Set an entity field to a specific value
-
-**Use case**: Auto-populate fields, calculated values, status updates
-
-**Configuration**:
-- `field` (required) - Field path to set (dot notation supported)
-- `value` (required) - Value to set (supports interpolation)
-
-**Example**:
-```
-Field: approvalRequired
-Value: true
-```
-
-**With interpolation**:
-```
-Field: assignedTo
-Value: {{user.id}}
-```
-
-### CALL_WEBHOOK
-
-**Purpose**: Make an HTTP POST request to an external URL
-
-**Use case**: Integrate with external systems, trigger third-party workflows
-
-**Configuration**:
-- `url` (required) - HTTP/HTTPS endpoint
-- `method` (required) - HTTP method: `GET`, `POST`, `PUT`, `DELETE`
-- `payload` (optional) - JSON payload to send
-
-**Example**:
-```
-URL: https://api.example.com/webhooks/order-created
-Method: POST
-Payload: {"orderId": "{{orderId}}", "total": {{total}}}
-```
-
-> ⚠️ Webhooks execute asynchronously. Failures don't block the rule.
-
-### EMIT_EVENT
-
-**Purpose**: Emit a domain event to the event bus
-
-**Use case**: Trigger other system behaviors, event-driven architectures
-
-**Configuration**:
-- `eventName` (required) - Name of the event to emit
-- `payload` (optional) - Event payload data
-
-**Example**:
-```
-Event Name: order.approved
-Payload: {"orderId": "{{orderId}}", "approvedBy": "{{user.id}}"}
-```
+> 💡 GUARD rules: Use BLOCK_TRANSITION as failure action to prevent operations.
 
 ## Message Interpolation
 
-All message fields support interpolation using `{{field}}` syntax. Field values are inserted at runtime.
-
-**Basic Interpolation**:
-```
-"Order {{orderId}} has been assigned to {{assignedTo}}"
-```
-
-**Nested Fields**:
-```
-"Customer {{customer.name}} from {{customer.address.city}} placed an order"
-```
-
-**Special Values**:
-```
-"Approved by {{user.email}} on {{today}}"
-```
-
-**Multiple Values**:
-```
-"Order {{orderId}} total {{total}} exceeds threshold {{threshold}}"
-```
+Use `{{field}}` syntax for dynamic values:
+- Basic: `"Order {{orderId}} assigned to {{assignedTo}}"`
+- Nested: `"Customer {{customer.name}} from {{customer.address.city}}"`
+- Special: `"Approved by {{user.email}} on {{today}}"`
+- Multiple: `"Order {{orderId}} total {{total}} exceeds {{threshold}}"`
 
 ## Success vs. Failure Actions
 
-### Success Actions
+**Success (conditions true)**:
+- Log operations
+- Send confirmations
+- Set field values
+- Trigger processes
 
-Execute when rule conditions evaluate to **true**.
-
-**Use cases**:
-- Log successful operations
-- Send confirmation notifications
-- Set calculated field values
-- Trigger downstream processes
-
-**Example** (Approval workflow):
-```
-Conditions: orderTotal > 10000
-Success Actions:
-  - SET_FIELD: approvalRequired = true
-  - NOTIFY: approver@company.com, "Order requires approval"
-  - SHOW_INFO: "Order submitted for approval"
-```
-
-### Failure Actions
-
-Execute when rule conditions evaluate to **false**.
-
-**Use cases**:
-- Block invalid operations (GUARD rules)
+**Failure (conditions false)**:
+- Block operations (GUARD)
 - Display validation errors
-- Log rejection reasons
+- Log rejections
 - Notify about failures
 
-**Example** (Material availability guard):
+**Example:**
 ```
-Conditions: materialsAvailable = true
-Failure Actions:  (execute when materials NOT available)
-  - BLOCK_TRANSITION
-  - SHOW_ERROR: "Materials not available"
-  - NOTIFY: materialPlanner@company.com, "Material shortage for WO {{woId}}"
+Conditions: orderTotal > 10000
+Success: SET_FIELD status="PENDING_APPROVAL", NOTIFY approver
+Failure: SHOW_INFO "No approval needed"
 ```
-
-> 💡 **GUARD Rules**: Use failure actions to block operations. Success actions allow the operation to proceed.
 
 ## Action Sequencing
 
-When multiple actions are defined, they execute in the order listed (top to bottom).
+Actions execute top-to-bottom. Use arrow buttons to reorder.
 
-**Reordering**: Use up/down arrow buttons to change execution order.
-
-**Why Order Matters**:
+**Order matters**:
 - Blocking actions stop further execution
-- Field values set early can be used in later actions
-- Logs should typically come before external calls
+- Early field values available to later actions
+- Place logs before external calls
 
-**Example**:
-```
-1. LOG: "Processing order validation"
-2. SET_FIELD: validatedAt = {{now}}
-3. SHOW_INFO: "Order validated successfully"
-4. NOTIFY: "Order ready for processing"
-5. EMIT_EVENT: order.validated
-```
+**Example:** LOG → SET_FIELD → SHOW_INFO → NOTIFY → EMIT_EVENT
 
-## Building Actions in the UI
+## Building Actions
 
-### Adding Actions
+1. Click **Add Action** in Success/Failure section
+2. Select action type
+3. Fill configuration fields
+4. Use arrow buttons to reorder
+5. Click trash icon to delete
+6. Click **Show JSON** to view raw structure
 
-1. Navigate to the **Success Actions** or **Failure Actions** section
-2. Click **Add Action**
-3. Select the **Action Type** from the dropdown
-4. Fill in configuration fields (message, recipients, etc.)
-5. Click outside or press Enter to save
+**Validation**: System checks required fields, field paths, URLs, JSON syntax, and interpolation.
 
-### Configuring Actions
-
-Each action type has specific configuration fields:
-
-**Text Fields**: Enter values directly or use interpolation
-**Dropdowns**: Select from predefined options (log level, HTTP method)
-**Multiline**: For longer messages or JSON payloads
-
-### Reordering Actions
-
-Click the up/down arrow icons to move actions:
-- Up arrow: Move action higher in the list (executes earlier)
-- Down arrow: Move action lower in the list (executes later)
-
-### Deleting Actions
-
-Click the trash icon to remove an action.
-
-### JSON Preview
-
-Click **Show JSON** to view the raw JSON structure. Useful for:
-- Debugging action configuration
-- Copying actions between rules
-- Understanding the data model
-
-## Validation
-
-The system validates actions as you configure them:
-
-**Required Fields**: Marked with red asterisk, must be filled
-**Field Paths**: Validated for SET_FIELD actions
-**URLs**: Must be valid HTTP/HTTPS for CALL_WEBHOOK
-**JSON Syntax**: Checked for payload fields
-**Interpolation**: Validated for proper {{field}} syntax
+![Action Builder Interface](/screenshots/open-mercato-business-rules-action-builder.png)
+*Action builder showing success and failure actions with configuration forms and reordering controls*
 
 ## Common Patterns
 
-### Approval Workflow
-
+**Approval Workflow:**
 ```
-Success Actions (when approval needed):
-  - SET_FIELD: status = "PENDING_APPROVAL"
-  - SET_FIELD: approvalRequestedAt = {{now}}
-  - NOTIFY: approver@company.com, "Approval needed for {{entityType}} {{entityId}}"
-  - SHOW_INFO: "Submitted for approval"
+Success: SET_FIELD status="PENDING_APPROVAL", NOTIFY approver, SHOW_INFO
 ```
 
-### Guard with Feedback
-
+**Guard with Feedback:**
 ```
-Failure Actions (when guard blocks operation):
-  - BLOCK_TRANSITION
-  - SHOW_ERROR: "Operation not allowed: {{reason}}"
-  - LOG: error, "Blocked {{operation}} for {{entityId}}: {{reason}}"
-  - NOTIFY: admin@company.com, "Blocked operation detected"
+Failure: BLOCK_TRANSITION, SHOW_ERROR, LOG error, NOTIFY admin
 ```
 
-### Audit Trail
-
+**Audit Trail:**
 ```
-Success Actions:
-  - LOG: info, "{{operation}} performed by {{user.email}} on {{entityType}} {{entityId}}"
-  - SET_FIELD: lastModifiedBy = {{user.id}}
-  - SET_FIELD: lastModifiedAt = {{now}}
+Success: LOG "{{operation}} by {{user.email}}", SET_FIELD lastModified
 ```
 
-### External Integration
-
+**External Integration:**
 ```
-Success Actions:
-  - LOG: info, "Triggering external sync for {{entityId}}"
-  - CALL_WEBHOOK: POST https://api.external.com/sync
-  - EMIT_EVENT: entity.synced
+Success: LOG, CALL_WEBHOOK, EMIT_EVENT entity.synced
 ```
 
-## Tips and Best Practices
+## Best Practices
 
-**Start Simple**: Begin with one or two actions, add more as needed
-
-**Use Descriptive Messages**: Write clear, actionable messages that help users understand what happened
-
-**Log Important Events**: Use LOG actions for audit trail and debugging
-
-**Order Matters**: Place blocking actions early, external calls late
-
-**Test Interpolation**: Verify that field values interpolate correctly
-
-**Handle Errors**: Consider what happens if an action fails (webhooks, events)
-
-**Avoid Side Effects in Dry Run**: Some actions (webhooks, events) execute even in dry run mode
-
-**Use Notifications Wisely**: Don't spam users with too many notifications
+- Start simple (1-2 actions), add as needed
+- Write clear, actionable messages
+- Log important events for audit trail
+- Place blocking actions early, external calls late
+- Test interpolation and field paths
+- Consider failure scenarios (webhooks, events)
+- Avoid notification spam
 
 ## Troubleshooting
 
-**Action Not Executing**:
-- Check that the action is in the correct section (success vs. failure)
-- Verify conditions are evaluating as expected
-- Review execution logs for errors
-
-**Interpolation Not Working**:
-- Check field path syntax (use dot notation)
-- Verify field exists on the entity
-- Review execution logs for "undefined" values
-
-**Webhook Failures**:
-- Check URL is accessible
-- Verify authentication if required
-- Review webhook endpoint logs
-- Check payload JSON syntax
-
-**Field Not Setting**:
-- Verify field path is correct
-- Check field is writable (not computed or read-only)
-- Ensure value type matches field type
+| Issue | Check |
+|-------|-------|
+| Action not executing | Correct section (success/failure), conditions evaluating properly, execution logs |
+| Interpolation failing | Field path syntax, field exists, execution logs for undefined values |
+| Webhook failures | URL accessible, authentication, endpoint logs, JSON syntax |
+| Field not setting | Field path correct, field writable, value type matches |
 
 ## Next Steps
 

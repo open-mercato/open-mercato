@@ -1,458 +1,159 @@
 ---
 title: Condition Builder
-description: Build complex conditional logic for business rules using the visual condition builder.
+description: Build conditional logic for business rules using the visual condition builder.
 ---
 
 # Condition Builder
 
-The Condition Builder lets you create sophisticated conditional logic without writing code. Conditions determine when a rule applies by evaluating entity data against criteria you define.
+Build conditions visually to determine when rules apply. Conditions evaluate entity data against criteria you define.
 
-## Condition Structure
+## Structure
 
-Conditions can be:
-- **Simple conditions** - Single comparisons (e.g., `status = "ACTIVE"`)
-- **Group conditions** - Multiple conditions combined with AND/OR logic
+**Simple Condition**: `field operator value`
+- Example: `orderTotal > 1000`
 
-### Simple Conditions
+**Group Condition**: Combine multiple conditions with AND/OR
+- **AND**: All must be true
+- **OR**: At least one must be true
+- Can be nested up to 10 levels
 
-A simple condition has three parts:
+![Condition Builder Interface](/screenshots/open-mercato-business-rules-condition-builder.png)
+*Condition builder showing simple conditions and nested AND/OR groups*
 
-1. **Field** - The data field to check (e.g., `status`, `user.email`)
-2. **Operator** - How to compare (e.g., `=`, `>`, `CONTAINS`)
-3. **Value** - What to compare against (e.g., `"ACTIVE"`, `1000`, `{{today}}`)
-
-**Example**:
 ```
-Field: orderTotal
-Operator: >
-Value: 1000
-```
-This checks if the order total is greater than 1000.
-
-### Group Conditions
-
-Groups combine multiple conditions with logical operators:
-
-- **AND** - All conditions must be true
-- **OR** - At least one condition must be true
-
-Groups can be nested to create complex logic.
-
-**Example**:
-```
-AND Group:
+AND:
   - status = "PENDING"
   - orderTotal > 5000
-  OR Group:
+  OR:
     - customerTier = "GOLD"
     - customerTier = "PLATINUM"
 ```
-This matches pending orders over $5000 for gold or platinum customers.
 
 ## Field Paths
 
-Field paths use dot notation to access nested data.
+Use dot notation to access data:
+- Top-level: `status`, `quantity`
+- Nested: `user.email`, `address.city`
+- Arrays: `items[0].productId`, `tags[2]` (zero-based)
 
-### Basic Fields
-
-Reference top-level fields directly:
-- `status`
-- `quantity`
-- `enabled`
-
-### Nested Objects
-
-Use dots to access nested properties:
-- `user.email` - Email of the user object
-- `address.city` - City within the address object
-- `customer.billingAddress.postalCode` - Deeply nested field
-
-### Array Elements
-
-Access array items by index:
-- `items[0].productId` - Product ID of first item
-- `tags[2]` - Third tag in the array
-
-> ⚠️ Array indices are zero-based. `items[0]` is the first item.
-
-### Invalid Paths
-
-The system validates field paths. Invalid paths are marked with an error indicator.
+Invalid paths show error indicators.
 
 ## Operators
 
-The system supports 15 operators for different comparison types.
-
-### Equality Operators
-
-**Equals (`=` or `==`)**
-- Checks if field exactly matches the value
-- Works with strings, numbers, booleans
-- Example: `status = "ACTIVE"`
-
-**Not Equals (`!=`)**
-- Checks if field does not match the value
-- Example: `status != "DELETED"`
-
-### Comparison Operators
-
-**Greater Than (`>`)**
-- Numeric comparison
-- Example: `orderTotal > 1000`
-
-**Greater Than or Equal (`>=`)**
-- Numeric comparison including equality
-- Example: `quantity >= 10`
-
-**Less Than (`<`)**
-- Numeric comparison
-- Example: `daysUntilDeadline < 3`
-
-**Less Than or Equal (`<=`)**
-- Numeric comparison including equality
-- Example: `priority <= 5`
-
-### Collection Operators
-
-**In (`IN`)**
-- Checks if field value is in a list
-- Value must be a JSON array
-- Example: `status IN ["ACTIVE", "PENDING", "APPROVED"]`
-
-**Not In (`NOT_IN`)**
-- Checks if field value is not in a list
-- Value must be a JSON array
-- Example: `status NOT_IN ["DELETED", "ARCHIVED"]`
-
-**Contains (`CONTAINS`)**
-- Checks if array contains a value
-- Example: `tags CONTAINS "urgent"`
-
-**Not Contains (`NOT_CONTAINS`)**
-- Checks if array does not contain a value
-- Example: `tags NOT_CONTAINS "archived"`
-
-### String Operators
-
-**Starts With (`STARTS_WITH`)**
-- Case-sensitive string prefix match
-- Example: `email STARTS_WITH "admin"`
-
-**Ends With (`ENDS_WITH`)**
-- Case-sensitive string suffix match
-- Example: `filename ENDS_WITH ".pdf"`
-
-**Matches (`MATCHES`)**
-- Regular expression pattern matching
-- Value must be a valid regex pattern
-- Example: `phoneNumber MATCHES "^\\+1"`
-
-> ⚠️ Be cautious with regex patterns. Invalid patterns will cause errors.
-
-### Empty Check Operators
-
-**Is Empty (`IS_EMPTY`)**
-- Checks if field is null, undefined, empty string, or empty array
-- No value required
-- Example: `description IS_EMPTY`
-
-**Is Not Empty (`IS_NOT_EMPTY`)**
-- Checks if field has a value
-- No value required
-- Example: `assignedTo IS_NOT_EMPTY`
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `=`, `==` | Equals | `status = "ACTIVE"` |
+| `!=` | Not equals | `status != "DELETED"` |
+| `>`, `>=`, `<`, `<=` | Comparison | `orderTotal > 1000` |
+| `IN` | In list | `status IN ["ACTIVE", "PENDING"]` |
+| `NOT_IN` | Not in list | `status NOT_IN ["DELETED"]` |
+| `CONTAINS` | Array contains | `tags CONTAINS "urgent"` |
+| `NOT_CONTAINS` | Array not contains | `tags NOT_CONTAINS "archived"` |
+| `STARTS_WITH` | String prefix | `email STARTS_WITH "admin"` |
+| `ENDS_WITH` | String suffix | `filename ENDS_WITH ".pdf"` |
+| `MATCHES` | Regex match | `phone MATCHES "^\\+1"` |
+| `IS_EMPTY` | Null/empty check | `description IS_EMPTY` |
+| `IS_NOT_EMPTY` | Has value | `assignedTo IS_NOT_EMPTY` |
 
 ## Values
 
-Values can be static or dynamic.
-
 ### Static Values
+- Strings: `"ACTIVE"`, `"john@example.com"`
+- Numbers: `1000`, `3.14`
+- Booleans: `true`, `false`
+- Arrays: `["ACTIVE", "PENDING"]` (for IN/NOT_IN)
+- Objects: `{"min": 10, "max": 100}`
 
-Enter literal values directly:
+### Dynamic Values
+- `{{today}}`, `{{now}}`, `{{yesterday}}`, `{{tomorrow}}`
+- `{{user.id}}`, `{{user.email}}`, `{{user.name}}`
+- `{{entity.id}}`, `{{entity.tenantId}}`, `{{entity.organizationId}}`
 
-**Strings**: Use quotes
-- `"ACTIVE"`
-- `"john@example.com"`
-
-**Numbers**: No quotes
-- `1000`
-- `3.14`
-
-**Booleans**: true or false
-- `true`
-- `false`
-
-**JSON Arrays**: For IN/NOT_IN operators
-- `["ACTIVE", "PENDING"]`
-- `[100, 200, 300]`
-
-**JSON Objects**: For complex comparisons
-- `{"min": 10, "max": 100}`
-
-### Special Values
-
-Special values are replaced with dynamic data at runtime.
-
-**Date/Time Values**:
-- `{{today}}` - Current date (midnight)
-- `{{now}}` - Current date and time
-- `{{yesterday}}` - Yesterday's date
-- `{{tomorrow}}` - Tomorrow's date
-
-**User Values**:
-- `{{user.id}}` - ID of the current user
-- `{{user.email}}` - Email of the current user
-- `{{user.name}}` - Name of the current user
-
-**Entity Values**:
-- `{{entity.id}}` - ID of the entity being evaluated
-- `{{entity.tenantId}}` - Tenant ID
-- `{{entity.organizationId}}` - Organization ID
-
-**Examples**:
+**Examples:**
 ```
-expiryDate < {{today}}  (check if expired)
-createdBy = {{user.id}}  (check if created by current user)
-deadline <= {{tomorrow}}  (check if due tomorrow or sooner)
+expiryDate < {{today}}
+createdBy = {{user.id}}
+deadline <= {{tomorrow}}
 ```
 
 ### Field Comparisons
-
-Instead of comparing to a static value, you can compare two fields.
-
-**Toggle**: Click the "Use field" button to switch between value and field comparison mode.
-
-**Example**:
+Compare two fields instead of field to value. Click "Use field" to toggle.
 ```
-Field: plannedEndDate
-Operator: <
-Compare to Field: actualEndDate
-```
-This checks if the planned end date is before the actual end date.
-
-## Logical Groups
-
-### AND Groups
-
-All conditions in an AND group must be true.
-
-**Use when**:
-- All criteria must be satisfied
-- Multiple requirements must be met simultaneously
-
-**Example**:
-```
-AND Group:
-  - status = "ACTIVE"
-  - balance > 0
-  - lastLoginDate > {{90 days ago}}
+plannedEndDate < actualEndDate
 ```
 
-### OR Groups
+## Building Conditions
 
-At least one condition in an OR group must be true.
+1. Click **Add First Condition**
+2. Enter field path (e.g., `status`)
+3. Select operator
+4. Enter value or toggle to field comparison
+5. Add more conditions with **Add Condition**
+6. Create nested logic with **Add Group**
+7. Toggle AND/OR on groups
+8. Reorder with arrow buttons
+9. Delete with trash icon
 
-**Use when**:
-- Any of several criteria can trigger the rule
-- Multiple alternative conditions exist
-
-**Example**:
-```
-OR Group:
-  - priority = "CRITICAL"
-  - priority = "HIGH"
-  - overdueBy > 7
-```
-
-### Nested Groups
-
-Groups can contain other groups up to 10 levels deep.
-
-**Example**:
-```
-AND Group:
-  - entityType = "WorkOrder"
-  OR Group:
-    AND Group:
-      - status = "IN_PROGRESS"
-      - assignedTo IS_NOT_EMPTY
-    AND Group:
-      - status = "PENDING"
-      - priority = "CRITICAL"
-```
-
-This complex logic matches work orders that are either (in progress with an assignee) or (pending with critical priority).
-
-## Building Conditions in the UI
-
-### Adding Your First Condition
-
-1. Click **Add First Condition** in the Conditions section
-2. Enter the **Field** path (e.g., `status`)
-3. Select an **Operator** from the dropdown
-4. Enter the **Value** (or toggle to field comparison)
-5. The condition is added to the default AND group
-
-### Adding More Conditions
-
-1. Click **Add Condition** to add another condition to the current group
-2. The new condition is combined with existing conditions using the group's operator (AND or OR)
-
-### Creating Groups
-
-1. Click **Add Group** to create a nested group
-2. Choose AND or OR for the group operator
-3. Add conditions to the group
-
-### Reordering
-
-Use the up/down arrow buttons to change condition order. Order only matters for readability - logic is determined by the operator.
-
-### Deleting
-
-Click the trash icon to remove a condition or group.
-
-### Changing Group Operators
-
-Click the AND/OR toggle to switch the group operator. This changes how conditions are combined.
-
-## Validation
-
-The system validates conditions as you build them:
-
-**Field Path Validation**:
-- Invalid paths are marked with an error indicator
-- Paths cannot exceed 200 characters
-
-**Operator Validation**:
-- Operator must be selected
-- Some operators require specific value types
-
-**Value Validation**:
-- JSON arrays must have valid syntax
-- Regex patterns are checked for validity
-- Empty check operators don't require values
-
-**Depth Validation**:
-- Maximum 10 levels of nesting
-- Deeper nesting is blocked
+**Validation**: System checks field paths, operators, and value formats automatically.
 
 ## JSON Preview
 
-Click **Show JSON** to view the raw JSON structure of your conditions. This is helpful for:
-- Understanding the underlying data model
-- Debugging complex logic
-- Copying conditions between rules
+Click **Show JSON** to view/debug the raw condition structure.
 
 ## Common Patterns
 
-### Range Checks
-
-Check if a value falls within a range:
+**Range Check:**
 ```
-AND Group:
-  - quantity >= 10
-  - quantity <= 100
+AND: quantity >= 10, quantity <= 100
 ```
 
-### Multiple Options
-
-Check if a value matches any of several options:
+**Multiple Options:**
 ```
 status IN ["ACTIVE", "PENDING", "APPROVED"]
 ```
 
-Or using OR:
+**Exclusion:**
 ```
-OR Group:
-  - status = "ACTIVE"
-  - status = "PENDING"
-  - status = "APPROVED"
+status NOT_IN ["DELETED", "ARCHIVED"]
 ```
 
-### Exclusion
-
-Check if a value is anything except certain values:
+**Date Range:**
 ```
-status NOT_IN ["DELETED", "ARCHIVED", "CANCELLED"]
+AND: createdAt >= {{2024-01-01}}, createdAt < {{2024-12-31}}
 ```
 
-### Date Ranges
-
-Check if a date falls within a range:
+**Required Fields:**
 ```
-AND Group:
-  - createdAt >= {{2024-01-01}}
-  - createdAt < {{2024-12-31}}
+AND: firstName IS_NOT_EMPTY, lastName IS_NOT_EMPTY, email IS_NOT_EMPTY
 ```
 
-### Required Fields
-
-Check if multiple fields are populated:
+**Complex Logic:**
 ```
-AND Group:
-  - firstName IS_NOT_EMPTY
-  - lastName IS_NOT_EMPTY
-  - email IS_NOT_EMPTY
-```
-
-### Complex Business Logic
-
-Combine multiple groups for sophisticated rules:
-```
-AND Group:
+AND:
   - orderType = "WHOLESALE"
   - orderTotal > 10000
-  OR Group:
-    AND Group:
-      - customerTier = "GOLD"
-      - accountAge > 365
-    AND Group:
-      - customerTier = "PLATINUM"
+  OR:
+    AND: customerTier = "GOLD", accountAge > 365
+    - customerTier = "PLATINUM"
 ```
 
-## Tips and Best Practices
+## Best Practices
 
-**Keep It Simple**
-Start with simple conditions and add complexity only when needed. Simpler conditions are easier to understand and maintain.
-
-**Use Descriptive Field Paths**
-Choose field names that clearly indicate what data they contain.
-
-**Test Edge Cases**
-Test conditions with boundary values (e.g., exactly 1000, just under 1000, just over 1000).
-
-**Document Complex Logic**
-Use the rule description field to explain complex conditional logic.
-
-**Use Groups Strategically**
-Group related conditions together. Use nested groups to represent logical precedence.
-
-**Watch Nesting Depth**
-Deeply nested conditions can be hard to understand. Consider simplifying or splitting into multiple rules.
-
-**Validate Field Paths**
-Ensure field paths exist on the entity. Invalid paths will cause evaluation errors.
-
-**Use Special Values**
-Take advantage of special values like `{{today}}` and `{{user.id}}` for dynamic conditions.
+- Start simple, add complexity only when needed
+- Use descriptive field paths
+- Test boundary values
+- Document complex logic in rule description
+- Keep nesting depth reasonable (avoid 10+ levels)
+- Validate field paths exist on entities
+- Use dynamic values (`{{today}}`, `{{user.id}}`) where applicable
 
 ## Troubleshooting
 
-**Condition Always True**:
-- Check that field paths are correct
-- Verify values match entity data types
-- Review operator selection
-
-**Condition Always False**:
-- Check for typos in field paths or values
-- Verify case sensitivity (strings are case-sensitive)
-- Review AND/OR logic
-
-**Evaluation Errors**:
-- Check execution logs for error messages
-- Validate field paths exist on the entity
-- Ensure JSON syntax is correct for arrays/objects
-- Verify regex patterns are valid
+| Issue | Check |
+|-------|-------|
+| Always true/false | Field paths, value types, operators, AND/OR logic |
+| Evaluation errors | Execution logs, field path validity, JSON syntax, regex patterns |
+| Case sensitivity | Strings are case-sensitive |
 
 ## Next Steps
 

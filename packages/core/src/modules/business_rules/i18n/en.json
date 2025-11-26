@@ -280,6 +280,7 @@
   "business_rules.logs.errors.loadFailed": "Failed to load execution log",
   "business_rules.logs.ruleDeleted": "Rule has been deleted",
   "business_rules.logs.detail.title": "Execution Log Details",
+  "business_rules.logs.detail.loading": "Loading execution log...",
   "business_rules.logs.detail.logId": "Log ID",
   "business_rules.logs.detail.summary": "Execution Summary",
   "business_rules.logs.detail.ruleInfo": "Rule Information",
@@ -288,6 +289,8 @@
   "business_rules.logs.detail.inputContext": "Input Context",
   "business_rules.logs.detail.outputContext": "Output Context",
   "business_rules.logs.detail.resultValue": "Result Value",
+  "business_rules.logs.errors.notFound": "Execution log not found",
+  "business_rules.logs.backToList": "Back to logs",
 
   "business_rules.components.actionBuilder.label": "Actions",
   "business_rules.components.actionBuilder.emptyMessage": "No actions defined",

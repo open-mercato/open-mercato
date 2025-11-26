@@ -1,373 +1,156 @@
 ---
 title: Rule Types
-description: Detailed explanation of the five business rule types and when to use each.
+description: Five business rule types and when to use each.
 ---
 
 # Rule Types
 
-Open Mercato supports five rule types, each designed for specific use cases. Understanding when to use each type is crucial for building effective business rules.
-
-## Overview
-
-| Type | Purpose | Typical Priority | Use Success Actions | Use Failure Actions |
-|------|---------|------------------|---------------------|---------------------|
-| GUARD | Block/allow operations | High (500-1000) | ✅ Rarely | ✅ Yes |
-| VALIDATION | Validate data | Medium (300-500) | ✅ Yes | ✅ Yes |
-| CALCULATION | Calculate values | Medium (200-300) | ✅ Yes | ❌ Rarely |
-| ACTION | Trigger side effects | Low (50-200) | ✅ Yes | ✅ Sometimes |
-| ASSIGNMENT | Set field values | Low (0-100) | ✅ Yes | ❌ Rarely |
+| Type | Purpose | Priority | Success | Failure |
+|------|---------|----------|---------|---------|
+| **GUARD** | Block/allow operations | 500-1000 | Rarely | ✅ Yes |
+| **VALIDATION** | Validate data | 300-500 | ✅ Yes | ✅ Yes |
+| **CALCULATION** | Calculate values | 200-300 | ✅ Yes | Rarely |
+| **ACTION** | Trigger side effects | 50-200 | ✅ Yes | Sometimes |
+| **ASSIGNMENT** | Auto-set fields | 0-100 | ✅ Yes | Rarely |
 
 ## GUARD
 
-**Purpose**: Control whether an operation should proceed by blocking or allowing state transitions.
+**Purpose**: Block/allow operations. If ANY guard blocks, operation stops.
 
-**Execution Behavior**:
-- When conditions are **true** → Execute failure actions (typically BLOCK_TRANSITION)
-- When conditions are **false** → Execute success actions (typically ALLOW_TRANSITION or none)
-- If **any** GUARD rule blocks, the entire operation is blocked
+**Behavior**: Conditions true → failure actions (BLOCK), false → success actions (ALLOW)
 
-**Common Use Cases**:
-- Prevent status changes under certain conditions
-- Enforce prerequisites before proceeding
-- Block operations that violate business policies
-- Require specific conditions to be met
+**Use Cases**: Enforce prerequisites, prevent policy violations, require conditions
 
-**Example Scenarios**:
-
-**Material Availability Check**:
+**Examples:**
 ```
 IF newStatus = "RELEASED" AND materialsAvailable = false
-THEN Block transition + Show error
+THEN BLOCK + SHOW_ERROR
+
+IF orderTotal > creditLimit AND creditCheckRequired = true
+THEN BLOCK + NOTIFY approver
 ```
 
-**Credit Limit Check**:
-```
-IF orderTotal > customer.creditLimit AND customer.creditCheckRequired = true
-THEN Block order + Require approval
-```
+**Best Practices**: High priority (500-1000), clear error messages, actionable guidance, log blocks
 
-**Equipment Certification**:
-```
-IF workType = "HAZARDOUS" AND operator.certificationExpired = true
-THEN Block assignment + Show error
-```
-
-**Best Practices**:
-- Use high priority (500-1000) to execute before other rules
-- Provide clear error messages explaining why the operation was blocked
-- Include actionable guidance (what the user needs to do)
-- Log blocked attempts for audit trail
-- Notify relevant stakeholders when blocks occur
-
-**Success Actions**: Usually empty or ALLOW_TRANSITION (explicit permission)
-
-**Failure Actions**: BLOCK_TRANSITION, SHOW_ERROR, LOG, NOTIFY
+**Actions**: Failure: BLOCK_TRANSITION, SHOW_ERROR, LOG, NOTIFY
 
 ## VALIDATION
 
-**Purpose**: Validate data integrity and business logic without necessarily blocking operations.
+**Purpose**: Validate data without hard blocking (soft stop via warnings/flags)
 
-**Execution Behavior**:
-- Checks data against business rules
-- Can set validation flags or trigger approval workflows
-- May block operations (using SHOW_ERROR) but doesn't use BLOCK_TRANSITION
-- Multiple validation failures can accumulate
+**Use Cases**: Data quality, required fields, business logic, approval triggers
 
-**Common Use Cases**:
-- Data quality checks
-- Required field validation
-- Business logic validation
-- Approval workflow triggers
-- Completeness checks
-
-**Example Scenarios**:
-
-**Order Approval Threshold**:
+**Examples:**
 ```
 IF orderTotal > 10000
-THEN Set approvalRequired = true + Notify approver
-```
+THEN SET_FIELD approvalRequired=true, NOTIFY approver
 
-**Data Completeness**:
-```
-IF requiredFields ARE_NOT_ALL_FILLED
-THEN Show warning + Log incomplete data
-```
-
-**Business Logic Validation**:
-```
 IF shipDate < orderDate
-THEN Show error + Prevent save
+THEN SHOW_ERROR, LOG
 ```
 
-**Best Practices**:
-- Use medium priority (300-500)
-- Execute after GUARD rules but before CALCULATION rules
-- Accumulate validation errors and show all at once
-- Set validation flags for later processing
-- Distinguish between warnings (can proceed) and errors (must fix)
+**Best Practices**: Priority 300-500, accumulate errors, distinguish warnings from errors
 
-**Success Actions**: SET_FIELD, LOG, NOTIFY
+**Actions**: Success/Failure: SET_FIELD, SHOW_ERROR, SHOW_WARNING, LOG, NOTIFY
 
-**Failure Actions**: SHOW_ERROR, SHOW_WARNING, SET_FIELD (validation flags), NOTIFY
-
-**GUARD vs VALIDATION**:
-- **GUARD**: Hard stop, blocks operation entirely
-- **VALIDATION**: Soft stop, can set flags or show warnings but may allow operation to proceed
+**GUARD vs VALIDATION**: GUARD = hard stop (blocks), VALIDATION = soft stop (warns/flags)
 
 ## CALCULATION
 
-**Purpose**: Calculate and set derived values based on entity data.
+**Purpose**: Calculate and set derived values. Runs after validation, before actions.
 
-**Execution Behavior**:
-- Performs calculations when conditions are met
-- Sets field values with computed results
-- Typically runs after validation but before actions
-- Can chain calculations (one rule sets value, another uses it)
+**Use Cases**: Pricing, discounts, tax, scoring, date calculations
 
-**Common Use Cases**:
-- Price calculations and discounts
-- Tax computation
-- Scoring and rating
-- Aggregations and summaries
-- Date calculations
-
-**Example Scenarios**:
-
-**Volume Discount**:
+**Examples:**
 ```
 IF orderQuantity >= 100
-THEN Set discount = orderTotal * 0.15
-```
+THEN SET_FIELD discount = orderTotal * 0.15
 
-**Priority Score**:
-```
-IF customer.tier = "GOLD" AND orderTotal > 5000
-THEN Set priorityScore = 95
-```
-
-**Due Date Calculation**:
-```
-IF orderType = "RUSH"
-THEN Set dueDate = {{today}} + 2 days
-```
-
-**Tax Calculation**:
-```
 IF customer.region = "CA"
-THEN Set taxAmount = subtotal * 0.0825
+THEN SET_FIELD taxAmount = subtotal * 0.0825
 ```
 
-**Best Practices**:
-- Use medium priority (200-300)
-- Execute after validation, before actions
-- Handle division by zero and null values
-- Round financial calculations appropriately
-- Log calculated values for audit trail
-- Document calculation formulas in description
+**Best Practices**: Priority 200-300, handle null/zero, round financials, document formulas
 
-**Success Actions**: SET_FIELD, LOG
-
-**Failure Actions**: Rarely used (calculations either work or don't)
+**Actions**: Success: SET_FIELD, LOG
 
 ## ACTION
 
-**Purpose**: Trigger side effects like notifications, webhooks, events, or logging.
+**Purpose**: Trigger side effects (notifications, webhooks, events, logging). Doesn't modify entity data.
 
-**Execution Behavior**:
-- Executes actions when conditions are met
-- Doesn't modify entity data (use ASSIGNMENT for that)
-- Often runs after entity is saved
-- Can be asynchronous (webhooks, events)
+**Use Cases**: Notifications, external APIs, domain events, audit trails
 
-**Common Use Cases**:
-- Send notifications
-- Call external APIs/webhooks
-- Emit domain events
-- Log significant events
-- Trigger downstream processes
-- Create audit trails
-
-**Example Scenarios**:
-
-**Order Confirmation**:
+**Examples:**
 ```
 IF status = "CONFIRMED"
-THEN Send notification to customer + Log confirmation
-```
+THEN NOTIFY customer, LOG confirmation
 
-**High-Value Alert**:
-```
 IF orderTotal > 50000
-THEN Notify sales manager + Call webhook
+THEN NOTIFY manager, CALL_WEBHOOK
 ```
 
-**Status Change Tracking**:
-```
-IF status CHANGED
-THEN Log status change + Emit event
-```
+**Best Practices**: Priority 50-200, handle webhook failures gracefully, avoid spam, include context
 
-**SLA Monitoring**:
-```
-IF daysOpen > SLA_THRESHOLD
-THEN Notify escalation team + Log SLA breach
-```
-
-**Best Practices**:
-- Use low priority (50-200) to execute after more critical rules
-- Handle webhook failures gracefully (don't block operation)
-- Avoid spamming notifications
-- Use appropriate log levels (info for normal, warn for issues)
-- Include context in notifications (entity ID, relevant fields)
-- Consider idempotency for external calls
-
-**Success Actions**: NOTIFY, CALL_WEBHOOK, EMIT_EVENT, LOG, SHOW_INFO
-
-**Failure Actions**: Sometimes used for absence conditions (e.g., "if NOT completed, warn")
+**Actions**: Success: NOTIFY, CALL_WEBHOOK, EMIT_EVENT, LOG, SHOW_INFO
 
 ## ASSIGNMENT
 
-**Purpose**: Automatically set field values based on business logic.
+**Purpose**: Auto-set field values. Runs last (lowest priority).
 
-**Execution Behavior**:
-- Sets field values when conditions are met
-- Typically runs last (lowest priority)
-- Can use values from other rules (if higher priority)
-- Often used for auto-population
+**Use Cases**: Auto-assign, defaults, timestamps, metadata, ownership
 
-**Common Use Cases**:
-- Auto-assign work orders
-- Set default values
-- Auto-populate calculated fields
-- Set timestamps and metadata
-- Assign ownership
-
-**Example Scenarios**:
-
-**Auto-Assignment**:
+**Examples:**
 ```
 IF priority = "HIGH" AND assignedTo IS_EMPTY
-THEN Set assignedTo = {{nextAvailableAgent}}
-```
+THEN SET_FIELD assignedTo = {{nextAvailableAgent}}
 
-**Status Auto-Update**:
-```
-IF allItemsShipped = true
-THEN Set orderStatus = "SHIPPED"
-```
-
-**Metadata Population**:
-```
 IF status CHANGED
-THEN Set lastStatusChange = {{now}} + Set lastModifiedBy = {{user.id}}
+THEN SET_FIELD lastStatusChange={{now}}, lastModifiedBy={{user.id}}
 ```
 
-**Default Values**:
-```
-IF region IS_EMPTY AND customer.defaultRegion IS_NOT_EMPTY
-THEN Set region = customer.defaultRegion
-```
+**Best Practices**: Priority 0-100, check empty first (don't overwrite), use special values, log assignments
 
-**Best Practices**:
-- Use lowest priority (0-100) to run after other rules
-- Check if field is empty before setting (avoid overwriting user input)
-- Use special values ({{user.id}}, {{now}}) for metadata
-- Log auto-assignments for transparency
-- Allow manual override when appropriate
-- Document assignment logic in description
-
-**Success Actions**: SET_FIELD, LOG, NOTIFY (if notifying about assignment)
-
-**Failure Actions**: Rarely used
+**Actions**: Success: SET_FIELD, LOG, NOTIFY
 
 ## Choosing the Right Type
 
-### Decision Tree
+**Decision Tree:**
+- Preventing operation? → **GUARD**
+- Checking validity? → **VALIDATION**
+- Calculating value? → **CALCULATION**
+- Auto-setting field? → **ASSIGNMENT**
+- Otherwise → **ACTION**
 
-```
-Is the rule preventing an operation?
-├─ Yes → GUARD
-└─ No → Is it checking data validity?
-    ├─ Yes → VALIDATION
-    └─ No → Is it calculating a value?
-        ├─ Yes → CALCULATION
-        └─ No → Is it setting a field automatically?
-            ├─ Yes → ASSIGNMENT
-            └─ No → ACTION
-```
+**Common Combinations:**
 
-### Common Combinations
+**Approval Workflow:** VALIDATION(400) → CALCULATION(250) → ASSIGNMENT(50) → ACTION(25)
 
-**Approval Workflow**:
-1. VALIDATION (priority 400): Check if approval needed
-2. CALCULATION (priority 250): Calculate approval level
-3. ASSIGNMENT (priority 50): Set approval fields
-4. ACTION (priority 25): Notify approvers
+**Order Processing:** GUARD(800) → VALIDATION(400) → CALCULATION(250) → ASSIGNMENT(50) → ACTION(25)
 
-**Order Processing**:
-1. GUARD (priority 800): Check inventory availability
-2. VALIDATION (priority 400): Validate order data
-3. CALCULATION (priority 250): Calculate totals and discounts
-4. ASSIGNMENT (priority 50): Set order metadata
-5. ACTION (priority 25): Send confirmation email
-
-**Work Order Release**:
-1. GUARD (priority 900): Block if materials unavailable
-2. GUARD (priority 850): Block if resources not assigned
-3. VALIDATION (priority 400): Validate work order completeness
-4. ASSIGNMENT (priority 50): Set release timestamp
-5. ACTION (priority 25): Notify production team
+**Work Order Release:** GUARD(900,850) → VALIDATION(400) → ASSIGNMENT(50) → ACTION(25)
 
 ## Execution Order
 
-Rules execute in priority order (highest first), regardless of type:
-
+Rules execute by priority (highest first):
 ```
-1000 - GUARD: Critical blocking rules
- 900 - GUARD: Standard blocking rules
- 500 - VALIDATION: Required validations
- 400 - VALIDATION: Standard validations
- 300 - CALCULATION: Dependent calculations
- 250 - CALCULATION: Primary calculations
- 200 - ACTION: High-priority actions
- 100 - ASSIGNMENT: Auto-assignments
-  50 - ACTION: Standard notifications
-  25 - ACTION: Audit logging
+1000-900: GUARD (critical/standard)
+500-400: VALIDATION (required/standard)
+300-250: CALCULATION (dependent/primary)
+200-100: ACTION (high-priority), ASSIGNMENT
+50-25: ACTION (notifications/logging)
 ```
 
-**Within the same priority**: Execution order is deterministic but not guaranteed.
+**Same priority**: Order deterministic but not guaranteed.
 
-## Type-Specific Considerations
+## Key Considerations
 
-### GUARD Rules
-- ⚠️ **Blocking is permanent** for that operation
-- ✅ Always provide clear error messages
-- ✅ Test thoroughly before enabling
-- ✅ Monitor blocked operations for false positives
-
-### VALIDATION Rules
-- ℹ️ Can accumulate multiple validation errors
-- ✅ Distinguish warnings from errors
-- ✅ Consider user experience (too many warnings = ignored)
-
-### CALCULATION Rules
-- ⚠️ **Handle edge cases** (division by zero, null values)
-- ✅ Round appropriately for financial calculations
-- ✅ Document formulas in description
-- ✅ Test with boundary values
-
-### ACTION Rules
-- ⚠️ **Webhooks may fail** - handle gracefully
-- ✅ Avoid notification spam
-- ✅ Include sufficient context in messages
-- ✅ Use appropriate log levels
-
-### ASSIGNMENT Rules
-- ⚠️ **Check before overwriting** user input
-- ✅ Allow manual override
-- ✅ Log assignments for transparency
-- ✅ Use lowest priority to run last
+| Type | Warning | Best Practice |
+|------|---------|---------------|
+| **GUARD** | Blocking is permanent | Clear messages, test thoroughly, monitor false positives |
+| **VALIDATION** | Can accumulate errors | Distinguish warnings/errors, avoid warning fatigue |
+| **CALCULATION** | Handle edge cases | Test null/zero, round financials, document formulas |
+| **ACTION** | Webhooks may fail | Handle gracefully, avoid spam, include context |
+| **ASSIGNMENT** | Don't overwrite input | Check before setting, allow override, log changes |
 
 ## Next Steps
 

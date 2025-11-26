@@ -28,6 +28,9 @@ Every time a business rule evaluates (whether conditions match or not), the syst
 3. Use filters to narrow results
 4. Click any log entry to see detailed execution trace
 
+![Execution Logs List](/screenshots/open-mercato-business-rules-execution-logs-list.png)
+*Execution logs list showing rule executions with result status, entity info, and execution time*
+
 ### Via API
 
 ```bash
@@ -270,6 +273,9 @@ LOG_LEVEL=warn   # Show only warnings and errors
 
 ### Example: Successful GUARD Rule
 
+![Execution Log Detail](/screenshots/open-mercato-business-rules-execution-log-detail.png)
+*Detailed execution log showing condition evaluation trace and action results*
+
 ```json
 {
   "id": "log-abc123",
@@ -443,11 +449,11 @@ AND Group:
 
 | Rule Type | Target | Acceptable | Investigate |
 |-----------|--------|------------|-------------|
-| GUARD | <10ms | <50ms | >100ms |
-| VALIDATION | <20ms | <100ms | >200ms |
-| CALCULATION | <30ms | <150ms | >300ms |
-| ACTION | <100ms | <500ms | >1000ms |
-| ASSIGNMENT | <15ms | <75ms | >150ms |
+| GUARD | < 10ms | < 50ms | >100ms |
+| VALIDATION | < 20ms | < 100ms | > 200ms |
+| CALCULATION | < 30ms | < 150ms | > 300ms |
+| ACTION | < 100ms | < 500ms | > 1000ms |
+| ASSIGNMENT | < 15ms | < 75ms | > 150ms |
 
 **Slow action types**:
 - CALL_WEBHOOK: 100-500ms (network dependent)
