@@ -574,6 +574,40 @@
         "dateInvalid": "Enter a valid date in YYYY-MM-DD format.",
         "comment": "Comment",
         "comment.placeholder": "Add comment",
+        "empty": {
+          "comments": {
+            "title": "No comments yet.",
+            "description": "Notes from teammates will appear here."
+          },
+          "items": {
+            "title": "No items yet.",
+            "description": "Line items editor is coming in the next iteration."
+          },
+          "shipments": {
+            "title": "No shipments yet.",
+            "description": "Shipments management is work in progress."
+          },
+          "payments": {
+            "title": "No payments yet.",
+            "description": "Payments are work in progress."
+          },
+          "adjustments": {
+            "title": "No adjustments yet.",
+            "description": "Adjustments are work in progress."
+          }
+        },
+        "items": {
+          "wip": "Line items editor is coming in the next iteration."
+        },
+        "shipments": {
+          "wip": "Shipments management is work in progress."
+        },
+        "payments": {
+          "wip": "Payments are work in progress."
+        },
+        "adjustments": {
+          "wip": "Adjustments are work in progress."
+        },
         "shipping": "Shipping address",
         "billing": "Billing address",
         "addresses": {

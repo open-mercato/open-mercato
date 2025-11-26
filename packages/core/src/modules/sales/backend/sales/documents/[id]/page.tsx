@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DetailFieldsSection, ErrorMessage, InlineTextEditor, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { DetailFieldsSection, ErrorMessage, InlineTextEditor, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -434,6 +434,9 @@ type DocumentRecord = {
 }
 
 type DocumentUpdateResult = {
+  externalReference?: string | null
+  customerReference?: string | null
+  comment?: string | null
   currencyCode?: string | null
   placedAt?: string | null
   statusEntryId?: string | null
@@ -1586,6 +1589,32 @@ export default function SalesDocumentDetailPage({
     [record, t, updateDocument]
   )
 
+  const handleUpdateComment = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      const normalized = typeof next === 'string' ? next.trim() : ''
+      try {
+        const call = await updateDocument({ comment: normalized.length ? normalized : null })
+        const savedComment =
+          typeof call.result?.comment === 'string'
+            ? call.result.comment
+            : normalized.length
+              ? normalized
+              : null
+        setRecord((prev) => (prev ? { ...prev, comment: savedComment } : prev))
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [record, t, updateDocument]
+  )
+
   const handleUpdateContactEmail = React.useCallback(
     async (next: string | null) => {
       if (!record) return
@@ -1820,14 +1849,13 @@ export default function SalesDocumentDetailPage({
       },
       {
         key: 'comment',
-        kind: 'text' as const,
+        kind: 'multiline' as const,
         label: t('sales.documents.detail.comment', 'Comment'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.comment.placeholder', 'Add comment'),
         value: record?.comment ?? null,
-        onSave: async () => {
-          flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')
-        },
+        onSave: handleUpdateComment,
+        gridClassName: 'sm:col-span-2 xl:col-span-3',
       },
       {
         key: 'timestamps',
@@ -1846,7 +1874,7 @@ export default function SalesDocumentDetailPage({
         ),
       },
     ]
-  }, [record?.createdAt, record?.currencyCode, record?.customerEntityId, record?.updatedAt, t])
+  }, [record?.comment, record?.createdAt, record?.customerReference, record?.externalReference, record?.updatedAt, t])
 
   const summaryCards: Array<{
     key: 'email' | 'channel' | 'status' | 'currency'
@@ -1911,13 +1939,43 @@ export default function SalesDocumentDetailPage({
     { id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') },
   ]
 
+  const commentEmptyState = React.useMemo(
+    () => ({
+      title: t('sales.documents.detail.empty.comments.title', 'No comments yet.'),
+      description: t('sales.documents.detail.empty.comments.description', 'Notes from teammates will appear here.'),
+    }),
+    [t]
+  )
+
+  const tabEmptyStates = React.useMemo<
+    Record<'items' | 'shipments' | 'payments' | 'adjustments', { title: string; description?: string }>
+  >(
+    () => ({
+      items: {
+        title: t('sales.documents.detail.empty.items.title', 'No items yet.'),
+        description: t('sales.documents.detail.empty.items.description', 'Line items editor is coming in the next iteration.'),
+      },
+      shipments: {
+        title: t('sales.documents.detail.empty.shipments.title', 'No shipments yet.'),
+        description: t('sales.documents.detail.empty.shipments.description', 'Shipments management is work in progress.'),
+      },
+      payments: {
+        title: t('sales.documents.detail.empty.payments.title', 'No payments yet.'),
+        description: t('sales.documents.detail.empty.payments.description', 'Payments are work in progress.'),
+      },
+      adjustments: {
+        title: t('sales.documents.detail.empty.adjustments.title', 'No adjustments yet.'),
+        description: t('sales.documents.detail.empty.adjustments.description', 'Adjustments are work in progress.'),
+      },
+    }),
+    [t]
+  )
+
   const renderTabContent = () => {
     if (activeTab === 'comments') {
       return (
         <SectionCard title={t('sales.documents.detail.comments', 'Comments')} muted>
-          <p className="text-sm text-muted-foreground">
-            {t('sales.documents.detail.commentsEmpty', 'No comments yet. Notes from teammates will appear here.')}
-          </p>
+          <TabEmptyState title={commentEmptyState.title} description={commentEmptyState.description} />
         </SectionCard>
       )
     }
@@ -1936,17 +1994,10 @@ export default function SalesDocumentDetailPage({
         />
       )
     }
-    const placeholders: Record<typeof activeTab, string> = {
-      comments: '',
-      addresses: '',
-      items: t('sales.documents.detail.items.wip', 'Line items editor is coming in the next iteration.'),
-      shipments: t('sales.documents.detail.shipments.wip', 'Shipments management is work in progress.'),
-      payments: t('sales.documents.detail.payments.wip', 'Payments are work in progress.'),
-      adjustments: t('sales.documents.detail.adjustments.wip', 'Adjustments are work in progress.'),
-    }
+    const placeholder = tabEmptyStates[activeTab]
     return (
       <SectionCard title={tabButtons.find((tab) => tab.id === activeTab)?.label ?? ''} muted>
-        <p className="text-sm text-muted-foreground">{placeholders[activeTab]}</p>
+        <TabEmptyState title={placeholder.title} description={placeholder.description} />
       </SectionCard>
     )
   }
@@ -2239,7 +2290,7 @@ export default function SalesDocumentDetailPage({
         </div>
 
         <div>
-          <div className="mb-3 flex flex-wrap items-center gap-2 border-b pb-2">
+          <div className="mb-3 flex flex-wrap items-center gap-2 pb-2">
             {tabButtons.map((tab) => (
               <button
                 key={tab.id}

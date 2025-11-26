@@ -528,6 +528,40 @@
         "dateInvalid": "Introduce una fecha válida en formato AAAA-MM-DD.",
         "comment": "Comentario",
         "comment.placeholder": "Agregar comentario",
+        "empty": {
+          "comments": {
+            "title": "Aún no hay comentarios.",
+            "description": "Las notas de tu equipo aparecerán aquí."
+          },
+          "items": {
+            "title": "Aún no hay artículos.",
+            "description": "El editor de líneas llegará en la próxima iteración."
+          },
+          "shipments": {
+            "title": "Aún no hay envíos.",
+            "description": "La gestión de envíos está en progreso."
+          },
+          "payments": {
+            "title": "Aún no hay pagos.",
+            "description": "Los pagos están en desarrollo."
+          },
+          "adjustments": {
+            "title": "Aún no hay ajustes.",
+            "description": "Los ajustes están en desarrollo."
+          }
+        },
+        "items": {
+          "wip": "El editor de líneas llegará en la próxima iteración."
+        },
+        "shipments": {
+          "wip": "La gestión de envíos está en progreso."
+        },
+        "payments": {
+          "wip": "Los pagos están en desarrollo."
+        },
+        "adjustments": {
+          "wip": "Los ajustes están en desarrollo."
+        },
         "shipping": "Dirección de envío",
         "billing": "Dirección de facturación",
         "addresses": {

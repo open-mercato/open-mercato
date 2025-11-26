@@ -6,7 +6,7 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
-import type { AddressSummary, SectionAction, TabEmptyState, Translator } from './types'
+import type { AddressSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -14,7 +14,7 @@ export type AddressesSectionProps = {
   entityId: string | null
   emptyLabel: string
   addActionLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void

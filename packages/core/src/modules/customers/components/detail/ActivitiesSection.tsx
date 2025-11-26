@@ -4,17 +4,16 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowUpRightSquare, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { formatDateTime, createDictionarySelectLabels } from './utils'
-import type { ActivitySummary, SectionAction, TabEmptyState } from './types'
+import type { ActivitySummary, SectionAction, TabEmptyStateConfig } from './types'
 import type { ActivityFormBaseValues, ActivityFormSubmitPayload } from './ActivityForm'
 import {
   ensureCustomerDictionary,
@@ -42,7 +41,7 @@ export type ActivitiesSectionProps = {
   entityId: string | null
   dealId?: string | null
   addActionLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   dealOptions?: Array<{ id: string; label: string }>
@@ -478,7 +477,7 @@ export function ActivitiesSection({
         ) : (
           <>
             {!isLoading && activities.length === 0 ? (
-              <EmptyState
+              <TabEmptyState
                 title={emptyState.title}
                 action={{
                   label: emptyState.actionLabel,

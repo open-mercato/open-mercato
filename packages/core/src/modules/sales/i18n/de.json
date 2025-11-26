@@ -527,6 +527,40 @@
         "dateInvalid": "Geben Sie ein gültiges Datum im Format JJJJ-MM-TT ein.",
         "comment": "Kommentar",
         "comment.placeholder": "Kommentar hinzufügen",
+        "empty": {
+          "comments": {
+            "title": "Noch keine Kommentare.",
+            "description": "Notizen von Teamkollegen erscheinen hier."
+          },
+          "items": {
+            "title": "Noch keine Positionen.",
+            "description": "Der Positioneneditor kommt in der nächsten Iteration."
+          },
+          "shipments": {
+            "title": "Noch keine Sendungen.",
+            "description": "Versandverwaltung befindet sich in Arbeit."
+          },
+          "payments": {
+            "title": "Noch keine Zahlungen.",
+            "description": "Zahlungen befinden sich in Arbeit."
+          },
+          "adjustments": {
+            "title": "Noch keine Anpassungen.",
+            "description": "Anpassungen befinden sich in Arbeit."
+          }
+        },
+        "items": {
+          "wip": "Der Positioneneditor kommt in der nächsten Iteration."
+        },
+        "shipments": {
+          "wip": "Versandverwaltung befindet sich in Arbeit."
+        },
+        "payments": {
+          "wip": "Zahlungen befinden sich in Arbeit."
+        },
+        "adjustments": {
+          "wip": "Anpassungen befinden sich in Arbeit."
+        },
         "shipping": "Lieferadresse",
         "billing": "Rechnungsadresse",
         "addresses": {

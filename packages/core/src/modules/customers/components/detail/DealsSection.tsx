@@ -4,15 +4,14 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowUpRightSquare, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyState, Translator } from './types'
+import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
@@ -301,7 +300,7 @@ export type DealsSectionProps = {
   scope: DealsScope | null
   addActionLabel: string
   emptyLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   translator?: Translator
@@ -796,7 +795,7 @@ export function DealsSection({
       ) : (
         <>
           {!isLoading && sortedDeals.length === 0 ? (
-            <EmptyState
+            <TabEmptyState
               title={emptyState.title}
               action={{
                 label: emptyState.actionLabel,

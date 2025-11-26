@@ -264,6 +264,9 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       customerContactId: z.string().uuid().nullable().optional(),
       customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
       metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+      customerReference: z.string().nullable().optional(),
+      externalReference: z.string().nullable().optional(),
+      comment: z.string().nullable().optional(),
       currencyCode: currencyCodeSchema.optional(),
       channelId: z.string().uuid().nullable().optional(),
       statusEntryId: z.string().uuid().nullable().optional(),
@@ -285,6 +288,9 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         input.customerContactId !== undefined ||
         input.customerSnapshot !== undefined ||
         input.metadata !== undefined ||
+        input.customerReference !== undefined ||
+        input.externalReference !== undefined ||
+        input.comment !== undefined ||
         input.shippingAddressSnapshot !== undefined ||
         input.billingAddressSnapshot !== undefined,
       { message: 'update_payload_empty' }
@@ -479,6 +485,18 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         if (input.metadata !== undefined) {
           entity.metadata = input.metadata ?? null
         }
+        if (input.externalReference !== undefined) {
+          const normalized = typeof input.externalReference === 'string' ? input.externalReference.trim() : ''
+          entity.externalReference = normalized.length ? normalized : null
+        }
+        if (input.customerReference !== undefined) {
+          const normalized = typeof input.customerReference === 'string' ? input.customerReference.trim() : ''
+          entity.customerReference = normalized.length ? normalized : null
+        }
+        if (input.comment !== undefined) {
+          const normalized = typeof input.comment === 'string' ? input.comment.trim() : ''
+          entity.comments = normalized.length ? normalized : null
+        }
         if (typeof input.currencyCode === 'string') {
           entity.currencyCode = input.currencyCode
         }
@@ -549,6 +567,9 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         customerContactId: entity.customerContactId ?? null,
         customerSnapshot: entity.customerSnapshot ?? null,
         metadata: entity.metadata ?? null,
+        externalReference: entity.externalReference ?? null,
+        customerReference: entity.customerReference ?? null,
+        comment: entity.comments ?? null,
         statusEntryId: (entity as any).statusEntryId ?? null,
         status: (entity as any).status ?? null,
         channelId: (entity as any).channelId ?? null,
@@ -599,6 +620,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     shippingAddressId: z.string().uuid().nullable(),
     customerReference: z.string().nullable().optional(),
     externalReference: z.string().nullable().optional(),
+    comment: z.string().nullable().optional(),
     placedAt: z.string().nullable().optional(),
     customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     billingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),

@@ -116,7 +116,8 @@ export type SectionAction = {
   disabled?: boolean
 }
 
-export type TabEmptyState = {
+export type TabEmptyStateConfig = {
   title: string
   actionLabel: string
+  description?: string
 }

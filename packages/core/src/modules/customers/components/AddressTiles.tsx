@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Loader2, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { AddressView, formatAddressJson, formatAddressString, type AddressFormatStrategy } from '../utils/addressFormat'
@@ -589,7 +589,7 @@ export function CustomerAddressTiles({
       ) : isFormOpen && !editingId ? (
         <div className={gridClassName}>{renderFormTile('__new')}</div>
       ) : (
-        <EmptyState
+        <TabEmptyState
           title={emptyTitle}
           action={{
             label: emptyActionLabel,

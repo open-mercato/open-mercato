@@ -4,7 +4,7 @@ import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@/lib/i18n/context'
@@ -1060,9 +1060,13 @@ export function SalesDocumentAddressesSection({
         ) : null}
 
         {!documentAddressesLoading && documentAddresses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {t('sales.documents.detail.addresses.empty', 'No additional addresses yet.')}
-          </p>
+          <TabEmptyState
+            title={t('sales.documents.detail.addresses.empty', 'No additional addresses yet.')}
+            description={t(
+              'sales.documents.detail.addresses.additionalHint',
+              'Assign extra customer addresses to this document.'
+            )}
+          />
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

@@ -7,12 +7,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { formatDateTime } from './utils'
-import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
+import type { CommentSummary, Translator, SectionAction, TabEmptyStateConfig } from './types'
 import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@/lib/i18n/context'
@@ -56,7 +55,7 @@ export type NotesSectionProps = {
   viewerName?: string | null
   viewerEmail?: string | null
   addActionLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void
@@ -1076,7 +1075,7 @@ export function NotesSection({
             )
           })
         ) : (
-          <EmptyState
+          <TabEmptyState
             title={emptyState.title}
             action={{
               label: emptyState.actionLabel,

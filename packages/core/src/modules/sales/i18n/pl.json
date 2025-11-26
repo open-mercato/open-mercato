@@ -575,6 +575,40 @@
         "dateInvalid": "Wprowadź poprawną datę w formacie RRRR-MM-DD.",
         "comment": "Komentarz",
         "comment.placeholder": "Dodaj komentarz",
+        "empty": {
+          "comments": {
+            "title": "Brak komentarzy.",
+            "description": "Notatki od zespołu pojawią się tutaj."
+          },
+          "items": {
+            "title": "Brak pozycji.",
+            "description": "Edytor pozycji pojawi się w następnej iteracji."
+          },
+          "shipments": {
+            "title": "Brak wysyłek.",
+            "description": "Zarządzanie wysyłkami jest w przygotowaniu."
+          },
+          "payments": {
+            "title": "Brak płatności.",
+            "description": "Płatności są w przygotowaniu."
+          },
+          "adjustments": {
+            "title": "Brak korekt.",
+            "description": "Korekty są w przygotowaniu."
+          }
+        },
+        "items": {
+          "wip": "Edytor pozycji pojawi się w następnej iteracji."
+        },
+        "shipments": {
+          "wip": "Zarządzanie wysyłkami jest w przygotowaniu."
+        },
+        "payments": {
+          "wip": "Płatności są w przygotowaniu."
+        },
+        "adjustments": {
+          "wip": "Korekty są w przygotowaniu."
+        },
         "shipping": "Adres dostawy",
         "billing": "Adres rozliczeniowy",
         "addresses": {
