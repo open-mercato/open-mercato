@@ -4,10 +4,11 @@ import * as React from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DetailFieldsSection, ErrorMessage, InlineSelectEditor, InlineTextEditor, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Mail, Pencil, Trash2, Wand2, X } from 'lucide-react'
+import { Building2, Mail, Pencil, Trash2, UserRound, Wand2, X } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -171,6 +172,192 @@ function CurrencyInlineEditor({
   )
 }
 
+function CustomerInlineEditor({
+  label,
+  customerId,
+  customerName,
+  customerEmail,
+  customers,
+  customerLoading,
+  onLoadCustomers,
+  fetchCustomerEmail,
+  onSave,
+  saving,
+  error,
+  onClearError,
+}: {
+  label: string
+  customerId: string | null
+  customerName: string | null
+  customerEmail: string | null | undefined
+  customers: CustomerOption[]
+  customerLoading: boolean
+  onLoadCustomers: (query?: string) => Promise<CustomerOption[]>
+  fetchCustomerEmail: (id: string, kindHint?: 'person' | 'company') => Promise<string | null>
+  onSave: (id: string | null, email: string | null) => Promise<void>
+  saving: boolean
+  error: string | null
+  onClearError: () => void
+}) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draftId, setDraftId] = React.useState<string | null>(customerId)
+  const [draftEmail, setDraftEmail] = React.useState<string | null>(customerEmail ?? null)
+  const selectedRef = React.useRef<string | null>(customerId)
+
+  React.useEffect(() => {
+    selectedRef.current = draftId
+  }, [draftId])
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraftId(customerId)
+      setDraftEmail(customerEmail ?? null)
+      onClearError()
+    }
+  }, [customerEmail, customerId, editing, onClearError])
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) {
+      setEditing(true)
+      void onLoadCustomers()
+    }
+  }, [editing, onLoadCustomers])
+
+  const handleSave = React.useCallback(async () => {
+    try {
+      onClearError()
+      await onSave(draftId, draftEmail)
+      setEditing(false)
+    } catch (err) {
+      console.error('sales.documents.customer.save', err)
+    }
+  }, [draftEmail, draftId, onClearError, onSave])
+
+  if (!editing) {
+    return (
+      <DocumentCustomerCard
+        label={label}
+        name={customerName ?? null}
+        email={customerEmail ?? undefined}
+        kind="company"
+        className="h-full"
+        onEdit={handleActivate}
+      />
+    )
+  }
+
+  return (
+    <div
+      className="group h-full rounded-lg border bg-card p-4"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          setEditing(false)
+          onClearError()
+          return
+        }
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault()
+          if (!saving) void handleSave()
+        }
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0 space-y-2">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          <LookupSelect
+            value={draftId}
+            onChange={(next) => {
+              setDraftId(next)
+              setDraftEmail(null)
+              selectedRef.current = next
+              if (!next) return
+              const match = customers.find((entry) => entry.id === next)
+              if (match?.primaryEmail) {
+                setDraftEmail(match.primaryEmail)
+              } else {
+                const selectedId = next
+                fetchCustomerEmail(selectedId, match?.kind)
+                  .then((resolved) => {
+                    if (resolved && selectedRef.current === selectedId) setDraftEmail(resolved)
+                  })
+                  .catch(() => {})
+              }
+            }}
+            fetchItems={async (query) => {
+              const options = await onLoadCustomers(query)
+              return options.map<LookupSelectItem>((opt) => ({
+                id: opt.id,
+                title: opt.label,
+                subtitle: opt.subtitle ?? undefined,
+                icon:
+                  opt.kind === 'person' ? (
+                    <UserRound className="h-5 w-5 text-muted-foreground" />
+                  ) : (
+                    <Building2 className="h-5 w-5 text-muted-foreground" />
+                  ),
+              }))
+            }}
+            searchPlaceholder={t('sales.documents.form.customer.placeholder', 'Search customers…')}
+            loadingLabel={t('sales.documents.form.customer.loading', 'Loading customers…')}
+            emptyLabel={t('sales.documents.form.customer.empty', 'No customers found.')}
+            selectedHintLabel={(id) => t('sales.documents.form.customer.selected', 'Selected customer: {{id}}', { id })}
+          />
+          {customerLoading ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Spinner className="h-3.5 w-3.5 animate-spin" />
+              {t('sales.documents.form.customer.loading', 'Loading customers…')}
+            </p>
+          ) : null}
+          {draftEmail ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Mail className="h-3.5 w-3.5" aria-hidden />
+              <span className="truncate">{draftEmail}</span>
+            </p>
+          ) : null}
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+              {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {t('customers.people.detail.inline.saveShortcut')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                onClearError()
+                setEditing(false)
+                setDraftId(customerId)
+                setDraftEmail(customerEmail ?? null)
+              }}
+              disabled={saving}
+            >
+              {t('ui.detail.inline.cancel', 'Cancel')}
+            </Button>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            onClearError()
+            setEditing(false)
+            setDraftId(customerId)
+            setDraftEmail(customerEmail ?? null)
+          }}
+          aria-label={t('ui.detail.inline.cancel', 'Cancel')}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 type CustomerSnapshot = {
   customer?: {
     id?: string | null
@@ -195,6 +382,14 @@ type AddressSnapshot = {
   region?: string | null
   postalCode?: string | null
   country?: string | null
+}
+
+type CustomerOption = {
+  id: string
+  label: string
+  subtitle?: string | null
+  kind: 'person' | 'company'
+  primaryEmail?: string | null
 }
 
 type DocumentRecord = {
@@ -228,6 +423,10 @@ type DocumentUpdateResult = {
   billingAddressId?: string | null
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
+  customerEntityId?: string | null
+  customerSnapshot?: Record<string, unknown> | null
+  customerName?: string | null
+  contactEmail?: string | null
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -257,6 +456,28 @@ function resolveCustomerEmail(snapshot: CustomerSnapshot | null | undefined) {
   if (!snapshot) return null
   if (snapshot.customer?.primaryEmail) return snapshot.customer.primaryEmail
   return null
+}
+
+function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): CustomerOption[] {
+  const parsed: CustomerOption[] = []
+  for (const item of items) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    const id = typeof record.id === 'string' ? record.id : null
+    if (!id) continue
+    const displayName =
+      typeof record.display_name === 'string'
+        ? record.display_name
+        : typeof record.name === 'string'
+          ? record.name
+          : null
+    const email = typeof record.primary_email === 'string' ? record.primary_email : null
+    const domain = typeof record.primary_domain === 'string' ? record.primary_domain : null
+    const label = displayName ?? (email ?? domain ?? id)
+    const subtitle = kind === 'person' ? email : domain ?? email
+    parsed.push({ id, label: `${label}`, subtitle, kind, primaryEmail: email })
+  }
+  return parsed
 }
 
 function SectionCard({
@@ -301,11 +522,77 @@ export default function SalesDocumentDetailPage({
   const [deleting, setDeleting] = React.useState(false)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
+  const [customerOptions, setCustomerOptions] = React.useState<CustomerOption[]>([])
+  const [customerLoading, setCustomerLoading] = React.useState(false)
+  const [customerSaving, setCustomerSaving] = React.useState(false)
+  const [customerError, setCustomerError] = React.useState<string | null>(null)
+  const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
 
   const loadErrorMessage = React.useMemo(
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
     [t]
+  )
+
+  const loadCustomers = React.useCallback(
+    async (query?: string) => {
+      setCustomerLoading(true)
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '20' })
+        if (query && query.trim().length) params.set('search', query.trim())
+        const [people, companies] = await Promise.all([
+          apiCall<{ items?: unknown[] }>(`/api/customers/people?${params.toString()}`),
+          apiCall<{ items?: unknown[] }>(`/api/customers/companies?${params.toString()}`),
+        ])
+        const peopleItems = Array.isArray(people.result?.items) ? people.result?.items ?? [] : []
+        const companyItems = Array.isArray(companies.result?.items) ? companies.result?.items ?? [] : []
+        const merged = [...parseCustomerOptions(peopleItems, 'person'), ...parseCustomerOptions(companyItems, 'company')]
+        setCustomerOptions((prev) => {
+          const combined = [...prev]
+          merged.forEach((entry) => {
+            if (!combined.some((item) => item.id === entry.id)) {
+              combined.push(entry)
+            }
+          })
+          return combined
+        })
+        return merged
+      } catch (err) {
+        console.error('sales.documents.loadCustomers', err)
+        flash(t('sales.documents.form.errors.customers', 'Failed to load customers.'), 'error')
+        return []
+      } finally {
+        setCustomerLoading(false)
+      }
+    },
+    [t]
+  )
+
+  const fetchCustomerEmail = React.useCallback(
+    async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
+      try {
+        const kind = kindHint ?? customerOptions.find((item) => item.id === id)?.kind ?? null
+        const endpoint = kind === 'company' ? '/api/customers/companies' : '/api/customers/people'
+        const params = new URLSearchParams({ id, pageSize: '1', page: '1' })
+        const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(`${endpoint}?${params.toString()}`)
+        if (!call.ok || !Array.isArray(call.result?.items) || !call.result.items.length) return null
+        const item = call.result.items[0]
+        const email =
+          (typeof item?.primary_email === 'string' && item.primary_email) ||
+          (typeof (item as any)?.primaryEmail === 'string' && (item as any).primaryEmail) ||
+          null
+        if (email) {
+          setCustomerOptions((prev) =>
+            prev.map((entry) => (entry.id === id ? { ...entry, primaryEmail: email } : entry))
+          )
+        }
+        return email ?? null
+      } catch (err) {
+        console.error('sales.documents.fetchCustomerEmail', err)
+        return null
+      }
+    },
+    [customerOptions],
   )
 
   const fetchDocumentByKind = React.useCallback(
@@ -354,6 +641,10 @@ export default function SalesDocumentDetailPage({
     return () => { cancelled = true }
   }, [fetchDocumentByKind, initialKind, loadErrorMessage, params.id, reloadKey, searchParams])
 
+  React.useEffect(() => {
+    loadCustomers().catch(() => {})
+  }, [loadCustomers])
+
   const handleRetry = React.useCallback(() => {
     setReloadKey((prev) => prev + 1)
   }, [])
@@ -364,6 +655,23 @@ export default function SalesDocumentDetailPage({
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
+  React.useEffect(() => {
+    const id = record?.customerEntityId ?? null
+    if (!id) return
+    const label = customerName ?? id
+    setCustomerOptions((prev) => {
+      const exists = prev.some((entry) => entry.id === id)
+      if (exists) return prev
+      const next: CustomerOption = {
+        id,
+        label,
+        subtitle: contactEmail ?? null,
+        kind: 'company',
+        primaryEmail: contactEmail ?? null,
+      }
+      return [next, ...prev]
+    })
+  }, [contactEmail, customerName, record?.customerEntityId])
   const currencyEntries = React.useMemo(() => {
     const entries = Array.isArray(currencyDictionary?.entries) ? currencyDictionary.entries : []
     return entries.map((entry) => ({
@@ -478,6 +786,54 @@ export default function SalesDocumentDetailPage({
       }
     },
     [record, t, updateDocument]
+  )
+
+  const handleUpdateCustomer = React.useCallback(
+    async (nextId: string | null, email: string | null) => {
+      if (!record) return
+      setCustomerSaving(true)
+      setCustomerError(null)
+      try {
+        const payload: Record<string, unknown> = { customerEntityId: nextId }
+        if (email && email.trim().length) {
+          payload.metadata = { customerEmail: email.trim() }
+        }
+        const call = await updateDocument(payload)
+        const snapshot = (call.result?.customerSnapshot ?? null) as CustomerSnapshot | null
+        const selected = customerOptions.find((entry) => entry.id === nextId) ?? null
+        const resolvedName =
+          (call.result?.customerName as string | undefined) ??
+          resolveCustomerName(snapshot, selected?.label ?? record.customerName ?? record.customerEntityId ?? null)
+        const resolvedEmail =
+          (call.result?.contactEmail as string | undefined | null) ??
+          email ??
+          selected?.primaryEmail ??
+          null
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                customerEntityId: nextId ?? null,
+                customerName: nextId ? resolvedName ?? prev.customerName : resolvedName ?? null,
+                contactEmail: resolvedEmail ?? (nextId ? prev.contactEmail ?? null : null),
+                customerSnapshot: snapshot ?? prev.customerSnapshot ?? null,
+              }
+            : prev
+        )
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        setCustomerError(message)
+        flash(message, 'error')
+        throw err
+      } finally {
+        setCustomerSaving(false)
+      }
+    },
+    [customerOptions, record, t, updateDocument]
   )
 
   const handleGenerateNumber = React.useCallback(async () => {
@@ -718,8 +1074,6 @@ export default function SalesDocumentDetailPage({
 
   if (!record) return null
 
-  const customerProvided = !!record.customerEntityId
-
   return (
     <Page>
       <PageBody className="space-y-6">
@@ -748,7 +1102,14 @@ export default function SalesDocumentDetailPage({
                   activateOnClick
                   hideLabel
                   triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
-                  containerClassName="max-w-full"
+                  containerClassName="max-w-full w-full flex-1 sm:min-w-[28rem] lg:min-w-[36rem] xl:min-w-[44rem]"
+                  renderDisplay={({ value: displayValue, emptyLabel }) =>
+                    displayValue && displayValue.length ? (
+                      <span className="text-2xl font-semibold leading-tight whitespace-nowrap">{displayValue}</span>
+                    ) : (
+                      <span className="text-muted-foreground">{emptyLabel}</span>
+                    )
+                  }
                   onEditingChange={setNumberEditing}
                   renderActions={
                     numberEditing ? (
@@ -792,13 +1153,19 @@ export default function SalesDocumentDetailPage({
 
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">
-            <DocumentCustomerCard
-              label={undefined}
-              name={customerName}
-              email={contactEmail ?? undefined}
-              kind={customerProvided ? 'company' : 'company'}
-              className="h-full"
-              onEdit={() => flash(t('sales.documents.detail.saveStub', 'Assigning customers will land soon.'), 'info')}
+            <CustomerInlineEditor
+              label={t('sales.documents.detail.customer', 'Customer')}
+              customerId={record.customerEntityId ?? null}
+              customerName={customerName}
+              customerEmail={contactEmail ?? null}
+              customers={customerOptions}
+              customerLoading={customerLoading}
+              onLoadCustomers={loadCustomers}
+              fetchCustomerEmail={fetchCustomerEmail}
+              onSave={handleUpdateCustomer}
+              saving={customerSaving}
+              error={customerError}
+              onClearError={clearCustomerError}
             />
           </div>
           <InlineTextEditor
@@ -816,6 +1183,7 @@ export default function SalesDocumentDetailPage({
             inputType="date"
             activateOnClick
             containerClassName="h-full"
+            saveLabel={t('customers.people.detail.inline.saveShortcut')}
             renderDisplay={({ value, emptyLabel }) =>
               value && value.length ? (
                 <span className="text-sm text-muted-foreground">

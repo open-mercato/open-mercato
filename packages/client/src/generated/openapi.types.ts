@@ -2798,12 +2798,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List addresses linked to a sales document */
+        /**
+         * List document addresss
+         * @description Returns a paginated collection of document addresss that belong to the current organization.
+         */
         get: operations["sales_get_sales_document_addresses"];
-        put?: never;
-        /** Assign an address to a sales document */
+        /**
+         * Update document address
+         * @description Updates a sales document address.
+         */
+        put: operations["sales_put_sales_document_addresses"];
+        /**
+         * Create document address
+         * @description Creates a sales document address linked to an order or quote.
+         */
         post: operations["sales_post_sales_document_addresses"];
-        /** Unassign an address from a sales document */
+        /**
+         * Delete document address
+         * @description Deletes a sales document address.
+         */
         delete: operations["sales_delete_sales_document_addresses"];
         options?: never;
         head?: never;
@@ -11693,8 +11706,6 @@ export interface components {
             documentId: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentId"];
             documentKind: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind"];
             id: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
-            organizationId: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
-            tenantId: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
         };
         /** Format: uuid */
         DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentId: string;
@@ -11702,10 +11713,6 @@ export interface components {
         DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind: "order" | "quote";
         /** Format: uuid */
         DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
-        /** Format: uuid */
-        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
-        /** Format: uuid */
-        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsSalesDocumentAddressesDeleteResponses200ContentApplicationJsonSchema: {
             ok: components["schemas"]["DocPathsSalesDocumentAddressesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
         };
@@ -11714,71 +11721,257 @@ export interface components {
             error: components["schemas"]["DocPathsSalesDocumentAddressesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDocumentAddressesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesDocumentAddressesGetParameters0Schema: number;
+        DocPathsSalesDocumentAddressesGetParameters1Schema: number;
         /** Format: uuid */
-        DocPathsSalesDocumentAddressesGetParameters0Schema: string;
+        DocPathsSalesDocumentAddressesGetParameters2Schema: string;
         /** @enum {string} */
-        DocPathsSalesDocumentAddressesGetParameters1Schema: "order" | "quote";
+        DocPathsSalesDocumentAddressesGetParameters3Schema: "order" | "quote";
+        DocPathsSalesDocumentAddressesGetParameters4Schema: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentAddressesGetParameters5Schema: "asc" | "desc";
         DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchema: {
             items: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
         };
         DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
-            addressId: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressId"];
-            addressSnapshot?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshot"];
+            address_line1: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine1"];
+            address_line2?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine2"];
+            building_number?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBuildingNumber"];
+            city?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCity"];
+            company_name?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCompanyName"];
+            country?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCountry"];
+            created_at: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
+            customer_address_id?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerAddressId"];
+            document_id: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDocumentId"];
+            document_kind: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDocumentKind"];
+            flat_number?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFlatNumber"];
             id: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            latitude?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLatitude"];
+            longitude?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLongitude"];
+            name?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
+            postal_code?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPostalCode"];
+            purpose?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPurpose"];
+            region?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRegion"];
+            updated_at: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
         };
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine2: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine2AnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine2AnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine2AnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressLine2AnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBuildingNumber: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBuildingNumberAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBuildingNumberAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBuildingNumberAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBuildingNumberAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCity: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCityAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCityAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCityAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCityAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCompanyName: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCompanyNameAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCompanyNameAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCompanyNameAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCompanyNameAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCountry: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCountryAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCountryAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCountryAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCountryAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerAddressId: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerAddressIdAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerAddressIdAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerAddressIdAnyOf0: null;
         /** Format: uuid */
-        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressId: string;
-        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshot: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf1"];
-        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf0: null;
-        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf1: {
-            [key: string]: unknown;
-        };
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerAddressIdAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDocumentId: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDocumentKind: "order" | "quote";
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFlatNumber: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFlatNumberAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFlatNumberAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFlatNumberAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFlatNumberAnyOf1: string;
         /** Format: uuid */
         DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLatitude: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLatitudeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLatitudeAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLatitudeAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLatitudeAnyOf1: number;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLongitude: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLongitudeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLongitudeAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLongitudeAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLongitudeAnyOf1: number;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesNameAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesNameAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesNameAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesNameAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPostalCode: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPostalCodeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPostalCodeAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPostalCodeAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPostalCodeAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPurpose: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPurposeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPurposeAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPurposeAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPurposeAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRegion: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRegionAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRegionAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRegionAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRegionAnyOf1: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
         DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchema: {
-            addressId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressId"];
-            addressSnapshot?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressSnapshot"];
+            addressLine1: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1"];
+            addressLine2?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2"];
+            buildingNumber?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumber"];
+            city?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCity"];
+            companyName?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCompanyName"];
+            country?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCountry"];
+            customerAddressId?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerAddressId"];
             documentId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentId"];
             documentKind: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind"];
+            flatNumber?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesFlatNumber"];
+            latitude?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLatitude"];
+            longitude?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLongitude"];
+            name?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            postalCode?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPostalCode"];
+            purpose?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPurpose"];
+            region?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesRegion"];
             tenantId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
         };
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumber: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCity: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCompanyName: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCountry: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf1: string;
         /** Format: uuid */
-        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressId: string;
-        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressSnapshot: {
-            [key: string]: unknown;
-        };
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerAddressId: string;
         /** Format: uuid */
         DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentId: string;
         /** @enum {string} */
         DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind: "order" | "quote";
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesFlatNumber: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLatitude: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf1: number;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLongitude: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf1: number;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesName: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf1: string;
         /** Format: uuid */
         DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPostalCode: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPurpose: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf1: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesRegion: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf1"];
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf1: string;
         /** Format: uuid */
         DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
-        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchema: {
-            addressId: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressId"];
-            addressSnapshot?: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshot"];
-            id: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesId"];
+        DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchemaPropertiesId"];
         };
+        DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
         /** Format: uuid */
-        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressId: string;
-        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshot: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf1"];
-        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf0: null;
-        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf1: {
-            [key: string]: unknown;
-        };
-        /** Format: uuid */
-        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
         DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchema: {
+            addressLine1: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1"];
+            addressLine2?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2"];
+            buildingNumber?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumber"];
+            city?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCity"];
+            companyName?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCompanyName"];
+            country?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCountry"];
+            customerAddressId?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomerAddressId"];
+            documentId: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesDocumentId"];
+            documentKind: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind"];
+            flatNumber?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesFlatNumber"];
+            id: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            latitude?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLatitude"];
+            longitude?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLongitude"];
+            name?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesName"];
+            organizationId: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            postalCode?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPostalCode"];
+            purpose?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPurpose"];
+            region?: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesRegion"];
+            tenantId: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesAddressLine2AnyOf1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumber: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesBuildingNumberAnyOf1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCity: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCityAnyOf1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCompanyName: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCompanyNameAnyOf1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCountry: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCountryAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomerAddressId: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesDocumentId: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind: "order" | "quote";
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesFlatNumber: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesFlatNumberAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLatitude: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLatitudeAnyOf1: number;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLongitude: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesLongitudeAnyOf1: number;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesName: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesNameAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPostalCode: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPostalCodeAnyOf1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPurpose: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesPurposeAnyOf1: string;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesRegion: components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf1"];
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf0: null;
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesRegionAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesDocumentAddressesPutResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesDocumentAddressesPutResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesDocumentAddressesPutResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesDocumentAddressesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesDocumentAddressesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesDocumentAddressesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchema: {
             format?: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesFormat"];
             kind: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
@@ -13123,6 +13316,8 @@ export interface components {
         };
         DocPathsSalesSettingsDocumentNumbersGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchema: {
+            orderAddressEditableStatuses?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
+            orderCustomerEditableStatuses?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses"];
             orderNextNumber?: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNextNumber"];
             orderNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
             organizationId: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
@@ -13130,6 +13325,8 @@ export interface components {
             quoteNumberFormat: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat"];
             tenantId: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
         };
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatuses: components["schemas"]["DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesItems"][];
+        DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderCustomerEditableStatusesItems: string;
         DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNextNumber: number;
         DocPathsSalesSettingsDocumentNumbersPutRequestBodyContentApplicationJsonSchemaPropertiesOrderNumberFormat: string;
         /** Format: uuid */
@@ -27069,11 +27266,19 @@ export interface operations {
     };
     sales_get_sales_document_addresses: {
         parameters: {
-            query: {
+            query?: {
                 /** @example 00000000-0000-4000-8000-000000000000 */
-                documentId: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters0Schema"];
+                documentId?: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters2Schema"];
                 /** @example order */
-                documentKind: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters1Schema"];
+                documentKind?: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters3Schema"];
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters1Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters5Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters4Schema"];
             };
             header?: never;
             path?: never;
@@ -27081,7 +27286,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Addresses linked to the document */
+            /** @description Paginated document addresss */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -27089,7 +27294,11 @@ export interface operations {
                 content: {
                     /**
                      * @example {
-                     *       "items": []
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchema"];
@@ -27111,6 +27320,72 @@ export interface operations {
             };
         };
     };
+    sales_put_sales_document_addresses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fields to update on the target document address. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "documentId": "00000000-0000-4000-8000-000000000000",
+                 *       "documentKind": "order",
+                 *       "name": null,
+                 *       "purpose": null,
+                 *       "companyName": null,
+                 *       "addressLine1": "string",
+                 *       "addressLine2": null,
+                 *       "city": null,
+                 *       "region": null,
+                 *       "postalCode": null,
+                 *       "country": null,
+                 *       "buildingNumber": null,
+                 *       "flatNumber": null,
+                 *       "latitude": null,
+                 *       "longitude": null
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Document address updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     sales_post_sales_document_addresses: {
         parameters: {
             query?: never;
@@ -27118,6 +27393,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
+        /** @description Creates a sales document address linked to an order or quote. */
         requestBody: {
             content: {
                 /**
@@ -27126,27 +27402,37 @@ export interface operations {
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
                  *       "documentId": "00000000-0000-4000-8000-000000000000",
                  *       "documentKind": "order",
-                 *       "addressId": "00000000-0000-4000-8000-000000000000"
+                 *       "name": null,
+                 *       "purpose": null,
+                 *       "companyName": null,
+                 *       "addressLine1": "string",
+                 *       "addressLine2": null,
+                 *       "city": null,
+                 *       "region": null,
+                 *       "postalCode": null,
+                 *       "country": null,
+                 *       "buildingNumber": null,
+                 *       "flatNumber": null,
+                 *       "latitude": null,
+                 *       "longitude": null
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchema"];
             };
         };
         responses: {
-            /** @description Assignment created */
-            200: {
+            /** @description Document address created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     /**
                      * @example {
-                     *       "id": "00000000-0000-4000-8000-000000000000",
-                     *       "addressId": "00000000-0000-4000-8000-000000000000",
-                     *       "addressSnapshot": null
+                     *       "id": null
                      *     }
                      */
-                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchema"];
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPostResponses201ContentApplicationJsonSchema"];
                 };
             };
             /** @description Unauthorized */
@@ -27172,12 +27458,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
+        /** @description Deletes a sales document address. */
         requestBody: {
             content: {
                 /**
                  * @example {
-                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
-                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
                  *       "id": "00000000-0000-4000-8000-000000000000",
                  *       "documentId": "00000000-0000-4000-8000-000000000000",
                  *       "documentKind": "order"
@@ -27187,7 +27472,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Assignment removed */
+            /** @description Document address deleted */
             200: {
                 headers: {
                     [name: string]: unknown;

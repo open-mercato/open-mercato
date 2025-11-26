@@ -37,15 +37,31 @@ const channelCodeSchema = z
   .max(120)
 
 const numberFormatSchema = z.string().trim().min(1).max(191)
+const statusListSchema = z
+  .array(z.string().trim().min(1).max(120))
+  .max(200)
+  .optional()
+  .nullable()
 
 export const salesSettingsUpsertSchema = scoped.extend({
   orderNumberFormat: numberFormatSchema,
   quoteNumberFormat: numberFormatSchema,
   orderNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
   quoteNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+  orderCustomerEditableStatuses: statusListSchema,
+  orderAddressEditableStatuses: statusListSchema,
 })
 
 export type SalesSettingsUpsertInput = z.infer<typeof salesSettingsUpsertSchema>
+
+export const salesEditingSettingsSchema = scoped.extend({
+  orderNumberFormat: numberFormatSchema.optional(),
+  quoteNumberFormat: numberFormatSchema.optional(),
+  orderCustomerEditableStatuses: statusListSchema,
+  orderAddressEditableStatuses: statusListSchema,
+})
+
+export type SalesEditingSettingsInput = z.infer<typeof salesEditingSettingsSchema>
 
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -441,11 +457,30 @@ export const quoteUpdateSchema = z
 
 const documentKind = z.enum(['order', 'quote'])
 
-export const documentAddressCreateSchema = scoped.extend({
+const documentAddressFields = {
   documentId: uuid(),
   documentKind,
-  addressId: uuid(),
-  addressSnapshot: jsonRecord.optional(),
+  customerAddressId: uuid().optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  purpose: z.string().trim().max(120).nullable().optional(),
+  companyName: z.string().trim().max(255).nullable().optional(),
+  addressLine1: z.string().trim().min(1).max(255),
+  addressLine2: z.string().trim().max(255).nullable().optional(),
+  city: z.string().trim().max(120).nullable().optional(),
+  region: z.string().trim().max(120).nullable().optional(),
+  postalCode: z.string().trim().max(60).nullable().optional(),
+  country: z.string().trim().max(2).nullable().optional(),
+  buildingNumber: z.string().trim().max(60).nullable().optional(),
+  flatNumber: z.string().trim().max(60).nullable().optional(),
+  latitude: z.coerce.number().optional().nullable(),
+  longitude: z.coerce.number().optional().nullable(),
+}
+
+export const documentAddressCreateSchema = scoped.extend(documentAddressFields)
+
+export const documentAddressUpdateSchema = scoped.extend({
+  id: uuid(),
+  ...documentAddressFields,
 })
 
 export const documentAddressDeleteSchema = scoped.extend({
@@ -672,4 +707,5 @@ export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>
 export type SalesTagCreateInput = z.infer<typeof salesTagCreateSchema>
 export type SalesTagUpdateInput = z.infer<typeof salesTagUpdateSchema>
 export type DocumentAddressCreateInput = z.infer<typeof documentAddressCreateSchema>
+export type DocumentAddressUpdateInput = z.infer<typeof documentAddressUpdateSchema>
 export type DocumentAddressDeleteInput = z.infer<typeof documentAddressDeleteSchema>

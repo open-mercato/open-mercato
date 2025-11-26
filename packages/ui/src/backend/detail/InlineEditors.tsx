@@ -25,6 +25,7 @@ export type InlineTextEditorProps = {
   renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string; type?: string }) => React.ReactNode
   onEditingChange?: (editing: boolean) => void
   renderActions?: React.ReactNode
+  saveLabel?: string
 }
 
 export function InlineTextEditor({
@@ -43,12 +44,14 @@ export function InlineTextEditor({
   renderDisplay,
   onEditingChange,
   renderActions,
+  saveLabel,
 }: InlineTextEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(value ?? '')
   const [error, setError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const computedSaveLabel = saveLabel ?? t('ui.detail.inline.saveShortcut', 'Save (Ctrl/Cmd + Enter)')
 
   React.useEffect(() => {
     if (!editing) setDraft(value ?? '')
@@ -158,7 +161,7 @@ export function InlineTextEditor({
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                  {t('ui.detail.inline.saveShortcut', 'Save (Ctrl/Cmd + Enter)')}
+                  {computedSaveLabel}
                 </Button>
                 <Button type="button" size="sm" variant="ghost" onClick={() => setEditingSafe(false)} disabled={saving}>
                   {t('ui.detail.inline.cancel', 'Cancel')}

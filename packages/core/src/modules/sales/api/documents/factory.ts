@@ -14,6 +14,11 @@ import {
   defaultDeleteRequestSchema,
 } from '../openapi'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { loadSalesSettings } from '../../commands/settings'
+import type { CustomerEntity, CustomerPersonProfile, CustomerAddress } from '../../customers/data/entities'
+import type { SalesSettings } from '../../data/entities'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -29,6 +34,116 @@ type DocumentBinding = {
 }
 
 const rawBodySchema = z.object({}).passthrough()
+
+async function resolveCustomerSnapshot(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  customerEntityId?: string | null,
+  customerContactId?: string | null
+): Promise<Record<string, unknown> | null> {
+  if (!customerEntityId) return null
+  const customer = await em.findOne(
+    CustomerEntity,
+    { id: customerEntityId, organizationId, tenantId },
+    { populate: ['personProfile', 'companyProfile'] }
+  )
+  if (!customer) return null
+
+  const contact = customerContactId
+    ? await em.findOne(CustomerPersonProfile, {
+        id: customerContactId,
+        organizationId,
+        tenantId,
+      })
+    : null
+
+  return {
+    customer: {
+      id: customer.id,
+      kind: customer.kind,
+      displayName: customer.displayName,
+      primaryEmail: customer.primaryEmail ?? null,
+      primaryPhone: customer.primaryPhone ?? null,
+      personProfile: customer.personProfile
+        ? {
+            id: customer.personProfile.id,
+            firstName: customer.personProfile.firstName ?? null,
+            lastName: customer.personProfile.lastName ?? null,
+            preferredName: customer.personProfile.preferredName ?? null,
+          }
+        : null,
+      companyProfile: customer.companyProfile
+        ? {
+            id: customer.companyProfile.id,
+            legalName: customer.companyProfile.legalName ?? null,
+            brandName: customer.companyProfile.brandName ?? null,
+            domain: customer.companyProfile.domain ?? null,
+            websiteUrl: customer.companyProfile.websiteUrl ?? null,
+          }
+        : null,
+    },
+    contact: contact
+      ? {
+          id: contact.id,
+          firstName: contact.firstName ?? null,
+          lastName: contact.lastName ?? null,
+          preferredName: contact.preferredName ?? null,
+          jobTitle: contact.jobTitle ?? null,
+          department: contact.department ?? null,
+        }
+      : null,
+  }
+}
+
+async function resolveAddressSnapshot(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+  addressId?: string | null
+): Promise<Record<string, unknown> | null> {
+  if (!addressId) return null
+  const address = await em.findOne(CustomerAddress, { id: addressId, organizationId, tenantId })
+  if (!address) return null
+  const record = address as any
+  return {
+    id: record.id,
+    name: record.name ?? null,
+    purpose: record.purpose ?? null,
+    companyName: record.companyName ?? null,
+    addressLine1: record.addressLine1 ?? null,
+    addressLine2: record.addressLine2 ?? null,
+    buildingNumber: record.buildingNumber ?? null,
+    flatNumber: record.flatNumber ?? null,
+    city: record.city ?? null,
+    region: record.region ?? null,
+    postalCode: record.postalCode ?? null,
+    country: record.country ?? null,
+    latitude: record.latitude ?? null,
+    longitude: record.longitude ?? null,
+  }
+}
+
+const resolveCustomerName = (snapshot: Record<string, unknown> | null, fallback?: string | null) => {
+  if (!snapshot) return fallback ?? null
+  const customer = snapshot.customer as Record<string, unknown> | undefined
+  const contact = snapshot.contact as Record<string, unknown> | undefined
+  const displayName = typeof customer?.displayName === 'string' ? customer.displayName : null
+  if (displayName) return displayName
+  const first = typeof contact?.firstName === 'string' ? contact.firstName : null
+  const last = typeof contact?.lastName === 'string' ? contact.lastName : null
+  const preferred = typeof contact?.preferredName === 'string' ? contact.preferredName : null
+  const parts = [preferred ?? first, last].filter((part) => part && part.trim().length)
+  if (parts.length) return parts.join(' ')
+  return fallback ?? null
+}
+
+const resolveCustomerEmail = (snapshot: Record<string, unknown> | null) => {
+  if (!snapshot) return null
+  const customer = snapshot.customer as Record<string, unknown> | undefined
+  const primary = typeof customer?.primaryEmail === 'string' ? customer.primaryEmail : null
+  return primary ?? null
+}
 
 const currencyCodeSchema = z
   .string()
@@ -143,6 +258,10 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
   const updateSchema = z
     .object({
       id: z.string().uuid(),
+      customerEntityId: z.string().uuid().nullable().optional(),
+      customerContactId: z.string().uuid().nullable().optional(),
+      customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+      metadata: z.record(z.string(), z.unknown()).nullable().optional(),
       currencyCode: currencyCodeSchema.optional(),
       placedAt: z.union([dateOnlySchema, z.null()]).optional(),
       shippingAddressId: z.string().uuid().nullable().optional(),
@@ -156,6 +275,10 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         input.placedAt !== undefined ||
         input.shippingAddressId !== undefined ||
         input.billingAddressId !== undefined ||
+        input.customerEntityId !== undefined ||
+        input.customerContactId !== undefined ||
+        input.customerSnapshot !== undefined ||
+        input.metadata !== undefined ||
         input.shippingAddressSnapshot !== undefined ||
         input.billingAddressSnapshot !== undefined,
       { message: 'update_payload_empty' }
@@ -267,7 +390,87 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     update: {
       schema: updateSchema,
       getId: (input) => input.id,
-      applyToEntity: (entity, input) => {
+      applyToEntity: async (entity, input, ctx) => {
+        const em = ctx.container.resolve('em') as EntityManager
+        const organizationId = (entity as any).organizationId as string
+        const tenantId = (entity as any).tenantId as string
+        const status = typeof (entity as any).status === 'string' ? (entity as any).status : null
+        const { translate } = await resolveTranslations()
+
+        const wantsCustomerChange =
+          input.customerEntityId !== undefined ||
+          input.customerContactId !== undefined ||
+          input.customerSnapshot !== undefined ||
+          input.metadata !== undefined
+        const wantsAddressChange =
+          input.shippingAddressId !== undefined ||
+          input.billingAddressId !== undefined ||
+          input.shippingAddressSnapshot !== undefined ||
+          input.billingAddressSnapshot !== undefined
+
+        let settings: SalesSettings | null = null
+        if (binding.kind === 'order' && (wantsCustomerChange || wantsAddressChange)) {
+          settings = await loadSalesSettings(em, { organizationId, tenantId })
+        }
+
+        const guardStatus = (allowed: string[] | null | undefined, errorKey: string, fallback: string) => {
+          if (!Array.isArray(allowed)) return
+          if (allowed.length === 0) {
+            throw new CrudHttpError(400, { error: translate(errorKey, fallback) })
+          }
+          if (!status || !allowed.includes(status)) {
+            throw new CrudHttpError(400, { error: translate(errorKey, fallback) })
+          }
+        }
+
+        if (binding.kind === 'order' && wantsCustomerChange) {
+          guardStatus(
+            settings?.orderCustomerEditableStatuses ?? null,
+            'sales.orders.edit_customer_blocked',
+            'Editing the customer is blocked for this status.'
+          )
+        }
+        if (binding.kind === 'order' && wantsAddressChange) {
+          guardStatus(
+            settings?.orderAddressEditableStatuses ?? null,
+            'sales.orders.edit_addresses_blocked',
+            'Editing addresses is blocked for this status.'
+          )
+        }
+
+        if (input.customerEntityId !== undefined) {
+          entity.customerEntityId = input.customerEntityId ?? null
+          entity.customerSnapshot = await resolveCustomerSnapshot(
+            em,
+            organizationId,
+            tenantId,
+            input.customerEntityId,
+            input.customerContactId ?? entity.customerContactId ?? null
+          )
+          entity.customerContactId = input.customerContactId ?? null
+          entity.billingAddressId = null
+          entity.shippingAddressId = null
+          entity.billingAddressSnapshot = null
+          entity.shippingAddressSnapshot = null
+        }
+        if (input.customerContactId !== undefined) {
+          entity.customerContactId = input.customerContactId ?? null
+          if (entity.customerEntityId) {
+            entity.customerSnapshot = await resolveCustomerSnapshot(
+              em,
+              organizationId,
+              tenantId,
+              entity.customerEntityId,
+              input.customerContactId
+            )
+          }
+        }
+        if (input.customerSnapshot !== undefined) {
+          entity.customerSnapshot = input.customerSnapshot ?? null
+        }
+        if (input.metadata !== undefined) {
+          entity.metadata = input.metadata ?? null
+        }
         if (typeof input.currencyCode === 'string') {
           entity.currencyCode = input.currencyCode
         }
@@ -281,9 +484,25 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         }
         if (input.shippingAddressId !== undefined) {
           entity.shippingAddressId = input.shippingAddressId ?? null
+          if (input.shippingAddressSnapshot === undefined) {
+            entity.shippingAddressSnapshot = await resolveAddressSnapshot(
+              em,
+              organizationId,
+              tenantId,
+              input.shippingAddressId
+            )
+          }
         }
         if (input.billingAddressId !== undefined) {
           entity.billingAddressId = input.billingAddressId ?? null
+          if (input.billingAddressSnapshot === undefined) {
+            entity.billingAddressSnapshot = await resolveAddressSnapshot(
+              em,
+              organizationId,
+              tenantId,
+              input.billingAddressId
+            )
+          }
         }
         if (input.shippingAddressSnapshot !== undefined) {
           entity.shippingAddressSnapshot = input.shippingAddressSnapshot ?? null
@@ -294,6 +513,12 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       },
       response: (entity) => ({
         id: entity.id,
+        customerEntityId: entity.customerEntityId ?? null,
+        customerContactId: entity.customerContactId ?? null,
+        customerSnapshot: entity.customerSnapshot ?? null,
+        metadata: entity.metadata ?? null,
+        customerName: resolveCustomerName(entity.customerSnapshot ?? null, entity.customerEntityId ?? null),
+        contactEmail: resolveCustomerEmail(entity.customerSnapshot ?? null),
         currencyCode: entity.currencyCode ?? null,
         placedAt: entity.placedAt ? entity.placedAt.toISOString() : null,
         shippingAddressId: entity.shippingAddressId ?? null,

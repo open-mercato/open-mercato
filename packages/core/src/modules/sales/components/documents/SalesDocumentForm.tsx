@@ -397,6 +397,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
+  const addressRequestRef = React.useRef(0)
   const customerQuerySetter = React.useRef<((value: string) => void) | null>(null)
   const currencyLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
@@ -521,8 +522,12 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   }, [])
 
   const loadAddresses = React.useCallback(async (customerId?: string | null) => {
+    addressRequestRef.current += 1
+    const requestId = addressRequestRef.current
+
     if (!customerId) {
       setAddressOptions([])
+      setAddressesLoading(false)
       return
     }
     setAddressesLoading(true)
@@ -552,15 +557,23 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           acc.push({ id, label, summary, value, name: name || null })
           return acc
         }, [])
-        setAddressOptions(options)
+        if (addressRequestRef.current === requestId) {
+          setAddressOptions(options)
+        }
       } else {
-        setAddressOptions([])
+        if (addressRequestRef.current === requestId) {
+          setAddressOptions([])
+        }
       }
     } catch (err) {
       console.error('sales.documents.loadAddresses', err)
-      setAddressOptions([])
+      if (addressRequestRef.current === requestId) {
+        setAddressOptions([])
+      }
     } finally {
-      setAddressesLoading(false)
+      if (addressRequestRef.current === requestId) {
+        setAddressesLoading(false)
+      }
     }
   }, [addressFormat])
 
@@ -690,12 +703,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
 
         return (
           <div className="space-y-2">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
               <Input
                 value={typeof value === 'string' ? value : ''}
                 onChange={(event) => updateValue(event.target.value)}
                 disabled={loading}
                 spellCheck={false}
+                className="w-full sm:flex-1 sm:min-w-[32rem] sm:max-w-5xl"
               />
               <Button type="button" variant="outline" onClick={requestNumber} disabled={loading}>
                 {loading

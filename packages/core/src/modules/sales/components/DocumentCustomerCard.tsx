@@ -23,8 +23,28 @@ export function DocumentCustomerCard({
   className,
 }: DocumentCustomerCardProps) {
   const Icon = kind === 'person' ? Users : Building2
+  const interactiveProps = onEdit
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick: onEdit,
+        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onEdit()
+          }
+        },
+      }
+    : {}
   return (
-    <div className={cn('group rounded-lg border bg-card p-3', className)}>
+    <div
+      className={cn(
+        'group rounded-lg border bg-card p-3',
+        onEdit ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : null,
+        className,
+      )}
+      {...interactiveProps}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 space-y-2">
           {label ? (
@@ -56,7 +76,10 @@ export function DocumentCustomerCard({
           type="button"
           variant="ghost"
           size="icon"
-          onClick={onEdit}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (onEdit) onEdit()
+          }}
           className={cn(
             'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100',
             !onEdit ? 'cursor-default opacity-0' : null,

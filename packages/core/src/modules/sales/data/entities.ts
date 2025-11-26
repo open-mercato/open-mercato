@@ -732,6 +732,9 @@ export class SalesOrderAdjustment {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_settings' })
@@ -754,11 +757,20 @@ export class SalesSettings {
   @Property({ name: 'quote_number_format', type: 'text', default: DEFAULT_QUOTE_NUMBER_FORMAT })
   quoteNumberFormat: string = DEFAULT_QUOTE_NUMBER_FORMAT
 
+  @Property({ name: 'order_customer_editable_statuses', type: 'jsonb', nullable: true })
+  orderCustomerEditableStatuses?: string[] | null
+
+  @Property({ name: 'order_address_editable_statuses', type: 'jsonb', nullable: true })
+  orderAddressEditableStatuses?: string[] | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_document_sequences' })
@@ -1633,10 +1645,6 @@ export class SalesNote {
 
 @Entity({ tableName: 'sales_document_addresses' })
 @Index({ name: 'sales_document_addresses_scope_idx', properties: ['organizationId', 'tenantId'] })
-@Unique({
-  name: 'sales_document_addresses_unique',
-  properties: ['documentId', 'documentKind', 'addressId'],
-})
 export class SalesDocumentAddress {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1653,11 +1661,47 @@ export class SalesDocumentAddress {
   @Property({ name: 'document_kind', type: 'text' })
   documentKind!: SalesDocumentKind
 
-  @Property({ name: 'address_id', type: 'uuid' })
-  addressId!: string
+  @Property({ name: 'customer_address_id', type: 'uuid', nullable: true })
+  customerAddressId?: string | null
 
-  @Property({ name: 'address_snapshot', type: 'jsonb', nullable: true })
-  addressSnapshot?: Record<string, unknown> | null
+  @Property({ name: 'name', type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ name: 'purpose', type: 'text', nullable: true })
+  purpose?: string | null
+
+  @Property({ name: 'company_name', type: 'text', nullable: true })
+  companyName?: string | null
+
+  @Property({ name: 'address_line1', type: 'text' })
+  addressLine1!: string
+
+  @Property({ name: 'address_line2', type: 'text', nullable: true })
+  addressLine2?: string | null
+
+  @Property({ name: 'city', type: 'text', nullable: true })
+  city?: string | null
+
+  @Property({ name: 'region', type: 'text', nullable: true })
+  region?: string | null
+
+  @Property({ name: 'postal_code', type: 'text', nullable: true })
+  postalCode?: string | null
+
+  @Property({ name: 'country', type: 'text', nullable: true })
+  country?: string | null
+
+  @Property({ name: 'building_number', type: 'text', nullable: true })
+  buildingNumber?: string | null
+
+  @Property({ name: 'flat_number', type: 'text', nullable: true })
+  flatNumber?: string | null
+
+  @Property({ name: 'latitude', type: 'float', nullable: true })
+  latitude?: number | null
+
+  @Property({ name: 'longitude', type: 'float', nullable: true })
+  longitude?: number | null
 
   @ManyToOne(() => SalesOrder, { fieldName: 'order_id', nullable: true })
   order?: SalesOrder | null
@@ -1670,6 +1714,9 @@ export class SalesDocumentAddress {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_document_tags' })

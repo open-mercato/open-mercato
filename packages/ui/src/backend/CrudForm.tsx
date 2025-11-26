@@ -719,6 +719,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const form = document.getElementById(formId)
       if (!form) return
 
+      // Do not steal focus if the user is already interacting with any element inside the form
+      const active = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null
+      if (active && form.contains(active)) {
+        return
+      }
+
       const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${firstFieldId}"]`)
       const target =
         container?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ??

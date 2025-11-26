@@ -4,17 +4,18 @@ import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useT } from '@/lib/i18n/context'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import {
+  AddressView,
   formatAddressString,
   type AddressFormatStrategy,
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
-import { Plus, Save, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
@@ -24,6 +25,7 @@ type AddressOption = {
   summary: string
   value: AddressValue
   name?: string | null
+  purpose?: string | null
 }
 
 export type SalesDocumentAddressesSectionProps = {
@@ -98,27 +100,10 @@ function draftFromSnapshot(snapshot?: Record<string, unknown> | null): AddressEd
   }
 }
 
-function deepEqual(a: Record<string, unknown> | null | undefined, b: Record<string, unknown> | null | undefined) {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
-}
-
-type DocumentAddressAssignment = {
-  id: string
-  addressId: string
-  addressSnapshot: Record<string, unknown> | null
-  summary: string
-}
-
-function addressValueFromSnapshot(snapshot?: Record<string, unknown> | null): AddressValue | null {
-  const record = snapshot ?? {}
-  const read = (key: string) => {
-    const value = record[key]
-    return typeof value === 'string' ? value : null
-  }
-  const line1 = read('addressLine1')
-  if (!line1) return null
+function addressValueFromRecord(record: Record<string, unknown>): AddressValue {
+  const read = (key: string) => (typeof record[key] === 'string' ? (record[key] as string) : null)
   return {
-    addressLine1: line1,
+    addressLine1: read('addressLine1'),
     addressLine2: read('addressLine2'),
     buildingNumber: read('buildingNumber'),
     flatNumber: read('flatNumber'),
@@ -130,22 +115,18 @@ function addressValueFromSnapshot(snapshot?: Record<string, unknown> | null): Ad
   }
 }
 
-function snapshotFromAddressValue(value?: AddressValue | null): Record<string, unknown> | null {
-  if (!value) return null
-  const normalized: Record<string, unknown> = {}
-  const assign = (source: unknown, key: string) => {
-    if (typeof source === 'string' && source.trim().length) normalized[key] = source.trim()
-  }
-  assign(value.addressLine1, 'addressLine1')
-  assign(value.addressLine2, 'addressLine2')
-  assign(value.buildingNumber, 'buildingNumber')
-  assign(value.flatNumber, 'flatNumber')
-  assign(value.city, 'city')
-  assign(value.region, 'region')
-  assign(value.postalCode, 'postalCode')
-  assign(value.country, 'country')
-  assign(value.companyName, 'companyName')
-  return Object.keys(normalized).length ? normalized : null
+function deepEqual(a: Record<string, unknown> | null | undefined, b: Record<string, unknown> | null | undefined) {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+}
+
+type DocumentAddressAssignment = {
+  id: string
+  value: AddressValue
+  summary: string
+  customerAddressId?: string | null
+  name?: string | null
+  purpose?: string | null
+  companyName?: string | null
 }
 
 function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrategy): AddressOption | null {
@@ -163,9 +144,27 @@ function mapApiAddress(item: Record<string, unknown>, format: AddressFormatStrat
     companyName: typeof item.company_name === 'string' ? item.company_name : null,
   }
   const name = typeof item.name === 'string' ? item.name.trim() : ''
+  const purpose = typeof item.purpose === 'string' ? item.purpose.trim() : ''
   const summary = formatAddressString(value, format)
   const label = name || summary || id
-  return { id, label, summary, value, name: name || null }
+  return { id, label, summary, value, name: name || null, purpose: purpose || null }
+}
+
+function draftFromDocumentAddress(entry: DocumentAddressAssignment): AddressEditorDraft {
+  return {
+    name: entry.name ?? '',
+    purpose: entry.purpose ?? '',
+    companyName: entry.companyName ?? entry.value.companyName ?? '',
+    addressLine1: entry.value.addressLine1 ?? '',
+    addressLine2: entry.value.addressLine2 ?? '',
+    buildingNumber: entry.value.buildingNumber ?? '',
+    flatNumber: entry.value.flatNumber ?? '',
+    city: entry.value.city ?? '',
+    region: entry.value.region ?? '',
+    postalCode: entry.value.postalCode ?? '',
+    country: entry.value.country ?? '',
+    isPrimary: false,
+  }
 }
 
 export function SalesDocumentAddressesSection({
@@ -181,6 +180,7 @@ export function SalesDocumentAddressesSection({
   const t = useT()
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
+  const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [useCustomShipping, setUseCustomShipping] = React.useState<boolean>(!!shippingAddressSnapshot)
   const [useCustomBilling, setUseCustomBilling] = React.useState<boolean>(
@@ -208,12 +208,16 @@ export function SalesDocumentAddressesSection({
   const [saving, setSaving] = React.useState(false)
   const [documentAddresses, setDocumentAddresses] = React.useState<DocumentAddressAssignment[]>([])
   const [documentAddressesLoading, setDocumentAddressesLoading] = React.useState(false)
+  const [documentAddressesError, setDocumentAddressesError] = React.useState<string | null>(null)
   const [additionalFormOpen, setAdditionalFormOpen] = React.useState(false)
   const [additionalUseCustom, setAdditionalUseCustom] = React.useState(false)
   const [additionalSelectedId, setAdditionalSelectedId] = React.useState('')
   const [additionalDraft, setAdditionalDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
+  const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
+  const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
+  const [editingSaving, setEditingSaving] = React.useState(false)
 
   const customerRequired = !customerId
   const addressOptionsMap = React.useMemo(() => {
@@ -223,35 +227,44 @@ export function SalesDocumentAddressesSection({
   }, [addressOptions])
 
   const resolveAddressSummary = React.useCallback(
-    (addressId: string, snapshot: Record<string, unknown> | null) => {
-      const fromSnapshot = addressValueFromSnapshot(snapshot)
-      if (fromSnapshot) {
-        const summary = formatAddressString(fromSnapshot, addressFormat)
-        if (summary) return summary
-      }
-      const option = addressOptionsMap.get(addressId)
-      if (option) {
-        const summary = option.summary || formatAddressString(option.value, addressFormat)
-        return summary || option.label
-      }
-      return addressId
+    (value: AddressValue) => {
+      const summary = formatAddressString(value, addressFormat)
+      if (summary) return summary
+      return (
+        value.addressLine1 ??
+        value.addressLine2 ??
+        value.city ??
+        value.region ??
+        value.postalCode ??
+        value.country ??
+        ''
+      )
     },
-    [addressFormat, addressOptionsMap]
+    [addressFormat]
   )
 
   React.useEffect(() => {
     setDocumentAddresses((prev) =>
       prev.map((entry) => ({
         ...entry,
-        summary: resolveAddressSummary(entry.addressId, entry.addressSnapshot),
+        summary: resolveAddressSummary(entry.value),
       }))
     )
   }, [resolveAddressSummary])
+
+  React.useEffect(() => {
+    if (editingAddressId && !documentAddresses.some((entry) => entry.id === editingAddressId)) {
+      setEditingAddressId(null)
+      setEditingDraft(emptyDraft)
+      setEditingSaving(false)
+    }
+  }, [documentAddresses, editingAddressId])
 
   const loadDocumentAddresses = React.useCallback(async () => {
     if (!documentId) return
     setDocumentAddressesLoading(true)
     try {
+      setDocumentAddressesError(null)
       const params = new URLSearchParams({ documentId, documentKind: kind })
       const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/sales/document-addresses?${params.toString()}`
@@ -260,17 +273,26 @@ export function SalesDocumentAddressesSection({
         const mapped = call.result.items
           .map((item) => {
             const id = typeof item.id === 'string' ? item.id : null
-            const addressId = typeof item.addressId === 'string' ? item.addressId : null
-            const snapshot =
-              item && typeof item.addressSnapshot === 'object' && item.addressSnapshot !== null
-                ? (item.addressSnapshot as Record<string, unknown>)
-                : null
-            if (!id || !addressId) return null
+            if (!id) return null
+            const value: AddressValue = {
+              addressLine1: typeof (item as any).address_line1 === 'string' ? (item as any).address_line1 : null,
+              addressLine2: typeof (item as any).address_line2 === 'string' ? (item as any).address_line2 : null,
+              buildingNumber: typeof (item as any).building_number === 'string' ? (item as any).building_number : null,
+              flatNumber: typeof (item as any).flat_number === 'string' ? (item as any).flat_number : null,
+              city: typeof (item as any).city === 'string' ? (item as any).city : null,
+              region: typeof (item as any).region === 'string' ? (item as any).region : null,
+              postalCode: typeof (item as any).postal_code === 'string' ? (item as any).postal_code : null,
+              country: typeof (item as any).country === 'string' ? (item as any).country : null,
+              companyName: typeof (item as any).company_name === 'string' ? (item as any).company_name : null,
+            }
             return {
               id,
-              addressId,
-              addressSnapshot: snapshot,
-              summary: resolveAddressSummary(addressId, snapshot),
+              value,
+              summary: resolveAddressSummary(value),
+              customerAddressId: typeof (item as any).customer_address_id === 'string' ? (item as any).customer_address_id : null,
+              name: typeof (item as any).name === 'string' ? (item as any).name : null,
+              purpose: typeof (item as any).purpose === 'string' ? (item as any).purpose : null,
+              companyName: value.companyName ?? null,
             }
           })
           .filter((entry): entry is DocumentAddressAssignment => entry !== null)
@@ -280,7 +302,9 @@ export function SalesDocumentAddressesSection({
       }
     } catch (err) {
       console.error('sales.documents.addresses.document.load', err)
-      flash(t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.'), 'error')
+      const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
+      flash(message, 'error')
+      setDocumentAddressesError(message)
       setDocumentAddresses([])
     } finally {
       setDocumentAddressesLoading(false)
@@ -352,6 +376,7 @@ export function SalesDocumentAddressesSection({
         return
       }
       setAddressesLoading(true)
+      setAddressesError(null)
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '50', entityId: id })
         const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
@@ -367,12 +392,15 @@ export function SalesDocumentAddressesSection({
         }
       } catch (err) {
         console.error('sales.documents.addresses.load', err)
+        const message = t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
+        setAddressesError(message)
+        flash(message, 'error')
         setAddressOptions([])
       } finally {
         setAddressesLoading(false)
       }
     },
-    [addressFormat]
+    [addressFormat, t]
   )
 
   React.useEffect(() => {
@@ -445,37 +473,37 @@ export function SalesDocumentAddressesSection({
     }
     setAdditionalSaving(true)
     try {
-      let addressId = additionalUseCustom ? null : additionalSelectedId
-      let snapshot: Record<string, unknown> | null = null
+      let resolvedValue: AddressValue | null = null
+      let customerAddressId: string | null = null
+      let name: string | undefined
+      let purpose: string | undefined
 
       if (additionalUseCustom) {
         const normalized = normalizeAddressDraft(additionalDraft)
-        const createPayload: Record<string, unknown> = {
-          entityId: customerId,
+        name = normalized?.name ?? undefined
+        purpose = normalized?.purpose ?? undefined
+        resolvedValue = {
           addressLine1: normalized?.addressLine1 ?? normalized?.name ?? 'Address',
-          name: normalized?.name ?? undefined,
-          addressLine2: normalized?.addressLine2 ?? undefined,
-          buildingNumber: normalized?.buildingNumber ?? undefined,
-          flatNumber: normalized?.flatNumber ?? undefined,
-          city: normalized?.city ?? undefined,
-          region: normalized?.region ?? undefined,
-          postalCode: normalized?.postalCode ?? undefined,
-          country: normalized?.country ?? undefined,
-          purpose: normalized?.purpose ?? undefined,
-          isPrimary: normalized?.isPrimary ?? undefined,
-          companyName: normalized?.companyName ?? undefined,
+          addressLine2: normalized?.addressLine2 ?? null,
+          buildingNumber: normalized?.buildingNumber ?? null,
+          flatNumber: normalized?.flatNumber ?? null,
+          city: normalized?.city ?? null,
+          region: normalized?.region ?? null,
+          postalCode: normalized?.postalCode ?? null,
+          country: normalized?.country ?? null,
+          companyName: normalized?.companyName ?? null,
         }
-        const res = await createCrud<{ id?: string }>('customers/addresses', createPayload, {
-          errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.'),
-        })
-        addressId = res?.result?.id ?? null
-        snapshot = normalized
       } else {
         const option = addressOptionsMap.get(additionalSelectedId)
-        snapshot = snapshotFromAddressValue(option?.value)
+        if (option) {
+          resolvedValue = option.value
+          customerAddressId = option.id
+          name = option.name ?? undefined
+          purpose = option.purpose ?? undefined
+        }
       }
 
-      if (!addressId) {
+      if (!resolvedValue || !resolvedValue.addressLine1) {
         throw new Error(t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.'))
       }
 
@@ -487,27 +515,39 @@ export function SalesDocumentAddressesSection({
           body: JSON.stringify({
             documentId,
             documentKind: kind,
-            addressId,
-            addressSnapshot: snapshot ?? undefined,
+            customerAddressId: customerAddressId ?? undefined,
+            name,
+            purpose,
+            addressLine1: resolvedValue.addressLine1,
+            addressLine2: resolvedValue.addressLine2 ?? undefined,
+            buildingNumber: resolvedValue.buildingNumber ?? undefined,
+            flatNumber: resolvedValue.flatNumber ?? undefined,
+            city: resolvedValue.city ?? undefined,
+            region: resolvedValue.region ?? undefined,
+            postalCode: resolvedValue.postalCode ?? undefined,
+            country: resolvedValue.country ?? undefined,
+            companyName: resolvedValue.companyName ?? undefined,
           }),
         },
         { errorMessage: t('sales.documents.detail.addresses.saveError', 'Failed to update addresses.') }
       )
 
-      const savedId = typeof call.result?.id === 'string' ? call.result.id : addressId
-      const savedSnapshot =
-        (call.result?.addressSnapshot as Record<string, unknown> | null | undefined) ?? snapshot ?? null
+      const savedId = typeof call.result?.id === 'string' ? call.result.id : null
+      const assignedValue = resolvedValue
 
       setDocumentAddresses((prev) => [
         {
-          id: savedId,
-          addressId,
-          addressSnapshot: savedSnapshot,
-          summary: resolveAddressSummary(addressId, savedSnapshot),
+          id: savedId ?? `temp-${Date.now()}`,
+          value: assignedValue,
+          summary: resolveAddressSummary(assignedValue),
+          customerAddressId: customerAddressId ?? null,
+          name: name ?? null,
+          purpose: purpose ?? null,
+          companyName: assignedValue.companyName ?? null,
         },
-        ...prev.filter((entry) => entry.id !== savedId),
+        ...prev.filter((entry) => !savedId || entry.id !== savedId),
       ])
-      if (additionalUseCustom || !addressOptionsMap.has(addressId)) {
+      if (additionalUseCustom || (customerAddressId && !addressOptionsMap.has(customerAddressId))) {
         loadAddresses(customerId).catch(() => {})
       }
       setAdditionalFormOpen(false)
@@ -719,6 +759,18 @@ export function SalesDocumentAddressesSection({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
+        {addressesError ? (
+          <ErrorMessage
+            label={addressesError}
+            className="md:col-span-2"
+            action={
+              <Button size="sm" variant="outline" onClick={() => loadAddresses(customerId)}>
+                {t('sales.documents.detail.retry', 'Try again')}
+              </Button>
+            }
+          />
+        ) : null}
+
         <div className="space-y-3 rounded border bg-card p-4">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -829,14 +881,24 @@ export function SalesDocumentAddressesSection({
             </>
           ) : null}
         </div>
-      </div>
+        </div>
 
-      <div className="space-y-3 rounded border bg-card p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold">
-              {t('sales.documents.detail.addresses.additional', 'Additional addresses')}
-            </p>
+        <div className="space-y-3 rounded border bg-card p-4">
+          {documentAddressesError ? (
+            <ErrorMessage
+              label={documentAddressesError}
+              action={
+                <Button size="sm" variant="outline" onClick={() => loadDocumentAddresses()}>
+                  {t('sales.documents.detail.retry', 'Try again')}
+                </Button>
+              }
+            />
+          ) : null}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold">
+                {t('sales.documents.detail.addresses.additional', 'Additional addresses')}
+              </p>
             <p className="text-xs text-muted-foreground">
               {t(
                 'sales.documents.detail.addresses.additionalHint',
@@ -869,15 +931,14 @@ export function SalesDocumentAddressesSection({
           </p>
         ) : null}
 
-        <div className="space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {documentAddresses.map((entry) => (
             <div
               key={entry.id}
-              className="flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm"
+              className="flex items-start justify-between gap-3 rounded border px-3 py-2 text-sm"
             >
               <div className="flex-1">
                 <p className="text-sm text-foreground">{entry.summary}</p>
-                <p className="text-xs text-muted-foreground">{entry.addressId}</p>
               </div>
               <Button
                 type="button"
