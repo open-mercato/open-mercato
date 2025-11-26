@@ -11,12 +11,20 @@ type DocumentCustomerCardProps = {
   email?: string | null
   kind?: 'company' | 'person'
   onEdit?: () => void
+  className?: string
 }
 
-export function DocumentCustomerCard({ label, name, email, kind = 'company', onEdit }: DocumentCustomerCardProps) {
+export function DocumentCustomerCard({
+  label,
+  name,
+  email,
+  kind = 'company',
+  onEdit,
+  className,
+}: DocumentCustomerCardProps) {
   const Icon = kind === 'person' ? Users : Building2
   return (
-    <div className="group rounded-lg border bg-card p-3">
+    <div className={cn('group rounded-lg border bg-card p-3', className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 space-y-2">
           {label ? (

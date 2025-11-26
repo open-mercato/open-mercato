@@ -8,6 +8,7 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -24,7 +25,6 @@ import { TimelineItemHeader } from './TimelineItemHeader'
 import { ActivityDialog } from './ActivityDialog'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
-import { LoadingMessage } from './LoadingMessage'
 
 type DictionaryOption = {
   value: string
@@ -473,7 +473,7 @@ export function ActivitiesSection({
         {isLoading && activities.length === 0 ? (
           <LoadingMessage
             label={t('customers.people.detail.activities.loading', 'Loading activities…')}
-            className="border-0 bg-transparent p-0 py-8"
+            className="border-0 bg-transparent p-0 py-8 justify-center"
           />
         ) : (
           <>

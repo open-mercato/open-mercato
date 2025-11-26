@@ -210,6 +210,9 @@
       "list": {
         "title": "Zamówienia"
       },
+      "detail": {
+        "title": "Szczegóły zamówienia"
+      },
       "form": {
         "general": "Ogólne",
         "lines": "Pozycje",
@@ -222,6 +225,9 @@
     "quotes": {
       "list": {
         "title": "Oferty"
+      },
+      "detail": {
+        "title": "Szczegóły oferty"
       },
       "form": {
         "general": "Ogólne",
@@ -404,6 +410,48 @@
     }
     ,
     "documents": {
+      "list": {
+        "ordersTitle": "Sales orders",
+        "quotesTitle": "Sales quotes",
+        "subtitle": "Review documents with customer context, totals, and channels.",
+        "search": {
+          "orders": "Search orders…",
+          "quotes": "Search quotes…"
+        },
+        "filters": {
+          "channel": "Channel",
+          "date": "Date",
+          "itemsMin": "Min items",
+          "itemsMax": "Max items",
+          "totalNetMin": "Min total (net)",
+          "totalNetMax": "Max total (net)",
+          "totalGrossMin": "Min total (gross)",
+          "totalGrossMax": "Max total (gross)",
+          "customer": "Customer id",
+          "customerPlaceholder": "Customer id",
+          "tags": "Tags"
+        },
+        "errors": {
+          "load": "Failed to load documents."
+        },
+        "table": {
+          "order": "Order",
+          "quote": "Quote",
+          "customer": "Customer",
+          "noCustomer": "No customer",
+          "noEmail": "No email",
+          "channel": "Channel",
+          "unassigned": "Unassigned",
+          "items": "Items",
+          "totalNet": "Total (net)",
+          "totalGross": "Total (gross)",
+          "date": "Date",
+          "refresh": "Refresh",
+          "emptyOrders": "No orders yet.",
+          "emptyQuotes": "No quotes yet.",
+          "open": "Open"
+        }
+      },
       "errors": {
         "unauthorized": "Brak autoryzacji",
         "organization_required": "Wymagany jest kontekst organizacji.",
@@ -490,6 +538,7 @@
         "title": "Dokument sprzedaży",
         "error": "Dokument nie znaleziony lub brak dostępu.",
         "loading": "Ładowanie dokumentu…",
+        "retry": "Spróbuj ponownie",
         "backToCreate": "Utwórz nowy dokument",
         "order": "Zamówienie",
         "quote": "Oferta",
@@ -499,11 +548,16 @@
         "customer": "Klient",
         "customer.empty": "Brak powiązania",
         "currency": "Waluta",
+        "currencyInvalid": "Kod waluty musi mieć 3 litery.",
+        "comment": "Komentarz",
+        "comment.placeholder": "Dodaj komentarz",
         "shipping": "Adres dostawy",
         "billing": "Adres rozliczeniowy",
         "timestamps": "Daty",
         "created": "Utworzono",
-        "updated": "Zaktualizowano"
+        "updated": "Zaktualizowano",
+        "updatedMessage": "Dokument zaktualizowany.",
+        "updateError": "Nie udało się zaktualizować dokumentu."
       }
     }
   },
@@ -518,6 +572,7 @@
   "sales.tax-rates.create": "Utwórz stawkę podatku",
   "sales.tax-rates.update": "Aktualizuj stawkę podatku",
   "sales.tax-rates.delete": "Usuń stawkę podatku",
+  "sales.quotes.create": "Utwórz ofertę",
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
   "sales.audit.quotes.create": "Utwórz ofertę",

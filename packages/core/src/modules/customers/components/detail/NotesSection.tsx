@@ -9,6 +9,7 @@ import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from '
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { formatDateTime } from './utils'
 import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
@@ -17,7 +18,6 @@ import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/
 import { useT } from '@/lib/i18n/context'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../lib/markdownPreference'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
-import { LoadingMessage } from './LoadingMessage'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { AppearanceDialog } from './AppearanceDialog'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -34,7 +34,7 @@ function MarkdownEditorFallback() {
   return (
     <LoadingMessage
       label={t('customers.people.detail.notes.editorLoading', 'Loading editor…')}
-      className="min-h-[220px]"
+      className="min-h-[220px] justify-center"
     />
   )
 }
@@ -908,7 +908,7 @@ export function NotesSection({
         {isLoading ? (
           <LoadingMessage
             label={t('customers.people.detail.notes.loading', 'Loading notes…')}
-            className="border-0 bg-transparent p-0 py-8"
+            className="border-0 bg-transparent p-0 py-8 justify-center"
           />
         ) : hasVisibleNotes ? (
           visibleNotes.map((note) => {

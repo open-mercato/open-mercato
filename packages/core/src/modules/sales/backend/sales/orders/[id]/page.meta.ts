@@ -1,8 +1,8 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.orders.view', 'sales.quotes.view'],
-  pageTitle: 'Sales document',
-  pageTitleKey: 'sales.documents.detail.title',
+  requireFeatures: ['sales.orders.view'],
+  pageTitle: 'Order details',
+  pageTitleKey: 'sales.orders.detail.title',
   pageGroup: 'Sales',
   pageGroupKey: 'customers~sales.nav.group',
   navHidden: true,

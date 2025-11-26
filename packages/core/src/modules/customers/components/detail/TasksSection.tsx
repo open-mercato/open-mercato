@@ -6,6 +6,7 @@ import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { cn } from '@/lib/utils'
 import { useT } from '@/lib/i18n/context'
 import type { SectionAction, TabEmptyState, TodoLinkSummary, Translator } from './types'
@@ -14,7 +15,6 @@ import { formatDate, formatDateTime, resolveTodoHref } from './utils'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
-import { LoadingMessage } from './LoadingMessage'
 
 type TasksSectionProps = {
   entityId: string | null
@@ -258,7 +258,7 @@ export function TasksSection({
         {isInitialLoading ? (
           <LoadingMessage
             label={t('customers.people.detail.tasks.loading', 'Loading tasks…')}
-            className="border-0 bg-transparent p-0 py-8"
+            className="border-0 bg-transparent p-0 py-8 justify-center"
           />
         ) : null}
 

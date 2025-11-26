@@ -142,6 +142,24 @@ export const paymentMethodUpdateSchema = z
   })
   .merge(paymentMethodCreateSchema.partial())
 
+export const salesTagCreateSchema = scoped.extend({
+  slug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9_-]+$/, 'Slug must be lowercase and may contain dashes or underscores'),
+  label: z.string().trim().min(1).max(120),
+  color: z.string().trim().max(30).optional(),
+  description: z.string().trim().max(400).optional(),
+})
+
+export const salesTagUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(salesTagCreateSchema.partial())
+
 export const taxRateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: z
@@ -368,6 +386,7 @@ export const orderCreateSchema = scoped.extend({
   customFieldSetId: uuid().optional(),
   lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  tags: z.array(uuid()).optional(),
   ...orderTotalsSchema.shape,
 })
 
@@ -410,6 +429,7 @@ export const quoteCreateSchema = scoped.extend({
   adjustments: z
     .array(quoteAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),
+  tags: z.array(uuid()).optional(),
   ...quoteTotalsSchema.shape,
 })
 
@@ -634,3 +654,5 @@ export type PaymentCreateInput = z.infer<typeof paymentCreateSchema>
 export type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>
 export type NoteCreateInput = z.infer<typeof noteCreateSchema>
 export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>
+export type SalesTagCreateInput = z.infer<typeof salesTagCreateSchema>
+export type SalesTagUpdateInput = z.infer<typeof salesTagUpdateSchema>

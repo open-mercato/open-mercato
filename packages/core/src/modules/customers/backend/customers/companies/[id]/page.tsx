@@ -14,7 +14,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
-import { DetailFieldsSection, type DetailFieldConfig, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import {
   ActivitiesSection,
 } from '../../../../components/detail/ActivitiesSection'
@@ -92,13 +92,6 @@ type CompanyOverview = {
 
 type SectionKey = 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 'tasks'
 
-type SectionLoaderProps = { isLoading: boolean; label?: string }
-
-function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
-  if (!isLoading) return null
-  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
-}
-
 export default function CustomerCompanyDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -116,14 +109,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
-  const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
-    notes: false,
-    activities: false,
-    deals: false,
-    people: false,
-    addresses: false,
-    tasks: false,
-  })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const currentCompanyId = data?.company?.id ?? null
@@ -453,29 +438,17 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     [submitCustomFields],
   )
 
-  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, notes: loading }))
-  }, [])
+  const handleNotesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, activities: loading }))
-  }, [])
+  const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleDealsLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, deals: loading }))
-  }, [])
+  const handleDealsLoadingChange = React.useCallback(() => {}, [])
 
-  const handlePeopleLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, people: loading }))
-  }, [])
+  const handlePeopleLoadingChange = React.useCallback(() => {}, [])
 
-  const handleAddressesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, addresses: loading }))
-  }, [])
+  const handleAddressesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleTasksLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, tasks: loading }))
-  }, [])
+  const handleTasksLoadingChange = React.useCallback(() => {}, [])
 
   const dealsScope = React.useMemo(
     () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
@@ -748,12 +721,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               ) : null}
             </div>
             <div>
-              {activeTab !== 'notes' ? (
-                <SectionLoader
-                  isLoading={sectionPending[activeTab as SectionKey]}
-                  label={sectionLoaderLabel}
-                />
-              ) : null}
               {activeTab === 'notes' && (
                 <NotesSection
                   entityId={companyId}

@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import type { PluggableList } from 'unified'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
@@ -30,7 +31,6 @@ import {
   invalidateCustomerDictionary,
   useCustomerDictionary,
 } from './hooks/useCustomerDictionary'
-import { LoadingMessage } from './LoadingMessage'
 
 export type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
 
@@ -63,7 +63,7 @@ function MarkdownEditorFallback() {
   return (
     <LoadingMessage
       label={t('customers.people.detail.notes.editorLoading', 'Loading editor…')}
-      className="min-h-[200px]"
+      className="min-h-[200px] justify-center"
     />
   )
 }

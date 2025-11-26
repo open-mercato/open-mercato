@@ -14,6 +14,8 @@ import {
   SalesShippingMethod,
   SalesDeliveryWindow,
   SalesPaymentMethod,
+  SalesDocumentTag,
+  SalesDocumentTagAssignment,
   type SalesLineKind,
   type SalesAdjustmentKind,
 } from '../data/entities'
@@ -949,6 +951,54 @@ function ensureOrderScope(ctx: Parameters<typeof ensureTenantScope>[0], organiza
   ensureOrganizationScope(ctx, organizationId)
 }
 
+function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
+  if (!Array.isArray(tags)) return []
+  const set = new Set<string>()
+  tags.forEach((id) => {
+    if (typeof id === 'string' && id.trim().length > 0) set.add(id.trim())
+  })
+  return Array.from(set)
+}
+
+async function syncSalesDocumentTags(em: EntityManager, params: {
+  documentId: string
+  kind: SalesDocumentKind
+  organizationId: string
+  tenantId: string
+  tagIds?: Array<string | null | undefined> | null
+}) {
+  if (params.tagIds === undefined) return
+  const tagIds = normalizeTagIds(params.tagIds)
+  if (tagIds.length === 0) {
+    await em.nativeDelete(SalesDocumentTagAssignment, { documentId: params.documentId, documentKind: params.kind })
+    return
+  }
+  const tagsInScope = await em.find(SalesDocumentTag, {
+    id: { $in: tagIds },
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+  })
+  if (tagsInScope.length !== tagIds.length) {
+    throw new CrudHttpError(400, { error: 'One or more tags not found for this scope' })
+  }
+  const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]))
+  await em.nativeDelete(SalesDocumentTagAssignment, { documentId: params.documentId, documentKind: params.kind })
+  for (const tagId of tagIds) {
+    const tag = byId.get(tagId)
+    if (!tag) continue
+    const assignment = em.create(SalesDocumentTagAssignment, {
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
+      documentId: params.documentId,
+      documentKind: params.kind,
+      tag,
+      order: params.kind === 'order' ? em.getReference(SalesOrder, params.documentId) : null,
+      quote: params.kind === 'quote' ? em.getReference(SalesQuote, params.documentId) : null,
+    })
+    em.persist(assignment)
+  }
+}
+
 function applyQuoteSnapshot(quote: SalesQuote, snapshot: QuoteGraphSnapshot['quote']): void {
   quote.organizationId = snapshot.organizationId
   quote.tenantId = snapshot.tenantId
@@ -1481,6 +1531,13 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     await replaceQuoteLines(em, quote, calculation, lineInputs)
     await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs)
     applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
+    await syncSalesDocumentTags(em, {
+      documentId: quote.id,
+      kind: 'quote',
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      tagIds: parsed.tags,
+    })
     await em.flush()
 
     return { quoteId: quote.id }
@@ -1542,6 +1599,7 @@ const deleteQuoteCommand: CommandHandler<
     const quote = await em.findOne(SalesQuote, { id })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    await em.nativeDelete(SalesDocumentTagAssignment, { documentId: quote.id, documentKind: 'quote' })
     await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id })
     await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
     em.remove(quote)
@@ -1752,6 +1810,13 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     await replaceOrderLines(em, order, calculation, lineInputs)
     await replaceOrderAdjustments(em, order, calculation, adjustmentInputs)
     applyOrderTotals(order, calculation.totals, calculation.lines.length)
+    await syncSalesDocumentTags(em, {
+      documentId: order.id,
+      kind: 'order',
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      tagIds: parsed.tags,
+    })
     await em.flush()
 
     return { orderId: order.id }
@@ -1813,6 +1878,7 @@ const deleteOrderCommand: CommandHandler<
     const order = await em.findOne(SalesOrder, { id })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    await em.nativeDelete(SalesDocumentTagAssignment, { documentId: order.id, documentKind: 'order' })
     await em.nativeDelete(SalesOrderAdjustment, { order: order.id })
     await em.nativeDelete(SalesOrderLine, { order: order.id })
     em.remove(order)

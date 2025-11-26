@@ -30,25 +30,90 @@ type DocumentBinding = {
 
 const rawBodySchema = z.object({}).passthrough()
 
+const currencyCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}$/, { message: 'currency_code_invalid' })
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
     id: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+    channelId: z.string().uuid().optional(),
+    lineItemCountMin: z.coerce.number().min(0).optional(),
+    lineItemCountMax: z.coerce.number().min(0).optional(),
+    totalNetMin: z.coerce.number().optional(),
+    totalNetMax: z.coerce.number().optional(),
+    totalGrossMin: z.coerce.number().optional(),
+    totalGrossMax: z.coerce.number().optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+    tagIds: z.string().optional(),
+    tagIdsEmpty: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     withDeleted: z.coerce.boolean().optional(),
   })
   .passthrough()
 
-function buildFilters(query: z.infer<typeof listSchema>, numberColumn: string) {
+function buildFilters(query: z.infer<typeof listSchema>, numberColumn: string, kind: DocumentKind) {
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
     const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
     filters.$or = [{ [numberColumn]: { $ilike: term } }, { status: { $ilike: term } }]
   }
+  if (query.customerId) {
+    filters.customer_entity_id = { $eq: query.customerId }
+  }
+  if (query.channelId) {
+    filters.channel_id = { $eq: query.channelId }
+  }
+  const lineRange: Record<string, number> = {}
+  if (typeof query.lineItemCountMin === 'number') lineRange.$gte = query.lineItemCountMin
+  if (typeof query.lineItemCountMax === 'number') lineRange.$lte = query.lineItemCountMax
+  if (Object.keys(lineRange).length) {
+    filters.line_item_count = lineRange
+  }
+  const netRange: Record<string, number> = {}
+  if (typeof query.totalNetMin === 'number') netRange.$gte = query.totalNetMin
+  if (typeof query.totalNetMax === 'number') netRange.$lte = query.totalNetMax
+  if (Object.keys(netRange).length) {
+    filters.grand_total_net_amount = netRange
+  }
+  const grossRange: Record<string, number> = {}
+  if (typeof query.totalGrossMin === 'number') grossRange.$gte = query.totalGrossMin
+  if (typeof query.totalGrossMax === 'number') grossRange.$lte = query.totalGrossMax
+  if (Object.keys(grossRange).length) {
+    filters.grand_total_gross_amount = grossRange
+  }
+  const dateRange: Record<string, Date> = {}
+  if (query.dateFrom) {
+    const from = new Date(query.dateFrom)
+    if (!Number.isNaN(from.getTime())) dateRange.$gte = from
+  }
+  if (query.dateTo) {
+    const to = new Date(query.dateTo)
+    if (!Number.isNaN(to.getTime())) dateRange.$lte = to
+  }
+  if (Object.keys(dateRange).length) {
+    filters.created_at = dateRange
+  }
+  const tagIdsRaw = typeof query.tagIds === 'string' ? query.tagIds : ''
+  const tagIds = tagIdsRaw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+  if (query.tagIdsEmpty === 'true') {
+    filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
+  } else if (tagIds.length) {
+    filters['tag_assignments.tag_id'] = { $in: tagIds }
+  }
+  filters['tag_assignments.document_kind'] = { $eq: kind }
   return filters
 }
 
@@ -56,6 +121,10 @@ function buildSortMap(numberColumn: string) {
   return {
     id: 'id',
     number: numberColumn,
+    placedAt: 'placed_at',
+    lineItemCount: 'line_item_count',
+    grandTotalNetAmount: 'grand_total_net_amount',
+    grandTotalGrossAmount: 'grand_total_gross_amount',
     createdAt: 'created_at',
     updatedAt: 'updated_at',
   }
@@ -64,10 +133,15 @@ function buildSortMap(numberColumn: string) {
 export function createDocumentCrudRoute(binding: DocumentBinding) {
   const numberColumn = binding.numberField === 'orderNumber' ? 'order_number' : 'quote_number'
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
+  const updateSchema = z.object({
+    id: z.string().uuid(),
+    currencyCode: currencyCodeSchema,
+  })
 
   const routeMetadata = {
     GET: { requireAuth: true, requireFeatures: [binding.viewFeature] },
     POST: { requireAuth: true, requireFeatures: [binding.manageFeature] },
+    PUT: { requireAuth: true, requireFeatures: [binding.manageFeature] },
     DELETE: { requireAuth: true, requireFeatures: [binding.manageFeature] },
   }
 
@@ -97,17 +171,42 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         'customer_reference',
         'external_reference',
         'currency_code',
+        'comment',
         'channel_id',
         'placed_at',
+        'line_item_count',
+        'subtotal_net_amount',
+        'subtotal_gross_amount',
+        'tax_total_amount',
+        'grand_total_net_amount',
+        'grand_total_gross_amount',
         'organization_id',
         'tenant_id',
         'created_at',
         'updated_at',
+        ...(binding.kind === 'quote' ? ['valid_from', 'valid_until'] : []),
       ],
       sortFieldMap: buildSortMap(numberColumn),
-      buildFilters: async (query) => buildFilters(query, numberColumn),
+      buildFilters: async (query) => buildFilters(query, numberColumn, binding.kind),
       decorateCustomFields: { entityIds: [binding.entityId] },
+      joins: [
+        {
+          alias: 'tag_assignments',
+          table: 'sales_document_tag_assignments',
+          from: { field: 'id' },
+          to: { field: 'document_id' },
+          type: 'left',
+        },
+      ],
       transformItem: (item: any) => {
+        const toNumber = (value: unknown): number | null => {
+          if (typeof value === 'number') return Number.isNaN(value) ? null : value
+          if (typeof value === 'string' && value.trim().length) {
+            const parsed = Number(value)
+            return Number.isNaN(parsed) ? null : parsed
+          }
+          return null
+        }
         const base = {
           id: item.id,
           [binding.numberField]: item[numberColumn] ?? null,
@@ -121,6 +220,15 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
           externalReference: item.external_reference ?? null,
           customerReference: item.customer_reference ?? null,
           placedAt: item.placed_at ?? null,
+          comment: item.comment ?? null,
+          validFrom: item.valid_from ?? null,
+          validUntil: item.valid_until ?? null,
+          lineItemCount: toNumber(item.line_item_count),
+          subtotalNetAmount: toNumber(item.subtotal_net_amount),
+          subtotalGrossAmount: toNumber(item.subtotal_gross_amount),
+          taxTotalAmount: toNumber(item.tax_total_amount),
+          grandTotalNetAmount: toNumber(item.grand_total_net_amount),
+          grandTotalGrossAmount: toNumber(item.grand_total_gross_amount),
           customerSnapshot: item.customer_snapshot ?? null,
           billingAddressSnapshot: item.billing_address_snapshot ?? null,
           shippingAddressSnapshot: item.shipping_address_snapshot ?? null,
@@ -144,6 +252,17 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         response: ({ result }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
         status: 201,
       },
+      update: {
+        schema: updateSchema,
+        getId: (input) => input.id,
+        applyToEntity: (entity, input) => {
+          entity.currencyCode = input.currencyCode
+        },
+        response: (entity) => ({
+          id: entity.id,
+          currencyCode: entity.currencyCode ?? null,
+        }),
+      },
       delete: {
         commandId: binding.deleteCommandId,
         schema: rawBodySchema,
@@ -157,7 +276,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     },
   })
 
-  const { GET, POST, DELETE } = crud
+  const { GET, POST, PUT, DELETE } = crud
 
   const itemSchema = z.object({
     id: z.string().uuid(),
@@ -177,6 +296,14 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     channelId: z.string().uuid().nullable(),
     organizationId: z.string().uuid().nullable(),
     tenantId: z.string().uuid().nullable(),
+    validFrom: z.string().nullable().optional(),
+    validUntil: z.string().nullable().optional(),
+    lineItemCount: z.number().nullable().optional(),
+    subtotalNetAmount: z.number().nullable().optional(),
+    subtotalGrossAmount: z.number().nullable().optional(),
+    taxTotalAmount: z.number().nullable().optional(),
+    grandTotalNetAmount: z.number().nullable().optional(),
+    grandTotalGrossAmount: z.number().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),
@@ -200,5 +327,5 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     },
   })
 
-  return { GET, POST, DELETE, openApi, metadata: routeMetadata }
+  return { GET, POST, PUT, DELETE, openApi, metadata: routeMetadata }
 }

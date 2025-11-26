@@ -210,6 +210,9 @@
       "list": {
         "title": "Orders"
       },
+      "detail": {
+        "title": "Order details"
+      },
       "form": {
         "general": "General",
         "lines": "Line Items",
@@ -222,6 +225,9 @@
     "quotes": {
       "list": {
         "title": "Quotes"
+      },
+      "detail": {
+        "title": "Quote details"
       },
       "form": {
         "general": "General",
@@ -409,6 +415,48 @@
         "forbidden": "You do not have access to generate numbers.",
         "number_generate_failed": "Failed to generate document number."
       },
+      "list": {
+        "ordersTitle": "Sales orders",
+        "quotesTitle": "Sales quotes",
+        "subtitle": "Review documents with customer context, totals, and channels.",
+        "search": {
+          "orders": "Search orders…",
+          "quotes": "Search quotes…"
+        },
+        "filters": {
+          "channel": "Channel",
+          "date": "Date",
+          "itemsMin": "Min items",
+          "itemsMax": "Max items",
+          "totalNetMin": "Min total (net)",
+          "totalNetMax": "Max total (net)",
+          "totalGrossMin": "Min total (gross)",
+          "totalGrossMax": "Max total (gross)",
+          "customer": "Customer id",
+          "customerPlaceholder": "Customer id",
+          "tags": "Tags"
+        },
+        "errors": {
+          "load": "Failed to load documents."
+        },
+        "table": {
+          "order": "Order",
+          "quote": "Quote",
+          "customer": "Customer",
+          "noCustomer": "No customer",
+          "noEmail": "No email",
+          "channel": "Channel",
+          "unassigned": "Unassigned",
+          "items": "Items",
+          "totalNet": "Total (net)",
+          "totalGross": "Total (gross)",
+          "date": "Date",
+          "refresh": "Refresh",
+          "emptyOrders": "No orders yet.",
+          "emptyQuotes": "No quotes yet.",
+          "open": "Open"
+        }
+      },
       "create": {
         "title": "Create sales document"
       },
@@ -489,6 +537,7 @@
         "title": "Sales document",
         "error": "Document not found or inaccessible.",
         "loading": "Loading document…",
+        "retry": "Try again",
         "backToCreate": "Create a new document",
         "order": "Sales order",
         "quote": "Sales quote",
@@ -498,11 +547,16 @@
         "customer": "Customer",
         "customer.empty": "Not linked",
         "currency": "Currency",
+        "currencyInvalid": "Currency code must be 3 letters.",
+        "comment": "Comment",
+        "comment.placeholder": "Add comment",
         "shipping": "Shipping address",
         "billing": "Billing address",
         "timestamps": "Timestamps",
         "created": "Created",
-        "updated": "Updated"
+        "updated": "Updated",
+        "updatedMessage": "Document updated.",
+        "updateError": "Failed to update document."
       }
     },
     "order-statuses": {
@@ -533,6 +587,7 @@
   "sales.tax-rates.create": "Create tax rate",
   "sales.tax-rates.update": "Update tax rate",
   "sales.tax-rates.delete": "Delete tax rate",
+  "sales.quotes.create": "Create sales quote",
   "sales.audit.orders.create": "Create sales order",
   "sales.audit.orders.delete": "Delete sales order",
   "sales.audit.quotes.create": "Create sales quote",

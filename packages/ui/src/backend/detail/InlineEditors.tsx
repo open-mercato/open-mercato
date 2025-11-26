@@ -120,7 +120,7 @@ export function InlineTextEditor({
 
   return (
     <div className={containerClasses}>
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0" {...interactiveProps}>
           {hideLabel ? null : <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>}
           {editing ? (

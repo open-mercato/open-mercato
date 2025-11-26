@@ -8,6 +8,7 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -22,7 +23,6 @@ import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
 import { normalizeCustomFieldKey } from './customFieldUtils'
-import { LoadingMessage } from './LoadingMessage'
 
 const DEALS_PAGE_SIZE = 10
 
@@ -791,7 +791,7 @@ export function DealsSection({
       {isLoading && sortedDeals.length === 0 ? (
         <LoadingMessage
           label={t('customers.people.detail.deals.loading', 'Loading deals…')}
-          className="border-0 bg-transparent p-0 py-8"
+          className="border-0 bg-transparent p-0 py-8 justify-center"
         />
       ) : (
         <>
@@ -922,8 +922,7 @@ export function DealsSection({
               <div className="flex justify-center">
                 <LoadingMessage
                   label={t('customers.people.detail.deals.loading', 'Loading deals…')}
-                  className="border-0 bg-transparent p-0"
-                  iconClassName="h-5 w-5"
+                  className="border-0 bg-transparent p-0 justify-center [&_span[role='status']]:h-5 [&_span[role='status']]:w-5"
                 />
               </div>
             ) : null}

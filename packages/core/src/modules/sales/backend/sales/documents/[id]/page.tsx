@@ -3,17 +3,19 @@
 import * as React from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DetailFieldsSection, InlineSelectEditor, InlineTextEditor, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { DetailFieldsSection, ErrorMessage, InlineSelectEditor, InlineTextEditor, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Mail, Trash2, Wand2 } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
+import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
 type CustomerSnapshot = {
   customer?: {
@@ -60,17 +62,19 @@ type DocumentRecord = {
   customerName?: string | null
   contactEmail?: string | null
   channelCode?: string | null
+  comment?: string | null
   createdAt?: string
   updatedAt?: string
 }
 
-async function fetchDocument(id: string, kind: 'order' | 'quote'): Promise<DocumentRecord | null> {
+async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
   const params = new URLSearchParams({ id, page: '1', pageSize: '1' })
-  const call = await apiCall<{ items?: DocumentRecord[] }>(
-    `/api/sales/${kind === 'order' ? 'orders' : 'quotes'}?${params.toString()}`
+  const payload = await readApiResultOrThrow<{ items?: DocumentRecord[] }>(
+    `/api/sales/${kind === 'order' ? 'orders' : 'quotes'}?${params.toString()}`,
+    undefined,
+    { errorMessage }
   )
-  if (!call.ok) return null
-  const items = Array.isArray(call.result?.items) ? call.result?.items : []
+  const items = Array.isArray(payload?.items) ? payload.items : []
   return items.length ? (items[0] as DocumentRecord) : null
 }
 
@@ -130,7 +134,13 @@ function SectionCard({
   )
 }
 
-export default function SalesDocumentDetailPage({ params }: { params: { id: string } }) {
+export default function SalesDocumentDetailPage({
+  params,
+  initialKind,
+}: {
+  params: { id: string }
+  initialKind?: 'order' | 'quote'
+}) {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -138,10 +148,24 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
   const [error, setError] = React.useState<string | null>(null)
+  const [reloadKey, setReloadKey] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'comments' | 'addresses' | 'items' | 'shipments' | 'payments' | 'adjustments'>('comments')
   const [generating, setGenerating] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [numberEditing, setNumberEditing] = React.useState(false)
+  const { data: currencyDictionary } = useCurrencyDictionary()
+
+  const loadErrorMessage = React.useMemo(
+    () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
+    [t]
+  )
+
+  const fetchDocumentByKind = React.useCallback(
+    async (documentId: string, candidateKind: 'order' | 'quote') => {
+      return fetchDocument(documentId, candidateKind, loadErrorMessage)
+    },
+    [loadErrorMessage]
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -149,13 +173,14 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
       setLoading(true)
       setError(null)
       const requestedKind = searchParams.get('kind')
-      const preferredKind = requestedKind === 'order' ? 'order' : requestedKind === 'quote' ? 'quote' : null
+      const preferredKind = requestedKind === 'order' ? 'order' : requestedKind === 'quote' ? 'quote' : initialKind ?? null
       const kindsToTry: Array<'order' | 'quote'> = preferredKind
         ? [preferredKind, preferredKind === 'order' ? 'quote' : 'order']
         : ['quote', 'order']
+      let lastError: string | null = null
       for (const candidate of kindsToTry) {
         try {
-          const entry = await fetchDocument(params.id, candidate)
+          const entry = await fetchDocumentByKind(params.id, candidate)
           if (entry && !cancelled) {
             setRecord(entry)
             setKind(candidate)
@@ -163,17 +188,27 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
             return
           }
         } catch (err) {
-          console.error('sales.documents.detail.load', err)
+          const message = err instanceof Error && err.message ? err.message : loadErrorMessage
+          lastError = message
         }
       }
       if (!cancelled) {
         setLoading(false)
-        setError(t('sales.documents.detail.error', 'Document not found or inaccessible.'))
+        setError(lastError ?? loadErrorMessage)
       }
     }
-    load().catch(() => {})
+    load().catch((err) => {
+      if (cancelled) return
+      const message = err instanceof Error && err.message ? err.message : loadErrorMessage
+      setError(message)
+      setLoading(false)
+    })
     return () => { cancelled = true }
-  }, [params.id, searchParams, t])
+  }, [fetchDocumentByKind, initialKind, loadErrorMessage, params.id, reloadKey, searchParams])
+
+  const handleRetry = React.useCallback(() => {
+    setReloadKey((prev) => prev + 1)
+  }, [])
 
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
@@ -181,6 +216,66 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
+  const currencyEntries = React.useMemo(() => {
+    const entries = Array.isArray(currencyDictionary?.entries) ? currencyDictionary.entries : []
+    return entries.map((entry) => ({
+      value: entry.value.toUpperCase(),
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
+    }))
+  }, [currencyDictionary?.entries])
+  const currencyMap = React.useMemo(() => {
+    const map = new Map<string, { label: string; color: string | null; icon: string | null }>()
+    currencyEntries.forEach((entry) => {
+      map.set(entry.value, { label: entry.label, color: entry.color, icon: entry.icon })
+    })
+    return map
+  }, [currencyEntries])
+  const currencyOptions = React.useMemo(() => {
+    const set = new Map<string, { value: string; label: string }>()
+    currencyEntries.forEach((entry) => {
+      set.set(entry.value, { value: entry.value, label: entry.label })
+    })
+    const currentCode = typeof record?.currencyCode === 'string' ? record.currencyCode.toUpperCase() : null
+    if (currentCode && !set.has(currentCode)) {
+      set.set(currentCode, { value: currentCode, label: currentCode })
+    }
+    return Array.from(set.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+  }, [currencyEntries, record?.currencyCode])
+
+  const handleUpdateCurrency = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
+      const normalized = typeof next === 'string' ? next.trim().toUpperCase() : ''
+      if (!/^[A-Z]{3}$/.test(normalized)) {
+        const message = t('sales.documents.detail.currencyInvalid', 'Currency code must be 3 letters.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
+      try {
+        const call = await apiCallOrThrow<{ currencyCode?: string }>(
+          endpoint,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id, currencyCode: normalized }),
+          },
+          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        )
+        const savedCode = call.result?.currencyCode ?? normalized
+        setRecord((prev) => (prev ? { ...prev, currencyCode: savedCode } : prev))
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+        return savedCode
+      } catch (err) {
+        const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [kind, record, t]
+  )
 
   const handleGenerateNumber = React.useCallback(async () => {
     setGenerating(true)
@@ -245,12 +340,12 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
         },
       },
       {
-        key: 'currency',
+        key: 'comment',
         kind: 'text' as const,
-        label: t('sales.documents.detail.currency', 'Currency'),
+        label: t('sales.documents.detail.comment', 'Comment'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
-        placeholder: 'USD',
-        value: record?.currencyCode ?? null,
+        placeholder: t('sales.documents.detail.comment.placeholder', 'Add comment'),
+        value: record?.comment ?? null,
         onSave: async () => {
           flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')
         },
@@ -274,7 +369,15 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     ]
   }, [record?.createdAt, record?.currencyCode, record?.customerEntityId, record?.updatedAt, t])
 
-  const summaryCards = [
+  const summaryCards: Array<{
+    key: 'email' | 'channel' | 'status' | 'currency'
+    title: string
+    value: string | null | undefined
+    placeholder?: string
+    emptyLabel?: string
+    type?: 'email'
+    containerClassName?: string
+  }> = [
     {
       key: 'email',
       title: t('sales.documents.detail.email', 'Primary email'),
@@ -294,9 +397,10 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
       value: record?.status ?? null,
     },
     {
-      key: 'date',
-      title: t('sales.documents.detail.date', 'Date'),
-      value: record?.placedAt ?? record?.createdAt ?? null,
+      key: 'currency',
+      title: t('sales.documents.detail.currency', 'Currency'),
+      value: record?.currencyCode ?? null,
+      containerClassName: 'md:col-start-4 md:row-start-1',
     },
   ]
 
@@ -377,9 +481,11 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <Spinner className="h-6 w-6" />
-            <span>{t('sales.documents.detail.loading', 'Loading document…')}</span>
+          <div className="flex h-[50vh] items-center justify-center">
+            <LoadingMessage
+              label={t('sales.documents.detail.loading', 'Loading document…')}
+              className="min-w-[280px] justify-center text-base"
+            />
           </div>
         </PageBody>
       </Page>
@@ -390,12 +496,23 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
     return (
       <Page>
         <PageBody>
-          <div className="space-y-3">
-            <p className="text-sm text-destructive">{error}</p>
-            <Button variant="outline" onClick={() => router.push('/backend/sales/documents/create')}>
-              {t('sales.documents.detail.backToCreate', 'Create a new document')}
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error}
+            action={
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => handleRetry()}>
+                  {t('sales.documents.detail.retry', 'Try again')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => router.push('/backend/sales/documents/create')}
+                >
+                  {t('sales.documents.detail.backToCreate', 'Create a new document')}
+                </Button>
+              </div>
+            }
+          />
         </PageBody>
       </Page>
     )
@@ -475,15 +592,37 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
           </div>
         </div>
 
-        <DocumentCustomerCard
-          label={undefined}
-          name={customerName}
-          email={contactEmail ?? undefined}
-          kind={customerProvided ? 'company' : 'company'}
-          onEdit={() => flash(t('sales.documents.detail.saveStub', 'Assigning customers will land soon.'), 'info')}
-        />
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="md:col-span-3">
+            <DocumentCustomerCard
+              label={undefined}
+              name={customerName}
+              email={contactEmail ?? undefined}
+              kind={customerProvided ? 'company' : 'company'}
+              className="h-full"
+              onEdit={() => flash(t('sales.documents.detail.saveStub', 'Assigning customers will land soon.'), 'info')}
+            />
+          </div>
+          <InlineTextEditor
+            key="date"
+            label={t('sales.documents.detail.date', 'Date')}
+            value={record?.placedAt ?? record?.createdAt ?? null}
+            emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+            onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
+            inputType="date"
+            activateOnClick
+            containerClassName="h-full"
+            renderDisplay={({ value, emptyLabel }) =>
+              value && value.length ? (
+                <span className="text-sm text-foreground">{value}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+              )
+            }
+          />
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-4">
           {summaryCards.map((card) => {
             if (card.key === 'channel') {
               return (
@@ -499,6 +638,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                     { value: 'pos', label: t('sales.documents.detail.channel.pos', 'POS') },
                   ]}
                   activateOnClick
+                  containerClassName={card.containerClassName}
                 />
               )
             }
@@ -517,6 +657,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                     { value: 'completed', label: t('sales.documents.detail.status.completed', 'Completed') },
                   ]}
                   activateOnClick
+                  containerClassName={card.containerClassName}
                 />
               )
             }
@@ -530,6 +671,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                   onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
                   inputType="date"
                   activateOnClick
+                  containerClassName={card.containerClassName}
                   renderDisplay={({ value, emptyLabel }) =>
                     value && value.length ? (
                       <span className="text-sm text-foreground">{value}</span>
@@ -537,6 +679,34 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                       <span className="text-sm text-muted-foreground">{emptyLabel}</span>
                     )
                   }
+                />
+              )
+            }
+            if (card.key === 'currency') {
+              return (
+                <InlineSelectEditor
+                  key={card.key}
+                  label={card.title}
+                  value={card.value ? card.value.toUpperCase() : null}
+                  emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
+                  onSave={handleUpdateCurrency}
+                  options={currencyOptions}
+                  activateOnClick
+                  containerClassName={card.containerClassName}
+                  renderDisplay={({ value, emptyLabel }) => {
+                    const normalized = typeof value === 'string' ? value.toUpperCase() : ''
+                    const entry = normalized ? currencyMap.get(normalized) : null
+                    if (!entry) {
+                      return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+                    }
+                    return (
+                      <span className="inline-flex items-center gap-2 text-sm text-foreground">
+                        {renderDictionaryIcon(entry.icon, 'h-4 w-4')}
+                        <span className="font-medium">{entry.label}</span>
+                        {renderDictionaryColor(entry.color, 'h-2.5 w-2.5 rounded-full border border-border')}
+                      </span>
+                    )
+                  }}
                 />
               )
             }
@@ -550,6 +720,7 @@ export default function SalesDocumentDetailPage({ params }: { params: { id: stri
                 onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
                 inputType={card.type === 'email' ? 'email' : 'text'}
                 activateOnClick
+                containerClassName={card.containerClassName}
                 renderDisplay={(params) =>
                   card.key === 'email'
                     ? renderEmailDisplay(params)

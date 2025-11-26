@@ -209,6 +209,9 @@
       "list": {
         "title": "Aufträge"
       },
+      "detail": {
+        "title": "Auftragsdetails"
+      },
       "form": {
         "general": "Allgemein",
         "lines": "Positionen",
@@ -221,6 +224,9 @@
     "quotes": {
       "list": {
         "title": "Angebote"
+      },
+      "detail": {
+        "title": "Angebotsdetails"
       },
       "form": {
         "general": "Allgemein",
@@ -369,6 +375,48 @@
     }
     ,
     "documents": {
+      "list": {
+        "ordersTitle": "Sales orders",
+        "quotesTitle": "Sales quotes",
+        "subtitle": "Review documents with customer context, totals, and channels.",
+        "search": {
+          "orders": "Search orders…",
+          "quotes": "Search quotes…"
+        },
+        "filters": {
+          "channel": "Channel",
+          "date": "Date",
+          "itemsMin": "Min items",
+          "itemsMax": "Max items",
+          "totalNetMin": "Min total (net)",
+          "totalNetMax": "Max total (net)",
+          "totalGrossMin": "Min total (gross)",
+          "totalGrossMax": "Max total (gross)",
+          "customer": "Customer id",
+          "customerPlaceholder": "Customer id",
+          "tags": "Tags"
+        },
+        "errors": {
+          "load": "Failed to load documents."
+        },
+        "table": {
+          "order": "Order",
+          "quote": "Quote",
+          "customer": "Customer",
+          "noCustomer": "No customer",
+          "noEmail": "No email",
+          "channel": "Channel",
+          "unassigned": "Unassigned",
+          "items": "Items",
+          "totalNet": "Total (net)",
+          "totalGross": "Total (gross)",
+          "date": "Date",
+          "refresh": "Refresh",
+          "emptyOrders": "No orders yet.",
+          "emptyQuotes": "No quotes yet.",
+          "open": "Open"
+        }
+      },
       "create": {
         "title": "Verkaufsdokument erstellen"
       },
@@ -442,6 +490,7 @@
         "title": "Verkaufsdokument",
         "error": "Dokument nicht gefunden oder kein Zugriff.",
         "loading": "Dokument wird geladen…",
+        "retry": "Erneut versuchen",
         "backToCreate": "Neues Dokument erstellen",
         "order": "Bestellung",
         "quote": "Angebot",
@@ -451,11 +500,16 @@
         "customer": "Kunde",
         "customer.empty": "Nicht verknüpft",
         "currency": "Währung",
+        "currencyInvalid": "Der Währungscode muss aus 3 Buchstaben bestehen.",
+        "comment": "Kommentar",
+        "comment.placeholder": "Kommentar hinzufügen",
         "shipping": "Lieferadresse",
         "billing": "Rechnungsadresse",
         "timestamps": "Zeitpunkte",
         "created": "Erstellt",
-        "updated": "Aktualisiert"
+        "updated": "Aktualisiert",
+        "updatedMessage": "Dokument aktualisiert.",
+        "updateError": "Dokument konnte nicht aktualisiert werden."
       }
     }
   },
@@ -470,6 +524,7 @@
   "sales.tax-rates.create": "Steuersatz erstellen",
   "sales.tax-rates.update": "Steuersatz aktualisieren",
   "sales.tax-rates.delete": "Steuersatz löschen",
+  "sales.quotes.create": "Angebot erstellen",
   "sales.audit.orders.create": "Bestellung erstellen",
   "sales.audit.orders.delete": "Bestellung löschen",
   "sales.audit.quotes.create": "Angebot erstellen",

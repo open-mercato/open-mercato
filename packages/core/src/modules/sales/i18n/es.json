@@ -210,6 +210,9 @@
       "list": {
         "title": "Pedidos"
       },
+      "detail": {
+        "title": "Detalles del pedido"
+      },
       "form": {
         "general": "General",
         "lines": "Líneas",
@@ -222,6 +225,9 @@
     "quotes": {
       "list": {
         "title": "Cotizaciones"
+      },
+      "detail": {
+        "title": "Detalles de la cotización"
       },
       "form": {
         "general": "General",
@@ -370,6 +376,48 @@
     }
     ,
     "documents": {
+      "list": {
+        "ordersTitle": "Sales orders",
+        "quotesTitle": "Sales quotes",
+        "subtitle": "Review documents with customer context, totals, and channels.",
+        "search": {
+          "orders": "Search orders…",
+          "quotes": "Search quotes…"
+        },
+        "filters": {
+          "channel": "Channel",
+          "date": "Date",
+          "itemsMin": "Min items",
+          "itemsMax": "Max items",
+          "totalNetMin": "Min total (net)",
+          "totalNetMax": "Max total (net)",
+          "totalGrossMin": "Min total (gross)",
+          "totalGrossMax": "Max total (gross)",
+          "customer": "Customer id",
+          "customerPlaceholder": "Customer id",
+          "tags": "Tags"
+        },
+        "errors": {
+          "load": "Failed to load documents."
+        },
+        "table": {
+          "order": "Order",
+          "quote": "Quote",
+          "customer": "Customer",
+          "noCustomer": "No customer",
+          "noEmail": "No email",
+          "channel": "Channel",
+          "unassigned": "Unassigned",
+          "items": "Items",
+          "totalNet": "Total (net)",
+          "totalGross": "Total (gross)",
+          "date": "Date",
+          "refresh": "Refresh",
+          "emptyOrders": "No orders yet.",
+          "emptyQuotes": "No quotes yet.",
+          "open": "Open"
+        }
+      },
       "create": {
         "title": "Crear documento de ventas"
       },
@@ -443,6 +491,7 @@
         "title": "Documento de ventas",
         "error": "Documento no encontrado o sin acceso.",
         "loading": "Cargando documento…",
+        "retry": "Intentar de nuevo",
         "backToCreate": "Crear un nuevo documento",
         "order": "Pedido",
         "quote": "Cotización",
@@ -452,11 +501,16 @@
         "customer": "Cliente",
         "customer.empty": "Sin enlace",
         "currency": "Moneda",
+        "currencyInvalid": "El código de moneda debe tener 3 letras.",
+        "comment": "Comentario",
+        "comment.placeholder": "Agregar comentario",
         "shipping": "Dirección de envío",
         "billing": "Dirección de facturación",
         "timestamps": "Fechas",
         "created": "Creado",
-        "updated": "Actualizado"
+        "updated": "Actualizado",
+        "updatedMessage": "Documento actualizado.",
+        "updateError": "No se pudo actualizar el documento."
       }
     }
   },
@@ -471,6 +525,7 @@
   "sales.tax-rates.create": "Crear tipo de impuesto",
   "sales.tax-rates.update": "Actualizar tipo de impuesto",
   "sales.tax-rates.delete": "Eliminar tipo de impuesto",
+  "sales.quotes.create": "Crear cotización",
   "sales.audit.orders.create": "Crear pedido de ventas",
   "sales.audit.orders.delete": "Eliminar pedido de ventas",
   "sales.audit.quotes.create": "Crear cotización",

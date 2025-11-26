@@ -14,7 +14,6 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { NotesSection } from '../../../../components/detail/NotesSection'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
-import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
 import type { SectionAction } from '../../../../components/detail/types'
 import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
@@ -53,13 +52,6 @@ type DealDetailPayload = {
     name?: string | null
     email?: string | null
   } | null
-}
-
-type SectionLoaderProps = { isLoading: boolean; label?: string }
-
-function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
-  if (!isLoading) return null
-  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
 }
 
 const CRUD_FOCUSABLE_SELECTOR =
@@ -111,17 +103,9 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'notes' | 'activities'>('notes')
-  const [sectionPending, setSectionPending] = React.useState<{ notes: boolean; activities: boolean }>({
-    notes: false,
-    activities: false,
-  })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
-  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, notes: loading }))
-  }, [])
-  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, activities: loading }))
-  }, [])
+  const handleNotesLoadingChange = React.useCallback(() => {}, [])
+  const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
   const focusDealField = React.useCallback(
     (fieldId: 'title' | 'personIds' | 'companyIds') => {
       if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -342,11 +326,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [t],
   )
 
-  const isActivitiesTab = activeTab === 'activities'
-  const sectionLoaderLabel = isActivitiesTab
-    ? t('customers.deals.detail.activitiesLoading', 'Loading activities…')
-    : t('customers.deals.detail.notesLoading', 'Loading notes…')
-
   if (isLoading) {
     return (
       <Page>
@@ -522,12 +501,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     </Button>
                   ) : null}
                 </div>
-                {isActivitiesTab ? (
-                  <SectionLoader
-                    isLoading={sectionPending.activities}
-                    label={sectionLoaderLabel}
-                  />
-                ) : null}
                 {activeTab === 'notes' ? (
                   <NotesSection
                     entityId={null}

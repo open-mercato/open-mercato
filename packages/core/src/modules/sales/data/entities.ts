@@ -537,6 +537,9 @@ export class SalesOrder {
 
   @OneToMany(() => SalesNote, (note) => note.order)
   notes = new Collection<SalesNote>(this)
+
+  @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.order)
+  tagAssignments = new Collection<SalesDocumentTagAssignment>(this)
 }
 
 @Entity({ tableName: 'sales_order_lines' })
@@ -942,6 +945,9 @@ export class SalesQuote {
 
   @OneToMany(() => SalesNote, (note) => note.quote)
   notes = new Collection<SalesNote>(this)
+
+  @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.quote)
+  tagAssignments = new Collection<SalesDocumentTagAssignment>(this)
 }
 
 @Entity({ tableName: 'sales_quote_lines' })
@@ -1611,6 +1617,79 @@ export class SalesNote {
 
   @Property({ name: 'body', type: 'text' })
   body!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_document_tags' })
+@Index({ name: 'sales_document_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'sales_document_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class SalesDocumentTag {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text', nullable: true })
+  color?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.tag)
+  assignments = new Collection<SalesDocumentTagAssignment>(this)
+}
+
+@Entity({ tableName: 'sales_document_tag_assignments' })
+@Index({ name: 'sales_document_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'sales_document_tag_assignments_unique',
+  properties: ['tag', 'documentId', 'documentKind'],
+})
+export class SalesDocumentTagAssignment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => SalesDocumentTag, { fieldName: 'tag_id' })
+  tag!: SalesDocumentTag
+
+  @Property({ name: 'document_id', type: 'uuid' })
+  documentId!: string
+
+  @Property({ name: 'document_kind', type: 'text' })
+  documentKind!: SalesDocumentKind
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id', nullable: true })
+  order?: SalesOrder | null
+
+  @ManyToOne(() => SalesQuote, { fieldName: 'quote_id', nullable: true })
+  quote?: SalesQuote | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -35,7 +35,6 @@ import {
   InlineDictionaryEditor,
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type {
   ActivitySummary,
@@ -97,21 +96,6 @@ type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
 
-
-type SectionLoaderProps = { isLoading: boolean; label?: string }
-
-function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
-  if (!isLoading) return null
-  return (
-    <div className="flex justify-center">
-      <LoadingMessage
-        label={label}
-        className="mb-4 mt-4 min-h-[160px] w-full justify-center border-0 bg-transparent p-0"
-      />
-    </div>
-  )
-}
-
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -129,21 +113,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
-  const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
-    notes: false,
-    activities: false,
-    deals: false,
-    addresses: false,
-    tasks: false,
-  })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
-  const sectionLoaderLabel =
-    activeTab === 'activities'
-      ? t('customers.people.detail.activities.loading', 'Loading activities…')
-      : activeTab === 'deals'
-        ? t('customers.people.detail.deals.loading', 'Loading deals…')
-        : t('customers.people.detail.sectionLoading', 'Loading…')
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -225,25 +196,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         : [],
     [data?.deals],
   )
-  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, notes: loading }))
-  }, [])
+  const handleNotesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, activities: loading }))
-  }, [])
+  const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleDealsLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, deals: loading }))
-  }, [])
+  const handleDealsLoadingChange = React.useCallback(() => {}, [])
 
-  const handleAddressesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, addresses: loading }))
-  }, [])
+  const handleAddressesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleTasksLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, tasks: loading }))
-  }, [])
+  const handleTasksLoadingChange = React.useCallback(() => {}, [])
 
   React.useEffect(() => {
     if (!id) {
@@ -742,12 +703,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              {activeTab !== 'notes' ? (
-                <SectionLoader
-                  isLoading={sectionPending[activeTab as SectionKey]}
-                  label={sectionLoaderLabel}
-                />
-              ) : null}
               {activeTab === 'notes' && (
                 <NotesSection
                   entityId={personId}
