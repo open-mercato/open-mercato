@@ -556,7 +556,28 @@
         "created": "Erstellt",
         "updated": "Aktualisiert",
         "updatedMessage": "Dokument aktualisiert.",
-        "updateError": "Dokument konnte nicht aktualisiert werden."
+        "updateError": "Dokument konnte nicht aktualisiert werden.",
+        "inline": {
+          "save": "Speichern (Strg/Cmd + Enter)"
+        },
+        "status": {
+          "placeholder": "Status auswählen",
+          "dialogTitle": "Status hinzufügen",
+          "valueLabel": "Wert",
+          "valuePlaceholder": "z. B. bestätigt",
+          "labelLabel": "Bezeichnung",
+          "labelPlaceholder": "Anzeigename",
+          "emptyError": "Statuswert ist erforderlich.",
+          "cancel": "Abbrechen",
+          "save": "Speichern",
+          "created": "Status gespeichert.",
+          "errorLoad": "Status konnten nicht geladen werden.",
+          "errorSave": "Status konnte nicht gespeichert werden.",
+          "loading": "Lade Status…",
+          "manage": "Status verwalten"
+        },
+        "statusInvalid": "Ausgewählter Status wurde nicht gefunden.",
+        "channelInvalid": "Ausgewählter Kanal wurde nicht gefunden."
       }
     }
   },

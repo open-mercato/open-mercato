@@ -557,7 +557,28 @@
         "created": "Creado",
         "updated": "Actualizado",
         "updatedMessage": "Documento actualizado.",
-        "updateError": "No se pudo actualizar el documento."
+        "updateError": "No se pudo actualizar el documento.",
+        "inline": {
+          "save": "Guardar (Ctrl/Cmd + Enter)"
+        },
+        "status": {
+          "placeholder": "Seleccionar estado",
+          "dialogTitle": "Añadir estado",
+          "valueLabel": "Valor",
+          "valuePlaceholder": "p. ej. confirmado",
+          "labelLabel": "Etiqueta",
+          "labelPlaceholder": "Etiqueta visible",
+          "emptyError": "El valor de estado es obligatorio.",
+          "cancel": "Cancelar",
+          "save": "Guardar",
+          "created": "Estado guardado.",
+          "errorLoad": "No se pudieron cargar los estados.",
+          "errorSave": "No se pudo guardar el estado.",
+          "loading": "Cargando estados…",
+          "manage": "Gestionar estados"
+        },
+        "statusInvalid": "El estado seleccionado no se encontró.",
+        "channelInvalid": "No se pudo encontrar el canal seleccionado."
       }
     }
   },

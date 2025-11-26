@@ -64,6 +64,10 @@ jest.mock('@tanstack/react-query', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useT: () => (key: string, fallback?: string) => fallback ?? key,
+}))
+
 jest.mock('../../../backend/hooks/useEmailDuplicateCheck', () => ({
   useEmailDuplicateCheck: () => ({ duplicate: null, checking: false }),
 }))

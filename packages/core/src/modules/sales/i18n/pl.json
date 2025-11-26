@@ -604,7 +604,28 @@
         "created": "Utworzono",
         "updated": "Zaktualizowano",
         "updatedMessage": "Dokument zaktualizowany.",
-        "updateError": "Nie udało się zaktualizować dokumentu."
+        "updateError": "Nie udało się zaktualizować dokumentu.",
+        "inline": {
+          "save": "Zapisz (Ctrl/Cmd + Enter)"
+        },
+        "status": {
+          "placeholder": "Wybierz status",
+          "dialogTitle": "Dodaj status",
+          "valueLabel": "Wartość",
+          "valuePlaceholder": "np. potwierdzony",
+          "labelLabel": "Etykieta",
+          "labelPlaceholder": "Etykieta wyświetlana",
+          "emptyError": "Wartość statusu jest wymagana.",
+          "cancel": "Anuluj",
+          "save": "Zapisz",
+          "created": "Status zapisany.",
+          "errorLoad": "Nie udało się wczytać statusów.",
+          "errorSave": "Nie udało się zapisać statusu.",
+          "loading": "Ładowanie statusów…",
+          "manage": "Zarządzaj statusami"
+        },
+        "statusInvalid": "Wybrany status nie został znaleziony.",
+        "channelInvalid": "Nie znaleziono wybranego kanału."
       }
     }
   },

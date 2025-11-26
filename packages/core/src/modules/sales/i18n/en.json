@@ -603,7 +603,28 @@
         "created": "Created",
         "updated": "Updated",
         "updatedMessage": "Document updated.",
-        "updateError": "Failed to update document."
+        "updateError": "Failed to update document.",
+        "inline": {
+          "save": "Save (Ctrl/Cmd + Enter)"
+        },
+        "status": {
+          "placeholder": "Select status",
+          "dialogTitle": "Add status",
+          "valueLabel": "Value",
+          "valuePlaceholder": "e.g. confirmed",
+          "labelLabel": "Label",
+          "labelPlaceholder": "Display label",
+          "emptyError": "Status value is required.",
+          "cancel": "Cancel",
+          "save": "Save",
+          "created": "Status saved.",
+          "errorLoad": "Failed to load statuses.",
+          "errorSave": "Failed to save status.",
+          "loading": "Loading statuses…",
+          "manage": "Manage statuses"
+        },
+        "statusInvalid": "Selected status could not be found.",
+        "channelInvalid": "Selected channel could not be found."
       }
     },
     "order-statuses": {

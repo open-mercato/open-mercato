@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DetailFieldsSection, ErrorMessage, InlineSelectEditor, InlineTextEditor, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { DetailFieldsSection, ErrorMessage, InlineTextEditor, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -18,7 +18,7 @@ import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/component
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDictionaryIcon, type DictionaryMap } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
@@ -394,11 +394,25 @@ type CustomerOption = {
   primaryEmail?: string | null
 }
 
+type ChannelOption = {
+  id: string
+  label: string
+}
+
+type StatusOption = {
+  id: string
+  value: string
+  label: string
+  color: string | null
+  icon: string | null
+}
+
 type DocumentRecord = {
   id: string
   orderNumber?: string | null
   quoteNumber?: string | null
   status?: string | null
+  statusEntryId?: string | null
   currencyCode?: string | null
   customerEntityId?: string | null
   billingAddressId?: string | null
@@ -422,6 +436,9 @@ type DocumentRecord = {
 type DocumentUpdateResult = {
   currencyCode?: string | null
   placedAt?: string | null
+  statusEntryId?: string | null
+  status?: string | null
+  channelId?: string | null
   shippingAddressId?: string | null
   billingAddressId?: string | null
   shippingAddressSnapshot?: Record<string, unknown> | null
@@ -687,6 +704,354 @@ function ContactEmailInlineEditor({
   )
 }
 
+function ChannelInlineEditor({
+  label,
+  value,
+  emptyLabel,
+  options,
+  loading,
+  onLoadOptions,
+  onSave,
+  saveLabel,
+}: {
+  label: string
+  value: string | null | undefined
+  emptyLabel: string
+  options: ChannelOption[]
+  loading: boolean
+  onLoadOptions: (query?: string) => Promise<ChannelOption[]>
+  onSave: (next: string | null) => Promise<void>
+  saveLabel: string
+}) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<string | null>(value ?? null)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value ?? null)
+      setError(null)
+    }
+  }, [editing, value])
+
+  const current = React.useMemo(
+    () => (draft ?? value ? options.find((opt) => opt.id === (draft ?? value)) ?? null : null),
+    [draft, options, value]
+  )
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) {
+      setEditing(true)
+      void onLoadOptions()
+    }
+  }, [editing, onLoadOptions])
+
+  const handleSave = React.useCallback(async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(draft ?? null)
+      setEditing(false)
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
+      setError(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, t])
+
+  return (
+    <div
+      className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}
+      role={!editing ? 'button' : undefined}
+      tabIndex={!editing ? 0 : undefined}
+      onClick={handleActivate}
+      onKeyDown={(event) => {
+        if (editing) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleActivate()
+        }
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div
+              className="mt-2 space-y-2"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  setDraft(value ?? null)
+                  setError(null)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) void handleSave()
+                }
+              }}
+            >
+              <LookupSelect
+                value={draft}
+                onChange={setDraft}
+                fetchItems={async (query) => {
+                  const items = await onLoadOptions(query)
+                  return items.map<LookupSelectItem>((item) => ({
+                    id: item.id,
+                    title: item.label,
+                  }))
+                }}
+                searchPlaceholder={t('sales.documents.form.channel.placeholder', 'Select a channel')}
+                loadingLabel={t('sales.documents.form.channel.loading', 'Loading channels…')}
+                emptyLabel={t('sales.documents.form.channel.empty', 'No channels found.')}
+                selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
+              />
+              {loading ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Spinner className="h-3.5 w-3.5 animate-spin" />
+                  {t('sales.documents.form.channel.loading', 'Loading channels…')}
+                </p>
+              ) : null}
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saveLabel}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditing(false)
+                    setDraft(value ?? null)
+                    setError(null)
+                  }}
+                  disabled={saving}
+                >
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 text-sm text-foreground">
+              {current ? (
+                <span className="text-sm">{current.label}</span>
+              ) : value ? (
+                <span className="text-sm">{value}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (editing) {
+              setDraft(value ?? null)
+              setError(null)
+            }
+            setEditing((prev) => !prev)
+            void onLoadOptions()
+          }}
+          aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
+        >
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function StatusInlineEditor({
+  label,
+  value,
+  emptyLabel,
+  options,
+  onSave,
+  onLoadOptions,
+  labels,
+  manageHref,
+  loading,
+  saveLabel,
+  dictionaryMap,
+}: {
+  label: string
+  value: string | null | undefined
+  emptyLabel: string
+  options: StatusOption[]
+  onSave: (entryId: string | null, value: string | null) => Promise<void>
+  onLoadOptions: () => Promise<StatusOption[]>
+  labels: DictionarySelectLabels
+  manageHref?: string
+  loading: boolean
+  saveLabel: string
+  dictionaryMap: DictionaryMap
+}) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value ?? undefined)
+      setError(null)
+    }
+  }, [editing, value])
+
+  const handleSave = React.useCallback(async () => {
+    const selected = draft ? options.find((opt) => opt.value === draft) ?? null : null
+    if (draft && !selected) {
+      setError(t('sales.documents.detail.statusInvalid', 'Selected status could not be found.'))
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(selected?.id ?? null, draft ?? null)
+      setEditing(false)
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
+      setError(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, options, t])
+
+  return (
+    <div
+      className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}
+      role={!editing ? 'button' : undefined}
+      tabIndex={!editing ? 0 : undefined}
+      onClick={() => {
+        if (!editing) {
+          setEditing(true)
+          void onLoadOptions()
+        }
+      }}
+      onKeyDown={(event) => {
+        if (editing) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          setEditing(true)
+          void onLoadOptions()
+        }
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div
+              className="mt-2 space-y-2"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  setDraft(value ?? undefined)
+                  setError(null)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) void handleSave()
+                }
+              }}
+            >
+              <DictionaryEntrySelect
+                value={draft}
+                onChange={(next) => setDraft(next ?? undefined)}
+                fetchOptions={async () =>
+                  (await onLoadOptions()).map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                    color: option.color,
+                    icon: option.icon,
+                  }))
+                }
+                allowInlineCreate={false}
+                allowAppearance
+                manageHref={manageHref}
+                labels={labels}
+              />
+              {loading ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Spinner className="h-3.5 w-3.5 animate-spin" />
+                  {labels.loadingLabel}
+                </p>
+              ) : null}
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saveLabel}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditing(false)
+                    setDraft(value ?? undefined)
+                    setError(null)
+                  }}
+                  disabled={saving}
+                >
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 text-sm">
+              <DictionaryValue
+                value={value}
+                map={dictionaryMap}
+                fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
+                className="text-sm"
+                iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded border border-border bg-card"
+                iconClassName="h-4 w-4"
+                colorClassName="h-3 w-3 rounded-full"
+              />
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (editing) {
+              setDraft(value ?? undefined)
+              setError(null)
+            }
+            setEditing((prev) => !prev)
+            void onLoadOptions()
+          }}
+          aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
+        >
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function SalesDocumentDetailPage({
   params,
   initialKind,
@@ -715,6 +1080,12 @@ export default function SalesDocumentDetailPage({
     customer: string[] | null
     addresses: string[] | null
   } | null>(null)
+  const [channelOptions, setChannelOptions] = React.useState<ChannelOption[]>([])
+  const [channelLoading, setChannelLoading] = React.useState(false)
+  const channelOptionsRef = React.useRef<Map<string, ChannelOption>>(new Map())
+  const [statusOptions, setStatusOptions] = React.useState<StatusOption[]>([])
+  const [statusLoading, setStatusLoading] = React.useState(false)
+  const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
@@ -723,6 +1094,28 @@ export default function SalesDocumentDetailPage({
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
     [t]
   )
+  const saveShortcutLabel = React.useMemo(
+    () => t('sales.documents.detail.inline.save', 'Save (Ctrl/Cmd + Enter)'),
+    [t]
+  )
+
+  const upsertChannelOptions = React.useCallback((options: ChannelOption[]) => {
+    setChannelOptions((prev) => {
+      const map = new Map(prev.map((opt) => [opt.id, opt]))
+      options.forEach((opt) => map.set(opt.id, opt))
+      channelOptionsRef.current = map
+      return Array.from(map.values())
+    })
+  }, [])
+
+  const upsertStatusOptions = React.useCallback((options: StatusOption[]) => {
+    setStatusOptions((prev) => {
+      const map = new Map(prev.map((opt) => [opt.value, opt]))
+      options.forEach((opt) => map.set(opt.value, opt))
+      statusOptionsRef.current = map
+      return Array.from(map.values())
+    })
+  }, [])
 
   const loadCustomers = React.useCallback(
     async (query?: string) => {
@@ -758,6 +1151,43 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
+  const loadChannels = React.useCallback(
+    async (query?: string) => {
+      setChannelLoading(true)
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '20' })
+        if (query && query.trim().length) params.set('search', query.trim())
+        const call = await apiCall<{ items?: Array<{ id?: string; name?: string; code?: string | null }> }>(
+          `/api/sales/channels?${params.toString()}`
+        )
+        if (call.ok && Array.isArray(call.result?.items)) {
+          const options = call.result.items
+            .map((item) => {
+              const id = typeof item?.id === 'string' ? item.id : null
+              if (!id) return null
+              const label = typeof item?.name === 'string' && item.name.trim().length ? item.name : id
+              const code = typeof item?.code === 'string' && item.code.trim().length ? item.code : null
+              return { id, label: code ? `${label} (${code})` : label }
+            })
+            .filter((opt): opt is ChannelOption => !!opt)
+          if (!query) upsertChannelOptions(options)
+          return options
+        }
+        if (!query) upsertChannelOptions([])
+        return []
+      } catch (err) {
+        console.error('sales.documents.loadChannels', err)
+        if (!query) {
+          flash(t('sales.channels.offers.filters.channelsLoadError', 'Failed to load channels'), 'error')
+        }
+        return []
+      } finally {
+        setChannelLoading(false)
+      }
+    },
+    [t, upsertChannelOptions]
+  )
+
   const fetchCustomerEmail = React.useCallback(
     async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
       try {
@@ -783,6 +1213,82 @@ export default function SalesDocumentDetailPage({
       }
     },
     [customerOptions],
+  )
+
+  const ensureChannelOption = React.useCallback(
+    async (id: string | null | undefined) => {
+      if (!id) return null
+      const existing = channelOptionsRef.current.get(id)
+      if (existing) return existing
+      try {
+        const params = new URLSearchParams({ id, page: '1', pageSize: '1' })
+        const call = await apiCall<{ items?: Array<{ id?: string; name?: string; code?: string | null }> }>(
+          `/api/sales/channels?${params.toString()}`
+        )
+        if (call.ok && Array.isArray(call.result?.items) && call.result.items.length) {
+          const item = call.result.items[0]
+          const label = typeof item?.name === 'string' && item.name.trim().length ? item.name : id
+          const code = typeof item?.code === 'string' && item.code.trim().length ? item.code : null
+          const option: ChannelOption = { id, label: code ? `${label} (${code})` : label }
+          upsertChannelOptions([option])
+          return option
+        }
+      } catch (err) {
+        console.error('sales.documents.channel.ensure', err)
+      }
+      return null
+    },
+    [upsertChannelOptions]
+  )
+
+  const loadStatuses = React.useCallback(async () => {
+    setStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const call = await apiCall<{ items?: Array<{ id?: string; value?: string; label?: string | null; color?: string | null; icon?: string | null }> }>(
+        `/api/sales/order-statuses?${params.toString()}`
+      )
+      if (call.ok && Array.isArray(call.result?.items)) {
+        const options = call.result.items
+          .map((item) => {
+            const id = typeof item?.id === 'string' ? item.id : null
+            const value = typeof item?.value === 'string' ? item.value : null
+            if (!id || !value) return null
+            const label = typeof item?.label === 'string' && item.label.trim().length ? item.label : value
+            const color = typeof item?.color === 'string' && item.color.trim().length ? item.color : null
+            const icon = typeof item?.icon === 'string' && item.icon.trim().length ? item.icon : null
+            return { id, value, label, color, icon }
+          })
+          .filter((opt): opt is StatusOption => !!opt)
+        upsertStatusOptions(options)
+        return options
+      }
+      upsertStatusOptions([])
+      return []
+    } catch (err) {
+      console.error('sales.documents.loadStatuses', err)
+      flash(t('sales.documents.detail.status.errorLoad', 'Failed to load statuses.'), 'error')
+      return []
+    } finally {
+      setStatusLoading(false)
+    }
+  }, [t, upsertStatusOptions])
+
+  const ensureStatusOption = React.useCallback(
+    (value: string | null | undefined, entryId: string | null | undefined) => {
+      if (!value) return
+      if (statusOptionsRef.current.has(value)) return
+      upsertStatusOptions([
+        {
+          id: entryId ?? value,
+          value,
+          label: value,
+          color: null,
+          icon: null,
+        },
+      ])
+    },
+    [upsertStatusOptions]
   )
 
   const fetchDocumentByKind = React.useCallback(
@@ -835,6 +1341,11 @@ export default function SalesDocumentDetailPage({
     loadCustomers().catch(() => {})
   }, [loadCustomers])
 
+  React.useEffect(() => {
+    loadChannels().catch(() => {})
+    loadStatuses().catch(() => {})
+  }, [loadChannels, loadStatuses, scopeVersion])
+
   const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
     if (value === null) return null
     if (!Array.isArray(value)) return []
@@ -872,6 +1383,15 @@ export default function SalesDocumentDetailPage({
     }
   }, [kind, normalizeGuardList, scopeVersion])
 
+  React.useEffect(() => {
+    if (!record?.channelId) return
+    void ensureChannelOption(record.channelId)
+  }, [ensureChannelOption, record?.channelId])
+
+  React.useEffect(() => {
+    ensureStatusOption(record?.status ?? null, record?.statusEntryId ?? null)
+  }, [ensureStatusOption, record?.status, record?.statusEntryId])
+
   const handleRetry = React.useCallback(() => {
     setReloadKey((prev) => prev + 1)
   }, [])
@@ -882,6 +1402,7 @@ export default function SalesDocumentDetailPage({
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
+  const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
   const guardAllows = (list: string[] | null | undefined, status: string | null | undefined) => {
     if (list === null || list === undefined) return true
@@ -936,6 +1457,18 @@ export default function SalesDocumentDetailPage({
     }
     return Array.from(set.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
   }, [currencyEntries, record?.currencyCode])
+  const statusDictionaryMap = React.useMemo(
+    () =>
+      createDictionaryMap(
+        statusOptions.map((option) => ({
+          value: option.value,
+          label: option.label,
+          color: option.color,
+          icon: option.icon,
+        }))
+      ),
+    [statusOptions]
+  )
   const currencyLabels = React.useMemo(
     () => ({
       placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
@@ -954,6 +1487,27 @@ export default function SalesDocumentDetailPage({
       errorSave: t('sales.documents.form.currency.errorSave', 'Failed to save currency.'),
       loadingLabel: t('sales.documents.form.currency.loading', 'Loading currencies…'),
       manageTitle: t('sales.documents.form.currency.manage', 'Manage currency dictionary'),
+    }),
+    [t]
+  )
+  const statusLabels = React.useMemo<DictionarySelectLabels>(
+    () => ({
+      placeholder: t('sales.documents.detail.status.placeholder', 'Select status'),
+      addLabel: t('sales.config.statuses.actions.add', 'Add status'),
+      dialogTitle: t('sales.documents.detail.status.dialogTitle', 'Add status'),
+      valueLabel: t('sales.documents.detail.status.valueLabel', 'Value'),
+      valuePlaceholder: t('sales.documents.detail.status.valuePlaceholder', 'e.g. confirmed'),
+      labelLabel: t('sales.documents.detail.status.labelLabel', 'Label'),
+      labelPlaceholder: t('sales.documents.detail.status.labelPlaceholder', 'Display label'),
+      emptyError: t('sales.documents.detail.status.emptyError', 'Status value is required.'),
+      cancelLabel: t('sales.documents.detail.status.cancel', 'Cancel'),
+      saveLabel: t('sales.documents.detail.status.save', 'Save'),
+      saveShortcutHint: 'Ctrl/Cmd + Enter',
+      successCreateLabel: t('sales.documents.detail.status.created', 'Status saved.'),
+      errorLoad: t('sales.documents.detail.status.errorLoad', 'Failed to load statuses.'),
+      errorSave: t('sales.documents.detail.status.errorSave', 'Failed to save status.'),
+      loadingLabel: t('sales.documents.detail.status.loading', 'Loading statuses…'),
+      manageTitle: t('sales.documents.detail.status.manage', 'Manage statuses'),
     }),
     [t]
   )
@@ -1073,6 +1627,58 @@ export default function SalesDocumentDetailPage({
       }
     },
     [customerGuardMessage, record, t, updateDocument]
+  )
+
+  const handleUpdateChannel = React.useCallback(
+    async (nextId: string | null) => {
+      if (!record) return
+      try {
+        const call = await updateDocument({ channelId: nextId })
+        const savedChannelId =
+          typeof call.result?.channelId === 'string' ? call.result.channelId : nextId ?? null
+        setRecord((prev) => (prev ? { ...prev, channelId: savedChannelId } : prev))
+        if (savedChannelId) {
+          void ensureChannelOption(savedChannelId)
+        }
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [ensureChannelOption, record, t, updateDocument]
+  )
+
+  const handleUpdateStatus = React.useCallback(
+    async (entryId: string | null, value: string | null) => {
+      if (!record) return
+      try {
+        const call = await updateDocument({ statusEntryId: entryId })
+        const savedStatusEntryId =
+          typeof call.result?.statusEntryId === 'string' ? call.result.statusEntryId : entryId ?? null
+        const savedStatus =
+          typeof call.result?.status === 'string'
+            ? call.result.status
+            : value
+        setRecord((prev) => (prev ? { ...prev, statusEntryId: savedStatusEntryId, status: savedStatus ?? null } : prev))
+        if (savedStatus) {
+          ensureStatusOption(savedStatus, savedStatusEntryId)
+        }
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [ensureStatusOption, record, t, updateDocument]
   )
 
   const handleUpdateCustomer = React.useCallback(
@@ -1439,13 +2045,18 @@ export default function SalesDocumentDetailPage({
                         <span className="sr-only">{t('sales.documents.detail.generateNumber', 'Generate number')}</span>
                       </Button>
                     ) : null
-                  }
+              }
                 />
               </div>
               {record.status ? (
-                <Badge variant="secondary" className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-blue-500" />
-                  {record.status}
+                <Badge variant="secondary" className="inline-flex items-center gap-2">
+                  {statusDisplay?.icon ? renderDictionaryIcon(statusDisplay.icon, 'h-4 w-4') : null}
+                  <span className="inline-flex items-center gap-1">
+                    {statusDisplay?.color
+                      ? renderDictionaryColor(statusDisplay.color, 'h-2.5 w-2.5 rounded-full border border-border/60')
+                      : <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+                  </span>
+                  <span>{statusDisplay?.label ?? record.status}</span>
                 </Badge>
               ) : null}
             </div>
@@ -1528,38 +2139,34 @@ export default function SalesDocumentDetailPage({
             }
             if (card.key === 'channel') {
               return (
-                <InlineSelectEditor
+                <ChannelInlineEditor
                   key={card.key}
                   label={card.title}
-                  value={card.value}
+                  value={record?.channelId ?? null}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
-                  options={[
-                    { value: 'default', label: t('sales.documents.detail.channel.default', 'Default') },
-                    { value: 'b2b', label: t('sales.documents.detail.channel.b2b', 'B2B storefront') },
-                    { value: 'pos', label: t('sales.documents.detail.channel.pos', 'POS') },
-                  ]}
-                  activateOnClick
-                  containerClassName={card.containerClassName}
+                  options={channelOptions}
+                  loading={channelLoading}
+                  onLoadOptions={loadChannels}
+                  onSave={handleUpdateChannel}
+                  saveLabel={saveShortcutLabel}
                 />
               )
             }
             if (card.key === 'status') {
               return (
-                <InlineSelectEditor
+                <StatusInlineEditor
                   key={card.key}
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
-                  options={[
-                    { value: 'draft', label: t('sales.documents.detail.status.draft', 'Draft') },
-                    { value: 'ready', label: t('sales.documents.detail.status.ready', 'Ready') },
-                    { value: 'sent', label: t('sales.documents.detail.status.sent', 'Sent') },
-                    { value: 'completed', label: t('sales.documents.detail.status.completed', 'Completed') },
-                  ]}
-                  activateOnClick
-                  containerClassName={card.containerClassName}
+                  options={statusOptions}
+                  onSave={handleUpdateStatus}
+                  onLoadOptions={loadStatuses}
+                  labels={statusLabels}
+                  manageHref="/backend/config/sales"
+                  loading={statusLoading}
+                  saveLabel={saveShortcutLabel}
+                  dictionaryMap={statusDictionaryMap}
                 />
               )
             }

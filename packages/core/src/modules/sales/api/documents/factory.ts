@@ -4,6 +4,7 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
+import { SalesChannel } from '../../data/entities'
 import {
   orderCreateSchema,
   quoteCreateSchema,
@@ -19,6 +20,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadSalesSettings } from '../../commands/settings'
 import { CustomerEntity, CustomerPersonProfile, CustomerAddress } from '../../../customers/data/entities'
 import type { SalesSettings } from '../../data/entities'
+import { resolveDictionaryEntryValue } from '../../lib/dictionaries'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -263,6 +265,8 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
       metadata: z.record(z.string(), z.unknown()).nullable().optional(),
       currencyCode: currencyCodeSchema.optional(),
+      channelId: z.string().uuid().nullable().optional(),
+      statusEntryId: z.string().uuid().nullable().optional(),
       placedAt: z.union([dateOnlySchema, z.null()]).optional(),
       shippingAddressId: z.string().uuid().nullable().optional(),
       billingAddressId: z.string().uuid().nullable().optional(),
@@ -273,6 +277,8 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       (input) =>
         typeof input.currencyCode === 'string' ||
         input.placedAt !== undefined ||
+        input.channelId !== undefined ||
+        input.statusEntryId !== undefined ||
         input.shippingAddressId !== undefined ||
         input.billingAddressId !== undefined ||
         input.customerEntityId !== undefined ||
@@ -307,6 +313,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         'id',
         numberColumn,
         'status',
+        'status_entry_id',
         'customer_entity_id',
         'customer_contact_id',
         'billing_address_id',
@@ -357,6 +364,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
           id: item.id,
           [binding.numberField]: item[numberColumn] ?? null,
           status: item.status ?? null,
+          statusEntryId: item.status_entry_id ?? null,
           customerEntityId: item.customer_entity_id ?? null,
           customerContactId: item.customer_contact_id ?? null,
           billingAddressId: item.billing_address_id ?? null,
@@ -474,6 +482,30 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         if (typeof input.currencyCode === 'string') {
           entity.currencyCode = input.currencyCode
         }
+        if (input.channelId !== undefined) {
+          if (input.channelId === null) {
+            entity.channelId = null
+          } else {
+            const channel = await em.findOne(SalesChannel, {
+              id: input.channelId,
+              organizationId,
+              tenantId,
+              deletedAt: null,
+            })
+            if (!channel) {
+              throw new CrudHttpError(400, { error: translate('sales.documents.detail.channelInvalid', 'Selected channel could not be found.') })
+            }
+            entity.channelId = channel.id
+          }
+        }
+        if (input.statusEntryId !== undefined) {
+          const statusValue = await resolveDictionaryEntryValue(em, input.statusEntryId)
+          if (input.statusEntryId && !statusValue) {
+            throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+          }
+          entity.statusEntryId = input.statusEntryId ?? null
+          entity.status = statusValue
+        }
         if (input.placedAt !== undefined) {
           if (input.placedAt === null) {
             entity.placedAt = null
@@ -517,6 +549,9 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         customerContactId: entity.customerContactId ?? null,
         customerSnapshot: entity.customerSnapshot ?? null,
         metadata: entity.metadata ?? null,
+        statusEntryId: (entity as any).statusEntryId ?? null,
+        status: (entity as any).status ?? null,
+        channelId: (entity as any).channelId ?? null,
         customerName: resolveCustomerName(entity.customerSnapshot ?? null, entity.customerEntityId ?? null),
         contactEmail: resolveCustomerEmail(entity.customerSnapshot ?? null),
         currencyCode: entity.currencyCode ?? null,
@@ -557,6 +592,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     id: z.string().uuid(),
     [binding.numberField]: z.string().nullable(),
     status: z.string().nullable(),
+    statusEntryId: z.string().uuid().nullable().optional(),
     customerEntityId: z.string().uuid().nullable(),
     customerContactId: z.string().uuid().nullable(),
     billingAddressId: z.string().uuid().nullable(),
