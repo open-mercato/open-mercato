@@ -7,7 +7,7 @@ import { DetailFieldsSection, ErrorMessage, InlineSelectEditor, InlineTextEditor
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Mail, Trash2, Wand2 } from 'lucide-react'
+import { Mail, Pencil, Trash2, Wand2, X } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -41,6 +41,10 @@ function CurrencyInlineEditor({
   }, [editing, value])
 
   const current = options.find((opt) => opt.value === (value ?? undefined))
+  const appearanceColor =
+    current && current.appearance && typeof (current.appearance as any).color === 'string'
+      ? (current.appearance as any).color
+      : null
 
   return (
     <div className="group rounded-lg border bg-card p-4">
@@ -77,21 +81,28 @@ function CurrencyInlineEditor({
           ) : (
             <div className="mt-1 flex items-center gap-2">
               {current ? (
-                <span className="text-sm text-muted-foreground">{current.label}</span>
+                <span
+                  className={cn('text-sm text-muted-foreground', appearanceColor ? 'font-medium' : null)}
+                  style={appearanceColor ? { color: appearanceColor } : undefined}
+                >
+                  {current.label}
+                </span>
               ) : (
                 <span className="text-sm text-muted-foreground">{emptyLabel}</span>
               )}
             </div>
           )}
         </div>
-        <button
+        <Button
           type="button"
-          className="h-8 w-8 shrink-0 rounded-md text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setEditing((prev) => !prev)}
           aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
         >
-          {editing ? '×' : '✏️'}
-        </button>
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
       </div>
     </div>
   )
