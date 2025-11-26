@@ -560,6 +560,14 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
             entity.placedAt = Number.isNaN(parsed.getTime()) ? entity.placedAt : parsed
           }
         }
+        if (input.expectedDeliveryAt !== undefined) {
+          if (input.expectedDeliveryAt === null) {
+            entity.expectedDeliveryAt = null
+          } else {
+            const parsed = new Date(input.expectedDeliveryAt)
+            entity.expectedDeliveryAt = Number.isNaN(parsed.getTime()) ? entity.expectedDeliveryAt : parsed
+          }
+        }
         if (input.shippingAddressId !== undefined) {
           entity.shippingAddressId = input.shippingAddressId ?? null
           if (input.shippingAddressSnapshot === undefined) {
@@ -588,6 +596,70 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         if (input.billingAddressSnapshot !== undefined) {
           entity.billingAddressSnapshot = input.billingAddressSnapshot ?? null
         }
+        if (input.shippingMethodId !== undefined || input.shippingMethodSnapshot !== undefined || input.shippingMethodCode !== undefined) {
+          let shippingMethod: SalesShippingMethod | null = null
+          if (input.shippingMethodId) {
+            shippingMethod = await em.findOne(SalesShippingMethod, {
+              id: input.shippingMethodId,
+              organizationId,
+              tenantId,
+              deletedAt: null,
+            })
+            if (!shippingMethod) {
+              throw new CrudHttpError(400, { error: translate('sales.documents.detail.shippingMethodInvalid', 'Selected shipping method could not be found.') })
+            }
+          }
+          entity.shippingMethodId = input.shippingMethodId ?? null
+          entity.shippingMethod = shippingMethod ?? null
+          entity.shippingMethodCode = input.shippingMethodCode ?? shippingMethod?.code ?? null
+          if (input.shippingMethodSnapshot !== undefined) {
+            entity.shippingMethodSnapshot = input.shippingMethodSnapshot ?? null
+          } else {
+            entity.shippingMethodSnapshot = shippingMethod
+              ? {
+                  id: shippingMethod.id,
+                  code: shippingMethod.code,
+                  name: shippingMethod.name,
+                  description: shippingMethod.description ?? null,
+                  carrierCode: shippingMethod.carrierCode ?? null,
+                  serviceLevel: shippingMethod.serviceLevel ?? null,
+                  estimatedTransitDays: shippingMethod.estimatedTransitDays ?? null,
+                  currencyCode: shippingMethod.currencyCode ?? null,
+                }
+              : null
+          }
+        }
+        if (input.paymentMethodId !== undefined || input.paymentMethodSnapshot !== undefined || input.paymentMethodCode !== undefined) {
+          let paymentMethod: SalesPaymentMethod | null = null
+          if (input.paymentMethodId) {
+            paymentMethod = await em.findOne(SalesPaymentMethod, {
+              id: input.paymentMethodId,
+              organizationId,
+              tenantId,
+              deletedAt: null,
+            })
+            if (!paymentMethod) {
+              throw new CrudHttpError(400, { error: translate('sales.documents.detail.paymentMethodInvalid', 'Selected payment method could not be found.') })
+            }
+          }
+          entity.paymentMethodId = input.paymentMethodId ?? null
+          entity.paymentMethod = paymentMethod ?? null
+          entity.paymentMethodCode = input.paymentMethodCode ?? paymentMethod?.code ?? null
+          if (input.paymentMethodSnapshot !== undefined) {
+            entity.paymentMethodSnapshot = input.paymentMethodSnapshot ?? null
+          } else {
+            entity.paymentMethodSnapshot = paymentMethod
+              ? {
+                  id: paymentMethod.id,
+                  code: paymentMethod.code,
+                  name: paymentMethod.name,
+                  description: paymentMethod.description ?? null,
+                  providerKey: paymentMethod.providerKey ?? null,
+                  terms: paymentMethod.terms ?? null,
+                }
+              : null
+          }
+        }
       },
       response: (entity) => ({
         id: entity.id,
@@ -605,10 +677,17 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         contactEmail: resolveCustomerEmail(entity.customerSnapshot ?? null),
         currencyCode: entity.currencyCode ?? null,
         placedAt: entity.placedAt ? entity.placedAt.toISOString() : null,
+        expectedDeliveryAt: entity.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
         shippingAddressId: entity.shippingAddressId ?? null,
         billingAddressId: entity.billingAddressId ?? null,
         shippingAddressSnapshot: entity.shippingAddressSnapshot ?? null,
         billingAddressSnapshot: entity.billingAddressSnapshot ?? null,
+        shippingMethodId: entity.shippingMethodId ?? null,
+        shippingMethodCode: entity.shippingMethodCode ?? null,
+        shippingMethodSnapshot: entity.shippingMethodSnapshot ?? null,
+        paymentMethodId: entity.paymentMethodId ?? null,
+        paymentMethodCode: entity.paymentMethodCode ?? null,
+        paymentMethodSnapshot: entity.paymentMethodSnapshot ?? null,
       }),
     },
     actions: {
@@ -650,9 +729,16 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     externalReference: z.string().nullable().optional(),
     comment: z.string().nullable().optional(),
     placedAt: z.string().nullable().optional(),
+    expectedDeliveryAt: z.string().nullable().optional(),
     customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     billingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     shippingAddressSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    shippingMethodId: z.string().uuid().nullable().optional(),
+    shippingMethodCode: z.string().nullable().optional(),
+    shippingMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    paymentMethodId: z.string().uuid().nullable().optional(),
+    paymentMethodCode: z.string().nullable().optional(),
+    paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     currencyCode: z.string().nullable(),
     channelId: z.string().uuid().nullable(),
     organizationId: z.string().uuid().nullable(),
@@ -662,9 +748,16 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     lineItemCount: z.number().nullable().optional(),
     subtotalNetAmount: z.number().nullable().optional(),
     subtotalGrossAmount: z.number().nullable().optional(),
+    discountTotalAmount: z.number().nullable().optional(),
     taxTotalAmount: z.number().nullable().optional(),
+    shippingNetAmount: z.number().nullable().optional(),
+    shippingGrossAmount: z.number().nullable().optional(),
+    surchargeTotalAmount: z.number().nullable().optional(),
     grandTotalNetAmount: z.number().nullable().optional(),
     grandTotalGrossAmount: z.number().nullable().optional(),
+    paidTotalAmount: z.number().nullable().optional(),
+    refundedTotalAmount: z.number().nullable().optional(),
+    outstandingAmount: z.number().nullable().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),

@@ -1,7 +1,9 @@
+import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EventBus } from '@open-mercato/events'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -45,6 +47,7 @@ import {
   toNumericString,
 } from './shared'
 import type { SalesCalculationService } from '../services/salesCalculationService'
+import type { TaxCalculationService } from '../services/taxCalculationService'
 import {
   type SalesLineSnapshot,
   type SalesAdjustmentDraft,
@@ -662,6 +665,121 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       orderLineId: typeof adj.orderLine === 'string' ? adj.orderLine : adj.orderLine?.id ?? null,
     })),
   }
+}
+
+function toNumeric(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return 0
+}
+
+function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
+  return {
+    id: line.id,
+    lineNumber: line.lineNumber,
+    kind: line.kind,
+    productId: line.productId ?? null,
+    productVariantId: line.productVariantId ?? null,
+    name: line.name ?? null,
+    description: line.description ?? null,
+    comment: line.comment ?? null,
+    quantity: toNumeric(line.quantity),
+    quantityUnit: line.quantityUnit ?? null,
+    currencyCode: line.currencyCode,
+    unitPriceNet: toNumeric(line.unitPriceNet),
+    unitPriceGross: toNumeric(line.unitPriceGross),
+    discountAmount: toNumeric(line.discountAmount),
+    discountPercent: toNumeric(line.discountPercent),
+    taxRate: toNumeric(line.taxRate),
+    taxAmount: toNumeric(line.taxAmount),
+    totalNetAmount: toNumeric(line.totalNetAmount),
+    totalGrossAmount: toNumeric(line.totalGrossAmount),
+    configuration: line.configuration ? cloneJson(line.configuration) : null,
+    promotionCode: line.promotionCode ?? null,
+    metadata: line.metadata ? cloneJson(line.metadata) : null,
+  }
+}
+
+function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
+  return {
+    id: line.id,
+    lineNumber: line.lineNumber,
+    kind: line.kind,
+    productId: line.productId ?? null,
+    productVariantId: line.productVariantId ?? null,
+    name: line.name ?? null,
+    description: line.description ?? null,
+    comment: line.comment ?? null,
+    quantity: toNumeric(line.quantity),
+    quantityUnit: line.quantityUnit ?? null,
+    currencyCode: line.currencyCode,
+    unitPriceNet: toNumeric(line.unitPriceNet),
+    unitPriceGross: toNumeric(line.unitPriceGross),
+    discountAmount: toNumeric(line.discountAmount),
+    discountPercent: toNumeric(line.discountPercent),
+    taxRate: toNumeric(line.taxRate),
+    taxAmount: toNumeric(line.taxAmount),
+    totalNetAmount: toNumeric(line.totalNetAmount),
+    totalGrossAmount: toNumeric(line.totalGrossAmount),
+    configuration: line.configuration ? cloneJson(line.configuration) : null,
+    promotionCode: line.promotionCode ?? null,
+    metadata: line.metadata ? cloneJson(line.metadata) : null,
+  }
+}
+
+function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
+  return {
+    id: adjustment.id,
+    scope: adjustment.scope ?? 'order',
+    kind: adjustment.kind,
+    code: adjustment.code ?? null,
+    label: adjustment.label ?? null,
+    calculatorKey: adjustment.calculatorKey ?? null,
+    promotionId: adjustment.promotionId ?? null,
+    rate: toNumeric(adjustment.rate),
+    amountNet: toNumeric(adjustment.amountNet),
+    amountGross: toNumeric(adjustment.amountGross),
+    currencyCode: adjustment.currencyCode ?? null,
+    metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
+    position: adjustment.position ?? 0,
+  }
+}
+
+function mapQuoteAdjustmentToDraft(adjustment: SalesQuoteAdjustment): SalesAdjustmentDraft {
+  return {
+    id: adjustment.id,
+    scope: adjustment.scope ?? 'order',
+    kind: adjustment.kind,
+    code: adjustment.code ?? null,
+    label: adjustment.label ?? null,
+    calculatorKey: adjustment.calculatorKey ?? null,
+    promotionId: adjustment.promotionId ?? null,
+    rate: toNumeric(adjustment.rate),
+    amountNet: toNumeric(adjustment.amountNet),
+    amountGross: toNumeric(adjustment.amountGross),
+    currencyCode: adjustment.currencyCode ?? null,
+    metadata: adjustment.metadata ? cloneJson(adjustment.metadata) : null,
+    position: adjustment.position ?? 0,
+  }
+}
+
+async function emitTotalsCalculated(
+  eventBus: EventBus | null | undefined,
+  payload: {
+    documentKind: SalesDocumentKind
+    documentId: string
+    organizationId: string
+    tenantId: string
+    customerId?: string | null
+    totals: SalesDocumentCalculationResult['totals']
+    lineCount: number
+  }
+): Promise<void> {
+  if (!eventBus) return
+  await eventBus.emitEvent('sales.document.totals.calculated', payload)
 }
 
 function createLineSnapshotFromInput(

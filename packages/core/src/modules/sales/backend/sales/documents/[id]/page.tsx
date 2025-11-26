@@ -711,6 +711,26 @@ type ChannelOption = {
   label: string
 }
 
+type ShippingMethodOption = {
+  id: string
+  name: string
+  code: string
+  description?: string | null
+  carrierCode?: string | null
+  serviceLevel?: string | null
+  estimatedTransitDays?: number | null
+  currencyCode?: string | null
+}
+
+type PaymentMethodOption = {
+  id: string
+  name: string
+  code: string
+  description?: string | null
+  providerKey?: string | null
+  terms?: string | null
+}
+
 type StatusOption = {
   id: string
   value: string
@@ -733,13 +753,32 @@ type DocumentRecord = {
   externalReference?: string | null
   channelId?: string | null
   placedAt?: string | null
+  expectedDeliveryAt?: string | null
   customerSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
   shippingAddressSnapshot?: Record<string, unknown> | null
+  shippingMethodId?: string | null
+  shippingMethodCode?: string | null
+  shippingMethodSnapshot?: Record<string, unknown> | null
+  paymentMethodId?: string | null
+  paymentMethodCode?: string | null
+  paymentMethodSnapshot?: Record<string, unknown> | null
   customerName?: string | null
   contactEmail?: string | null
   channelCode?: string | null
   comment?: string | null
+  subtotalNetAmount?: number | null
+  subtotalGrossAmount?: number | null
+  discountTotalAmount?: number | null
+  taxTotalAmount?: number | null
+  shippingNetAmount?: number | null
+  shippingGrossAmount?: number | null
+  surchargeTotalAmount?: number | null
+  grandTotalNetAmount?: number | null
+  grandTotalGrossAmount?: number | null
+  paidTotalAmount?: number | null
+  refundedTotalAmount?: number | null
+  outstandingAmount?: number | null
   createdAt?: string
   updatedAt?: string
   metadata?: Record<string, unknown> | null
@@ -751,6 +790,7 @@ type DocumentUpdateResult = {
   comment?: string | null
   currencyCode?: string | null
   placedAt?: string | null
+  expectedDeliveryAt?: string | null
   statusEntryId?: string | null
   status?: string | null
   channelId?: string | null
@@ -758,6 +798,12 @@ type DocumentUpdateResult = {
   billingAddressId?: string | null
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
+  shippingMethodId?: string | null
+  shippingMethodCode?: string | null
+  shippingMethodSnapshot?: Record<string, unknown> | null
+  paymentMethodId?: string | null
+  paymentMethodCode?: string | null
+  paymentMethodSnapshot?: Record<string, unknown> | null
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
   customerName?: string | null
@@ -1449,6 +1495,12 @@ export default function SalesDocumentDetailPage({
   const [channelOptions, setChannelOptions] = React.useState<ChannelOption[]>([])
   const [channelLoading, setChannelLoading] = React.useState(false)
   const channelOptionsRef = React.useRef<Map<string, ChannelOption>>(new Map())
+  const [shippingMethodOptions, setShippingMethodOptions] = React.useState<ShippingMethodOption[]>([])
+  const [shippingMethodLoading, setShippingMethodLoading] = React.useState(false)
+  const shippingMethodOptionsRef = React.useRef<Map<string, ShippingMethodOption>>(new Map())
+  const [paymentMethodOptions, setPaymentMethodOptions] = React.useState<PaymentMethodOption[]>([])
+  const [paymentMethodLoading, setPaymentMethodLoading] = React.useState(false)
+  const paymentMethodOptionsRef = React.useRef<Map<string, PaymentMethodOption>>(new Map())
   const [statusOptions, setStatusOptions] = React.useState<StatusOption[]>([])
   const [statusLoading, setStatusLoading] = React.useState(false)
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
@@ -1470,6 +1522,24 @@ export default function SalesDocumentDetailPage({
       const map = new Map(prev.map((opt) => [opt.id, opt]))
       options.forEach((opt) => map.set(opt.id, opt))
       channelOptionsRef.current = map
+      return Array.from(map.values())
+    })
+  }, [])
+
+  const upsertShippingMethodOptions = React.useCallback((options: ShippingMethodOption[]) => {
+    setShippingMethodOptions((prev) => {
+      const map = new Map(prev.map((opt) => [opt.id, opt]))
+      options.forEach((opt) => map.set(opt.id, opt))
+      shippingMethodOptionsRef.current = map
+      return Array.from(map.values())
+    })
+  }, [])
+
+  const upsertPaymentMethodOptions = React.useCallback((options: PaymentMethodOption[]) => {
+    setPaymentMethodOptions((prev) => {
+      const map = new Map(prev.map((opt) => [opt.id, opt]))
+      options.forEach((opt) => map.set(opt.id, opt))
+      paymentMethodOptionsRef.current = map
       return Array.from(map.values())
     })
   }, [])
@@ -1554,6 +1624,105 @@ export default function SalesDocumentDetailPage({
     [t, upsertChannelOptions]
   )
 
+  const loadShippingMethods = React.useCallback(
+    async (query?: string) => {
+      setShippingMethodLoading(true)
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '20' })
+        if (query && query.trim().length) params.set('search', query.trim())
+        const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/sales/shipping-methods?${params.toString()}`
+        )
+        if (call.ok && Array.isArray(call.result?.items)) {
+          const options = call.result.items
+            .map((item) => {
+              const id = typeof item?.id === 'string' ? item.id : null
+              const name = typeof item?.name === 'string' ? item.name : null
+              const code = typeof item?.code === 'string' ? item.code : null
+              if (!id || !name || !code) return null
+              return {
+                id,
+                name,
+                code,
+                description: typeof item?.description === 'string' ? item.description : null,
+                carrierCode: typeof (item as any)?.carrierCode === 'string' ? (item as any).carrierCode : null,
+                serviceLevel: typeof (item as any)?.serviceLevel === 'string' ? (item as any).serviceLevel : null,
+                estimatedTransitDays:
+                  typeof (item as any)?.estimatedTransitDays === 'number'
+                    ? (item as any).estimatedTransitDays
+                    : null,
+                currencyCode: typeof item?.currencyCode === 'string' ? item.currencyCode : null,
+              }
+            })
+            .filter((entry): entry is ShippingMethodOption => !!entry)
+          if (!query) upsertShippingMethodOptions(options)
+          return options
+        }
+        if (!query) upsertShippingMethodOptions([])
+        return []
+      } catch (err) {
+        console.error('sales.documents.loadShippingMethods', err)
+        if (!query) {
+          flash(
+            t('sales.documents.detail.shippingMethodLoadError', 'Failed to load shipping methods.'),
+            'error'
+          )
+        }
+        return []
+      } finally {
+        setShippingMethodLoading(false)
+      }
+    },
+    [t, upsertShippingMethodOptions]
+  )
+
+  const loadPaymentMethods = React.useCallback(
+    async (query?: string) => {
+      setPaymentMethodLoading(true)
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '20' })
+        if (query && query.trim().length) params.set('search', query.trim())
+        const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/sales/payment-methods?${params.toString()}`
+        )
+        if (call.ok && Array.isArray(call.result?.items)) {
+          const options = call.result.items
+            .map((item) => {
+              const id = typeof item?.id === 'string' ? item.id : null
+              const name = typeof item?.name === 'string' ? item.name : null
+              const code = typeof item?.code === 'string' ? item.code : null
+              if (!id || !name || !code) return null
+              return {
+                id,
+                name,
+                code,
+                description: typeof item?.description === 'string' ? item.description : null,
+                providerKey: typeof (item as any)?.providerKey === 'string' ? (item as any).providerKey : null,
+                terms: typeof (item as any)?.terms === 'string' ? (item as any).terms : null,
+              }
+            })
+            .filter((entry): entry is PaymentMethodOption => !!entry)
+          if (!query) upsertPaymentMethodOptions(options)
+          return options
+        }
+        if (!query) upsertPaymentMethodOptions([])
+        return []
+      } catch (err) {
+        console.error('sales.documents.loadPaymentMethods', err)
+        if (!query) {
+          flash(
+            t('sales.documents.detail.paymentMethodLoadError', 'Failed to load payment methods.'),
+            'error'
+          )
+        }
+        return []
+      } finally {
+        setPaymentMethodLoading(false)
+      }
+    },
+    [t, upsertPaymentMethodOptions]
+  )
+
   const fetchCustomerEmail = React.useCallback(
     async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
       try {
@@ -1605,6 +1774,78 @@ export default function SalesDocumentDetailPage({
       return null
     },
     [upsertChannelOptions]
+  )
+
+  const ensureShippingMethodOption = React.useCallback(
+    (id: string | null | undefined, snapshot?: Record<string, unknown> | null) => {
+      if (!id) return null
+      const existing = shippingMethodOptionsRef.current.get(id)
+      if (existing) return existing
+      const name =
+        (snapshot && typeof (snapshot as any)?.name === 'string' && (snapshot as any).name) || null
+      const code =
+        (snapshot && typeof (snapshot as any)?.code === 'string' && (snapshot as any).code) || null
+      if (!name && !code) return null
+      const option: ShippingMethodOption = {
+        id,
+        name: name ?? code ?? id,
+        code: code ?? id,
+        description:
+          snapshot && typeof (snapshot as any)?.description === 'string'
+            ? (snapshot as any).description
+            : null,
+        carrierCode:
+          snapshot && typeof (snapshot as any)?.carrierCode === 'string'
+            ? (snapshot as any).carrierCode
+            : null,
+        serviceLevel:
+          snapshot && typeof (snapshot as any)?.serviceLevel === 'string'
+            ? (snapshot as any).serviceLevel
+            : null,
+        estimatedTransitDays:
+          snapshot && typeof (snapshot as any)?.estimatedTransitDays === 'number'
+            ? (snapshot as any).estimatedTransitDays
+            : null,
+        currencyCode:
+          snapshot && typeof (snapshot as any)?.currencyCode === 'string'
+            ? (snapshot as any).currencyCode
+            : null,
+      }
+      upsertShippingMethodOptions([option])
+      return option
+    },
+    [upsertShippingMethodOptions]
+  )
+
+  const ensurePaymentMethodOption = React.useCallback(
+    (id: string | null | undefined, snapshot?: Record<string, unknown> | null) => {
+      if (!id) return null
+      const existing = paymentMethodOptionsRef.current.get(id)
+      if (existing) return existing
+      const name =
+        (snapshot && typeof (snapshot as any)?.name === 'string' && (snapshot as any).name) || null
+      const code =
+        (snapshot && typeof (snapshot as any)?.code === 'string' && (snapshot as any).code) || null
+      if (!name && !code) return null
+      const option: PaymentMethodOption = {
+        id,
+        name: name ?? code ?? id,
+        code: code ?? id,
+        description:
+          snapshot && typeof (snapshot as any)?.description === 'string'
+            ? (snapshot as any).description
+            : null,
+        providerKey:
+          snapshot && typeof (snapshot as any)?.providerKey === 'string'
+            ? (snapshot as any).providerKey
+            : null,
+        terms:
+          snapshot && typeof (snapshot as any)?.terms === 'string' ? (snapshot as any).terms : null,
+      }
+      upsertPaymentMethodOptions([option])
+      return option
+    },
+    [upsertPaymentMethodOptions]
   )
 
   const loadStatuses = React.useCallback(async () => {
@@ -1710,7 +1951,9 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     loadChannels().catch(() => {})
     loadStatuses().catch(() => {})
-  }, [loadChannels, loadStatuses, scopeVersion])
+    loadShippingMethods().catch(() => {})
+    loadPaymentMethods().catch(() => {})
+  }, [loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
 
   const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
     if (value === null) return null
@@ -1753,6 +1996,20 @@ export default function SalesDocumentDetailPage({
     if (!record?.channelId) return
     void ensureChannelOption(record.channelId)
   }, [ensureChannelOption, record?.channelId])
+
+  React.useEffect(() => {
+    if (kind !== 'order') return
+    ensureShippingMethodOption(record?.shippingMethodId ?? null, record?.shippingMethodSnapshot ?? null)
+    ensurePaymentMethodOption(record?.paymentMethodId ?? null, record?.paymentMethodSnapshot ?? null)
+  }, [
+    ensurePaymentMethodOption,
+    ensureShippingMethodOption,
+    kind,
+    record?.paymentMethodId,
+    record?.paymentMethodSnapshot,
+    record?.shippingMethodId,
+    record?.shippingMethodSnapshot,
+  ])
 
   React.useEffect(() => {
     ensureStatusOption(record?.status ?? null, record?.statusEntryId ?? null)
@@ -1878,6 +2135,38 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
+  const shippingSnapshotFromOption = React.useCallback(
+    (option: ShippingMethodOption | null | undefined) =>
+      option
+        ? {
+            id: option.id,
+            code: option.code,
+            name: option.name,
+            description: option.description ?? null,
+            carrierCode: option.carrierCode ?? null,
+            serviceLevel: option.serviceLevel ?? null,
+            estimatedTransitDays: option.estimatedTransitDays ?? null,
+            currencyCode: option.currencyCode ?? null,
+          }
+        : null,
+    []
+  )
+
+  const paymentSnapshotFromOption = React.useCallback(
+    (option: PaymentMethodOption | null | undefined) =>
+      option
+        ? {
+            id: option.id,
+            code: option.code,
+            name: option.name,
+            description: option.description ?? null,
+            providerKey: option.providerKey ?? null,
+            terms: option.terms ?? null,
+          }
+        : null,
+    []
+  )
+
   const updateDocument = React.useCallback(
     async (patch: Record<string, unknown>) => {
       if (!record) {
@@ -1950,6 +2239,39 @@ export default function SalesDocumentDetailPage({
       }
     },
     [record, t, updateDocument]
+  )
+
+  const handleUpdateExpectedDeliveryAt = React.useCallback(
+    async (next: string | null) => {
+      if (!record || kind !== 'order') return
+      const raw = typeof next === 'string' ? next.trim() : ''
+      const payload: { expectedDeliveryAt: string | null } = { expectedDeliveryAt: null }
+      if (raw.length) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(new Date(raw).getTime())) {
+          const message = t('sales.documents.detail.dateInvalid', 'Enter a valid date in YYYY-MM-DD format.')
+          flash(message, 'error')
+          throw new Error(message)
+        }
+        payload.expectedDeliveryAt = raw
+      }
+      try {
+        const call = await updateDocument(payload)
+        const savedExpectedDelivery =
+          typeof call.result?.expectedDeliveryAt === 'string'
+            ? call.result.expectedDeliveryAt
+            : payload.expectedDeliveryAt
+        setRecord((prev) => (prev ? { ...prev, expectedDeliveryAt: savedExpectedDelivery } : prev))
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [kind, record, t, updateDocument]
   )
 
   const handleUpdateComment = React.useCallback(
@@ -2095,6 +2417,120 @@ export default function SalesDocumentDetailPage({
       }
     },
     [ensureChannelOption, record, t, updateDocument]
+  )
+
+  const handleUpdateShippingMethod = React.useCallback(
+    async (nextId: string | null) => {
+      if (!record || kind !== 'order') return
+      const option =
+        nextId && (shippingMethodOptionsRef.current.get(nextId) ?? shippingMethodOptions.find((entry) => entry.id === nextId))
+          ? shippingMethodOptionsRef.current.get(nextId) ?? shippingMethodOptions.find((entry) => entry.id === nextId)
+          : null
+      const snapshot = shippingSnapshotFromOption(option ?? null)
+      try {
+        const call = await updateDocument({
+          shippingMethodId: nextId,
+          shippingMethodCode: option?.code ?? null,
+          shippingMethodSnapshot: snapshot,
+        })
+        const savedId =
+          typeof call.result?.shippingMethodId === 'string' ? call.result.shippingMethodId : nextId ?? null
+        const savedSnapshot =
+          (call.result?.shippingMethodSnapshot as Record<string, unknown> | null | undefined) ?? snapshot ?? null
+        const savedCode =
+          typeof call.result?.shippingMethodCode === 'string'
+            ? call.result.shippingMethodCode
+            : option?.code ?? null
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                shippingMethodId: savedId,
+                shippingMethodCode: savedCode,
+                shippingMethodSnapshot: savedSnapshot,
+              }
+            : prev
+        )
+        if (savedId && savedSnapshot) {
+          ensureShippingMethodOption(savedId, savedSnapshot)
+        }
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [
+      ensureShippingMethodOption,
+      kind,
+      record,
+      shippingMethodOptions,
+      shippingMethodOptionsRef,
+      shippingSnapshotFromOption,
+      t,
+      updateDocument,
+    ]
+  )
+
+  const handleUpdatePaymentMethod = React.useCallback(
+    async (nextId: string | null) => {
+      if (!record || kind !== 'order') return
+      const option =
+        nextId && (paymentMethodOptionsRef.current.get(nextId) ?? paymentMethodOptions.find((entry) => entry.id === nextId))
+          ? paymentMethodOptionsRef.current.get(nextId) ?? paymentMethodOptions.find((entry) => entry.id === nextId)
+          : null
+      const snapshot = paymentSnapshotFromOption(option ?? null)
+      try {
+        const call = await updateDocument({
+          paymentMethodId: nextId,
+          paymentMethodCode: option?.code ?? null,
+          paymentMethodSnapshot: snapshot,
+        })
+        const savedId =
+          typeof call.result?.paymentMethodId === 'string' ? call.result.paymentMethodId : nextId ?? null
+        const savedSnapshot =
+          (call.result?.paymentMethodSnapshot as Record<string, unknown> | null | undefined) ?? snapshot ?? null
+        const savedCode =
+          typeof call.result?.paymentMethodCode === 'string'
+            ? call.result.paymentMethodCode
+            : option?.code ?? null
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                paymentMethodId: savedId,
+                paymentMethodCode: savedCode,
+                paymentMethodSnapshot: savedSnapshot,
+              }
+            : prev
+        )
+        if (savedId && savedSnapshot) {
+          ensurePaymentMethodOption(savedId, savedSnapshot)
+        }
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [
+      ensurePaymentMethodOption,
+      kind,
+      paymentMethodOptions,
+      paymentMethodOptionsRef,
+      paymentSnapshotFromOption,
+      record,
+      t,
+      updateDocument,
+    ]
   )
 
   const handleUpdateStatus = React.useCallback(
