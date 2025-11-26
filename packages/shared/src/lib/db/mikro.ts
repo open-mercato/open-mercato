@@ -18,6 +18,22 @@ export async function getOrm() {
   const poolMax = parseInt(process.env.DB_POOL_MAX || '10')
   const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000')
   const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000')
+  const idleSessionTimeoutEnv = parseInt(process.env.DB_IDLE_SESSION_TIMEOUT_MS || '')
+  const idleInTxTimeoutEnv = parseInt(process.env.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS || '')
+  const idleSessionTimeoutMs = Number.isFinite(idleSessionTimeoutEnv)
+    ? idleSessionTimeoutEnv
+    : process.env.NODE_ENV === 'production'
+      ? undefined
+      : 600_000
+  const idleInTransactionTimeoutMs = Number.isFinite(idleInTxTimeoutEnv)
+    ? idleInTxTimeoutEnv
+    : process.env.NODE_ENV === 'production'
+      ? undefined
+      : 120_000
+  const connectionOptions =
+    idleSessionTimeoutMs && idleSessionTimeoutMs > 0
+      ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
+      : undefined
   
   ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
@@ -45,6 +61,8 @@ export async function getOrm() {
         idleTimeoutMillis: poolIdleTimeout,
         // Maximum time to wait for a connection from the pool
         acquireTimeoutMillis: poolAcquireTimeout,
+        idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
+        options: connectionOptions,
       },
     },
   })

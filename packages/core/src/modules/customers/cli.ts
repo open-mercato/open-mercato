@@ -2840,7 +2840,7 @@ const seedDictionaries: ModuleCli = {
       await seedCurrencyDictionary(tem, { tenantId, organizationId })
       await tem.flush()
     })
-    console.log('Customer dictionaries seeded for organization', organizationId)
+    console.log('📚 Customer dictionaries seeded for organization', organizationId)
   },
 }
 

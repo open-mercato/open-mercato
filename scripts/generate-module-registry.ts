@@ -70,8 +70,6 @@ function calculateStructureChecksum(paths: string[]): string {
 function logGenerationResult(label: string, changed: boolean) {
   if (changed) {
     console.log(`✅ Generated ${label}`)
-  } else {
-    console.log(`ℹ️ ${label} already up to date`)
   }
 }
 

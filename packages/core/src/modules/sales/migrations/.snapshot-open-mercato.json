@@ -5547,6 +5547,181 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "document_id": {
+          "name": "document_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "document_kind": {
+          "name": "document_kind",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "address_id": {
+          "name": "address_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "address_snapshot": {
+          "name": "address_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "quote_id": {
+          "name": "quote_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "sales_document_addresses",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "sales_document_addresses_scope_idx",
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "sales_document_addresses_unique",
+          "columnNames": [
+            "document_id",
+            "document_kind",
+            "address_id"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "sales_document_addresses_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "sales_document_addresses_order_id_foreign": {
+          "constraintName": "sales_document_addresses_order_id_foreign",
+          "columnNames": [
+            "order_id"
+          ],
+          "localTableName": "public.sales_document_addresses",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.sales_orders",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "set null",
+          "updateRule": "cascade"
+        },
+        "sales_document_addresses_quote_id_foreign": {
+          "constraintName": "sales_document_addresses_quote_id_foreign",
+          "columnNames": [
+            "quote_id"
+          ],
+          "localTableName": "public.sales_document_addresses",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.sales_quotes",
+          "createForeignKeyConstraint": true,
+          "deleteRule": "set null",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
         "order_id": {
           "name": "order_id",
           "type": "uuid",

@@ -36,6 +36,12 @@ const currencyCodeSchema = z
   .toUpperCase()
   .regex(/^[A-Z]{3}$/, { message: 'currency_code_invalid' })
 
+const dateOnlySchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'invalid_date' })
+  .refine((value) => !Number.isNaN(new Date(value).getTime()), { message: 'invalid_date' })
+
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
@@ -133,10 +139,27 @@ function buildSortMap(numberColumn: string) {
 export function createDocumentCrudRoute(binding: DocumentBinding) {
   const numberColumn = binding.numberField === 'orderNumber' ? 'order_number' : 'quote_number'
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
-  const updateSchema = z.object({
-    id: z.string().uuid(),
-    currencyCode: currencyCodeSchema,
-  })
+  const addressSnapshotSchema = z.record(z.string(), z.unknown()).nullable().optional()
+  const updateSchema = z
+    .object({
+      id: z.string().uuid(),
+      currencyCode: currencyCodeSchema.optional(),
+      placedAt: z.union([dateOnlySchema, z.null()]).optional(),
+      shippingAddressId: z.string().uuid().nullable().optional(),
+      billingAddressId: z.string().uuid().nullable().optional(),
+      shippingAddressSnapshot: addressSnapshotSchema,
+      billingAddressSnapshot: addressSnapshotSchema,
+    })
+    .refine(
+      (input) =>
+        typeof input.currencyCode === 'string' ||
+        input.placedAt !== undefined ||
+        input.shippingAddressId !== undefined ||
+        input.billingAddressId !== undefined ||
+        input.shippingAddressSnapshot !== undefined ||
+        input.billingAddressSnapshot !== undefined,
+      { message: 'update_payload_empty' }
+    )
 
   const routeMetadata = {
     GET: { requireAuth: true, requireFeatures: [binding.viewFeature] },
@@ -241,6 +264,44 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         return Object.keys(custom).length ? { ...base, customFields: custom } : base
       },
     },
+    update: {
+      schema: updateSchema,
+      getId: (input) => input.id,
+      applyToEntity: (entity, input) => {
+        if (typeof input.currencyCode === 'string') {
+          entity.currencyCode = input.currencyCode
+        }
+        if (input.placedAt !== undefined) {
+          if (input.placedAt === null) {
+            entity.placedAt = null
+          } else {
+            const parsed = new Date(input.placedAt)
+            entity.placedAt = Number.isNaN(parsed.getTime()) ? entity.placedAt : parsed
+          }
+        }
+        if (input.shippingAddressId !== undefined) {
+          entity.shippingAddressId = input.shippingAddressId ?? null
+        }
+        if (input.billingAddressId !== undefined) {
+          entity.billingAddressId = input.billingAddressId ?? null
+        }
+        if (input.shippingAddressSnapshot !== undefined) {
+          entity.shippingAddressSnapshot = input.shippingAddressSnapshot ?? null
+        }
+        if (input.billingAddressSnapshot !== undefined) {
+          entity.billingAddressSnapshot = input.billingAddressSnapshot ?? null
+        }
+      },
+      response: (entity) => ({
+        id: entity.id,
+        currencyCode: entity.currencyCode ?? null,
+        placedAt: entity.placedAt ? entity.placedAt.toISOString() : null,
+        shippingAddressId: entity.shippingAddressId ?? null,
+        billingAddressId: entity.billingAddressId ?? null,
+        shippingAddressSnapshot: entity.shippingAddressSnapshot ?? null,
+        billingAddressSnapshot: entity.billingAddressSnapshot ?? null,
+      }),
+    },
     actions: {
       create: {
         commandId: binding.createCommandId,
@@ -251,17 +312,6 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         },
         response: ({ result }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
         status: 201,
-      },
-      update: {
-        schema: updateSchema,
-        getId: (input) => input.id,
-        applyToEntity: (entity, input) => {
-          entity.currencyCode = input.currencyCode
-        },
-        response: (entity) => ({
-          id: entity.id,
-          currencyCode: entity.currencyCode ?? null,
-        }),
       },
       delete: {
         commandId: binding.deleteCommandId,

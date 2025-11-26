@@ -439,6 +439,21 @@ export const quoteUpdateSchema = z
   })
   .merge(quoteCreateSchema.partial())
 
+const documentKind = z.enum(['order', 'quote'])
+
+export const documentAddressCreateSchema = scoped.extend({
+  documentId: uuid(),
+  documentKind,
+  addressId: uuid(),
+  addressSnapshot: jsonRecord.optional(),
+})
+
+export const documentAddressDeleteSchema = scoped.extend({
+  id: uuid(),
+  documentId: uuid(),
+  documentKind,
+})
+
 export const shipmentCreateSchema = scoped.extend({
   orderId: uuid(),
   shipmentNumber: z.string().trim().max(191).optional(),
@@ -656,3 +671,5 @@ export type NoteCreateInput = z.infer<typeof noteCreateSchema>
 export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>
 export type SalesTagCreateInput = z.infer<typeof salesTagCreateSchema>
 export type SalesTagUpdateInput = z.infer<typeof salesTagUpdateSchema>
+export type DocumentAddressCreateInput = z.infer<typeof documentAddressCreateSchema>
+export type DocumentAddressDeleteInput = z.infer<typeof documentAddressDeleteSchema>

@@ -16,6 +16,6 @@ const route = createDocumentCrudRoute({
 export const metadata = route.metadata
 export const GET = route.GET
 export const POST = route.POST
+export const PUT = route.PUT
 export const DELETE = route.DELETE
 export const openApi = route.openApi
-

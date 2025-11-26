@@ -538,6 +538,9 @@ export class SalesOrder {
   @OneToMany(() => SalesNote, (note) => note.order)
   notes = new Collection<SalesNote>(this)
 
+  @OneToMany(() => SalesDocumentAddress, (entry) => entry.order)
+  addresses = new Collection<SalesDocumentAddress>(this)
+
   @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.order)
   tagAssignments = new Collection<SalesDocumentTagAssignment>(this)
 }
@@ -945,6 +948,9 @@ export class SalesQuote {
 
   @OneToMany(() => SalesNote, (note) => note.quote)
   notes = new Collection<SalesNote>(this)
+
+  @OneToMany(() => SalesDocumentAddress, (entry) => entry.quote)
+  addresses = new Collection<SalesDocumentAddress>(this)
 
   @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.quote)
   tagAssignments = new Collection<SalesDocumentTagAssignment>(this)
@@ -1617,6 +1623,47 @@ export class SalesNote {
 
   @Property({ name: 'body', type: 'text' })
   body!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_document_addresses' })
+@Index({ name: 'sales_document_addresses_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'sales_document_addresses_unique',
+  properties: ['documentId', 'documentKind', 'addressId'],
+})
+export class SalesDocumentAddress {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'document_id', type: 'uuid' })
+  documentId!: string
+
+  @Property({ name: 'document_kind', type: 'text' })
+  documentKind!: SalesDocumentKind
+
+  @Property({ name: 'address_id', type: 'uuid' })
+  addressId!: string
+
+  @Property({ name: 'address_snapshot', type: 'jsonb', nullable: true })
+  addressSnapshot?: Record<string, unknown> | null
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id', nullable: true })
+  order?: SalesOrder | null
+
+  @ManyToOne(() => SalesQuote, { fieldName: 'quote_id', nullable: true })
+  quote?: SalesQuote | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

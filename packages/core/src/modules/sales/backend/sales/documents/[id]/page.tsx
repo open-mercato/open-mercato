@@ -14,11 +14,17 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
+import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
+import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 
 function CurrencyInlineEditor({
   label,
   value,
   options,
+  labels,
   emptyLabel,
   onSave,
   error,
@@ -26,67 +32,117 @@ function CurrencyInlineEditor({
 }: {
   label: string
   value: string | null | undefined
-  options: { value: string; label: string; appearance?: Record<string, unknown> | null }[]
+  options: { value: string; label: string; color?: string | null; icon?: string | null }[]
+  labels: DictionarySelectLabels
   emptyLabel: string
   onSave: (next: string | null) => Promise<void>
   error: string | null
   onClearError: () => void
 }) {
+  const t = useT()
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
-  const t = useT()
+  const [saving, setSaving] = React.useState(false)
 
   React.useEffect(() => {
     if (!editing) setDraft(value ?? undefined)
   }, [editing, value])
 
   const current = options.find((opt) => opt.value === (value ?? undefined))
-  const appearanceColor =
-    current && current.appearance && typeof (current.appearance as any).color === 'string'
-      ? (current.appearance as any).color
-      : null
+  const fetchOptions = React.useCallback(async () => options, [options])
+
+  const handleActivate = React.useCallback(() => {
+    if (!editing) {
+      setEditing(true)
+    }
+  }, [editing])
+
+  const handleSave = React.useCallback(async () => {
+    setSaving(true)
+    try {
+      onClearError()
+      await onSave(draft ?? null)
+      setEditing(false)
+    } catch (err) {
+      console.error('sales.documents.currency.save', err)
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onClearError, onSave])
 
   return (
-    <div className="group rounded-lg border bg-card p-4">
-      <div className="flex items-start gap-2">
+    <div
+      className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}
+      role={!editing ? 'button' : undefined}
+      tabIndex={!editing ? 0 : undefined}
+      onClick={handleActivate}
+      onKeyDown={(event) => {
+        if (editing) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleActivate()
+        }
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
           {editing ? (
-            <div className="mt-2 space-y-2">
-              <InlineSelectEditor
-                label={label}
-                value={draft}
-                emptyLabel={emptyLabel}
-                onSave={async (next) => {
-                  onClearError()
-                  await onSave(next)
+            <div
+              className="mt-2 space-y-2"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
                   setEditing(false)
-                }}
-                options={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-                activateOnClick={false}
-                hideLabel
-                containerClassName="p-0 border-0 bg-transparent"
+                  onClearError()
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) {
+                    void handleSave()
+                  }
+                }
+              }}
+            >
+              <DictionaryEntrySelect
+                value={draft}
+                onChange={(next) => setDraft(next ?? undefined)}
+                fetchOptions={fetchOptions}
+                allowInlineCreate={false}
+                manageHref="/backend/config/dictionaries?key=currency"
+                selectClassName="w-full"
+                labels={labels}
               />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
-                <button
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {t('customers.people.detail.inline.saveShortcut')}
+                </Button>
+                <Button
                   type="button"
-                  className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background"
-                  onClick={() => setEditing(false)}
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    onClearError()
+                    setEditing(false)
+                    setDraft(value ?? undefined)
+                  }}
+                  disabled={saving}
                 >
                   {t('ui.detail.inline.cancel', 'Cancel')}
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
-            <div className="mt-1 flex items-center gap-2">
+            <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
               {current ? (
-                <span
-                  className={cn('text-sm text-muted-foreground', appearanceColor ? 'font-medium' : null)}
-                  style={appearanceColor ? { color: appearanceColor } : undefined}
-                >
-                  {current.label}
-                </span>
+                <>
+                  {renderDictionaryIcon(current.icon, 'h-4 w-4')}
+                  <span className={current.color ? 'font-medium' : 'text-foreground'}>{current.label}</span>
+                  {renderDictionaryColor(current.color, 'h-3 w-3 rounded-full')}
+                </>
               ) : (
                 <span className="text-sm text-muted-foreground">{emptyLabel}</span>
               )}
@@ -98,7 +154,14 @@ function CurrencyInlineEditor({
           variant="ghost"
           size="icon"
           className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setEditing((prev) => !prev)}
+          onClick={(event) => {
+            event.stopPropagation()
+            if (editing) {
+              onClearError()
+              setDraft(value ?? undefined)
+            }
+            setEditing((prev) => !prev)
+          }}
           aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
         >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -107,9 +170,6 @@ function CurrencyInlineEditor({
     </div>
   )
 }
-import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 
 type CustomerSnapshot = {
   customer?: {
@@ -161,6 +221,15 @@ type DocumentRecord = {
   updatedAt?: string
 }
 
+type DocumentUpdateResult = {
+  currencyCode?: string | null
+  placedAt?: string | null
+  shippingAddressId?: string | null
+  billingAddressId?: string | null
+  shippingAddressSnapshot?: Record<string, unknown> | null
+  billingAddressSnapshot?: Record<string, unknown> | null
+}
+
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
   const params = new URLSearchParams({ id, page: '1', pageSize: '1' })
   const payload = await readApiResultOrThrow<{ items?: DocumentRecord[] }>(
@@ -188,22 +257,6 @@ function resolveCustomerEmail(snapshot: CustomerSnapshot | null | undefined) {
   if (!snapshot) return null
   if (snapshot.customer?.primaryEmail) return snapshot.customer.primaryEmail
   return null
-}
-
-function formatAddress(snapshot: AddressSnapshot | null | undefined) {
-  if (!snapshot) return null
-  const lines = [
-    snapshot.name,
-    snapshot.companyName,
-    snapshot.addressLine1,
-    snapshot.addressLine2,
-    [snapshot.postalCode, snapshot.city].filter(Boolean).join(' '),
-    [snapshot.region, snapshot.country].filter(Boolean).join(', '),
-  ]
-    .filter((value) => typeof value === 'string' && value.trim().length)
-    .map((value) => value.trim())
-  if (!lines.length) return null
-  return lines.join(', ')
 }
 
 function SectionCard({
@@ -320,21 +373,14 @@ export default function SalesDocumentDetailPage({
       icon: entry.icon ?? null,
     }))
   }, [currencyDictionary?.entries])
-  const currencyMap = React.useMemo(() => {
-    const map = new Map<string, { label: string; color: string | null; icon: string | null }>()
-    currencyEntries.forEach((entry) => {
-      map.set(entry.value, { label: entry.label, color: entry.color, icon: entry.icon })
-    })
-    return map
-  }, [currencyEntries])
   const currencyOptions = React.useMemo(() => {
-    const set = new Map<string, { value: string; label: string }>()
+    const set = new Map<string, { value: string; label: string; color: string | null; icon: string | null }>()
     currencyEntries.forEach((entry) => {
-      set.set(entry.value, { value: entry.value, label: entry.label })
+      set.set(entry.value, { value: entry.value, label: entry.label, color: entry.color ?? null, icon: entry.icon ?? null })
     })
     const currentCode = typeof record?.currencyCode === 'string' ? record.currencyCode.toUpperCase() : null
     if (currentCode && !set.has(currentCode)) {
-      set.set(currentCode, { value: currentCode, label: currentCode })
+      set.set(currentCode, { value: currentCode, label: currentCode, color: null, icon: null })
     }
     return Array.from(set.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
   }, [currencyEntries, record?.currencyCode])
@@ -366,7 +412,7 @@ export default function SalesDocumentDetailPage({
         throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-      return apiCallOrThrow<Record<string, unknown>>(
+      return apiCallOrThrow<DocumentUpdateResult>(
         endpoint,
         {
           method: 'PUT',
@@ -396,6 +442,37 @@ export default function SalesDocumentDetailPage({
         return savedCode
       } catch (err) {
         const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [record, t, updateDocument]
+  )
+
+  const handleUpdatePlacedAt = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      const raw = typeof next === 'string' ? next.trim() : ''
+      const payload: { placedAt: string | null } = { placedAt: null }
+      if (raw.length) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(new Date(raw).getTime())) {
+          const message = t('sales.documents.detail.dateInvalid', 'Enter a valid date in YYYY-MM-DD format.')
+          flash(message, 'error')
+          throw new Error(message)
+        }
+        payload.placedAt = raw
+      }
+      try {
+        const call = await updateDocument(payload)
+        const savedPlacedAt =
+          typeof call.result?.placedAt === 'string' ? call.result.placedAt : payload.placedAt
+        setRecord((prev) => (prev ? { ...prev, placedAt: savedPlacedAt } : prev))
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
         flash(message, 'error')
         throw err
       }
@@ -571,22 +648,16 @@ export default function SalesDocumentDetailPage({
     }
     if (activeTab === 'addresses') {
       return (
-        <div className="grid gap-3 md:grid-cols-2">
-          <SectionCard title={t('sales.documents.detail.shipping', 'Shipping address')} muted>
-            <p className="text-sm">
-              {formatAddress(shippingSnapshot) ??
-                record?.shippingAddressId ??
-                t('sales.documents.detail.customer.empty', 'Not linked')}
-            </p>
-          </SectionCard>
-          <SectionCard title={t('sales.documents.detail.billing', 'Billing address')} muted>
-            <p className="text-sm">
-              {formatAddress(billingSnapshot) ??
-                record?.billingAddressId ??
-                t('sales.documents.detail.customer.empty', 'Not linked')}
-            </p>
-          </SectionCard>
-        </div>
+        <SalesDocumentAddressesSection
+          documentId={record.id}
+          kind={kind}
+          customerId={record.customerEntityId ?? null}
+          shippingAddressId={record.shippingAddressId ?? null}
+          billingAddressId={record.billingAddressId ?? null}
+          shippingAddressSnapshot={shippingSnapshot ?? null}
+          billingAddressSnapshot={billingSnapshot ?? null}
+          onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
+        />
       )
     }
     const placeholders: Record<typeof activeTab, string> = {
@@ -741,7 +812,7 @@ export default function SalesDocumentDetailPage({
                   : null
             }
             emptyLabel={t('sales.documents.detail.empty', 'Not set')}
-            onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
+            onSave={handleUpdatePlacedAt}
             inputType="date"
             activateOnClick
             containerClassName="h-full"
@@ -825,6 +896,7 @@ export default function SalesDocumentDetailPage({
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
                   options={currencyOptions}
+                  labels={currencyLabels}
                   error={currencyError}
                   onClearError={() => setCurrencyError(null)}
                   onSave={async (next) => {

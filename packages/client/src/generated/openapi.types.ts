@@ -2791,6 +2791,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/document-addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List addresses linked to a sales document */
+        get: operations["sales_get_sales_document_addresses"];
+        put?: never;
+        /** Assign an address to a sales document */
+        post: operations["sales_post_sales_document_addresses"];
+        /** Unassign an address from a sales document */
+        delete: operations["sales_delete_sales_document_addresses"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/document-numbers": {
         parameters: {
             query?: never;
@@ -2937,7 +2956,11 @@ export interface paths {
          *     Requires features: sales.orders.view
          */
         get: operations["sales_get_sales_orders"];
-        put?: never;
+        /**
+         * Order management
+         * @description Requires features: sales.orders.manage
+         */
+        put: operations["sales_put_sales_orders"];
         /**
          * Create order
          * @description Creates a new sales order.
@@ -3031,7 +3054,11 @@ export interface paths {
          *     Requires features: sales.quotes.view
          */
         get: operations["sales_get_sales_quotes"];
-        put?: never;
+        /**
+         * Quote management
+         * @description Requires features: sales.quotes.manage
+         */
+        put: operations["sales_put_sales_quotes"];
         /**
          * Create quote
          * @description Creates a new sales quote.
@@ -11662,6 +11689,96 @@ export interface components {
             error: components["schemas"]["DocPathsSalesDeliveryWindowsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDeliveryWindowsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchema: {
+            documentId: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentId"];
+            documentKind: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind"];
+            id: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            organizationId: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentId: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind: "order" | "quote";
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesDocumentAddressesDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesDocumentAddressesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesDocumentAddressesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesDocumentAddressesDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesDocumentAddressesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesDocumentAddressesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesGetParameters0Schema: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentAddressesGetParameters1Schema: "order" | "quote";
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+        };
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            addressId: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressId"];
+            addressSnapshot?: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshot"];
+            id: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressId: string;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshot: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf1"];
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf0: null;
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAddressSnapshotAnyOf1: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchema: {
+            addressId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressId"];
+            addressSnapshot?: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressSnapshot"];
+            documentId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentId"];
+            documentKind: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind"];
+            organizationId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressId: string;
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesAddressSnapshot: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentId: string;
+        /** @enum {string} */
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesDocumentKind: "order" | "quote";
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchema: {
+            addressId: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressId"];
+            addressSnapshot?: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshot"];
+            id: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressId: string;
+        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshot: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf0"] | components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf1"];
+        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf0: null;
+        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesAddressSnapshotAnyOf1: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchema: {
             format?: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesFormat"];
             kind: components["schemas"]["DocPathsSalesDocumentNumbersPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
@@ -12250,6 +12367,15 @@ export interface components {
             error: components["schemas"]["DocPathsSalesOrdersPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesOrdersPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesOrdersPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesOrdersPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesOrdersPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesOrdersPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesOrdersPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesOrdersPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesOrdersPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesOrderStatusesDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesOrderStatusesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -12957,6 +13083,15 @@ export interface components {
             error: components["schemas"]["DocPathsSalesQuotesPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesQuotesPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesQuotesPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesQuotesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesQuotesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesQuotesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesQuotesPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesQuotesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesQuotesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchema: {
             nextOrderNumber: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesNextOrderNumber"];
             nextQuoteNumber: components["schemas"]["DocPathsSalesSettingsDocumentNumbersGetResponses200ContentApplicationJsonSchemaPropertiesNextQuoteNumber"];
@@ -26932,6 +27067,156 @@ export interface operations {
             };
         };
     };
+    sales_get_sales_document_addresses: {
+        parameters: {
+            query: {
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                documentId: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters0Schema"];
+                /** @example order */
+                documentKind: components["schemas"]["DocPathsSalesDocumentAddressesGetParameters1Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Addresses linked to the document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": []
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_document_addresses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "documentId": "00000000-0000-4000-8000-000000000000",
+                 *       "documentKind": "order",
+                 *       "addressId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Assignment created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "00000000-0000-4000-8000-000000000000",
+                     *       "addressId": "00000000-0000-4000-8000-000000000000",
+                     *       "addressSnapshot": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPostResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_delete_sales_document_addresses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "documentId": "00000000-0000-4000-8000-000000000000",
+                 *       "documentKind": "order"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesDocumentAddressesDeleteRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Assignment removed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesDeleteResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesDocumentAddressesDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     sales_post_sales_document_numbers: {
         parameters: {
             query?: never;
@@ -27624,6 +27909,54 @@ export interface operations {
             };
         };
     };
+    sales_put_sales_orders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsSalesOrdersPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesOrdersPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesOrdersPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     sales_post_sales_orders: {
         parameters: {
             query?: never;
@@ -28156,6 +28489,54 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesQuotesGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_quotes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocPathsSalesQuotesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuotesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuotesPutResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

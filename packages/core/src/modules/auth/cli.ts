@@ -69,7 +69,7 @@ const seedRoles: ModuleCli = {
     const em = resolve<EntityManager>('em')
     if (tenantId) {
       await ensureRoles(em, { tenantId })
-      console.log('Roles ensured for tenant', tenantId)
+      console.log('🛡️ Roles ensured for tenant', tenantId)
       return
     }
     const tenants = await em.find(Tenant, {})
@@ -81,7 +81,7 @@ const seedRoles: ModuleCli = {
       const id = tenant.id ? String(tenant.id) : null
       if (!id) continue
       await ensureRoles(em, { tenantId: id })
-      console.log('Roles ensured for tenant', id)
+      console.log('🛡️ Roles ensured for tenant', id)
     }
   },
 }

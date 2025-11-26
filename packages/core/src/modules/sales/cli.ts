@@ -2,6 +2,7 @@ import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesTaxRate } from './data/entities'
+import { seedSalesStatusDictionaries } from './lib/dictionaries'
 
 const DEFAULT_TAX_RATES = [
   { code: 'vat-23', name: '23% VAT', rate: '23' },
@@ -77,7 +78,7 @@ const seedTaxRatesCommand: ModuleCli = {
           tem.persist(record)
         }
       })
-      console.log('Tax rates seeded for organization', organizationId)
+      console.log('🧾 Tax rates seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -87,4 +88,31 @@ const seedTaxRatesCommand: ModuleCli = {
   },
 }
 
-export default [seedTaxRatesCommand]
+const seedStatusesCommand: ModuleCli = {
+  command: 'seed-statuses',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato sales seed-statuses --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      await em.transactional(async (tem) => {
+        await seedSalesStatusDictionaries(tem, { tenantId, organizationId })
+        await tem.flush()
+      })
+      console.log('🚦 Sales order statuses seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [seedTaxRatesCommand, seedStatusesCommand]
