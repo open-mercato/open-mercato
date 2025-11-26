@@ -14,6 +14,7 @@ import { formatDate, formatDateTime, resolveTodoHref } from './utils'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
+import { LoadingMessage } from './LoadingMessage'
 
 type TasksSectionProps = {
   entityId: string | null
@@ -252,8 +253,15 @@ export function TasksSection({
   const hasTasks = tasks.length > 0
 
   return (
-    <div className="mt-4 space-y-6">
+    <div className="mt-0 space-y-6">
       <div className="space-y-4">
+        {isInitialLoading ? (
+          <LoadingMessage
+            label={t('customers.people.detail.tasks.loading', 'Loading tasks…')}
+            className="border-0 bg-transparent p-0 py-8"
+          />
+        ) : null}
+
         {!isInitialLoading && !hasTasks ? (
           <EmptyState
             title={emptyState.title}

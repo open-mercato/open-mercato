@@ -470,150 +470,159 @@ export function ActivitiesSection({
         </div>
       ) : null}
       <div className="space-y-4">
-        {!isLoading && activities.length === 0 ? (
-          <EmptyState
-            title={emptyState.title}
-            action={{
-              label: emptyState.actionLabel,
-              onClick: openCreateDialog,
-              disabled: resolveEntityForSubmission(null) === null || pendingAction !== null,
-            }}
+        {isLoading && activities.length === 0 ? (
+          <LoadingMessage
+            label={t('customers.people.detail.activities.loading', 'Loading activities…')}
+            className="border-0 bg-transparent p-0 py-8"
           />
-        ) : null}
-        {visibleActivities.length > 0
-          ? visibleActivities.map((activity) => {
-              const entry = dictionaryMap[activity.activityType]
-              const displayIcon = entry?.icon ?? activity.appearanceIcon ?? null
-              const displayColor = entry?.color ?? activity.appearanceColor ?? null
-              const displayLabel = entry?.label ?? activity.activityType
-              const timestampValue = activity.occurredAt ?? activity.createdAt ?? null
-              const occurredLabel =
-                formatDateTime(timestampValue) ?? t('customers.people.detail.activities.noDate', 'No date provided')
-              const authorLabel = activity.authorName ?? activity.authorEmail ?? null
-              const loggedByText = authorLabel
-                ? (() => {
-                    const translated = t('customers.people.detail.activities.loggedBy', undefined, { user: authorLabel })
-                    if (
-                      !translated ||
-                      translated === 'customers.people.detail.activities.loggedBy' ||
-                      translated.includes('{{') ||
-                      translated.includes('{user')
-                    ) {
-                      return `Logged by ${authorLabel}`
-                    }
-                    return translated
-                  })()
-                : null
-              const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === activity.id
-              const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === activity.id
-              const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
+        ) : (
+          <>
+            {!isLoading && activities.length === 0 ? (
+              <EmptyState
+                title={emptyState.title}
+                action={{
+                  label: emptyState.actionLabel,
+                  onClick: openCreateDialog,
+                  disabled: resolveEntityForSubmission(null) === null || pendingAction !== null,
+                }}
+              />
+            ) : null}
+            {visibleActivities.length > 0
+              ? visibleActivities.map((activity) => {
+                  const entry = dictionaryMap[activity.activityType]
+                  const displayIcon = entry?.icon ?? activity.appearanceIcon ?? null
+                  const displayColor = entry?.color ?? activity.appearanceColor ?? null
+                  const displayLabel = entry?.label ?? activity.activityType
+                  const timestampValue = activity.occurredAt ?? activity.createdAt ?? null
+                  const occurredLabel =
+                    formatDateTime(timestampValue) ?? t('customers.people.detail.activities.noDate', 'No date provided')
+                  const authorLabel = activity.authorName ?? activity.authorEmail ?? null
+                  const loggedByText = authorLabel
+                    ? (() => {
+                        const translated = t('customers.people.detail.activities.loggedBy', undefined, { user: authorLabel })
+                        if (
+                          !translated ||
+                          translated === 'customers.people.detail.activities.loggedBy' ||
+                          translated.includes('{{') ||
+                          translated.includes('{user')
+                        ) {
+                          return `Logged by ${authorLabel}`
+                        }
+                        return translated
+                      })()
+                    : null
+                  const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === activity.id
+                  const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === activity.id
+                  const customEntries = Array.isArray(activity.customFields) ? activity.customFields : []
 
-              return (
-                <div
-                  key={activity.id}
-                  className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80 cursor-pointer"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openEditDialog(activity)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      openEditDialog(activity)
-                    }
-                  }}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <TimelineItemHeader
-                        title={displayLabel}
-                        timestamp={timestampValue}
-                        fallbackTimestampLabel={occurredLabel}
-                        icon={displayIcon}
-                        color={displayColor}
-                      />
-                      {activity.dealId ? (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <ArrowUpRightSquare className="h-3.5 w-3.5" />
-                          <Link
-                            href={`/backend/customers/deals/${encodeURIComponent(activity.dealId)}`}
-                            className="font-medium text-foreground hover:underline"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            {activity.dealTitle && activity.dealTitle.length
-                              ? activity.dealTitle
-                              : t('customers.people.detail.activities.linkedDeal', 'Linked deal')}
-                          </Link>
+                  return (
+                    <div
+                      key={activity.id}
+                      className="group space-y-3 rounded-lg border bg-card p-4 transition hover:border-border/80 cursor-pointer"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openEditDialog(activity)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openEditDialog(activity)
+                        }
+                      }}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <TimelineItemHeader
+                            title={displayLabel}
+                            timestamp={timestampValue}
+                            fallbackTimestampLabel={occurredLabel}
+                            icon={displayIcon}
+                            color={displayColor}
+                          />
+                          {activity.dealId ? (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <ArrowUpRightSquare className="h-3.5 w-3.5" />
+                              <Link
+                                href={`/backend/customers/deals/${encodeURIComponent(activity.dealId)}`}
+                                className="font-medium text-foreground hover:underline"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {activity.dealTitle && activity.dealTitle.length
+                                  ? activity.dealTitle
+                                  : t('customers.people.detail.activities.linkedDeal', 'Linked deal')}
+                              </Link>
+                            </div>
+                          ) : null}
                         </div>
+                        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              openEditDialog(activity)
+                            }}
+                            disabled={pendingAction !== null}
+                          >
+                            {isUpdatePending ? (
+                              <span className="relative flex h-4 w-4 items-center justify-center">
+                                <span className="absolute h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
+                              </span>
+                            ) : (
+                              <Pencil className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleDelete(activity).catch(() => {})
+                            }}
+                            disabled={pendingAction !== null}
+                          >
+                            {isDeletePending ? (
+                              <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
+                                <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
+                              </span>
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                      {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
+                      {activity.body ? (
+                        <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p>
+                      ) : null}
+                      <CustomFieldValuesList
+                        entries={customEntries.map((entry) => ({
+                          key: entry.key,
+                          value: entry.value,
+                          label: entry.label,
+                        }))}
+                        values={activity.customValues ?? undefined}
+                        resources={customFieldResources}
+                        emptyLabel={customFieldEmptyLabel}
+                        itemKeyPrefix={`activity-${activity.id}-field`}
+                      />
+                      {loggedByText ? (
+                        <p className="text-xs text-muted-foreground">{loggedByText}</p>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          openEditDialog(activity)
-                        }}
-                        disabled={pendingAction !== null}
-                      >
-                        {isUpdatePending ? (
-                          <span className="relative flex h-4 w-4 items-center justify-center">
-                            <span className="absolute h-4 w-4 animate-spin rounded-full border border-primary border-t-transparent" />
-                          </span>
-                        ) : (
-                          <Pencil className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDelete(activity).catch(() => {})
-                        }}
-                        disabled={pendingAction !== null}
-                      >
-                        {isDeletePending ? (
-                          <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
-                            <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
-                          </span>
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                  {activity.subject ? <p className="text-sm font-medium">{activity.subject}</p> : null}
-                  {activity.body ? (
-                    <p className="text-sm whitespace-pre-wrap text-muted-foreground">{activity.body}</p>
-                  ) : null}
-                  <CustomFieldValuesList
-                    entries={customEntries.map((entry) => ({
-                      key: entry.key,
-                      value: entry.value,
-                      label: entry.label,
-                    }))}
-                    values={activity.customValues ?? undefined}
-                    resources={customFieldResources}
-                    emptyLabel={customFieldEmptyLabel}
-                    itemKeyPrefix={`activity-${activity.id}-field`}
-                  />
-                  {loggedByText ? (
-                    <p className="text-xs text-muted-foreground">{loggedByText}</p>
-                  ) : null}
-                </div>
-              )
-            })
-          : null}
-        {hasMoreActivities ? (
-          <div className="flex justify-center">
-            <Button variant="outline" size="sm" onClick={handleLoadMore} disabled={pendingAction !== null}>
-              {loadMoreLabel}
-            </Button>
-          </div>
-        ) : null}
+                  )
+                })
+              : null}
+            {hasMoreActivities ? (
+              <div className="flex justify-center">
+                <Button variant="outline" size="sm" onClick={handleLoadMore} disabled={pendingAction !== null}>
+                  {loadMoreLabel}
+                </Button>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
 
       <ActivityDialog

@@ -22,6 +22,7 @@ import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
 import { normalizeCustomFieldKey } from './customFieldUtils'
+import { LoadingMessage } from './LoadingMessage'
 
 const DEALS_PAGE_SIZE = 10
 
@@ -787,18 +788,25 @@ export function DealsSection({
           {loadError}
         </div>
       ) : null}
-      {!isLoading && sortedDeals.length === 0 ? (
-        <EmptyState
-          title={emptyState.title}
-          action={{
-            label: emptyState.actionLabel,
-            onClick: openCreateDialog,
-            disabled: !scope || pendingAction !== null,
-          }}
+      {isLoading && sortedDeals.length === 0 ? (
+        <LoadingMessage
+          label={t('customers.people.detail.deals.loading', 'Loading deals…')}
+          className="border-0 bg-transparent p-0 py-8"
         />
-      ) : null}
-      <div className="space-y-4">
-        {sortedDeals.map((deal) => {
+      ) : (
+        <>
+          {!isLoading && sortedDeals.length === 0 ? (
+            <EmptyState
+              title={emptyState.title}
+              action={{
+                label: emptyState.actionLabel,
+                onClick: openCreateDialog,
+                disabled: !scope || pendingAction !== null,
+              }}
+            />
+          ) : null}
+          <div className="space-y-4">
+            {sortedDeals.map((deal) => {
           const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel)
           const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
           const probabilityLabel =
@@ -909,27 +917,33 @@ export function DealsSection({
               </div>
             </article>
           )
-        })}
-        {isLoading && deals.length > 0 ? (
-          <div className="flex justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            })}
+            {isLoading && deals.length > 0 ? (
+              <div className="flex justify-center">
+                <LoadingMessage
+                  label={t('customers.people.detail.deals.loading', 'Loading deals…')}
+                  className="border-0 bg-transparent p-0"
+                  iconClassName="h-5 w-5"
+                />
+              </div>
+            ) : null}
+            {!isLoading && hasMore ? (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    loadDeals({ append: true }).catch(() => {})
+                  }}
+                  disabled={pendingAction !== null || isLoading}
+                >
+                  {t('customers.people.detail.deals.loadMore', 'Load more deals')}
+                </Button>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        {!isLoading && hasMore ? (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                loadDeals({ append: true }).catch(() => {})
-              }}
-              disabled={pendingAction !== null || isLoading}
-            >
-              {t('customers.people.detail.deals.loadMore', 'Load more deals')}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+        </>
+      )}
 
       <DealDialog
         open={dialogOpen}
