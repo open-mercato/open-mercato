@@ -7836,8 +7836,10 @@ export interface components {
             timezone?: components["schemas"]["DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesTimezone"];
             twitterUrl?: components["schemas"]["DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesTwitterUrl"];
         };
+        DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityId: components["schemas"]["DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf0"] | components["schemas"]["DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf1"];
+        DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf0: null;
         /** Format: uuid */
-        DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityId: string;
+        DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf1: string;
         DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesDepartment: string;
         DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
         DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchemaPropertiesDisplayName: string;
@@ -7935,8 +7937,10 @@ export interface components {
             timezone?: components["schemas"]["DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesTimezone"];
             twitterUrl?: components["schemas"]["DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesTwitterUrl"];
         };
+        DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityId: components["schemas"]["DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf0"] | components["schemas"]["DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf1"];
+        DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf0: null;
         /** Format: uuid */
-        DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityId: string;
+        DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesCompanyEntityIdAnyOf1: string;
         DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesDepartment: string;
         DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
         DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchemaPropertiesDisplayName: string;
@@ -12225,6 +12229,7 @@ export interface components {
             billingAddressId: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBillingAddressId"];
             billingAddressSnapshot?: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBillingAddressSnapshot"];
             channelId: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesChannelId"];
+            comment?: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesComment"];
             createdAt: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
             currencyCode: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
             customerContactId: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerContactId"];
@@ -12265,6 +12270,9 @@ export interface components {
         DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesChannelIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesChannelIdAnyOf1: string;
+        DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesComment: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf0"] | components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf1"];
+        DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf0: null;
+        DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf1: string;
         DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
         DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0"] | components["schemas"]["DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1"];
         DocPathsSalesOrdersGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0: null;
@@ -12979,6 +12987,7 @@ export interface components {
             billingAddressId: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBillingAddressId"];
             billingAddressSnapshot?: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBillingAddressSnapshot"];
             channelId: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesChannelId"];
+            comment?: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesComment"];
             createdAt: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
             currencyCode: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
             customerContactId: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomerContactId"];
@@ -13019,6 +13028,9 @@ export interface components {
         DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesChannelIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesChannelIdAnyOf1: string;
+        DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesComment: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf0"] | components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf1"];
+        DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf0: null;
+        DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCommentAnyOf1: string;
         DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
         DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0"] | components["schemas"]["DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1"];
         DocPathsSalesQuotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0: null;
@@ -21021,7 +21033,8 @@ export interface operations {
                 /**
                  * @example {
                  *       "id": "00000000-0000-4000-8000-000000000000",
-                 *       "nextInteraction": null
+                 *       "nextInteraction": null,
+                 *       "companyEntityId": null
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsCustomersPeoplePutRequestBodyContentApplicationJsonSchema"];
@@ -21088,7 +21101,8 @@ export interface operations {
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
                  *       "nextInteraction": null,
                  *       "firstName": "string",
-                 *       "lastName": "string"
+                 *       "lastName": "string",
+                 *       "companyEntityId": null
                  *     }
                  */
                 "application/json": components["schemas"]["DocPathsCustomersPeoplePostRequestBodyContentApplicationJsonSchema"];

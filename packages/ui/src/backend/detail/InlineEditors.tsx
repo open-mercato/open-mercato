@@ -57,6 +57,13 @@ export type InlineTextEditorProps = {
   renderActions?: React.ReactNode
   saveLabel?: string
   recordId?: string
+  onDraftChange?: (draft: string) => void
+  renderBelowInput?: (params: {
+    draft: string
+    resolvedType: InlineFieldType
+    error: string | null
+    saving: boolean
+  }) => React.ReactNode
 }
 
 export function InlineTextEditor({
@@ -77,6 +84,8 @@ export function InlineTextEditor({
   onEditingChange,
   renderActions,
   saveLabel,
+  onDraftChange,
+  renderBelowInput,
 }: InlineTextEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -102,6 +111,10 @@ export function InlineTextEditor({
   React.useEffect(() => {
     if (!editing) setDraft(value ?? '')
   }, [editing, value])
+
+  React.useEffect(() => {
+    if (onDraftChange) onDraftChange(draft)
+  }, [draft, onDraftChange])
 
   const containerClasses = cn(
     'group',
@@ -307,6 +320,7 @@ export function InlineTextEditor({
                 />
               )}
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              {renderBelowInput ? renderBelowInput({ draft, resolvedType, error, saving }) : null}
               <div className="flex items-center gap-2">
                 <Button type="submit" size="sm" disabled={saving}>
                   {saving ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
@@ -674,6 +688,7 @@ export type InlineSelectEditorProps = {
   triggerClassName?: string
   hideLabel?: boolean
   renderEditor?: (params: { value: string; onChange: (next: string) => void }) => React.ReactNode
+  renderDisplay?: (params: { value: string | null | undefined; emptyLabel: string }) => React.ReactNode
 }
 
 export function InlineSelectEditor({
@@ -688,6 +703,7 @@ export function InlineSelectEditor({
   triggerClassName,
   hideLabel = false,
   renderEditor,
+  renderDisplay,
 }: InlineSelectEditorProps) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -782,7 +798,9 @@ export function InlineSelectEditor({
             </div>
           ) : (
             <div className={variant === 'plain' ? 'flex items-center gap-2' : 'mt-1 text-sm'}>
-              {selected ? (
+              {renderDisplay ? (
+                renderDisplay({ value, emptyLabel })
+              ) : selected ? (
                 <div className="space-y-0.5">
                   <p className="font-medium leading-tight">{selected.label}</p>
                   {selected.description ? (

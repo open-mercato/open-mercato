@@ -522,6 +522,10 @@
         "back": "Volver a Ventas",
         "customer": "Cliente",
         "customer.empty": "Sin enlace",
+        "customerSnapshot": {
+          "hint": "Edita el snapshot guardado en este documento.",
+          "kind": "Tipo de cliente"
+        },
         "currency": "Moneda",
         "currencyInvalid": "El código de moneda debe tener 3 letras.",
         "date": "Fecha",
@@ -531,7 +535,8 @@
         "empty": {
           "comments": {
             "title": "Aún no hay comentarios.",
-            "description": "Las notas de tu equipo aparecerán aquí."
+            "description": "Las notas de tu equipo aparecerán aquí.",
+            "action": "Agregar comentario"
           },
           "items": {
             "title": "Aún no hay artículos.",

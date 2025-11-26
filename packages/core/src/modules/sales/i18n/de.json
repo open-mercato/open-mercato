@@ -521,6 +521,10 @@
         "back": "Zurück zu Sales",
         "customer": "Kunde",
         "customer.empty": "Nicht verknüpft",
+        "customerSnapshot": {
+          "hint": "Bearbeiten Sie den Snapshot, der in diesem Dokument gespeichert ist.",
+          "kind": "Kundentyp"
+        },
         "currency": "Währung",
         "currencyInvalid": "Der Währungscode muss aus 3 Buchstaben bestehen.",
         "date": "Datum",
@@ -530,7 +534,8 @@
         "empty": {
           "comments": {
             "title": "Noch keine Kommentare.",
-            "description": "Notizen von Teamkollegen erscheinen hier."
+            "description": "Notizen von Teamkollegen erscheinen hier.",
+            "action": "Kommentar hinzufügen"
           },
           "items": {
             "title": "Noch keine Positionen.",

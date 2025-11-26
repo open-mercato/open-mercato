@@ -321,27 +321,14 @@ export function DictionaryEntrySelect({
           </Button>
         </div>
       </div>
-      {activeOption ? (
-        activeOption.icon || activeOption.color ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
-              {renderDictionaryIcon(activeOption.icon, 'h-4 w-4')}
-              {renderDictionaryColor(activeOption.color, 'h-4 w-4 rounded-sm')}
-            </span>
-            {activeOption.color ? <span>{activeOption.color}</span> : null}
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">
-            <DictionaryValue
-              value={activeOption.value}
-              map={Object.fromEntries(options.map((option) => [option.value, option]))}
-              className="inline-flex items-center gap-2 text-sm"
-              iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
-              iconClassName="h-3.5 w-3.5"
-              colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
-            />
-          </div>
-        )
+      {activeOption && (activeOption.icon || activeOption.color) ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-2 rounded border border-dashed px-2 py-1">
+            {activeOption.icon ? renderDictionaryIcon(activeOption.icon, 'h-4 w-4') : null}
+            {activeOption.color ? renderDictionaryColor(activeOption.color, 'h-4 w-4 rounded-sm') : null}
+          </span>
+          {activeOption.color ? <span>{activeOption.color}</span> : null}
+        </div>
       ) : null}
       {loading ? <div className="text-xs text-muted-foreground">{labels.loadingLabel}</div> : null}
     </div>

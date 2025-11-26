@@ -1,7 +1,13 @@
 "use client"
 
 import * as React from 'react'
-import { InlineMultilineEditor, InlineSelectEditor, InlineTextEditor, type InlineSelectOption } from './InlineEditors'
+import {
+  InlineMultilineEditor,
+  InlineSelectEditor,
+  InlineTextEditor,
+  type InlineSelectOption,
+  type InlineTextEditorProps,
+} from './InlineEditors'
 
 type EditorVariant = 'default' | 'muted' | 'plain'
 
@@ -24,6 +30,7 @@ export type DetailTextFieldConfig = DetailFieldCommon & {
   inputType?: React.HTMLInputTypeAttribute
   validator?: (value: string) => string | null
   hideLabel?: boolean
+  renderDisplay?: InlineTextEditorProps['renderDisplay']
 }
 
 export type DetailMultilineFieldConfig = DetailFieldCommon & {
@@ -83,6 +90,7 @@ export function DetailFieldsSection({ fields, className }: DetailFieldsSectionPr
                 containerClassName={containerClassName}
                 triggerClassName={triggerClassName}
                 hideLabel={field.hideLabel}
+                renderDisplay={field.renderDisplay}
               />
             </div>
           )

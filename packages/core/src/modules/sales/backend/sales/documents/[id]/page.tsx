@@ -8,7 +8,8 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Building2, Mail, Pencil, Trash2, UserRound, Wand2, X } from 'lucide-react'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { Building2, Mail, Pencil, Store, Trash2, UserRound, Wand2, X } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -44,14 +45,26 @@ function CurrencyInlineEditor({
 }) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
-  const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
+  const normalizedValue = React.useMemo(() => (typeof value === 'string' ? value.toUpperCase() : undefined), [value])
+  const [draft, setDraft] = React.useState<string | undefined>(normalizedValue)
   const [saving, setSaving] = React.useState(false)
+  const appearanceMap = React.useMemo(
+    () =>
+      createDictionaryMap(
+        options.map((option) => ({
+          value: option.value.toUpperCase(),
+          label: option.label,
+          color: option.color ?? undefined,
+          icon: option.icon ?? undefined,
+        }))
+      ),
+    [options]
+  )
 
   React.useEffect(() => {
-    if (!editing) setDraft(value ?? undefined)
-  }, [editing, value])
+    if (!editing) setDraft(normalizedValue)
+  }, [editing, normalizedValue])
 
-  const current = options.find((opt) => opt.value === (value ?? undefined))
   const fetchOptions = React.useCallback(async () => options, [options])
 
   const handleActivate = React.useCallback(() => {
@@ -110,12 +123,21 @@ function CurrencyInlineEditor({
             >
               <DictionaryEntrySelect
                 value={draft}
-                onChange={(next) => setDraft(next ?? undefined)}
+                onChange={(next) => setDraft(next ? next.toUpperCase() : undefined)}
                 fetchOptions={fetchOptions}
                 allowInlineCreate={false}
                 manageHref="/backend/config/dictionaries?key=currency"
                 selectClassName="w-full"
                 labels={labels}
+              />
+              <DictionaryValue
+                value={draft ?? normalizedValue ?? null}
+                map={appearanceMap}
+                fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
+                className="text-sm text-foreground"
+                iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
+                iconClassName="h-3.5 w-3.5"
+                colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
               />
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               <div className="flex items-center gap-2">
@@ -139,17 +161,15 @@ function CurrencyInlineEditor({
               </div>
             </div>
           ) : (
-            <div className="mt-1 flex items-center gap-2 text-sm text-foreground">
-              {current ? (
-                <>
-                  {renderDictionaryIcon(current.icon, 'h-4 w-4')}
-                  <span className={current.color ? 'font-medium' : 'text-foreground'}>{current.label}</span>
-                  {renderDictionaryColor(current.color, 'h-3 w-3 rounded-full')}
-                </>
-              ) : (
-                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-              )}
-            </div>
+            <DictionaryValue
+              value={normalizedValue ?? null}
+              map={appearanceMap}
+              fallback={<span className="text-sm text-muted-foreground">{emptyLabel}</span>}
+              className="mt-1 inline-flex items-center gap-2 text-sm text-foreground"
+              iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded border border-border bg-background"
+              iconClassName="h-3.5 w-3.5"
+              colorClassName="h-2.5 w-2.5 rounded-full border border-border/60"
+            />
           )}
         </div>
         <Button
@@ -174,198 +194,490 @@ function CurrencyInlineEditor({
   )
 }
 
+type SnapshotDraft = {
+  displayName: string
+  kind: 'company' | 'person'
+  primaryEmail: string
+  primaryPhone: string
+  firstName: string
+  lastName: string
+  legalName: string
+}
+
+function createSnapshotDraft(
+  snapshot: CustomerSnapshot | null,
+  fallbackName: string | null,
+  fallbackEmail: string | null,
+): SnapshotDraft {
+  const customer = snapshot?.customer ?? null
+  const personProfile = customer?.personProfile ?? snapshot?.contact ?? null
+  const companyProfile = customer?.companyProfile ?? null
+  const resolvedKind: 'company' | 'person' =
+    customer?.kind === 'person' || snapshot?.contact ? 'person' : 'company'
+  return {
+    displayName:
+      (customer?.displayName && customer.displayName.trim()) ||
+      (fallbackName && fallbackName.trim()) ||
+      '',
+    kind: resolvedKind,
+    primaryEmail:
+      (customer?.primaryEmail && customer.primaryEmail.trim()) ||
+      (fallbackEmail && fallbackEmail.trim()) ||
+      '',
+    primaryPhone: (customer?.primaryPhone && customer.primaryPhone.trim()) || '',
+    firstName: (personProfile?.firstName && personProfile.firstName.trim()) || '',
+    lastName: (personProfile?.lastName && personProfile.lastName.trim()) || '',
+    legalName: (companyProfile?.legalName && companyProfile.legalName.trim()) || '',
+  }
+}
+
 function CustomerInlineEditor({
   label,
   customerId,
   customerName,
   customerEmail,
+  customerSnapshot,
   customers,
   customerLoading,
   onLoadCustomers,
   fetchCustomerEmail,
   onSave,
+  onSaveSnapshot,
   saving,
   error,
+  guardMessage,
   onClearError,
 }: {
   label: string
   customerId: string | null
   customerName: string | null
   customerEmail: string | null | undefined
+  customerSnapshot: CustomerSnapshot | null
   customers: CustomerOption[]
   customerLoading: boolean
   onLoadCustomers: (query?: string) => Promise<CustomerOption[]>
   fetchCustomerEmail: (id: string, kindHint?: 'person' | 'company') => Promise<string | null>
   onSave: (id: string | null, email: string | null) => Promise<void>
+  onSaveSnapshot: (snapshot: CustomerSnapshot) => Promise<void>
   saving: boolean
   error: string | null
+  guardMessage?: string | null
   onClearError: () => void
 }) {
   const t = useT()
-  const [editing, setEditing] = React.useState(false)
+  const [mode, setMode] = React.useState<'select' | 'snapshot' | null>(null)
   const [draftId, setDraftId] = React.useState<string | null>(customerId)
   const [draftEmail, setDraftEmail] = React.useState<string | null>(customerEmail ?? null)
+  const [snapshotDraft, setSnapshotDraft] = React.useState<SnapshotDraft>(() =>
+    createSnapshotDraft(customerSnapshot, customerName, customerEmail ?? null),
+  )
   const selectedRef = React.useRef<string | null>(customerId)
+  const customerQuerySetter = React.useRef<((value: string) => void) | null>(null)
+
+  const currentLabel = React.useMemo(() => {
+    if (customerName && customerName.trim().length) return customerName
+    const match = customers.find((entry) => entry.id === customerId)
+    return match?.label ?? null
+  }, [customerId, customerName, customers])
 
   React.useEffect(() => {
     selectedRef.current = draftId
   }, [draftId])
 
   React.useEffect(() => {
-    if (!editing) {
+    if (mode !== 'select') {
       setDraftId(customerId)
       setDraftEmail(customerEmail ?? null)
       onClearError()
     }
-  }, [customerEmail, customerId, editing, onClearError])
+  }, [customerEmail, customerId, mode, onClearError])
 
-  const handleActivate = React.useCallback(() => {
-    if (!editing) {
-      setEditing(true)
-      void onLoadCustomers()
+  React.useEffect(() => {
+    if (mode !== 'snapshot') {
+      setSnapshotDraft(createSnapshotDraft(customerSnapshot, currentLabel, customerEmail ?? null))
     }
-  }, [editing, onLoadCustomers])
+  }, [customerEmail, customerSnapshot, currentLabel, mode])
 
-  const handleSave = React.useCallback(async () => {
+  React.useEffect(() => {
+    if (mode !== 'select') return
+    const labelValue = currentLabel
+    if (labelValue && customerQuerySetter.current) {
+      customerQuerySetter.current(labelValue)
+    }
+    void onLoadCustomers(labelValue ?? undefined)
+  }, [currentLabel, mode, onLoadCustomers])
+
+  const handleSelectActivate = React.useCallback(() => {
+    if (guardMessage) {
+      onClearError()
+      flash(guardMessage, 'error')
+      return
+    }
+    setMode('select')
+    void onLoadCustomers()
+  }, [guardMessage, onClearError, onLoadCustomers])
+
+  const handleSnapshotActivate = React.useCallback(() => {
+    if (guardMessage) {
+      onClearError()
+      flash(guardMessage, 'error')
+      return
+    }
+    setMode('snapshot')
+  }, [guardMessage, onClearError])
+
+  const handleCancel = React.useCallback(() => {
+    onClearError()
+    setMode(null)
+    setDraftId(customerId)
+    setDraftEmail(customerEmail ?? null)
+    setSnapshotDraft(createSnapshotDraft(customerSnapshot, currentLabel, customerEmail ?? null))
+  }, [customerEmail, customerId, customerSnapshot, currentLabel, onClearError])
+
+  const buildSnapshotPayload = React.useCallback((): CustomerSnapshot => {
+    const kind = snapshotDraft.kind
+    const displayNameRaw = snapshotDraft.displayName.trim()
+    const primaryEmailRaw = snapshotDraft.primaryEmail.trim()
+    const primaryPhoneRaw = snapshotDraft.primaryPhone.trim()
+    const firstNameRaw = snapshotDraft.firstName.trim()
+    const lastNameRaw = snapshotDraft.lastName.trim()
+    const legalNameRaw = snapshotDraft.legalName.trim()
+    const nameFromParts =
+      kind === 'person'
+        ? [firstNameRaw, lastNameRaw].filter((value) => value.length).join(' ').trim()
+        : legalNameRaw
+    const resolvedDisplayName = displayNameRaw || nameFromParts || null
+    const baseCustomer = customerSnapshot?.customer ?? {}
+    const nextPersonProfile =
+      kind === 'person'
+        ? {
+            ...(baseCustomer.personProfile ?? customerSnapshot?.contact ?? {}),
+            firstName: firstNameRaw || null,
+            lastName: lastNameRaw || null,
+          }
+        : null
+    const nextCompanyProfile =
+      kind === 'company'
+        ? { ...(baseCustomer.companyProfile ?? {}), legalName: legalNameRaw || null }
+        : null
+    return {
+      ...(customerSnapshot ?? {}),
+      customer: {
+        ...baseCustomer,
+        kind,
+        displayName: resolvedDisplayName,
+        primaryEmail: primaryEmailRaw || null,
+        primaryPhone: primaryPhoneRaw || null,
+        personProfile: nextPersonProfile,
+        companyProfile: nextCompanyProfile,
+      },
+      contact: customerSnapshot?.contact ?? null,
+    }
+  }, [customerSnapshot, snapshotDraft])
+
+  const handleSaveSelection = React.useCallback(async () => {
     try {
       onClearError()
       await onSave(draftId, draftEmail)
-      setEditing(false)
+      setMode(null)
     } catch (err) {
       console.error('sales.documents.customer.save', err)
     }
   }, [draftEmail, draftId, onClearError, onSave])
 
-  if (!editing) {
+  const handleSaveSnapshot = React.useCallback(async () => {
+    try {
+      onClearError()
+      const payload = buildSnapshotPayload()
+      await onSaveSnapshot(payload)
+      setMode(null)
+    } catch (err) {
+      console.error('sales.documents.customer.snapshot.save', err)
+    }
+  }, [buildSnapshotPayload, onClearError, onSaveSnapshot])
+
+  if (mode === 'select') {
     return (
-      <DocumentCustomerCard
-        label={label}
-        name={customerName ?? null}
-        email={customerEmail ?? undefined}
-        kind="company"
-        className="h-full"
-        onEdit={handleActivate}
-      />
+      <div
+        className="group h-full rounded-lg border bg-card p-4"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            handleCancel()
+            return
+          }
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            if (!saving) void handleSaveSelection()
+          }
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0 space-y-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+            <LookupSelect
+              value={draftId}
+              onChange={(next) => {
+                setDraftId(next)
+                setDraftEmail(null)
+                selectedRef.current = next
+                if (!next) return
+                const match = customers.find((entry) => entry.id === next)
+                if (match?.primaryEmail) {
+                  setDraftEmail(match.primaryEmail)
+                } else {
+                  const selectedId = next
+                  fetchCustomerEmail(selectedId, match?.kind)
+                    .then((resolved) => {
+                      if (resolved && selectedRef.current === selectedId) setDraftEmail(resolved)
+                    })
+                    .catch(() => {})
+                }
+              }}
+              fetchItems={async (query) => {
+                const options = await onLoadCustomers(query)
+                return options.map<LookupSelectItem>((opt) => ({
+                  id: opt.id,
+                  title: opt.label,
+                  subtitle: opt.subtitle ?? undefined,
+                  icon:
+                    opt.kind === 'person' ? (
+                      <UserRound className="h-5 w-5 text-muted-foreground" />
+                    ) : (
+                      <Building2 className="h-5 w-5 text-muted-foreground" />
+                    ),
+                }))
+              }}
+              onReady={({ setQuery }) => {
+                customerQuerySetter.current = setQuery
+              }}
+              searchPlaceholder={t('sales.documents.form.customer.placeholder', 'Search customers…')}
+              loadingLabel={t('sales.documents.form.customer.loading', 'Loading customers…')}
+              emptyLabel={t('sales.documents.form.customer.empty', 'No customers found.')}
+              selectedHintLabel={(id) =>
+                t('sales.documents.form.customer.selected', 'Selected customer: {{id}}', { id })
+              }
+            />
+            {customerLoading ? (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Spinner className="h-3.5 w-3.5 animate-spin" />
+                {t('sales.documents.form.customer.loading', 'Loading customers…')}
+              </p>
+            ) : null}
+            {draftEmail ? (
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Mail className="h-3.5 w-3.5" aria-hidden />
+                <span className="truncate">{draftEmail}</span>
+              </p>
+            ) : null}
+            {error ? <p className="text-xs text-destructive">{error}</p> : null}
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" onClick={() => void handleSaveSelection()} disabled={saving}>
+                {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('customers.people.detail.inline.saveShortcut')}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={handleCancel} disabled={saving}>
+                {t('ui.detail.inline.cancel', 'Cancel')}
+              </Button>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={handleCancel}
+            aria-label={t('ui.detail.inline.cancel', 'Cancel')}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
     )
   }
 
-  return (
-    <div
-      className="group h-full rounded-lg border bg-card p-4"
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          setEditing(false)
-          onClearError()
-          return
-        }
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault()
-          if (!saving) void handleSave()
-        }
-      }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0 space-y-2">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-          <LookupSelect
-            value={draftId}
-            onChange={(next) => {
-              setDraftId(next)
-              setDraftEmail(null)
-              selectedRef.current = next
-              if (!next) return
-              const match = customers.find((entry) => entry.id === next)
-              if (match?.primaryEmail) {
-                setDraftEmail(match.primaryEmail)
-              } else {
-                const selectedId = next
-                fetchCustomerEmail(selectedId, match?.kind)
-                  .then((resolved) => {
-                    if (resolved && selectedRef.current === selectedId) setDraftEmail(resolved)
-                  })
-                  .catch(() => {})
-              }
-            }}
-            fetchItems={async (query) => {
-              const options = await onLoadCustomers(query)
-              return options.map<LookupSelectItem>((opt) => ({
-                id: opt.id,
-                title: opt.label,
-                subtitle: opt.subtitle ?? undefined,
-                icon:
-                  opt.kind === 'person' ? (
-                    <UserRound className="h-5 w-5 text-muted-foreground" />
-                  ) : (
-                    <Building2 className="h-5 w-5 text-muted-foreground" />
-                  ),
-              }))
-            }}
-            searchPlaceholder={t('sales.documents.form.customer.placeholder', 'Search customers…')}
-            loadingLabel={t('sales.documents.form.customer.loading', 'Loading customers…')}
-            emptyLabel={t('sales.documents.form.customer.empty', 'No customers found.')}
-            selectedHintLabel={(id) => t('sales.documents.form.customer.selected', 'Selected customer: {{id}}', { id })}
-          />
-          {customerLoading ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Spinner className="h-3.5 w-3.5 animate-spin" />
-              {t('sales.documents.form.customer.loading', 'Loading customers…')}
+  if (mode === 'snapshot') {
+    return (
+      <div
+        className="group h-full rounded-lg border bg-card p-4"
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            handleCancel()
+            return
+          }
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            if (!saving) void handleSaveSnapshot()
+          }
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('sales.documents.detail.customerSnapshot.hint', 'Edit the snapshot stored on this document.')}
             </p>
-          ) : null}
-          {draftEmail ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Mail className="h-3.5 w-3.5" aria-hidden />
-              <span className="truncate">{draftEmail}</span>
-            </p>
-          ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={handleCancel}
+            aria-label={t('ui.detail.inline.cancel', 'Cancel')}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="mt-3 space-y-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-foreground">
+                {t('customers.people.form.displayName.label', 'Display name')}
+              </label>
+              <Input
+                value={snapshotDraft.displayName}
+                onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, displayName: event.target.value }))}
+                placeholder={t('customers.people.form.displayName.placeholder', 'Enter display name')}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-foreground">
+                {t('sales.documents.detail.customerSnapshot.kind', 'Customer type')}
+              </label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={snapshotDraft.kind === 'company' ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setSnapshotDraft((prev) => ({ ...prev, kind: 'company' }))}
+                >
+                  {t('customers.widgets.newCustomers.kind.company', 'Company')}
+                </Button>
+                <Button
+                  type="button"
+                  variant={snapshotDraft.kind === 'person' ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setSnapshotDraft((prev) => ({ ...prev, kind: 'person' }))}
+                >
+                  {t('customers.widgets.newCustomers.kind.person', 'Person')}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-foreground">
+                {t('customers.people.detail.highlights.primaryEmail', 'Primary email')}
+              </label>
+              <Input
+                type="email"
+                value={snapshotDraft.primaryEmail}
+                onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, primaryEmail: event.target.value }))}
+                placeholder={t('customers.people.form.primaryEmailPlaceholder', 'name@example.com')}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-foreground">
+                {t('customers.people.detail.highlights.primaryPhone', 'Primary phone')}
+              </label>
+              <Input
+                type="tel"
+                value={snapshotDraft.primaryPhone}
+                onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, primaryPhone: event.target.value }))}
+                placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
+              />
+            </div>
+          </div>
+
+          {snapshotDraft.kind === 'person' ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-foreground">
+                  {t('customers.people.form.firstName', 'First name')}
+                </label>
+                <Input
+                  value={snapshotDraft.firstName}
+                  onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, firstName: event.target.value }))}
+                  placeholder={t('customers.people.form.firstName', 'First name')}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-foreground">
+                  {t('customers.people.form.lastName', 'Last name')}
+                </label>
+                <Input
+                  value={snapshotDraft.lastName}
+                  onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, lastName: event.target.value }))}
+                  placeholder={t('customers.people.form.lastName', 'Last name')}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-foreground">
+                {t('customers.companies.detail.fields.legalName', 'Legal name')}
+              </label>
+              <Input
+                value={snapshotDraft.legalName}
+                onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, legalName: event.target.value }))}
+                placeholder={t('customers.companies.detail.fields.legalNamePlaceholder', 'Add legal name')}
+              />
+            </div>
+          )}
+
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
+
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+            <Button type="button" size="sm" onClick={() => void handleSaveSnapshot()} disabled={saving}>
               {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
               {t('customers.people.detail.inline.saveShortcut')}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                onClearError()
-                setEditing(false)
-                setDraftId(customerId)
-                setDraftEmail(customerEmail ?? null)
-              }}
-              disabled={saving}
-            >
+            <Button type="button" size="sm" variant="ghost" onClick={handleCancel} disabled={saving}>
               {t('ui.detail.inline.cancel', 'Cancel')}
             </Button>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => {
-            onClearError()
-            setEditing(false)
-            setDraftId(customerId)
-            setDraftEmail(customerEmail ?? null)
-          }}
-          aria-label={t('ui.detail.inline.cancel', 'Cancel')}
-        >
-          <X className="h-4 w-4" />
-        </Button>
       </div>
-    </div>
+    )
+  }
+
+  return (
+    <DocumentCustomerCard
+      label={label}
+      name={customerName ?? null}
+      email={customerEmail ?? undefined}
+      kind={customerSnapshot?.customer?.kind === 'person' ? 'person' : 'company'}
+      className="h-full"
+      onEditSnapshot={handleSnapshotActivate}
+      onSelectCustomer={handleSelectActivate}
+    />
   )
 }
 
 type CustomerSnapshot = {
   customer?: {
     id?: string | null
+    kind?: 'person' | 'company' | null
     displayName?: string | null
     primaryEmail?: string | null
     primaryPhone?: string | null
+    personProfile?: {
+      id?: string | null
+      firstName?: string | null
+      lastName?: string | null
+      preferredName?: string | null
+    } | null
+    companyProfile?: {
+      id?: string | null
+      legalName?: string | null
+      brandName?: string | null
+      domain?: string | null
+      websiteUrl?: string | null
+    } | null
   } | null
   contact?: {
     id?: string | null
@@ -466,19 +778,41 @@ async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: 
 
 function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined, fallback?: string | null) {
   if (!snapshot) return fallback ?? null
-  const base = snapshot.customer?.displayName ?? null
-  if (base) return base
-  const contact = snapshot.contact
-  if (contact) {
-    const parts = [contact.firstName, contact.lastName].filter((part) => part && part.trim().length)
-    if (parts.length) return parts.join(' ')
-  }
+  const displayName =
+    typeof snapshot.customer?.displayName === 'string' && snapshot.customer.displayName.trim().length
+      ? snapshot.customer.displayName.trim()
+      : null
+  if (displayName) return displayName
+  const contact = snapshot.contact ?? null
+  const personProfile = snapshot.customer?.personProfile ?? null
+  const preferred =
+    (contact?.preferredName && contact.preferredName.trim()) ||
+    (personProfile?.preferredName && personProfile.preferredName.trim()) ||
+    null
+  const firstName =
+    (contact?.firstName && contact.firstName.trim()) ||
+    (personProfile?.firstName && personProfile.firstName.trim()) ||
+    null
+  const lastName =
+    (contact?.lastName && contact.lastName.trim()) ||
+    (personProfile?.lastName && personProfile.lastName.trim()) ||
+    null
+  const parts = [preferred ?? firstName, lastName].filter((part) => part && part.length)
+  if (parts.length) return parts.join(' ')
+  const legalName =
+    (snapshot.customer?.companyProfile?.legalName &&
+      snapshot.customer.companyProfile.legalName.trim()) ||
+    null
+  if (legalName) return legalName
   return fallback ?? null
 }
 
 function resolveCustomerEmail(snapshot: CustomerSnapshot | null | undefined) {
   if (!snapshot) return null
-  if (snapshot.customer?.primaryEmail) return snapshot.customer.primaryEmail
+  const primary =
+    (snapshot.customer?.primaryEmail && snapshot.customer.primaryEmail.trim()) ||
+    null
+  if (primary) return primary
   return null
 }
 
@@ -731,6 +1065,7 @@ function ChannelInlineEditor({
   const [draft, setDraft] = React.useState<string | null>(value ?? null)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const setSearchQueryRef = React.useRef<((value: string) => void) | null>(null)
 
   React.useEffect(() => {
     if (!editing) {
@@ -739,17 +1074,32 @@ function ChannelInlineEditor({
     }
   }, [editing, value])
 
+  React.useEffect(() => {
+    if (!editing) setSearchQueryRef.current = null
+  }, [editing])
+
   const current = React.useMemo(
     () => (draft ?? value ? options.find((opt) => opt.id === (draft ?? value)) ?? null : null),
     [draft, options, value]
   )
 
+  const prefillSearch = React.useCallback(() => {
+    if (!editing || !setSearchQueryRef.current) return
+    const query = current?.label ?? value ?? ''
+    setSearchQueryRef.current(query)
+  }, [current?.label, editing, value])
+
+  React.useEffect(() => {
+    if (editing) prefillSearch()
+  }, [editing, prefillSearch])
+
   const handleActivate = React.useCallback(() => {
     if (!editing) {
       setEditing(true)
+      prefillSearch()
       void onLoadOptions()
     }
-  }, [editing, onLoadOptions])
+  }, [editing, onLoadOptions, prefillSearch])
 
   const handleSave = React.useCallback(async () => {
     setSaving(true)
@@ -808,7 +1158,12 @@ function ChannelInlineEditor({
                   return items.map<LookupSelectItem>((item) => ({
                     id: item.id,
                     title: item.label,
+                    icon: <Store className="h-5 w-5 text-muted-foreground" />,
                   }))
+                }}
+                onReady={({ setQuery }) => {
+                  setSearchQueryRef.current = setQuery
+                  prefillSearch()
                 }}
                 searchPlaceholder={t('sales.documents.form.channel.placeholder', 'Select a channel')}
                 loadingLabel={t('sales.documents.form.channel.loading', 'Loading channels…')}
@@ -865,7 +1220,11 @@ function ChannelInlineEditor({
               setDraft(value ?? null)
               setError(null)
             }
-            setEditing((prev) => !prev)
+            setEditing((prev) => {
+              const next = !prev
+              if (!prev && next) prefillSearch()
+              return next
+            })
             void onLoadOptions()
           }}
           aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
@@ -907,6 +1266,16 @@ function StatusInlineEditor({
   const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const fetchStatusOptions = React.useCallback(
+    async () =>
+      (await onLoadOptions()).map((option) => ({
+        value: option.value,
+        label: option.label,
+        color: option.color,
+        icon: option.icon,
+      })),
+    [onLoadOptions]
+  )
 
   React.useEffect(() => {
     if (!editing) {
@@ -978,14 +1347,7 @@ function StatusInlineEditor({
               <DictionaryEntrySelect
                 value={draft}
                 onChange={(next) => setDraft(next ?? undefined)}
-                fetchOptions={async () =>
-                  (await onLoadOptions()).map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                    color: option.color,
-                    icon: option.icon,
-                  }))
-                }
+                fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
                 allowAppearance
                 manageHref={manageHref}
@@ -1040,7 +1402,7 @@ function StatusInlineEditor({
           onClick={(event) => {
             event.stopPropagation()
             if (editing) {
-              setDraft(value ?? undefined)
+              setDraft(normalizedValue)
               setError(null)
             }
             setEditing((prev) => !prev)
@@ -1071,6 +1433,7 @@ export default function SalesDocumentDetailPage({
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'comments' | 'addresses' | 'items' | 'shipments' | 'payments' | 'adjustments'>('comments')
+  const detailSectionRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [numberEditing, setNumberEditing] = React.useState(false)
@@ -1399,6 +1762,18 @@ export default function SalesDocumentDetailPage({
     setReloadKey((prev) => prev + 1)
   }, [])
 
+  const statusDictionaryMap = React.useMemo(
+    () =>
+      createDictionaryMap(
+        statusOptions.map((option) => ({
+          value: option.value,
+          label: option.label,
+          color: option.color,
+          icon: option.icon,
+        }))
+      ),
+    [statusOptions]
+  )
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
@@ -1460,18 +1835,6 @@ export default function SalesDocumentDetailPage({
     }
     return Array.from(set.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
   }, [currencyEntries, record?.currencyCode])
-  const statusDictionaryMap = React.useMemo(
-    () =>
-      createDictionaryMap(
-        statusOptions.map((option) => ({
-          value: option.value,
-          label: option.label,
-          color: option.color,
-          icon: option.icon,
-        }))
-      ),
-    [statusOptions]
-  )
   const currencyLabels = React.useMemo(
     () => ({
       placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
@@ -1615,6 +1978,58 @@ export default function SalesDocumentDetailPage({
     [record, t, updateDocument]
   )
 
+  const handleUpdateExternalReference = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      const normalized = typeof next === 'string' ? next.trim() : ''
+      try {
+        const call = await updateDocument({ externalReference: normalized.length ? normalized : null })
+        const savedExternalReference =
+          typeof call.result?.externalReference === 'string'
+            ? call.result.externalReference
+            : normalized.length
+              ? normalized
+              : null
+        setRecord((prev) => (prev ? { ...prev, externalReference: savedExternalReference } : prev))
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [record, t, updateDocument]
+  )
+
+  const handleUpdateCustomerReference = React.useCallback(
+    async (next: string | null) => {
+      if (!record) return
+      const normalized = typeof next === 'string' ? next.trim() : ''
+      try {
+        const call = await updateDocument({ customerReference: normalized.length ? normalized : null })
+        const savedCustomerReference =
+          typeof call.result?.customerReference === 'string'
+            ? call.result.customerReference
+            : normalized.length
+              ? normalized
+              : null
+        setRecord((prev) => (prev ? { ...prev, customerReference: savedCustomerReference } : prev))
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        flash(message, 'error')
+        throw err
+      }
+    },
+    [record, t, updateDocument]
+  )
+
   const handleUpdateContactEmail = React.useCallback(
     async (next: string | null) => {
       if (!record) return
@@ -1744,11 +2159,14 @@ export default function SalesDocumentDetailPage({
         }
         const call = await updateDocument(payload)
         const snapshot = (call.result?.customerSnapshot ?? null) as CustomerSnapshot | null
+        const hasSnapshotInResponse =
+          call.result && Object.prototype.hasOwnProperty.call(call.result, 'customerSnapshot')
         const selected = customerOptions.find((entry) => entry.id === nextId) ?? null
         const resolvedName =
           (call.result?.customerName as string | undefined) ??
           resolveCustomerName(snapshot, selected?.label ?? record.customerName ?? record.customerEntityId ?? null)
         const resolvedEmail =
+          resolveCustomerEmail(snapshot) ??
           (call.result?.contactEmail as string | undefined | null) ??
           email ??
           selected?.primaryEmail ??
@@ -1760,7 +2178,10 @@ export default function SalesDocumentDetailPage({
                 customerEntityId: nextId ?? null,
                 customerName: nextId ? resolvedName ?? prev.customerName : resolvedName ?? null,
                 contactEmail: resolvedEmail ?? (nextId ? prev.contactEmail ?? null : null),
-                customerSnapshot: snapshot ?? prev.customerSnapshot ?? null,
+                customerSnapshot:
+                  hasSnapshotInResponse || changedCustomer
+                    ? snapshot
+                    : prev.customerSnapshot ?? null,
                 shippingAddressId: changedCustomer ? null : prev.shippingAddressId ?? null,
                 billingAddressId: changedCustomer ? null : prev.billingAddressId ?? null,
                 shippingAddressSnapshot: changedCustomer ? null : prev.shippingAddressSnapshot ?? null,
@@ -1782,6 +2203,55 @@ export default function SalesDocumentDetailPage({
       }
     },
     [customerOptions, record, t, updateDocument]
+  )
+
+  const handleUpdateCustomerSnapshot = React.useCallback(
+    async (snapshot: CustomerSnapshot) => {
+      if (!record) return
+      if (customerGuardMessage) {
+        setCustomerError(customerGuardMessage)
+        flash(customerGuardMessage, 'error')
+        throw new Error(customerGuardMessage)
+      }
+      setCustomerSaving(true)
+      setCustomerError(null)
+      try {
+        const call = await updateDocument({ customerSnapshot: snapshot })
+        const hasSnapshotInResponse =
+          call.result && Object.prototype.hasOwnProperty.call(call.result, 'customerSnapshot')
+        const savedSnapshot =
+          (hasSnapshotInResponse ? (call.result?.customerSnapshot ?? null) : snapshot) as CustomerSnapshot | null
+        const resolvedName = resolveCustomerName(
+          savedSnapshot,
+          record.customerName ?? record.customerEntityId ?? null,
+        )
+        const resolvedEmail =
+          resolveCustomerEmail(savedSnapshot) ??
+          (typeof call.result?.contactEmail === 'string' ? call.result.contactEmail : record.contactEmail ?? null)
+        setRecord((prev) =>
+          prev
+            ? {
+                ...prev,
+                customerSnapshot: savedSnapshot ?? null,
+                customerName: resolvedName,
+                contactEmail: resolvedEmail ?? null,
+              }
+            : prev,
+        )
+        flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : t('sales.documents.detail.updateError', 'Failed to update document.')
+        setCustomerError(message)
+        flash(message, 'error')
+        throw err
+      } finally {
+        setCustomerSaving(false)
+      }
+    },
+    [customerGuardMessage, record, t, updateDocument],
   )
 
   const handleGenerateNumber = React.useCallback(async () => {
@@ -1832,9 +2302,7 @@ export default function SalesDocumentDetailPage({
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.externalRef.placeholder', 'Add external reference'),
         value: record?.externalReference ?? null,
-        onSave: async () => {
-          flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')
-        },
+        onSave: handleUpdateExternalReference,
       },
       {
         key: 'customerRef',
@@ -1843,9 +2311,7 @@ export default function SalesDocumentDetailPage({
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.customerRef.placeholder', 'Customer PO or note'),
         value: record?.customerReference ?? null,
-        onSave: async () => {
-          flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')
-        },
+        onSave: handleUpdateCustomerReference,
       },
       {
         key: 'comment',
@@ -1864,17 +2330,27 @@ export default function SalesDocumentDetailPage({
         emptyLabel: '',
         render: () => (
           <SectionCard title={t('sales.documents.detail.timestamps', 'Timestamps')} muted>
-            <p className="text-sm">
+            <p className="text-sm text-muted-foreground">
               {t('sales.documents.detail.created', 'Created')}: {record?.createdAt ?? '—'}
             </p>
-            <p className="text-sm">
+            <p className="text-sm text-muted-foreground">
               {t('sales.documents.detail.updated', 'Updated')}: {record?.updatedAt ?? '—'}
             </p>
           </SectionCard>
         ),
       },
     ]
-  }, [record?.comment, record?.createdAt, record?.customerReference, record?.externalReference, record?.updatedAt, t])
+  }, [
+    handleUpdateComment,
+    handleUpdateCustomerReference,
+    handleUpdateExternalReference,
+    record?.comment,
+    record?.createdAt,
+    record?.customerReference,
+    record?.externalReference,
+    record?.updatedAt,
+    t,
+  ])
 
   const summaryCards: Array<{
     key: 'email' | 'channel' | 'status' | 'currency'
@@ -1943,6 +2419,15 @@ export default function SalesDocumentDetailPage({
     () => ({
       title: t('sales.documents.detail.empty.comments.title', 'No comments yet.'),
       description: t('sales.documents.detail.empty.comments.description', 'Notes from teammates will appear here.'),
+      action: {
+        label: t('sales.documents.detail.comments.add', 'Add comment'),
+        onClick: () => {
+          const target = detailSectionRef.current
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        },
+      },
     }),
     [t]
   )
@@ -1974,9 +2459,11 @@ export default function SalesDocumentDetailPage({
   const renderTabContent = () => {
     if (activeTab === 'comments') {
       return (
-        <SectionCard title={t('sales.documents.detail.comments', 'Comments')} muted>
-          <TabEmptyState title={commentEmptyState.title} description={commentEmptyState.description} />
-        </SectionCard>
+        <TabEmptyState
+          title={commentEmptyState.title}
+          description={commentEmptyState.description}
+          action={commentEmptyState.action}
+        />
       )
     }
     if (activeTab === 'addresses') {
@@ -1996,9 +2483,10 @@ export default function SalesDocumentDetailPage({
     }
     const placeholder = tabEmptyStates[activeTab]
     return (
-      <SectionCard title={tabButtons.find((tab) => tab.id === activeTab)?.label ?? ''} muted>
-        <TabEmptyState title={placeholder.title} description={placeholder.description} />
-      </SectionCard>
+      <TabEmptyState
+        title={placeholder.title}
+        description={placeholder.description}
+      />
     )
   }
 
@@ -2134,13 +2622,16 @@ export default function SalesDocumentDetailPage({
               customerId={record.customerEntityId ?? null}
               customerName={customerName}
               customerEmail={contactEmail ?? null}
+              customerSnapshot={customerSnapshot}
               customers={customerOptions}
               customerLoading={customerLoading}
               onLoadCustomers={loadCustomers}
               fetchCustomerEmail={fetchCustomerEmail}
               onSave={handleUpdateCustomer}
+              onSaveSnapshot={handleUpdateCustomerSnapshot}
               saving={customerSaving}
               error={customerError}
+              guardMessage={customerGuardMessage}
               onClearError={clearCustomerError}
             />
           </div>
@@ -2310,7 +2801,7 @@ export default function SalesDocumentDetailPage({
           {renderTabContent()}
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4" ref={detailSectionRef}>
           <p className="text-sm font-semibold">{t('sales.documents.detail.details', 'Details')}</p>
           <DetailFieldsSection fields={detailFields} />
         </div>

@@ -569,6 +569,10 @@
         "back": "Wróć do sprzedaży",
         "customer": "Klient",
         "customer.empty": "Brak powiązania",
+        "customerSnapshot": {
+          "hint": "Edytuj zrzut zapisany w tym dokumencie.",
+          "kind": "Typ klienta"
+        },
         "currency": "Waluta",
         "currencyInvalid": "Kod waluty musi mieć 3 litery.",
         "date": "Data",
@@ -578,7 +582,8 @@
         "empty": {
           "comments": {
             "title": "Brak komentarzy.",
-            "description": "Notatki od zespołu pojawią się tutaj."
+            "description": "Notatki od zespołu pojawią się tutaj.",
+            "action": "Dodaj komentarz"
           },
           "items": {
             "title": "Brak pozycji.",

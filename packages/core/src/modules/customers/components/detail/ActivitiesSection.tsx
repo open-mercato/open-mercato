@@ -476,7 +476,7 @@ export function ActivitiesSection({
           />
         ) : (
           <>
-            {!isLoading && activities.length === 0 ? (
+            {!isLoading && activities.length === 0 && !dialogOpen ? (
               <TabEmptyState
                 title={emptyState.title}
                 action={{

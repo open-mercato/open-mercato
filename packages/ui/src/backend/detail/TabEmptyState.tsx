@@ -10,6 +10,12 @@ type TabEmptyStateProps = {
   actionLabel?: string
   onAction?: () => void
   disabled?: boolean
+  action?: {
+    label: string
+    onClick?: () => void
+    icon?: React.ReactNode
+    disabled?: boolean
+  }
   className?: string
   children?: React.ReactNode
 }
@@ -20,24 +26,22 @@ export function TabEmptyState({
   actionLabel,
   onAction,
   disabled,
+  action,
   className,
   children,
 }: TabEmptyStateProps) {
+  const resolvedAction =
+    action ??
+    (actionLabel
+      ? {
+          label: actionLabel,
+          onClick: onAction,
+          disabled,
+        }
+      : undefined)
+
   return (
-    <EmptyState
-      title={title}
-      description={description}
-      action={
-        actionLabel
-          ? {
-              label: actionLabel,
-              onClick: onAction,
-              disabled,
-            }
-          : undefined
-      }
-      className={cn('w-full', className)}
-    >
+    <EmptyState title={title} description={description} action={resolvedAction} className={cn('w-full', className)}>
       {children}
     </EmptyState>
   )

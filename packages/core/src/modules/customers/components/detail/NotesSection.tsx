@@ -1074,7 +1074,7 @@ export function NotesSection({
               </div>
             )
           })
-        ) : (
+        ) : composerOpen ? null : (
           <TabEmptyState
             title={emptyState.title}
             action={{

@@ -1059,13 +1059,18 @@ export function SalesDocumentAddressesSection({
           />
         ) : null}
 
-        {!documentAddressesLoading && documentAddresses.length === 0 ? (
+        {!documentAddressesLoading && documentAddresses.length === 0 && !additionalFormOpen ? (
           <TabEmptyState
             title={t('sales.documents.detail.addresses.empty', 'No additional addresses yet.')}
             description={t(
               'sales.documents.detail.addresses.additionalHint',
               'Assign extra customer addresses to this document.'
             )}
+            action={{
+              label: t('sales.documents.detail.addresses.add', 'Add address'),
+              onClick: () => setAdditionalFormOpen(true),
+              disabled: customerRequired || locked,
+            }}
           />
         ) : null}
 

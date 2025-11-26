@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Building2, Mail, Pencil, Users } from 'lucide-react'
+import { Building2, Mail, MousePointerClick, Pencil, Users } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -10,7 +10,8 @@ type DocumentCustomerCardProps = {
   name?: string | null
   email?: string | null
   kind?: 'company' | 'person'
-  onEdit?: () => void
+  onEditSnapshot?: () => void
+  onSelectCustomer?: () => void
   className?: string
 }
 
@@ -19,31 +20,17 @@ export function DocumentCustomerCard({
   name,
   email,
   kind = 'company',
-  onEdit,
+  onEditSnapshot,
+  onSelectCustomer,
   className,
 }: DocumentCustomerCardProps) {
   const Icon = kind === 'person' ? Users : Building2
-  const interactiveProps = onEdit
-    ? {
-        role: 'button' as const,
-        tabIndex: 0,
-        onClick: onEdit,
-        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            onEdit()
-          }
-        },
-      }
-    : {}
   return (
     <div
       className={cn(
         'group rounded-lg border bg-card p-3',
-        onEdit ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : null,
         className,
       )}
-      {...interactiveProps}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 space-y-2">
@@ -72,23 +59,42 @@ export function DocumentCustomerCard({
             </div>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={(event) => {
-            event.stopPropagation()
-            if (onEdit) onEdit()
-          }}
-          className={cn(
-            'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100',
-            !onEdit ? 'cursor-default opacity-0' : null,
-          )}
-          disabled={!onEdit}
-        >
-          <Pencil className="h-4 w-4" aria-hidden />
-          <span className="sr-only">Edit customer</span>
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={(event) => {
+              event.stopPropagation()
+              if (onEditSnapshot) onEditSnapshot()
+            }}
+            className={cn(
+              'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100',
+              !onEditSnapshot ? 'cursor-default opacity-0' : null,
+            )}
+            disabled={!onEditSnapshot}
+          >
+            <Pencil className="h-4 w-4" aria-hidden />
+            <span className="sr-only">Edit customer snapshot</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={(event) => {
+              event.stopPropagation()
+              if (onSelectCustomer) onSelectCustomer()
+            }}
+            className={cn(
+              'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100',
+              !onSelectCustomer ? 'cursor-default opacity-0' : null,
+            )}
+            disabled={!onSelectCustomer}
+          >
+            <MousePointerClick className="h-4 w-4" aria-hidden />
+            <span className="sr-only">Select customer</span>
+          </Button>
+        </div>
       </div>
     </div>
   )

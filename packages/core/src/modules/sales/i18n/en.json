@@ -568,6 +568,10 @@
         "back": "Back to Sales",
         "customer": "Customer",
         "customer.empty": "Not linked",
+        "customerSnapshot": {
+          "hint": "Edit the snapshot stored on this document.",
+          "kind": "Customer type"
+        },
         "currency": "Currency",
         "currencyInvalid": "Currency code must be 3 letters.",
         "date": "Date",
@@ -577,7 +581,8 @@
         "empty": {
           "comments": {
             "title": "No comments yet.",
-            "description": "Notes from teammates will appear here."
+            "description": "Notes from teammates will appear here.",
+            "action": "Add comment"
           },
           "items": {
             "title": "No items yet.",

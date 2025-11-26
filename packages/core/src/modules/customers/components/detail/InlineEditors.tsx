@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Loader2, Linkedin, Pencil, Twitter, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -11,6 +12,8 @@ import { cn } from '@/lib/utils'
 import { useQueryClient } from '@tanstack/react-query'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import remarkGfm from 'remark-gfm'
+import { useEmailDuplicateCheck } from '../../backend/hooks/useEmailDuplicateCheck'
+import { lookupPhoneDuplicate } from '../../utils/phoneDuplicates'
 import {
   InlineMultilineEditor as UiInlineMultilineEditor,
   InlineTextEditor as UiInlineTextEditor,
@@ -39,7 +42,123 @@ export type InlineFieldType = UiInlineFieldType
 export type InlineFieldProps = InlineTextEditorProps
 export type InlineMultilineDisplayRenderer = NonNullable<InlineMultilineEditorProps['renderDisplay']>
 
-export const InlineTextEditor = UiInlineTextEditor
+export function InlineTextEditor(props: InlineFieldProps) {
+  const { type = 'text', validator, recordId } = props
+  const t = useT()
+  const [draft, setDraft] = React.useState(props.value ?? '')
+  const [editing, setEditing] = React.useState(false)
+  const currentRecordId = React.useMemo(() => (typeof recordId === 'string' ? recordId : null), [recordId])
+  const isEmailField = type === 'email'
+  const isPhoneField = type === 'tel'
+  const trimmedDraft = React.useMemo(() => draft.trim(), [draft])
+  const validationError = React.useMemo(() => {
+    if (!validator) return null
+    return validator(trimmedDraft)
+  }, [trimmedDraft, validator])
+  const isValidEmailForLookup = React.useMemo(() => {
+    if (!isEmailField) return false
+    if (!trimmedDraft.length) return false
+    return !validationError
+  }, [isEmailField, trimmedDraft, validationError])
+  const { duplicate: emailDuplicate, checking: emailChecking } = useEmailDuplicateCheck(draft, {
+    recordId: currentRecordId,
+    disabled: !editing || !isValidEmailForLookup,
+    matchMode: 'prefix',
+  })
+  const [phoneDuplicate, setPhoneDuplicate] = React.useState<{ id: string; label: string; href?: string } | null>(null)
+  const [phoneChecking, setPhoneChecking] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(props.value ?? '')
+    }
+  }, [editing, props.value])
+
+  React.useEffect(() => {
+    if (!editing || !isPhoneField) {
+      setPhoneDuplicate(null)
+      setPhoneChecking(false)
+      return
+    }
+    const digits = draft.replace(/\\D/g, '')
+    if (digits.length < 7) {
+      setPhoneDuplicate(null)
+      setPhoneChecking(false)
+      return
+    }
+    let cancelled = false
+    setPhoneChecking(true)
+    void lookupPhoneDuplicate(digits, { recordId: currentRecordId })
+      .then((result) => {
+        if (cancelled) return
+        setPhoneDuplicate(result)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setPhoneDuplicate(null)
+      })
+      .finally(() => {
+        if (cancelled) return
+        setPhoneChecking(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentRecordId, draft, editing, isPhoneField])
+
+  return (
+    <UiInlineTextEditor
+      {...props}
+      type={type}
+      validator={validator}
+      onDraftChange={setDraft}
+      onEditingChange={setEditing}
+      renderBelowInput={({ resolvedType, error }) => {
+        if (resolvedType === 'email') {
+          if (error || !editing || !isValidEmailForLookup) return null
+          if (emailDuplicate) {
+            return (
+              <p className="text-xs text-muted-foreground">
+                {t('customers.people.detail.inline.emailDuplicate', undefined, { name: emailDuplicate.displayName })}{' '}
+                <Link
+                  className="font-medium text-primary underline underline-offset-2"
+                  href={`/backend/customers/people/${emailDuplicate.id}`}
+                >
+                  {t('customers.people.detail.inline.emailDuplicateLink')}
+                </Link>
+              </p>
+            )
+          }
+          if (emailChecking) {
+            return <p className="text-xs text-muted-foreground">{t('customers.people.detail.inline.emailChecking')}</p>
+          }
+        }
+        if (resolvedType === 'tel') {
+          if (error || !editing) return null
+          if (phoneDuplicate) {
+            return (
+              <p className="text-xs text-muted-foreground">
+                {t('customers.people.form.phoneDuplicateNotice', undefined, { name: phoneDuplicate.label })}{' '}
+                {phoneDuplicate.href ? (
+                  <Link
+                    className="font-medium text-primary underline underline-offset-2"
+                    href={phoneDuplicate.href}
+                  >
+                    {t('customers.people.form.phoneDuplicateLink')}
+                  </Link>
+                ) : null}
+              </p>
+            )
+          }
+          if (phoneChecking) {
+            return <p className="text-xs text-muted-foreground">{t('customers.people.form.phoneChecking')}</p>
+          }
+        }
+        return null
+      }}
+    />
+  )
+}
 export const InlineMultilineEditor = UiInlineMultilineEditor
 export const InlineSelectEditor = UiInlineSelectEditor
 
