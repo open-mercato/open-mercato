@@ -530,8 +530,30 @@
         "currencyInvalid": "El código de moneda debe tener 3 letras.",
         "date": "Fecha",
         "dateInvalid": "Introduce una fecha válida en formato AAAA-MM-DD.",
+        "expectedDeliveryAt": {
+          "label": "Entrega estimada",
+          "placeholder": "Agregar fecha de entrega estimada"
+        },
         "comment": "Comentario",
         "comment.placeholder": "Agregar comentario",
+        "shippingMethodInvalid": "El método de envío seleccionado no se encontró.",
+        "paymentMethodInvalid": "El método de pago seleccionado no se encontró.",
+        "shippingMethodLoadError": "No se pudieron cargar los métodos de envío.",
+        "paymentMethodLoadError": "No se pudieron cargar los métodos de pago.",
+        "shippingMethod": {
+          "label": "Método de envío",
+          "placeholder": "Selecciona un método de envío",
+          "loading": "Cargando métodos de envío…",
+          "empty": "No se encontraron métodos de envío.",
+          "selected": "Método de envío seleccionado: {{id}}"
+        },
+        "paymentMethod": {
+          "label": "Método de pago",
+          "placeholder": "Selecciona un método de pago",
+          "loading": "Cargando métodos de pago…",
+          "empty": "No se encontraron métodos de pago.",
+          "selected": "Método de pago seleccionado: {{id}}"
+        },
         "empty": {
           "comments": {
             "title": "Aún no hay comentarios.",
@@ -597,6 +619,21 @@
         "updated": "Actualizado",
         "updatedMessage": "Documento actualizado.",
         "updateError": "No se pudo actualizar el documento.",
+        "totals": {
+          "title": "Totales",
+          "subtotalNet": "Subtotal (neto)",
+          "subtotalGross": "Subtotal (bruto)",
+          "discountTotal": "Descuentos",
+          "taxTotal": "Impuestos",
+          "shippingNet": "Envío (neto)",
+          "shippingGross": "Envío (bruto)",
+          "surchargeTotal": "Recargos",
+          "grandTotalNet": "Total (neto)",
+          "grandTotalGross": "Total (bruto)",
+          "paidTotal": "Pagado",
+          "refundedTotal": "Reembolsado",
+          "outstandingTotal": "Pendiente"
+        },
         "inline": {
           "save": "Guardar (Ctrl/Cmd + Enter)"
         },

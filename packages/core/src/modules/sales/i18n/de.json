@@ -529,8 +529,30 @@
         "currencyInvalid": "Der Währungscode muss aus 3 Buchstaben bestehen.",
         "date": "Datum",
         "dateInvalid": "Geben Sie ein gültiges Datum im Format JJJJ-MM-TT ein.",
+        "expectedDeliveryAt": {
+          "label": "Voraussichtliche Lieferung",
+          "placeholder": "Voraussichtliches Lieferdatum hinzufügen"
+        },
         "comment": "Kommentar",
         "comment.placeholder": "Kommentar hinzufügen",
+        "shippingMethodInvalid": "Ausgewählte Versandart wurde nicht gefunden.",
+        "paymentMethodInvalid": "Ausgewählte Zahlungsmethode wurde nicht gefunden.",
+        "shippingMethodLoadError": "Versandarten konnten nicht geladen werden.",
+        "paymentMethodLoadError": "Zahlungsarten konnten nicht geladen werden.",
+        "shippingMethod": {
+          "label": "Versandart",
+          "placeholder": "Versandart auswählen",
+          "loading": "Versandarten werden geladen…",
+          "empty": "Keine Versandarten gefunden.",
+          "selected": "Ausgewählte Versandart: {{id}}"
+        },
+        "paymentMethod": {
+          "label": "Zahlungsmethode",
+          "placeholder": "Zahlungsmethode auswählen",
+          "loading": "Zahlungsmethoden werden geladen…",
+          "empty": "Keine Zahlungsmethoden gefunden.",
+          "selected": "Ausgewählte Zahlungsmethode: {{id}}"
+        },
         "empty": {
           "comments": {
             "title": "Noch keine Kommentare.",
@@ -596,6 +618,21 @@
         "updated": "Aktualisiert",
         "updatedMessage": "Dokument aktualisiert.",
         "updateError": "Dokument konnte nicht aktualisiert werden.",
+        "totals": {
+          "title": "Summen",
+          "subtotalNet": "Zwischensumme (netto)",
+          "subtotalGross": "Zwischensumme (brutto)",
+          "discountTotal": "Rabatte",
+          "taxTotal": "Steuersumme",
+          "shippingNet": "Versand (netto)",
+          "shippingGross": "Versand (brutto)",
+          "surchargeTotal": "Aufschläge",
+          "grandTotalNet": "Gesamtsumme (netto)",
+          "grandTotalGross": "Gesamtsumme (brutto)",
+          "paidTotal": "Bezahlt",
+          "refundedTotal": "Erstattet",
+          "outstandingTotal": "Offen"
+        },
         "inline": {
           "save": "Speichern (Strg/Cmd + Enter)"
         },

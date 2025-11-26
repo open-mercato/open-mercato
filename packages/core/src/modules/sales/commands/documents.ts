@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -902,6 +903,108 @@ function convertAdjustmentResultToEntityInput(
     position: sourceAdjustment?.position ?? index,
     organizationId: document.organizationId,
     tenantId: document.tenantId,
+  }
+}
+
+async function applyOrderLineResults(params: {
+  em: EntityManager
+  order: SalesOrder
+  calculation: SalesDocumentCalculationResult
+  sourceLines: Array<DocumentLineCreateInput & { id?: string }>
+  existingLines: SalesOrderLine[]
+}): Promise<void> {
+  const { em, order, calculation, sourceLines, existingLines } = params
+  const existingMap = new Map(existingLines.map((line) => [line.id, line]))
+  const persisted = new Set<string>()
+  const statusCache = new Map<string, string | null>()
+  const resolveStatus = async (entryId?: string | null) => {
+    if (!entryId) return null
+    if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null
+    const value = await resolveDictionaryEntryValue(em, entryId)
+    statusCache.set(entryId, value)
+    return value
+  }
+  for (let index = 0; index < calculation.lines.length; index += 1) {
+    const lineResult = calculation.lines[index]
+    const sourceLine = sourceLines[index]
+    const statusEntryId = (sourceLine as any).statusEntryId ?? null
+    const statusValue = await resolveStatus(statusEntryId ?? null)
+    const payload = convertLineCalculationToEntityInput(lineResult, sourceLine, order, index)
+    const existing = sourceLine.id ? existingMap.get(sourceLine.id) ?? null : null
+    const lineEntity =
+      existing ??
+      em.create(SalesOrderLine, {
+        order,
+        id: sourceLine.id ?? undefined,
+        reservedQuantity: existing?.reservedQuantity ?? '0',
+        fulfilledQuantity: existing?.fulfilledQuantity ?? '0',
+        invoicedQuantity: existing?.invoicedQuantity ?? '0',
+        returnedQuantity: existing?.returnedQuantity ?? '0',
+        createdAt: existing?.createdAt ?? new Date(),
+        updatedAt: new Date(),
+      })
+    Object.assign(lineEntity, {
+      ...payload,
+      order,
+      statusEntryId,
+      status: statusValue,
+    })
+    em.persist(lineEntity)
+    persisted.add(lineEntity.id)
+  }
+  for (const [id, line] of existingMap.entries()) {
+    if (!persisted.has(id)) {
+      em.remove(line)
+    }
+  }
+}
+
+async function applyQuoteLineResults(params: {
+  em: EntityManager
+  quote: SalesQuote
+  calculation: SalesDocumentCalculationResult
+  sourceLines: Array<DocumentLineCreateInput & { id?: string }>
+  existingLines: SalesQuoteLine[]
+}): Promise<void> {
+  const { em, quote, calculation, sourceLines, existingLines } = params
+  const existingMap = new Map(existingLines.map((line) => [line.id, line]))
+  const persisted = new Set<string>()
+  const statusCache = new Map<string, string | null>()
+  const resolveStatus = async (entryId?: string | null) => {
+    if (!entryId) return null
+    if (statusCache.has(entryId)) return statusCache.get(entryId) ?? null
+    const value = await resolveDictionaryEntryValue(em, entryId)
+    statusCache.set(entryId, value)
+    return value
+  }
+  for (let index = 0; index < calculation.lines.length; index += 1) {
+    const lineResult = calculation.lines[index]
+    const sourceLine = sourceLines[index]
+    const statusEntryId = (sourceLine as any).statusEntryId ?? null
+    const statusValue = await resolveStatus(statusEntryId ?? null)
+    const payload = convertLineCalculationToEntityInput(lineResult, sourceLine, quote, index)
+    const existing = sourceLine.id ? existingMap.get(sourceLine.id) ?? null : null
+    const lineEntity =
+      existing ??
+      em.create(SalesQuoteLine, {
+        quote,
+        id: sourceLine.id ?? undefined,
+        createdAt: existing?.createdAt ?? new Date(),
+        updatedAt: new Date(),
+      })
+    Object.assign(lineEntity, {
+      ...payload,
+      quote,
+      statusEntryId,
+      status: statusValue,
+    })
+    em.persist(lineEntity)
+    persisted.add(lineEntity.id)
+  }
+  for (const [id, line] of existingMap.entries()) {
+    if (!persisted.has(id)) {
+      em.remove(line)
+    }
   }
 }
 
@@ -2032,7 +2135,611 @@ const deleteOrderCommand: CommandHandler<
   },
 }
 
+const orderLineUpsertSchema = orderLineCreateSchema.extend({ id: z.string().uuid().optional() })
+
+const orderLineDeleteSchema = z.object({
+  id: z.string().uuid(),
+  orderId: z.string().uuid(),
+})
+
+const quoteLineUpsertSchema = quoteLineCreateSchema.extend({ id: z.string().uuid().optional() })
+
+const quoteLineDeleteSchema = z.object({
+  id: z.string().uuid(),
+  quoteId: z.string().uuid(),
+})
+
+const orderLineUpsertCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { orderId: string; lineId: string }
+> = {
+  id: 'sales.orders.lines.upsert',
+  async prepare(input, ctx) {
+    const raw = (input?.body as Record<string, unknown> | undefined) ?? {}
+    const orderId = typeof raw.orderId === 'string' ? raw.orderId : null
+    if (!orderId) return {}
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadOrderSnapshot(em, orderId)
+    if (snapshot) ensureOrderScope(ctx, snapshot.order.organizationId, snapshot.order.tenantId)
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(input, ctx) {
+    const parsed = orderLineUpsertSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
+    if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
+    ensureOrderScope(ctx, order.organizationId, order.tenantId)
+
+    const [existingLines, adjustments] = await Promise.all([
+      em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: 'asc' } }),
+      em.find(SalesOrderAdjustment, { order }, { orderBy: { position: 'asc' } }),
+    ])
+    const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot)
+    const existingSnapshot = parsed.id ? lineSnapshots.find((line) => line.id === parsed.id) ?? null : null
+    const priceMode = parsed.priceMode === 'gross' ? 'gross' : parsed.priceMode === 'net' ? 'net' : null
+    let unitPriceNet = parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null
+    let unitPriceGross = parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null
+    let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null
+    if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
+      let taxService: TaxCalculationService | null = null
+      try {
+        taxService = ctx.container.resolve('taxCalculationService') as TaxCalculationService
+      } catch {
+        taxService = null
+      }
+      if (taxService) {
+        const taxResult = await taxService.calculateUnitAmounts({
+          amount:
+            priceMode === 'gross'
+              ? unitPriceGross ?? unitPriceNet ?? 0
+              : unitPriceNet ?? unitPriceGross ?? 0,
+          mode: priceMode,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          taxRateId: parsed.taxRateId ?? undefined,
+          taxRate: taxRate ?? undefined,
+        })
+        unitPriceNet = unitPriceNet ?? taxResult.netAmount
+        unitPriceGross = unitPriceGross ?? taxResult.grossAmount
+        taxRate = taxResult.taxRate ?? taxRate
+      }
+    }
+
+    const metadata =
+      typeof parsed.metadata === 'object' && parsed.metadata
+        ? { ...parsed.metadata }
+        : existingSnapshot?.metadata
+          ? cloneJson(existingSnapshot.metadata)
+          : {}
+    if (parsed.priceId) metadata.priceId = parsed.priceId
+    if (priceMode) metadata.priceMode = priceMode
+
+    const statusEntryId = parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null
+    const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
+    const updatedSnapshot: SalesLineSnapshot & { statusEntryId?: string | null; catalogSnapshot?: Record<string, unknown> | null; promotionSnapshot?: Record<string, unknown> | null } = {
+      id: lineId,
+      lineNumber: parsed.lineNumber ?? existingSnapshot?.lineNumber ?? lineSnapshots.length + 1,
+      kind: parsed.kind ?? existingSnapshot?.kind ?? 'product',
+      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+      productVariantId: parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      name: parsed.name ?? existingSnapshot?.name ?? null,
+      description: parsed.description ?? existingSnapshot?.description ?? null,
+      comment: parsed.comment ?? existingSnapshot?.comment ?? null,
+      quantity: Number(parsed.quantity ?? existingSnapshot?.quantity ?? 0),
+      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+      currencyCode: parsed.currencyCode ?? existingSnapshot?.currencyCode ?? order.currencyCode,
+      unitPriceNet: unitPriceNet ?? 0,
+      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+      discountAmount: parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      discountPercent: parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
+      taxRate: taxRate ?? 0,
+      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
+      totalNetAmount: parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
+      totalGrossAmount: parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      configuration: parsed.configuration ?? existingSnapshot?.configuration ?? null,
+      promotionCode: parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
+      metadata,
+    }
+    ;(updatedSnapshot as any).statusEntryId = statusEntryId
+    ;(updatedSnapshot as any).catalogSnapshot =
+      parsed.catalogSnapshot ?? (existingSnapshot as any)?.catalogSnapshot ?? null
+    ;(updatedSnapshot as any).promotionSnapshot =
+      parsed.promotionSnapshot ?? (existingSnapshot as any)?.promotionSnapshot ?? null
+
+    let nextLines = parsed.id
+      ? lineSnapshots.map((line) => (line.id === parsed.id ? updatedSnapshot : line))
+      : [...lineSnapshots, updatedSnapshot]
+    nextLines = nextLines
+      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
+      .map((line, index) => ({ ...line, lineNumber: index + 1 }))
+
+    const sourceInputs = nextLines.map((line, index) => ({
+      ...line,
+      statusEntryId: (line as any).statusEntryId ?? null,
+      catalogSnapshot: (line as any).catalogSnapshot ?? null,
+      promotionSnapshot: (line as any).promotionSnapshot ?? null,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      orderId: order.id,
+      lineNumber: line.lineNumber ?? index + 1,
+    }))
+    const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1)
+    )
+    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft)
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculation = await salesCalculationService.calculateDocumentTotals({
+      documentKind: 'order',
+      lines: calcLines,
+      adjustments: adjustmentDrafts,
+      context: {
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+      },
+    })
+    await applyOrderLineResults({
+      em,
+      order,
+      calculation,
+      sourceLines: sourceInputs,
+      existingLines,
+    })
+    applyOrderTotals(order, calculation.totals, calculation.lines.length)
+    let eventBus: EventBus | null = null
+    try {
+      eventBus = ctx.container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+    await emitTotalsCalculated(eventBus, {
+      documentKind: 'order',
+      documentId: order.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      customerId: order.customerEntityId ?? null,
+      totals: calculation.totals,
+      lineCount: calculation.lines.length,
+    })
+    await em.flush()
+    return { orderId: order.id, lineId }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve('em') as EntityManager
+    return loadOrderSnapshot(em, result.orderId)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as OrderGraphSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.orders.lines.upsert', 'Upsert order line'),
+      resourceKind: 'sales.order',
+      resourceId: result.orderId,
+      tenantId: after.order.tenantId,
+      organizationId: after.order.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies OrderUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId)
+    await restoreOrderGraph(em, after)
+    await em.flush()
+  },
+}
+
+const orderLineDeleteCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { orderId: string; lineId: string }
+> = {
+  id: 'sales.orders.lines.delete',
+  async prepare(input, ctx) {
+    const raw = (input?.body as Record<string, unknown> | undefined) ?? {}
+    const orderId = typeof raw.orderId === 'string' ? raw.orderId : null
+    if (!orderId) return {}
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadOrderSnapshot(em, orderId)
+    if (snapshot) ensureOrderScope(ctx, snapshot.order.organizationId, snapshot.order.tenantId)
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(input, ctx) {
+    const parsed = orderLineDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
+    if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
+    ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    const existingLines = await em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: 'asc' } })
+    const adjustments = await em.find(SalesOrderAdjustment, { order }, { orderBy: { position: 'asc' } })
+    const filtered = existingLines.filter((line) => line.id !== parsed.id)
+    if (filtered.length === existingLines.length) {
+      throw new CrudHttpError(404, { error: 'Order line not found' })
+    }
+    const sourceInputs = filtered.map((line, index) => ({
+      ...mapOrderLineEntityToSnapshot(line),
+      statusEntryId: line.statusEntryId ?? null,
+      catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
+      promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      orderId: order.id,
+      lineNumber: index + 1,
+    }))
+    const calcLines = sourceInputs.map((line, index) =>
+      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1)
+    )
+    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft)
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculation = await salesCalculationService.calculateDocumentTotals({
+      documentKind: 'order',
+      lines: calcLines,
+      adjustments: adjustmentDrafts,
+      context: {
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+      },
+    })
+    await applyOrderLineResults({
+      em,
+      order,
+      calculation,
+      sourceLines: sourceInputs,
+      existingLines,
+    })
+    applyOrderTotals(order, calculation.totals, calculation.lines.length)
+    let eventBus: EventBus | null = null
+    try {
+      eventBus = ctx.container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+    await emitTotalsCalculated(eventBus, {
+      documentKind: 'order',
+      documentId: order.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      customerId: order.customerEntityId ?? null,
+      totals: calculation.totals,
+      lineCount: calculation.lines.length,
+    })
+    await em.flush()
+    return { orderId: order.id, lineId: parsed.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve('em') as EntityManager
+    return loadOrderSnapshot(em, result.orderId)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as OrderGraphSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.orders.lines.delete', 'Delete order line'),
+      resourceKind: 'sales.order',
+      resourceId: result.orderId,
+      tenantId: after.order.tenantId,
+      organizationId: after.order.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies OrderUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId)
+    await restoreOrderGraph(em, after)
+    await em.flush()
+  },
+}
+
+const quoteLineUpsertCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { quoteId: string; lineId: string }
+> = {
+  id: 'sales.quotes.lines.upsert',
+  async prepare(input, ctx) {
+    const raw = (input?.body as Record<string, unknown> | undefined) ?? {}
+    const quoteId = typeof raw.quoteId === 'string' ? raw.quoteId : null
+    if (!quoteId) return {}
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadQuoteSnapshot(em, quoteId)
+    if (snapshot) ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(input, ctx) {
+    const parsed = quoteLineUpsertSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const quote = await em.findOne(SalesQuote, { id: parsed.quoteId, deletedAt: null })
+    if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
+    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    const [existingLines, adjustments] = await Promise.all([
+      em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: 'asc' } }),
+      em.find(SalesQuoteAdjustment, { quote }, { orderBy: { position: 'asc' } }),
+    ])
+    const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot)
+    const existingSnapshot = parsed.id ? lineSnapshots.find((line) => line.id === parsed.id) ?? null : null
+    const priceMode = parsed.priceMode === 'gross' ? 'gross' : parsed.priceMode === 'net' ? 'net' : null
+    let unitPriceNet = parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null
+    let unitPriceGross = parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null
+    let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null
+    if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
+      let taxService: TaxCalculationService | null = null
+      try {
+        taxService = ctx.container.resolve('taxCalculationService') as TaxCalculationService
+      } catch {
+        taxService = null
+      }
+      if (taxService) {
+        const taxResult = await taxService.calculateUnitAmounts({
+          amount:
+            priceMode === 'gross'
+              ? unitPriceGross ?? unitPriceNet ?? 0
+              : unitPriceNet ?? unitPriceGross ?? 0,
+          mode: priceMode,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          taxRateId: parsed.taxRateId ?? undefined,
+          taxRate: taxRate ?? undefined,
+        })
+        unitPriceNet = unitPriceNet ?? taxResult.netAmount
+        unitPriceGross = unitPriceGross ?? taxResult.grossAmount
+        taxRate = taxResult.taxRate ?? taxRate
+      }
+    }
+    const metadata =
+      typeof parsed.metadata === 'object' && parsed.metadata
+        ? { ...parsed.metadata }
+        : existingSnapshot?.metadata
+          ? cloneJson(existingSnapshot.metadata)
+          : {}
+    if (parsed.priceId) metadata.priceId = parsed.priceId
+    if (priceMode) metadata.priceMode = priceMode
+
+    const statusEntryId = parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null
+    const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
+    const updatedSnapshot: SalesLineSnapshot & { statusEntryId?: string | null; catalogSnapshot?: Record<string, unknown> | null; promotionSnapshot?: Record<string, unknown> | null } = {
+      id: lineId,
+      lineNumber: parsed.lineNumber ?? existingSnapshot?.lineNumber ?? lineSnapshots.length + 1,
+      kind: parsed.kind ?? existingSnapshot?.kind ?? 'product',
+      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+      productVariantId: parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      name: parsed.name ?? existingSnapshot?.name ?? null,
+      description: parsed.description ?? existingSnapshot?.description ?? null,
+      comment: parsed.comment ?? existingSnapshot?.comment ?? null,
+      quantity: Number(parsed.quantity ?? existingSnapshot?.quantity ?? 0),
+      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+      currencyCode: parsed.currencyCode ?? existingSnapshot?.currencyCode ?? quote.currencyCode,
+      unitPriceNet: unitPriceNet ?? 0,
+      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+      discountAmount: parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      discountPercent: parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
+      taxRate: taxRate ?? 0,
+      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
+      totalNetAmount: parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
+      totalGrossAmount: parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      configuration: parsed.configuration ?? existingSnapshot?.configuration ?? null,
+      promotionCode: parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
+      metadata,
+    }
+    ;(updatedSnapshot as any).statusEntryId = statusEntryId
+    ;(updatedSnapshot as any).catalogSnapshot =
+      parsed.catalogSnapshot ?? (existingSnapshot as any)?.catalogSnapshot ?? null
+    ;(updatedSnapshot as any).promotionSnapshot =
+      parsed.promotionSnapshot ?? (existingSnapshot as any)?.promotionSnapshot ?? null
+
+    let nextLines = parsed.id
+      ? lineSnapshots.map((line) => (line.id === parsed.id ? updatedSnapshot : line))
+      : [...lineSnapshots, updatedSnapshot]
+    nextLines = nextLines
+      .sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0))
+      .map((line, index) => ({ ...line, lineNumber: index + 1 }))
+
+    const sourceInputs = nextLines.map((line, index) => ({
+      ...line,
+      statusEntryId: (line as any).statusEntryId ?? null,
+      catalogSnapshot: (line as any).catalogSnapshot ?? null,
+      promotionSnapshot: (line as any).promotionSnapshot ?? null,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      quoteId: quote.id,
+      lineNumber: line.lineNumber ?? index + 1,
+    }))
+    const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1)
+    )
+    const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft)
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculation = await salesCalculationService.calculateDocumentTotals({
+      documentKind: 'quote',
+      lines: calcLines,
+      adjustments: adjustmentDrafts,
+      context: {
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+      },
+    })
+    await applyQuoteLineResults({
+      em,
+      quote,
+      calculation,
+      sourceLines: sourceInputs,
+      existingLines,
+    })
+    applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
+    let eventBus: EventBus | null = null
+    try {
+      eventBus = ctx.container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+    await emitTotalsCalculated(eventBus, {
+      documentKind: 'quote',
+      documentId: quote.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      customerId: quote.customerEntityId ?? null,
+      totals: calculation.totals,
+      lineCount: calculation.lines.length,
+    })
+    await em.flush()
+    return { quoteId: quote.id, lineId }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve('em') as EntityManager
+    return loadQuoteSnapshot(em, result.quoteId)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as QuoteGraphSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.quotes.lines.upsert', 'Upsert quote line'),
+      resourceKind: 'sales.quote',
+      resourceId: result.quoteId,
+      tenantId: after.quote.tenantId,
+      organizationId: after.quote.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies QuoteUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId)
+    await restoreQuoteGraph(em, after)
+    await em.flush()
+  },
+}
+
+const quoteLineDeleteCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { quoteId: string; lineId: string }
+> = {
+  id: 'sales.quotes.lines.delete',
+  async prepare(input, ctx) {
+    const raw = (input?.body as Record<string, unknown> | undefined) ?? {}
+    const quoteId = typeof raw.quoteId === 'string' ? raw.quoteId : null
+    if (!quoteId) return {}
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadQuoteSnapshot(em, quoteId)
+    if (snapshot) ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(input, ctx) {
+    const parsed = quoteLineDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const quote = await em.findOne(SalesQuote, { id: parsed.quoteId, deletedAt: null })
+    if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
+    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    const existingLines = await em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: 'asc' } })
+    const adjustments = await em.find(SalesQuoteAdjustment, { quote }, { orderBy: { position: 'asc' } })
+    const filtered = existingLines.filter((line) => line.id !== parsed.id)
+    if (filtered.length === existingLines.length) {
+      throw new CrudHttpError(404, { error: 'Quote line not found' })
+    }
+    const sourceInputs = filtered.map((line, index) => ({
+      ...mapQuoteLineEntityToSnapshot(line),
+      statusEntryId: line.statusEntryId ?? null,
+      catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
+      promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      quoteId: quote.id,
+      lineNumber: index + 1,
+    }))
+    const calcLines = sourceInputs.map((line, index) =>
+      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1)
+    )
+    const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft)
+    const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculation = await salesCalculationService.calculateDocumentTotals({
+      documentKind: 'quote',
+      lines: calcLines,
+      adjustments: adjustmentDrafts,
+      context: {
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+      },
+    })
+    await applyQuoteLineResults({
+      em,
+      quote,
+      calculation,
+      sourceLines: sourceInputs,
+      existingLines,
+    })
+    applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
+    let eventBus: EventBus | null = null
+    try {
+      eventBus = ctx.container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+    await emitTotalsCalculated(eventBus, {
+      documentKind: 'quote',
+      documentId: quote.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      customerId: quote.customerEntityId ?? null,
+      totals: calculation.totals,
+      lineCount: calculation.lines.length,
+    })
+    await em.flush()
+    return { quoteId: quote.id, lineId: parsed.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve('em') as EntityManager
+    return loadQuoteSnapshot(em, result.quoteId)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as QuoteGraphSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.quotes.lines.delete', 'Delete quote line'),
+      resourceKind: 'sales.quote',
+      resourceId: result.quoteId,
+      tenantId: after.quote.tenantId,
+      organizationId: after.quote.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies QuoteUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId)
+    await restoreQuoteGraph(em, after)
+    await em.flush()
+  },
+}
+
 registerCommand(createQuoteCommand)
 registerCommand(deleteQuoteCommand)
 registerCommand(createOrderCommand)
 registerCommand(deleteOrderCommand)
+registerCommand(orderLineUpsertCommand)
+registerCommand(orderLineDeleteCommand)
+registerCommand(quoteLineUpsertCommand)
+registerCommand(quoteLineDeleteCommand)

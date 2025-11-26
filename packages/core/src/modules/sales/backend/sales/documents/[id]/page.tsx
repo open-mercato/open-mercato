@@ -9,7 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Building2, Mail, Pencil, Store, Trash2, UserRound, Wand2, X } from 'lucide-react'
+import { Building2, CreditCard, Mail, Pencil, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -17,6 +17,7 @@ import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
+import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDictionaryIcon, type DictionaryMap } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -1282,6 +1283,259 @@ function ChannelInlineEditor({
   )
 }
 
+type MethodOption = ShippingMethodOption | PaymentMethodOption
+
+function MethodInlineEditor({
+  label,
+  value,
+  snapshot,
+  emptyLabel,
+  options,
+  loading,
+  onLoadOptions,
+  onSave,
+  saveLabel,
+  placeholder,
+  loadingLabel,
+  emptyResultsLabel,
+  selectedHint,
+  icon,
+  allowClear = true,
+}: {
+  label: string
+  value: string | null | undefined
+  snapshot: Record<string, unknown> | null
+  emptyLabel: string
+  options: MethodOption[]
+  loading: boolean
+  onLoadOptions: (query?: string) => Promise<MethodOption[]>
+  onSave: (nextId: string | null) => Promise<void>
+  saveLabel: string
+  placeholder: string
+  loadingLabel: string
+  emptyResultsLabel: string
+  selectedHint: (id: string) => string
+  icon: React.ReactNode
+  allowClear?: boolean
+}) {
+  const t = useT()
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<string | null>(value ?? null)
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const setSearchQueryRef = React.useRef<((value: string) => void) | null>(null)
+
+  React.useEffect(() => {
+    if (!editing) {
+      setDraft(value ?? null)
+      setError(null)
+    }
+  }, [editing, value])
+
+  React.useEffect(() => {
+    if (!editing) setSearchQueryRef.current = null
+  }, [editing])
+
+  const resolveDisplay = React.useCallback(
+    (id: string | null | undefined): { label: string | null; description: string | null } => {
+      if (!id) return { label: null, description: null }
+      const option = options.find((entry) => entry.id === id)
+      if (option) {
+        return {
+          label: option.name ?? option.code,
+          description: option.description ?? null,
+        }
+      }
+      const snapName =
+        snapshot && typeof (snapshot as any)?.name === 'string' ? (snapshot as any).name : null
+      const snapCode =
+        snapshot && typeof (snapshot as any)?.code === 'string' ? (snapshot as any).code : null
+      const snapDescription =
+        snapshot && typeof (snapshot as any)?.description === 'string'
+          ? (snapshot as any).description
+          : null
+      return {
+        label: snapName ?? snapCode ?? id,
+        description: snapDescription,
+      }
+    },
+    [options, snapshot]
+  )
+
+  const currentDisplay = React.useMemo(
+    () => resolveDisplay(draft ?? value ?? null),
+    [draft, resolveDisplay, value]
+  )
+
+  const prefillSearch = React.useCallback(() => {
+    if (!editing || !setSearchQueryRef.current) return
+    const query = currentDisplay.label ?? value ?? ''
+    setSearchQueryRef.current(query)
+  }, [currentDisplay.label, editing, value])
+
+  React.useEffect(() => {
+    if (editing) prefillSearch()
+  }, [editing, prefillSearch])
+
+  const handleSave = React.useCallback(async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(draft ?? null)
+      setEditing(false)
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message
+          ? err.message
+          : t('sales.documents.detail.updateError', 'Failed to update document.')
+      setError(message)
+    } finally {
+      setSaving(false)
+    }
+  }, [draft, onSave, t])
+
+  return (
+    <div
+      className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}
+      role={!editing ? 'button' : undefined}
+      tabIndex={!editing ? 0 : undefined}
+      onClick={() => {
+        if (editing) return
+        setEditing(true)
+        prefillSearch()
+        void onLoadOptions()
+      }}
+      onKeyDown={(event) => {
+        if (editing) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          setEditing(true)
+          prefillSearch()
+          void onLoadOptions()
+        }
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div
+              className="mt-2 space-y-2"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setEditing(false)
+                  setDraft(value ?? null)
+                  setError(null)
+                  return
+                }
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  if (!saving) void handleSave()
+                }
+              }}
+            >
+              <LookupSelect
+                value={draft}
+                onChange={setDraft}
+                fetchItems={async (query) => {
+                  const items = await onLoadOptions(query)
+                  return items.map<LookupSelectItem>((item) => ({
+                    id: item.id,
+                    title: item.name ?? item.code,
+                    subtitle: item.code,
+                    icon: icon,
+                  }))
+                }}
+                onReady={({ setQuery }) => {
+                  setSearchQueryRef.current = setQuery
+                  prefillSearch()
+                }}
+                searchPlaceholder={placeholder}
+                loadingLabel={loadingLabel}
+                emptyLabel={emptyResultsLabel}
+                selectedHintLabel={(id) => selectedHint(id)}
+              />
+              {loading ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Spinner className="h-3.5 w-3.5 animate-spin" />
+                  {loadingLabel}
+                </p>
+              ) : null}
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                  {saving ? <Spinner className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  {saveLabel}
+                </Button>
+                {allowClear ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setDraft(null)}
+                    disabled={saving}
+                  >
+                    {t('ui.actions.clear', 'Clear')}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditing(false)
+                    setDraft(value ?? null)
+                    setError(null)
+                  }}
+                  disabled={saving}
+                >
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 text-sm text-foreground">
+              {currentDisplay.label ? (
+                <div className="space-y-1">
+                  <span className="text-sm">{currentDisplay.label}</span>
+                  {currentDisplay.description ? (
+                    <p className="text-xs text-muted-foreground">{currentDisplay.description}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(event) => {
+            event.stopPropagation()
+            if (editing) {
+              setDraft(value ?? null)
+              setError(null)
+            }
+            setEditing((prev) => {
+              const next = !prev
+              if (!prev && next) prefillSearch()
+              return next
+            })
+            void onLoadOptions()
+          }}
+          aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
+        >
+          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function StatusInlineEditor({
   label,
   value,
@@ -2039,6 +2293,101 @@ export default function SalesDocumentDetailPage({
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
+  const totalsItems = React.useMemo(() => {
+    if (!record) return []
+    const items: { key: string; label: string; amount: number | null | undefined; emphasize?: boolean }[] = [
+      {
+        key: 'subtotalNetAmount',
+        label: t('sales.documents.detail.totals.subtotalNet', 'Subtotal (net)'),
+        amount: record.subtotalNetAmount ?? null,
+      },
+      {
+        key: 'subtotalGrossAmount',
+        label: t('sales.documents.detail.totals.subtotalGross', 'Subtotal (gross)'),
+        amount: record.subtotalGrossAmount ?? null,
+      },
+      {
+        key: 'discountTotalAmount',
+        label: t('sales.documents.detail.totals.discountTotal', 'Discounts'),
+        amount: record.discountTotalAmount ?? null,
+      },
+      {
+        key: 'taxTotalAmount',
+        label: t('sales.documents.detail.totals.taxTotal', 'Tax total'),
+        amount: record.taxTotalAmount ?? null,
+      },
+    ]
+    if (kind === 'order') {
+      items.push(
+        {
+          key: 'shippingNetAmount',
+          label: t('sales.documents.detail.totals.shippingNet', 'Shipping (net)'),
+          amount: record.shippingNetAmount ?? null,
+        },
+        {
+          key: 'shippingGrossAmount',
+          label: t('sales.documents.detail.totals.shippingGross', 'Shipping (gross)'),
+          amount: record.shippingGrossAmount ?? null,
+        },
+        {
+          key: 'surchargeTotalAmount',
+          label: t('sales.documents.detail.totals.surchargeTotal', 'Surcharges'),
+          amount: record.surchargeTotalAmount ?? null,
+        }
+      )
+    }
+    items.push(
+      {
+        key: 'grandTotalNetAmount',
+        label: t('sales.documents.detail.totals.grandTotalNet', 'Grand total (net)'),
+        amount: record.grandTotalNetAmount ?? null,
+        emphasize: true,
+      },
+      {
+        key: 'grandTotalGrossAmount',
+        label: t('sales.documents.detail.totals.grandTotalGross', 'Grand total (gross)'),
+        amount: record.grandTotalGrossAmount ?? null,
+        emphasize: true,
+      }
+    )
+    if (kind === 'order') {
+      items.push(
+        {
+          key: 'paidTotalAmount',
+          label: t('sales.documents.detail.totals.paidTotal', 'Paid'),
+          amount: record.paidTotalAmount ?? null,
+        },
+        {
+          key: 'refundedTotalAmount',
+          label: t('sales.documents.detail.totals.refundedTotal', 'Refunded'),
+          amount: record.refundedTotalAmount ?? null,
+        },
+        {
+          key: 'outstandingAmount',
+          label: t('sales.documents.detail.totals.outstandingTotal', 'Outstanding'),
+          amount: record.outstandingAmount ?? null,
+          emphasize: true,
+        }
+      )
+    }
+    return items
+  }, [
+    kind,
+    record,
+    record?.discountTotalAmount,
+    record?.grandTotalGrossAmount,
+    record?.grandTotalNetAmount,
+    record?.outstandingAmount,
+    record?.paidTotalAmount,
+    record?.refundedTotalAmount,
+    record?.shippingGrossAmount,
+    record?.shippingNetAmount,
+    record?.surchargeTotalAmount,
+    record?.subtotalGrossAmount,
+    record?.subtotalNetAmount,
+    record?.taxTotalAmount,
+    t,
+  ])
   const guardAllows = (list: string[] | null | undefined, status: string | null | undefined) => {
     if (list === null || list === undefined) return true
     if (list.length === 0) return false
@@ -2730,10 +3079,86 @@ export default function SalesDocumentDetailPage({
   }, [kind, record, router, t])
 
   const detailFields = React.useMemo(() => {
-    return [
+    const fields: DetailFieldConfig[] = []
+    if (kind === 'order') {
+      fields.push(
+        {
+          key: 'shippingMethod',
+          kind: 'custom',
+          label: '',
+          emptyLabel: '',
+          render: () => (
+            <MethodInlineEditor
+              label={t('sales.documents.detail.shippingMethod.label', 'Shipping method')}
+              value={record?.shippingMethodId ?? null}
+              snapshot={(record?.shippingMethodSnapshot ?? null) as Record<string, unknown> | null}
+              emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+              options={shippingMethodOptions}
+              loading={shippingMethodLoading}
+              onLoadOptions={loadShippingMethods}
+              onSave={handleUpdateShippingMethod}
+              saveLabel={saveShortcutLabel}
+              placeholder={t('sales.documents.detail.shippingMethod.placeholder', 'Select shipping method')}
+              loadingLabel={t('sales.documents.detail.shippingMethod.loading', 'Loading shipping methods…')}
+              emptyResultsLabel={t('sales.documents.detail.shippingMethod.empty', 'No shipping methods found.')}
+              selectedHint={(id) =>
+                t('sales.documents.detail.shippingMethod.selected', 'Selected shipping method: {{id}}', { id })
+              }
+              icon={<Truck className="h-5 w-5 text-muted-foreground" />}
+            />
+          ),
+        },
+        {
+          key: 'paymentMethod',
+          kind: 'custom',
+          label: '',
+          emptyLabel: '',
+          render: () => (
+            <MethodInlineEditor
+              label={t('sales.documents.detail.paymentMethod.label', 'Payment method')}
+              value={record?.paymentMethodId ?? null}
+              snapshot={(record?.paymentMethodSnapshot ?? null) as Record<string, unknown> | null}
+              emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+              options={paymentMethodOptions}
+              loading={paymentMethodLoading}
+              onLoadOptions={loadPaymentMethods}
+              onSave={handleUpdatePaymentMethod}
+              saveLabel={saveShortcutLabel}
+              placeholder={t('sales.documents.detail.paymentMethod.placeholder', 'Select payment method')}
+              loadingLabel={t('sales.documents.detail.paymentMethod.loading', 'Loading payment methods…')}
+              emptyResultsLabel={t('sales.documents.detail.paymentMethod.empty', 'No payment methods found.')}
+              selectedHint={(id) =>
+                t('sales.documents.detail.paymentMethod.selected', 'Selected payment method: {{id}}', { id })
+              }
+              icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
+            />
+          ),
+        },
+        {
+          key: 'expectedDeliveryAt',
+          kind: 'text',
+          label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
+          emptyLabel: t('sales.documents.detail.empty', 'Not set'),
+          placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
+          value: record?.expectedDeliveryAt
+            ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
+            : null,
+          onSave: handleUpdateExpectedDeliveryAt,
+          inputType: 'date',
+          renderDisplay={({ value, emptyLabel }) =>
+            value && value.length ? (
+              <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
+            ) : (
+              <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+            )
+          },
+        }
+      )
+    }
+    fields.push(
       {
         key: 'externalRef',
-        kind: 'text' as const,
+        kind: 'text',
         label: t('sales.documents.detail.externalRef', 'External reference'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.externalRef.placeholder', 'Add external reference'),
@@ -2742,7 +3167,7 @@ export default function SalesDocumentDetailPage({
       },
       {
         key: 'customerRef',
-        kind: 'text' as const,
+        kind: 'text',
         label: t('sales.documents.detail.customerRef', 'Customer reference'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.customerRef.placeholder', 'Customer PO or note'),
@@ -2751,7 +3176,7 @@ export default function SalesDocumentDetailPage({
       },
       {
         key: 'comment',
-        kind: 'multiline' as const,
+        kind: 'multiline',
         label: t('sales.documents.detail.comment', 'Comment'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.comment.placeholder', 'Add comment'),
@@ -2761,7 +3186,7 @@ export default function SalesDocumentDetailPage({
       },
       {
         key: 'timestamps',
-        kind: 'custom' as const,
+        kind: 'custom',
         label: '',
         emptyLabel: '',
         render: () => (
@@ -2774,18 +3199,35 @@ export default function SalesDocumentDetailPage({
             </p>
           </SectionCard>
         ),
-      },
-    ]
+      }
+    )
+    return fields
   }, [
     handleUpdateComment,
     handleUpdateCustomerReference,
+    handleUpdateExpectedDeliveryAt,
     handleUpdateExternalReference,
+    handleUpdatePaymentMethod,
+    handleUpdateShippingMethod,
+    loadPaymentMethods,
+    loadShippingMethods,
+    paymentMethodLoading,
+    paymentMethodOptions,
     record?.comment,
     record?.createdAt,
     record?.customerReference,
+    record?.expectedDeliveryAt,
     record?.externalReference,
+    record?.paymentMethodId,
+    record?.paymentMethodSnapshot,
+    record?.shippingMethodId,
+    record?.shippingMethodSnapshot,
     record?.updatedAt,
+    shippingMethodLoading,
+    shippingMethodOptions,
     t,
+    kind,
+    saveShortcutLabel,
   ])
 
   const summaryCards: Array<{
@@ -3236,6 +3678,12 @@ export default function SalesDocumentDetailPage({
           </div>
           {renderTabContent()}
         </div>
+
+        <DocumentTotals
+          title={t('sales.documents.detail.totals.title', 'Totals')}
+          currency={record.currencyCode ?? null}
+          items={totalsItems}
+        />
 
         <div className="space-y-4" ref={detailSectionRef}>
           <p className="text-sm font-semibold">{t('sales.documents.detail.details', 'Details')}</p>

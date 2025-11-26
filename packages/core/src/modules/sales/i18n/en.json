@@ -576,8 +576,30 @@
         "currencyInvalid": "Currency code must be 3 letters.",
         "date": "Date",
         "dateInvalid": "Enter a valid date in YYYY-MM-DD format.",
+        "expectedDeliveryAt": {
+          "label": "Expected delivery",
+          "placeholder": "Add expected delivery date"
+        },
         "comment": "Comment",
         "comment.placeholder": "Add comment",
+        "shippingMethodInvalid": "Selected shipping method could not be found.",
+        "paymentMethodInvalid": "Selected payment method could not be found.",
+        "shippingMethodLoadError": "Failed to load shipping methods.",
+        "paymentMethodLoadError": "Failed to load payment methods.",
+        "shippingMethod": {
+          "label": "Shipping method",
+          "placeholder": "Select shipping method",
+          "loading": "Loading shipping methods…",
+          "empty": "No shipping methods found.",
+          "selected": "Selected shipping method: {{id}}"
+        },
+        "paymentMethod": {
+          "label": "Payment method",
+          "placeholder": "Select payment method",
+          "loading": "Loading payment methods…",
+          "empty": "No payment methods found.",
+          "selected": "Selected payment method: {{id}}"
+        },
         "empty": {
           "comments": {
             "title": "No comments yet.",
@@ -643,6 +665,21 @@
         "updated": "Updated",
         "updatedMessage": "Document updated.",
         "updateError": "Failed to update document.",
+        "totals": {
+          "title": "Totals",
+          "subtotalNet": "Subtotal (net)",
+          "subtotalGross": "Subtotal (gross)",
+          "discountTotal": "Discounts",
+          "taxTotal": "Tax total",
+          "shippingNet": "Shipping (net)",
+          "shippingGross": "Shipping (gross)",
+          "surchargeTotal": "Surcharges",
+          "grandTotalNet": "Grand total (net)",
+          "grandTotalGross": "Grand total (gross)",
+          "paidTotal": "Paid",
+          "refundedTotal": "Refunded",
+          "outstandingTotal": "Outstanding"
+        },
         "inline": {
           "save": "Save (Ctrl/Cmd + Enter)"
         },

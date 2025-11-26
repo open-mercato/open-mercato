@@ -25,12 +25,27 @@ export function DocumentCustomerCard({
   className,
 }: DocumentCustomerCardProps) {
   const Icon = kind === 'person' ? Users : Building2
+  const interactiveProps = onSelectCustomer
+    ? {
+        role: 'button' as const,
+        tabIndex: 0,
+        onClick: onSelectCustomer,
+        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onSelectCustomer()
+          }
+        },
+      }
+    : {}
   return (
     <div
       className={cn(
         'group rounded-lg border bg-card p-3',
+        onSelectCustomer ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : null,
         className,
       )}
+      {...interactiveProps}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 space-y-2">

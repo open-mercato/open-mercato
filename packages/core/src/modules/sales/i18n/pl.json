@@ -577,8 +577,30 @@
         "currencyInvalid": "Kod waluty musi mieć 3 litery.",
         "date": "Data",
         "dateInvalid": "Wprowadź poprawną datę w formacie RRRR-MM-DD.",
+        "expectedDeliveryAt": {
+          "label": "Przewidywana dostawa",
+          "placeholder": "Dodaj przewidywaną datę dostawy"
+        },
         "comment": "Komentarz",
         "comment.placeholder": "Dodaj komentarz",
+        "shippingMethodInvalid": "Nie znaleziono wybranej metody dostawy.",
+        "paymentMethodInvalid": "Nie znaleziono wybranej metody płatności.",
+        "shippingMethodLoadError": "Nie udało się załadować metod dostawy.",
+        "paymentMethodLoadError": "Nie udało się załadować metod płatności.",
+        "shippingMethod": {
+          "label": "Metoda dostawy",
+          "placeholder": "Wybierz metodę dostawy",
+          "loading": "Ładowanie metod dostawy…",
+          "empty": "Brak metod dostawy.",
+          "selected": "Wybrana metoda dostawy: {{id}}"
+        },
+        "paymentMethod": {
+          "label": "Metoda płatności",
+          "placeholder": "Wybierz metodę płatności",
+          "loading": "Ładowanie metod płatności…",
+          "empty": "Brak metod płatności.",
+          "selected": "Wybrana metoda płatności: {{id}}"
+        },
         "empty": {
           "comments": {
             "title": "Brak komentarzy.",
@@ -644,6 +666,21 @@
         "updated": "Zaktualizowano",
         "updatedMessage": "Dokument zaktualizowany.",
         "updateError": "Nie udało się zaktualizować dokumentu.",
+        "totals": {
+          "title": "Podsumowanie",
+          "subtotalNet": "Suma częściowa (netto)",
+          "subtotalGross": "Suma częściowa (brutto)",
+          "discountTotal": "Rabaty",
+          "taxTotal": "Suma podatku",
+          "shippingNet": "Wysyłka (netto)",
+          "shippingGross": "Wysyłka (brutto)",
+          "surchargeTotal": "Dopłaty",
+          "grandTotalNet": "Razem (netto)",
+          "grandTotalGross": "Razem (brutto)",
+          "paidTotal": "Zapłacono",
+          "refundedTotal": "Zwrócono",
+          "outstandingTotal": "Do zapłaty"
+        },
         "inline": {
           "save": "Zapisz (Ctrl/Cmd + Enter)"
         },
