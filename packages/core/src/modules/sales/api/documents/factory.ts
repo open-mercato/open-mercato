@@ -112,8 +112,8 @@ function buildFilters(query: z.infer<typeof listSchema>, numberColumn: string, k
     filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
   } else if (tagIds.length) {
     filters['tag_assignments.tag_id'] = { $in: tagIds }
+    filters['tag_assignments.document_kind'] = { $eq: kind }
   }
-  filters['tag_assignments.document_kind'] = { $eq: kind }
   return filters
 }
 
@@ -171,7 +171,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         'customer_reference',
         'external_reference',
         'currency_code',
-        'comment',
+        'comments',
         'channel_id',
         'placed_at',
         'line_item_count',
@@ -220,7 +220,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
           externalReference: item.external_reference ?? null,
           customerReference: item.customer_reference ?? null,
           placedAt: item.placed_at ?? null,
-          comment: item.comment ?? null,
+          comment: item.comments ?? null,
           validFrom: item.valid_from ?? null,
           validUntil: item.valid_until ?? null,
           lineItemCount: toNumber(item.line_item_count),

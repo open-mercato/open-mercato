@@ -14,8 +14,91 @@ import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
+
+function CurrencyInlineEditor({
+  label,
+  value,
+  options,
+  emptyLabel,
+  onSave,
+  error,
+  onClearError,
+}: {
+  label: string
+  value: string | null | undefined
+  options: { value: string; label: string; appearance?: Record<string, unknown> | null }[]
+  emptyLabel: string
+  onSave: (next: string | null) => Promise<void>
+  error: string | null
+  onClearError: () => void
+}) {
+  const [editing, setEditing] = React.useState(false)
+  const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
+  const t = useT()
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value ?? undefined)
+  }, [editing, value])
+
+  const current = options.find((opt) => opt.value === (value ?? undefined))
+
+  return (
+    <div className="group rounded-lg border bg-card p-4">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {editing ? (
+            <div className="mt-2 space-y-2">
+              <InlineSelectEditor
+                label={label}
+                value={draft}
+                emptyLabel={emptyLabel}
+                onSave={async (next) => {
+                  onClearError()
+                  await onSave(next)
+                  setEditing(false)
+                }}
+                options={options.map((opt) => ({ value: opt.value, label: opt.label }))}
+                activateOnClick={false}
+                hideLabel
+                containerClassName="p-0 border-0 bg-transparent"
+              />
+              {error ? <p className="text-xs text-destructive">{error}</p> : null}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-foreground px-3 py-1 text-xs font-medium text-background"
+                  onClick={() => setEditing(false)}
+                >
+                  {t('ui.detail.inline.cancel', 'Cancel')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-1 flex items-center gap-2">
+              {current ? (
+                <span className="text-sm text-muted-foreground">{current.label}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          className="h-8 w-8 shrink-0 rounded-md text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+          onClick={() => setEditing((prev) => !prev)}
+          aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
+        >
+          {editing ? '×' : '✏️'}
+        </button>
+      </div>
+    </div>
+  )
+}
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 
 type CustomerSnapshot = {
   customer?: {
@@ -153,6 +236,7 @@ export default function SalesDocumentDetailPage({
   const [generating, setGenerating] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [numberEditing, setNumberEditing] = React.useState(false)
+  const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const { data: currencyDictionary } = useCurrencyDictionary()
 
   const loadErrorMessage = React.useMemo(
@@ -243,11 +327,50 @@ export default function SalesDocumentDetailPage({
     }
     return Array.from(set.values()).sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
   }, [currencyEntries, record?.currencyCode])
+  const currencyLabels = React.useMemo(
+    () => ({
+      placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
+      addLabel: t('sales.documents.form.currency.add', 'Add currency'),
+      dialogTitle: t('sales.documents.form.currency.dialogTitle', 'Add currency'),
+      valueLabel: t('sales.documents.form.currency.valueLabel', 'Currency code'),
+      valuePlaceholder: t('sales.documents.form.currency.valuePlaceholder', 'e.g. USD'),
+      labelLabel: t('sales.documents.form.currency.labelLabel', 'Label'),
+      labelPlaceholder: t('sales.documents.form.currency.labelPlaceholder', 'Display name'),
+      emptyError: t('sales.documents.form.currency.emptyError', 'Currency code is required'),
+      cancelLabel: t('sales.documents.form.currency.cancel', 'Cancel'),
+      saveLabel: t('sales.documents.form.currency.save', 'Save'),
+      saveShortcutHint: '⌘/Ctrl + Enter',
+      successCreateLabel: t('sales.documents.form.currency.created', 'Currency saved.'),
+      errorLoad: t('sales.documents.form.currency.errorLoad', 'Failed to load currencies.'),
+      errorSave: t('sales.documents.form.currency.errorSave', 'Failed to save currency.'),
+      loadingLabel: t('sales.documents.form.currency.loading', 'Loading currencies…'),
+      manageTitle: t('sales.documents.form.currency.manage', 'Manage currency dictionary'),
+    }),
+    [t]
+  )
+
+  const updateDocument = React.useCallback(
+    async (patch: Record<string, unknown>) => {
+      if (!record) {
+        throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
+      }
+      const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
+      return apiCallOrThrow<Record<string, unknown>>(
+        endpoint,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: record.id, ...patch }),
+        },
+        { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+      )
+    },
+    [kind, record, t]
+  )
 
   const handleUpdateCurrency = React.useCallback(
     async (next: string | null) => {
       if (!record) return
-      const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const normalized = typeof next === 'string' ? next.trim().toUpperCase() : ''
       if (!/^[A-Z]{3}$/.test(normalized)) {
         const message = t('sales.documents.detail.currencyInvalid', 'Currency code must be 3 letters.')
@@ -255,15 +378,7 @@ export default function SalesDocumentDetailPage({
         throw new Error(message)
       }
       try {
-        const call = await apiCallOrThrow<{ currencyCode?: string }>(
-          endpoint,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: record.id, currencyCode: normalized }),
-          },
-          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
-        )
+        const call = await updateDocument({ currencyCode: normalized })
         const savedCode = call.result?.currencyCode ?? normalized
         setRecord((prev) => (prev ? { ...prev, currencyCode: savedCode } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
@@ -274,7 +389,7 @@ export default function SalesDocumentDetailPage({
         throw err
       }
     },
-    [kind, record, t]
+    [record, t, updateDocument]
   )
 
   const handleGenerateNumber = React.useCallback(async () => {
@@ -308,7 +423,8 @@ export default function SalesDocumentDetailPage({
     })
     if (call.ok) {
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
-      router.push('/backend/sales/documents')
+      const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
+      router.push(listPath)
     } else {
       flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
     }
@@ -484,7 +600,7 @@ export default function SalesDocumentDetailPage({
           <div className="flex h-[50vh] items-center justify-center">
             <LoadingMessage
               label={t('sales.documents.detail.loading', 'Loading document…')}
-              className="min-w-[280px] justify-center text-base"
+              className="min-w-[280px] justify-center border-0 bg-transparent text-base shadow-none"
             />
           </div>
         </PageBody>
@@ -528,7 +644,7 @@ export default function SalesDocumentDetailPage({
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href="/backend/sales/documents"
+              href={kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'}
               className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
             >
               <span aria-hidden className="mr-1 text-base">←</span>
@@ -606,7 +722,13 @@ export default function SalesDocumentDetailPage({
           <InlineTextEditor
             key="date"
             label={t('sales.documents.detail.date', 'Date')}
-            value={record?.placedAt ?? record?.createdAt ?? null}
+            value={
+              record?.placedAt
+                ? new Date(record.placedAt).toISOString().slice(0, 10)
+                : record?.createdAt
+                  ? new Date(record.createdAt).toISOString().slice(0, 10)
+                  : null
+            }
             emptyLabel={t('sales.documents.detail.empty', 'Not set')}
             onSave={async () => flash(t('sales.documents.detail.saveStub', 'Saving details will land soon.'), 'info')}
             inputType="date"
@@ -614,7 +736,9 @@ export default function SalesDocumentDetailPage({
             containerClassName="h-full"
             renderDisplay={({ value, emptyLabel }) =>
               value && value.length ? (
-                <span className="text-sm text-foreground">{value}</span>
+                <span className="text-sm text-muted-foreground">
+                  {new Date(value).toLocaleDateString()}
+                </span>
               ) : (
                 <span className="text-sm text-muted-foreground">{emptyLabel}</span>
               )
@@ -684,28 +808,23 @@ export default function SalesDocumentDetailPage({
             }
             if (card.key === 'currency') {
               return (
-                <InlineSelectEditor
+                <CurrencyInlineEditor
                   key={card.key}
                   label={card.title}
-                  value={card.value ? card.value.toUpperCase() : null}
+                  value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  onSave={handleUpdateCurrency}
                   options={currencyOptions}
-                  activateOnClick
-                  containerClassName={card.containerClassName}
-                  renderDisplay={({ value, emptyLabel }) => {
-                    const normalized = typeof value === 'string' ? value.toUpperCase() : ''
-                    const entry = normalized ? currencyMap.get(normalized) : null
-                    if (!entry) {
-                      return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+                  error={currencyError}
+                  onClearError={() => setCurrencyError(null)}
+                  onSave={async (next) => {
+                    setCurrencyError(null)
+                    try {
+                      await handleUpdateCurrency(next)
+                    } catch (err) {
+                      const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
+                      setCurrencyError(message)
+                      throw err
                     }
-                    return (
-                      <span className="inline-flex items-center gap-2 text-sm text-foreground">
-                        {renderDictionaryIcon(entry.icon, 'h-4 w-4')}
-                        <span className="font-medium">{entry.label}</span>
-                        {renderDictionaryColor(entry.color, 'h-2.5 w-2.5 rounded-full border border-border')}
-                      </span>
-                    )
                   }}
                 />
               )

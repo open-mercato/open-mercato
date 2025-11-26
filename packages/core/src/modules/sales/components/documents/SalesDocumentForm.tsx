@@ -94,6 +94,7 @@ export type SalesDocumentFormValues = {
 type SalesDocumentFormProps = {
   onCreated: (params: { id: string; kind: DocumentKind }) => void
   isSubmitting?: boolean
+  initialKind?: DocumentKind
 }
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
@@ -387,7 +388,7 @@ function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unkn
   return Object.keys(normalized).length ? normalized : null
 }
 
-export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocumentFormProps) {
+export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind }: SalesDocumentFormProps) {
   const t = useT()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
@@ -1117,14 +1118,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false }: SalesDocu
 
   const initialValues = React.useMemo<Partial<SalesDocumentFormValues>>(
     () => ({
-      documentKind: 'quote',
+      documentKind: initialKind === 'order' ? 'order' : 'quote',
       documentNumber: '',
       currencyCode: 'USD',
       useCustomShipping: false,
       useCustomBilling: false,
       sameAsShipping: true,
     }),
-    []
+    [initialKind]
   )
 
   const handleSubmit = React.useCallback(

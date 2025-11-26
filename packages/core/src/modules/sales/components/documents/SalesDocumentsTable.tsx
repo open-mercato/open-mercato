@@ -147,6 +147,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [reloadToken, setReloadToken] = React.useState(0)
   const [channelOptions, setChannelOptions] = React.useState<FilterOption[]>([])
   const [tagOptions, setTagOptions] = React.useState<FilterOption[]>([])
+  const [customerOptions, setCustomerOptions] = React.useState<FilterOption[]>([])
 
   const resource = kind === 'order' ? 'orders' : 'quotes'
   const entityId = kind === 'order' ? E.sales.sales_order : E.sales.sales_quote
@@ -198,6 +199,40 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     }
   }, [])
 
+  const fetchCustomerOptions = React.useCallback(async (query?: string): Promise<FilterOption[]> => {
+    const params = new URLSearchParams({ page: '1', pageSize: '20' })
+    if (query && query.trim().length) params.set('search', query.trim())
+    try {
+      const [people, companies] = await Promise.all([
+        apiCall<{ items?: unknown[] }>(`/api/customers/people?${params.toString()}`),
+        apiCall<{ items?: unknown[] }>(`/api/customers/companies?${params.toString()}`),
+      ])
+      const peopleItems = Array.isArray(people.result?.items) ? people.result?.items ?? [] : []
+      const companyItems = Array.isArray(companies.result?.items) ? companies.result?.items ?? [] : []
+      const parseOption = (item: any, kind: 'person' | 'company'): FilterOption | null => {
+        const id = typeof item?.id === 'string' ? item.id : null
+        if (!id) return null
+        const name =
+          typeof item?.display_name === 'string' && item.display_name.trim().length
+            ? item.display_name
+            : typeof item?.name === 'string' && item.name.trim().length
+              ? item.name
+              : id
+        const email =
+          typeof item?.primary_email === 'string' && item.primary_email.trim().length
+            ? item.primary_email.trim()
+            : null
+        const label = email ? `${name} (${email})` : name
+        return { value: id, label: kind === 'company' ? label : label }
+      }
+      const options = [...peopleItems.map((i) => parseOption(i, 'person')), ...companyItems.map((i) => parseOption(i, 'company'))]
+        .filter((opt): opt is FilterOption => !!opt)
+      return options
+    } catch {
+      return []
+    }
+  }, [])
+
   const loadChannelOptions = React.useCallback(
     async (query?: string) => {
       const opts = await fetchChannelOptions(query)
@@ -216,10 +251,20 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     [fetchTagOptions]
   )
 
+  const loadCustomerOptions = React.useCallback(
+    async (query?: string) => {
+      const opts = await fetchCustomerOptions(query)
+      if (opts.length) setCustomerOptions((prev) => mergeOptions(prev, opts))
+      return opts
+    },
+    [fetchCustomerOptions]
+  )
+
   React.useEffect(() => {
     loadChannelOptions().catch(() => {})
     loadTagOptions().catch(() => {})
-  }, [loadChannelOptions, loadTagOptions, scopeVersion])
+    loadCustomerOptions().catch(() => {})
+  }, [loadChannelOptions, loadCustomerOptions, loadTagOptions, scopeVersion])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -266,9 +311,15 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     },
     {
       id: 'customerId',
-      label: t('sales.documents.list.filters.customer', 'Customer id'),
-      type: 'text',
-      placeholder: t('sales.documents.list.filters.customerPlaceholder', 'Customer id'),
+      label: t('sales.documents.list.filters.customer', 'Customer'),
+      type: 'tags',
+      options: customerOptions,
+      loadOptions: loadCustomerOptions,
+      placeholder: t('sales.documents.list.filters.customerPlaceholder', 'Search customers'),
+      formatValue: (val: string) => {
+        const match = customerOptions.find((opt) => opt.value === val)
+        return match?.label ?? val
+      },
     },
     {
       id: 'tagIds',
@@ -291,8 +342,14 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     }
     const channelId = typeof filterValues.channelId === 'string' ? filterValues.channelId : ''
     if (channelId) params.set('channelId', channelId)
-    const customerId = typeof filterValues.customerId === 'string' ? filterValues.customerId.trim() : ''
-    if (customerId) params.set('customerId', customerId)
+    const customerIds = Array.isArray(filterValues.customerId)
+      ? filterValues.customerId
+          .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
+          .filter((value) => value.length > 0)
+      : []
+    if (customerIds.length > 0) {
+      params.set('customerId', customerIds[0])
+    }
     const date = filterValues.date
     if (date && typeof date === 'object') {
       if (date.from) params.set('dateFrom', date.from)
@@ -537,7 +594,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           actions={(
             <Button asChild>
-              <Link href="/backend/sales/documents/create">
+              <Link href={`/backend/sales/documents/create?kind=${kind}`}>
                 {t('sales.documents.create.title', 'Create sales document')}
               </Link>
             </Button>
