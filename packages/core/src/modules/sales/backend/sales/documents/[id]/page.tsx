@@ -3150,12 +3150,12 @@ export default function SalesDocumentDetailPage({
             : null,
           onSave: handleUpdateExpectedDeliveryAt,
           inputType: 'date',
-          renderDisplay={({ value, emptyLabel }) =>
-            value && value.length ? (
-              <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
-            ) : (
-              <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-            )
+          renderDisplay: (params) => {
+            const { value, emptyLabel } = params
+            if (value && value.length) {
+              return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
+            }
+            return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
           },
         }
       )
