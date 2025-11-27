@@ -4,6 +4,7 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
+import { SalesDocumentTagAssignment } from '../../data/entities'
 import {
   orderCreateSchema,
   quoteCreateSchema,
@@ -189,6 +190,54 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     paymentMethodSnapshot: entity?.paymentMethodSnapshot ?? null,
   })
 
+  const attachTags = async (payload: any, ctx: any) => {
+    const items = Array.isArray(payload?.items) ? payload.items : []
+    if (!items.length) return
+    const ids = items
+      .map((item) => (item && typeof item.id === 'string' ? item.id : null))
+      .filter((id): id is string => !!id)
+    if (!ids.length) return
+    const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as any) : null
+    if (!em) return
+    const where: Record<string, unknown> = {
+      documentId: { $in: ids },
+      documentKind: binding.kind,
+    }
+    if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
+    const orgIds =
+      Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
+        ? ctx.organizationIds.filter((val: string | null) => !!val)
+        : ctx?.selectedOrganizationId
+          ? [ctx.selectedOrganizationId]
+          : []
+    if (orgIds.length) where.organizationId = { $in: orgIds }
+    const assignments = await em.find(
+      SalesDocumentTagAssignment,
+      where,
+      { populate: ['tag'] },
+    )
+    const grouped = new Map<string, Array<{ id: string; label: string; color: string | null }>>()
+    assignments.forEach((assignment: any) => {
+      const tag = assignment?.tag
+      const documentId = assignment?.documentId
+      if (!tag || typeof tag.id !== 'string' || typeof documentId !== 'string') return
+      const entry = {
+        id: tag.id,
+        label: typeof tag.label === 'string' && tag.label.trim().length ? tag.label : tag.slug ?? tag.id,
+        color: typeof tag.color === 'string' && tag.color.trim().length ? tag.color : null,
+      }
+      const list = grouped.get(documentId) ?? []
+      list.push(entry)
+      grouped.set(documentId, list)
+    })
+    items.forEach((item) => {
+      const id = item && typeof item.id === 'string' ? item.id : null
+      if (!id) return
+      const list = grouped.get(id)
+      if (list) item.tags = list
+    })
+  }
+
   const crud = makeCrudRoute({
     metadata: routeMetadata,
     orm: {
@@ -346,6 +395,11 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
           return { id }
         },
         response: () => ({ ok: true }),
+      },
+    },
+    hooks: {
+      afterList: async (payload, ctx) => {
+        await attachTags(payload, ctx)
       },
     },
   })
