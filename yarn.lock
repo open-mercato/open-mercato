@@ -1087,11 +1087,11 @@
     "@octokit/openapi-types" "^26.0.0"
 
 "@open-mercato/cache@file:/home/runner/work/open-mercato/open-mercato/packages/cache":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/cache"
 
 "@open-mercato/cli@file:/home/runner/work/open-mercato/open-mercato/packages/cli":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/cli"
 
 "@open-mercato/client@file:/home/runner/work/open-mercato/open-mercato/packages/client":
@@ -1101,37 +1101,37 @@
     openapi-fetch "^0.15.0"
 
 "@open-mercato/content@file:/home/runner/work/open-mercato/open-mercato/packages/content":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/content"
 
 "@open-mercato/core@file:/home/runner/work/open-mercato/open-mercato/packages/core":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/core"
 
 "@open-mercato/events@file:/home/runner/work/open-mercato/open-mercato/packages/events":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/events"
   dependencies:
     ioredis "^5.4.1"
 
 "@open-mercato/example@file:/home/runner/work/open-mercato/open-mercato/packages/example":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/example"
 
 "@open-mercato/onboarding@file:/home/runner/work/open-mercato/open-mercato/packages/onboarding":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/onboarding"
 
 "@open-mercato/shared@file:/home/runner/work/open-mercato/open-mercato/packages/shared":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/shared"
 
 "@open-mercato/ui@file:/home/runner/work/open-mercato/open-mercato/packages/ui":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/ui"
 
 "@open-mercato/vector@file:/home/runner/work/open-mercato/open-mercato/packages/vector":
-  version "0.3.4"
+  version "0.3.5"
   resolved "file:packages/vector"
   dependencies:
     "@ai-sdk/openai" "^1.0.0"
@@ -8655,7 +8655,7 @@ react-markdown@~9.0.1:
     vfile "^6.0.0"
 
 react-promise-suspense@^0.3.4:
-  version "0.3.4"
+  version "0.3.5"
   resolved "https://registry.npmjs.org/react-promise-suspense/-/react-promise-suspense-0.3.4.tgz"
   integrity sha512-I42jl7L3Ze6kZaq+7zXWSunBa3b1on5yfvUW6Eo/3fFOj6dZ5Bqmcd264nJbTK/gn1HjjILAjSwnZbV4RpSaNQ==
   dependencies:
