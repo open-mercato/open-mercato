@@ -131,5 +131,9 @@
   "upgrades.v034.loading": "Instalando…",
   "upgrades.v034.success": "Productos y categorías de catálogo de ejemplo instalados.",
   "upgrades.runFailed": "No pudimos ejecutar esta acción de actualización.",
-  "upgrades.loading": "Cargando actualización…"
+  "upgrades.loading": "Cargando actualización…",
+  "sales.documents.form.customer.quick.error": "No se pudo crear el cliente.",
+  "sales.documents.form.customer.quick.personSuccess": "Cliente personal creado.",
+  "sales.documents.form.customer.quick.companySuccess": "Cliente empresa creado.",
+  "sales.documents.form.customer.quick.dialogDescription": "Agregar un cliente sin salir de este formulario."
 }
