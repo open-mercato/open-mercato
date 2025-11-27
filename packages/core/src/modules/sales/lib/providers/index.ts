@@ -13,6 +13,7 @@ export {
   registerPaymentProvider,
   registerShippingProvider,
 } from './registry'
+export { registerStripeProvider } from './defaultProviders'
 
 export type {
   PaymentProvider,

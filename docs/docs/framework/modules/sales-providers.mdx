@@ -60,8 +60,15 @@ Out of the box the sales module registers:
 
 - **Wire transfer** (`wire-transfer`) – offline payment with optional instructions.
 - **Cash on delivery** (`cash-on-delivery`) – optional flat/percent fee.
-- **Stripe** (`stripe`) – application fee support and basic credential fields (publishable/secret/webhook).
 - **Flat rate shipping** (`flat-rate`) – tiered rates by item count, weight, volume, or subtotal; optional base-rate toggle.
+
+Stripe is available as an opt-in helper:
+
+```ts
+import { registerStripeProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerStripeProvider()
+```
 
 You can extend or replace these by registering providers in your own modules; registry calls are idempotent, so re-registering a key overwrites the previous handler.
 

@@ -281,59 +281,6 @@ export function PaymentMethodsSettings() {
     },
   }), [t])
 
-  const columns = React.useMemo<ColumnDef<PaymentMethodRow>[]>(() => {
-    return [
-      {
-        accessorKey: 'name',
-        header: translations.table.name,
-        cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span className="font-medium">{row.original.name}</span>
-            <span className="text-xs text-muted-foreground">{row.original.code}</span>
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'providerKey',
-        header: translations.table.provider,
-        cell: ({ row }) => (
-          <span className="text-sm">
-            {row.original.providerLabel ?? row.original.providerKey ?? '—'}
-          </span>
-        ),
-      },
-      {
-        accessorKey: 'isActive',
-        header: translations.table.active,
-        cell: ({ row }) => (
-          <span className="text-sm">
-            {row.original.isActive ? translations.table.statusActive : translations.table.statusInactive}
-          </span>
-        ),
-      },
-      {
-        accessorKey: 'updatedAt',
-        header: translations.table.updatedAt,
-        cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">
-            {row.original.updatedAt ? new Date(row.original.updatedAt).toLocaleString() : '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'actions',
-        cell: ({ row }) => (
-          <RowActions
-            onEdit={() => openEdit(row.original)}
-            onDelete={() => deleteEntry(row.original)}
-            editLabel={translations.actions.edit}
-            deleteLabel={translations.actions.delete}
-          />
-        ),
-      },
-    ]
-  }, [deleteEntry, openEdit, translations])
-
   const [entries, setEntries] = React.useState<PaymentMethodRow[]>([])
   const [loading, setLoading] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
@@ -497,6 +444,57 @@ export function PaymentMethodsSettings() {
       component: ProviderSettingsField,
     },
   ], [ProviderSettingsField, providerOptions, translations.form.code, translations.form.description, translations.form.isActive, translations.form.name, translations.form.provider, translations.form.providerSettings, translations.form.terms])
+
+  const columns = React.useMemo<ColumnDef<PaymentMethodRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: translations.table.name,
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <span className="font-medium">{row.original.name}</span>
+          <span className="text-xs text-muted-foreground">{row.original.code}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'providerKey',
+      header: translations.table.provider,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.providerLabel ?? row.original.providerKey ?? '—'}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'isActive',
+      header: translations.table.active,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.isActive ? translations.table.statusActive : translations.table.statusInactive}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'updatedAt',
+      header: translations.table.updatedAt,
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.updatedAt ? new Date(row.original.updatedAt).toLocaleString() : '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      cell: ({ row }) => (
+        <RowActions
+          onEdit={() => openEdit(row.original)}
+          onDelete={() => deleteEntry(row.original)}
+          editLabel={translations.actions.edit}
+          deleteLabel={translations.actions.delete}
+        />
+      ),
+    },
+  ], [deleteEntry, openEdit, translations])
 
   const filteredEntries = React.useMemo(() => {
     if (!search.trim()) return entries

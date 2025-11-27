@@ -96,6 +96,47 @@ function selectFlatRate(
   return null
 }
 
+const stripeProvider: PaymentProvider = {
+  key: 'stripe',
+  label: 'Stripe',
+  description: 'Card payments processed via Stripe with optional application fee.',
+  settings: {
+    fields: [
+      { key: 'publishableKey', label: 'Publishable key', type: 'secret', required: true },
+      { key: 'secretKey', label: 'Secret key', type: 'secret', required: true },
+      { key: 'webhookSecret', label: 'Webhook secret', type: 'secret' },
+      { key: 'applicationFeePercent', label: 'Application fee (%)', type: 'number' },
+      { key: 'applicationFeeFlat', label: 'Application fee (flat)', type: 'number' },
+      {
+        key: 'captureMethod',
+        label: 'Capture method',
+        type: 'select',
+        options: [
+          { value: 'automatic', label: 'Automatic' },
+          { value: 'manual', label: 'Manual' },
+        ],
+      },
+      { key: 'successUrl', label: 'Success URL', type: 'url' },
+      { key: 'cancelUrl', label: 'Cancel URL', type: 'url' },
+    ],
+    schema: stripeSettings,
+  },
+  calculate: ({ document, context, settings }) => {
+    const parsed = stripeSettings.safeParse(settings ?? {})
+    if (!parsed.success) return { adjustments: [] }
+    const { applicationFeeFlat, applicationFeePercent } = parsed.data
+    const total = document.totals.grandTotalGrossAmount ?? 0
+    const amount = Math.max(0, applicationFeeFlat + (applicationFeePercent / 100) * Math.max(total, 0))
+    return createSurchargeAdjustment({
+      providerKey: 'stripe',
+      label: 'Stripe processing fee',
+      currencyCode: context.currencyCode,
+      amount,
+      metadata: parsed.data,
+    })
+  },
+}
+
 const paymentProviders: PaymentProvider[] = [
   {
     key: 'wire-transfer',
@@ -163,46 +204,6 @@ const paymentProviders: PaymentProvider[] = [
         currencyCode: context.currencyCode,
         amount,
         metadata: { feeFlat, feePercent, maxOrderTotal },
-      })
-    },
-  },
-  {
-    key: 'stripe',
-    label: 'Stripe',
-    description: 'Card payments processed via Stripe with optional application fee.',
-    settings: {
-      fields: [
-        { key: 'publishableKey', label: 'Publishable key', type: 'secret', required: true },
-        { key: 'secretKey', label: 'Secret key', type: 'secret', required: true },
-        { key: 'webhookSecret', label: 'Webhook secret', type: 'secret' },
-        { key: 'applicationFeePercent', label: 'Application fee (%)', type: 'number' },
-        { key: 'applicationFeeFlat', label: 'Application fee (flat)', type: 'number' },
-        {
-          key: 'captureMethod',
-          label: 'Capture method',
-          type: 'select',
-          options: [
-            { value: 'automatic', label: 'Automatic' },
-            { value: 'manual', label: 'Manual' },
-          ],
-        },
-        { key: 'successUrl', label: 'Success URL', type: 'url' },
-        { key: 'cancelUrl', label: 'Cancel URL', type: 'url' },
-      ],
-      schema: stripeSettings,
-    },
-    calculate: ({ document, context, settings }) => {
-      const parsed = stripeSettings.safeParse(settings ?? {})
-      if (!parsed.success) return { adjustments: [] }
-      const { applicationFeeFlat, applicationFeePercent } = parsed.data
-      const total = document.totals.grandTotalGrossAmount ?? 0
-      const amount = Math.max(0, applicationFeeFlat + (applicationFeePercent / 100) * Math.max(total, 0))
-      return createSurchargeAdjustment({
-        providerKey: 'stripe',
-        label: 'Stripe processing fee',
-        currencyCode: context.currencyCode,
-        amount,
-        metadata: parsed.data,
       })
     },
   },
@@ -301,3 +302,6 @@ export function registerDefaultSalesProviders() {
   shippingProviders.forEach((provider) => registerShippingProvider(provider))
 }
 
+export function registerStripeProvider() {
+  return registerPaymentProvider(stripeProvider)
+}

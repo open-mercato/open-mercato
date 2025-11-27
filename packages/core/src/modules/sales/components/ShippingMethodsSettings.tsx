@@ -500,66 +500,6 @@ export function ShippingMethodsSettings() {
     },
   }), [t])
 
-  const columns = React.useMemo<ColumnDef<ShippingMethodRow>[]>(() => [
-    {
-      accessorKey: 'name',
-      header: translations.table.name,
-      cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span className="font-medium">{row.original.name}</span>
-          <span className="text-xs text-muted-foreground">{row.original.code}</span>
-        </div>
-      ),
-    },
-    {
-      accessorKey: 'providerKey',
-      header: translations.table.provider,
-      cell: ({ row }) => (
-        <span className="text-sm">
-          {row.original.providerLabel ?? row.original.providerKey ?? '—'}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'rate',
-      header: translations.table.rate,
-      cell: ({ row }) => (
-        <span className="text-sm">
-          {row.original.baseRateGross.toFixed(2)} {row.original.currencyCode ?? ''}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'isActive',
-      header: translations.table.active,
-      cell: ({ row }) => (
-        <span className="text-sm">
-          {row.original.isActive ? translations.table.statusActive : translations.table.statusInactive}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'updatedAt',
-      header: translations.table.updatedAt,
-      cell: ({ row }) => (
-        <span className="text-xs text-muted-foreground">
-          {row.original.updatedAt ? new Date(row.original.updatedAt).toLocaleString() : '—'}
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      cell: ({ row }) => (
-        <RowActions
-          onEdit={() => openEdit(row.original)}
-          onDelete={() => deleteEntry(row.original)}
-          editLabel={translations.actions.edit}
-          deleteLabel={translations.actions.delete}
-        />
-      ),
-    },
-  ], [deleteEntry, openEdit, translations])
-
   const [entries, setEntries] = React.useState<ShippingMethodRow[]>([])
   const [loading, setLoading] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
@@ -692,6 +632,66 @@ export function ShippingMethodsSettings() {
       flash(message, 'error')
     }
   }, [loadEntries, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
+
+  const columns = React.useMemo<ColumnDef<ShippingMethodRow>[]>(() => [
+    {
+      accessorKey: 'name',
+      header: translations.table.name,
+      cell: ({ row }) => (
+        <div className="flex flex-col">
+          <span className="font-medium">{row.original.name}</span>
+          <span className="text-xs text-muted-foreground">{row.original.code}</span>
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'providerKey',
+      header: translations.table.provider,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.providerLabel ?? row.original.providerKey ?? '—'}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'rate',
+      header: translations.table.rate,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.baseRateGross.toFixed(2)} {row.original.currencyCode ?? ''}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'isActive',
+      header: translations.table.active,
+      cell: ({ row }) => (
+        <span className="text-sm">
+          {row.original.isActive ? translations.table.statusActive : translations.table.statusInactive}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'updatedAt',
+      header: translations.table.updatedAt,
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.updatedAt ? new Date(row.original.updatedAt).toLocaleString() : '—'}
+        </span>
+      ),
+    },
+    {
+      id: 'actions',
+      cell: ({ row }) => (
+        <RowActions
+          onEdit={() => openEdit(row.original)}
+          onDelete={() => deleteEntry(row.original)}
+          editLabel={translations.actions.edit}
+          deleteLabel={translations.actions.delete}
+        />
+      ),
+    },
+  ], [deleteEntry, openEdit, translations])
 
   const handleSubmit = React.useCallback(async (values: ShippingFormValues) => {
     if (!dialog) return
