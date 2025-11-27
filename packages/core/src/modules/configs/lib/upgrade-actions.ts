@@ -52,6 +52,7 @@ export const upgradeActions: UpgradeActionDefinition[] = [
               role: adminRole,
               tenantId: normalizedTenantId,
               featuresJson: ['business_rules.*'],
+              isSuperAdmin: false,
               createdAt: new Date(),
               updatedAt: new Date(),
             }),
