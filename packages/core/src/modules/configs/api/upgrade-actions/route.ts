@@ -87,7 +87,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!isUpgradeActionsEnabled()) {
-    return NextResponse.json({ error: 'Upgrade actions are disabled' }, { status: 404 })
+    return NextResponse.json({ error: 'Upgrade actions are disabled' }, { status: 403 })
   }
   const { translate } = await resolveTranslations()
   const scopedTranslate = (key: string, fallback?: string, params?: Record<string, unknown>) =>

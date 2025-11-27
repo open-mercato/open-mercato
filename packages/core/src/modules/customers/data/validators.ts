@@ -168,6 +168,7 @@ export const addressCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   name: z.string().max(150).optional(),
   purpose: z.string().max(150).optional(),
+  companyName: z.string().max(200).optional(),
   addressLine1: z.string().min(1).max(300),
   addressLine2: z.string().max(300).optional(),
   buildingNumber: z.string().max(50).optional(),

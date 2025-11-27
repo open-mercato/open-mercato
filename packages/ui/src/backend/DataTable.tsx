@@ -16,6 +16,7 @@ import { serializeExport, defaultExportFilename, type PreparedExport } from '@op
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   PerspectiveDto,
   RolePerspectiveDto,
@@ -345,8 +346,10 @@ function normalizeLabel(input: string): string {
 }
 
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
+  const t = useT()
   if (!sections.length) return null
-  const { label = 'Export' } = config
+  const { label } = config
+  const defaultLabel = label ?? t('ui.dataTable.export.label', 'Export')
   const disabled = Boolean(config.disabled)
   const [open, setOpen] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
@@ -425,7 +428,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         aria-expanded={open}
         disabled={disabled}
       >
-        {label}
+        {defaultLabel}
       </Button>
       {open ? (
         <div
@@ -494,6 +497,7 @@ export function DataTable<T>({
   onCustomFieldFilterFieldsetChange,
   customFieldFilterKeyExtras,
 }: DataTableProps<T>) {
+  const t = useT()
   const router = useRouter()
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
   const hasInitializedScopeRef = React.useRef(false)
@@ -620,11 +624,11 @@ export function DataTable<T>({
         }
       }
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to load perspectives')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
       }
       setPerspectiveApiMissing(false)
       const payload = call.result
-      if (!payload) throw new Error('Failed to load perspectives')
+      if (!payload) throw new Error(t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
       return payload
     },
     enabled: canUsePerspectives,
@@ -883,13 +887,13 @@ export function DataTable<T>({
         },
       )
       if (call.status === 404) {
-        throw new Error('Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.')
+        throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.'))
       }
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to save perspective')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
       }
       const result = call.result
-      if (!result) throw new Error('Failed to save perspective')
+      if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
       return result
     },
     onSuccess: (data) => {
@@ -947,9 +951,9 @@ export function DataTable<T>({
         `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
         { method: 'DELETE' },
       )
-      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.'))
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to delete perspective')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
       }
     },
     onMutate: ({ perspectiveId }) => {
@@ -983,9 +987,9 @@ export function DataTable<T>({
         `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
         { method: 'DELETE' },
       )
-      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.'))
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to clear role perspectives')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
       }
     },
     onMutate: ({ roleId }) => {
@@ -1064,7 +1068,7 @@ export function DataTable<T>({
   }, [table])
 
   const perspectiveApiWarning = perspectiveApiMissing && canUsePerspectives
-    ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
+    ? t('ui.dataTable.perspectives.warning.apiUnavailable', 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.')
     : null
 
   const loadStartRef = React.useRef<number | null>(null)
@@ -1139,14 +1143,14 @@ export function DataTable<T>({
     const cacheBadge = normalizedCacheStatus ? (
       <span
         className="inline-flex items-center justify-center"
-        aria-label={`Cache ${normalizedCacheStatus.toUpperCase()}`}
-        title={`Cache ${normalizedCacheStatus.toUpperCase()}`}
+        aria-label={t('ui.dataTable.pagination.cache.ariaLabel', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
+        title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
       >
         <Circle
           className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
           strokeWidth={3}
         />
-        <span className="sr-only">{`Cache ${normalizedCacheStatus.toUpperCase()}`}</span>
+        <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
       </span>
     ) : null
 
@@ -1154,7 +1158,10 @@ export function DataTable<T>({
       <div className="flex items-center justify-between px-4 py-3 border-t">
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <span>
-            Showing {startItem} to {endItem} of {pagination.total} results{durationLabel ? ` in ${durationLabel}` : ''}
+            {durationLabel 
+              ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
+              : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
+            }
           </span>
           {cacheBadge}
         </div>
@@ -1165,10 +1172,10 @@ export function DataTable<T>({
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
           >
-            Previous
+            {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
           <span className="text-sm">
-            Page {page} of {totalPages}
+            {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
             variant="outline"
@@ -1176,7 +1183,7 @@ export function DataTable<T>({
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
           >
-            Next
+            {t('ui.dataTable.pagination.next', 'Next')}
           </Button>
         </div>
       </div>
@@ -1309,7 +1316,7 @@ export function DataTable<T>({
     const perspectiveButton = canUsePerspectives ? (
       <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
-        Perspectives
+        {t('ui.dataTable.perspectives.button', 'Perspectives')}
       </Button>
     ) : null
     const fieldsetSelector =
@@ -1429,11 +1436,11 @@ export function DataTable<T>({
                       variant="ghost"
                       size="icon"
                       onClick={() => setPerspectiveOpen(true)}
-                      aria-label="Customize columns"
-                      title="Customize columns"
+                      aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
+                      title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
                     >
                       <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">Customize columns</span>
+                      <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
                     </Button>
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
@@ -1562,7 +1569,7 @@ export function DataTable<T>({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  {emptyState ?? 'No results.'}
+                  {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
                 </TableCell>
               </TableRow>
             )}

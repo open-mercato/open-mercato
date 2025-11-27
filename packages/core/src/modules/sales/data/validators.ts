@@ -25,7 +25,9 @@ const decimal = (opts?: { min?: number; max?: number }) => {
 
 const percentage = () => decimal({ min: 0, max: 100 })
 
-const metadata = z.record(z.string(), z.unknown()).optional()
+const jsonRecord = z.record(z.string(), z.unknown())
+
+const metadata = jsonRecord.optional()
 
 const channelCodeSchema = z
   .string()
@@ -33,6 +35,17 @@ const channelCodeSchema = z
   .toLowerCase()
   .regex(/^[a-z0-9\-_]+$/)
   .max(120)
+
+const numberFormatSchema = z.string().trim().min(1).max(191)
+
+export const salesSettingsUpsertSchema = scoped.extend({
+  orderNumberFormat: numberFormatSchema,
+  quoteNumberFormat: numberFormatSchema,
+  orderNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+  quoteNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+})
+
+export type SalesSettingsUpsertInput = z.infer<typeof salesSettingsUpsertSchema>
 
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -318,13 +331,16 @@ const quoteTotalsSchema = z.object({
 })
 
 export const orderCreateSchema = scoped.extend({
-  orderNumber: z.string().trim().min(1).max(191),
+  orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
   customerReference: z.string().trim().max(191).optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
+  customerSnapshot: jsonRecord.optional(),
   billingAddressId: uuid().optional(),
   shippingAddressId: uuid().optional(),
+  billingAddressSnapshot: jsonRecord.optional(),
+  shippingAddressSnapshot: jsonRecord.optional(),
   currencyCode,
   exchangeRate: decimal({ min: 0 }).optional(),
   statusEntryId: uuid().optional(),
@@ -332,17 +348,22 @@ export const orderCreateSchema = scoped.extend({
   paymentStatusEntryId: uuid().optional(),
   taxStrategyKey: z.string().trim().max(120).optional(),
   discountStrategyKey: z.string().trim().max(120).optional(),
+  taxInfo: jsonRecord.optional(),
   shippingMethodId: uuid().optional(),
+  shippingMethodCode: z.string().trim().max(120).optional(),
   deliveryWindowId: uuid().optional(),
+  deliveryWindowCode: z.string().trim().max(120).optional(),
   paymentMethodId: uuid().optional(),
+  paymentMethodCode: z.string().trim().max(120).optional(),
   channelId: uuid().optional(),
   placedAt: z.coerce.date().optional(),
   expectedDeliveryAt: z.coerce.date().optional(),
   dueAt: z.coerce.date().optional(),
   comments: z.string().trim().max(4000).optional(),
   internalNotes: z.string().trim().max(4000).optional(),
-  shippingMethodSnapshot: z.record(z.string(), z.unknown()).optional(),
-  paymentMethodSnapshot: z.record(z.string(), z.unknown()).optional(),
+  shippingMethodSnapshot: jsonRecord.optional(),
+  deliveryWindowSnapshot: jsonRecord.optional(),
+  paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
   lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
@@ -357,14 +378,30 @@ export const orderUpdateSchema = z
   .merge(orderCreateSchema.partial())
 
 export const quoteCreateSchema = scoped.extend({
-  quoteNumber: z.string().trim().min(1).max(191),
+  quoteNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
+  channelId: uuid().optional(),
+  customerSnapshot: jsonRecord.optional(),
+  billingAddressId: uuid().optional(),
+  shippingAddressId: uuid().optional(),
+  billingAddressSnapshot: jsonRecord.optional(),
+  shippingAddressSnapshot: jsonRecord.optional(),
   currencyCode,
   validFrom: z.coerce.date().optional(),
   validUntil: z.coerce.date().optional(),
   comments: z.string().trim().max(4000).optional(),
+  taxInfo: jsonRecord.optional(),
+  shippingMethodId: uuid().optional(),
+  shippingMethodCode: z.string().trim().max(120).optional(),
+  deliveryWindowId: uuid().optional(),
+  deliveryWindowCode: z.string().trim().max(120).optional(),
+  paymentMethodId: uuid().optional(),
+  paymentMethodCode: z.string().trim().max(120).optional(),
+  shippingMethodSnapshot: jsonRecord.optional(),
+  deliveryWindowSnapshot: jsonRecord.optional(),
+  paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
   lines: z
@@ -557,6 +594,13 @@ export const noteUpdateSchema = z
         authorUserId: uuid().optional(),
       })
   )
+
+export const documentNumberRequestSchema = scoped.extend({
+  kind: z.enum(['order', 'quote']),
+  format: numberFormatSchema.optional(),
+})
+
+export type DocumentNumberRequestInput = z.infer<typeof documentNumberRequestSchema>
 
 export type ChannelCreateInput = z.infer<typeof channelCreateSchema>
 export type ChannelUpdateInput = z.infer<typeof channelUpdateSchema>

@@ -10,6 +10,11 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_offer'
 import { parseIdList } from '../products/route'
 import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -412,3 +417,45 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const offerListItemSchema = z.object({
+  id: z.string().uuid(),
+  productId: z.string().uuid().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  tenantId: z.string().uuid().nullable().optional(),
+  channelId: z.string().uuid().nullable().optional(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  defaultMediaId: z.string().uuid().nullable().optional(),
+  defaultMediaUrl: z.string().nullable().optional(),
+  localizedContent: z.record(z.string(), z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  isActive: z.boolean().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  product: z.record(z.string(), z.unknown()).nullable().optional(),
+  prices: z.array(z.record(z.string(), z.unknown())).optional(),
+  productChannelPrice: z.record(z.string(), z.unknown()).nullable().optional(),
+  productDefaultPrices: z.array(z.record(z.string(), z.unknown())).optional(),
+})
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Offer',
+  pluralName: 'Offers',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(offerListItemSchema),
+  create: {
+    schema: offerCreateSchema,
+    description: 'Creates a new offer linking a product to a sales channel.',
+  },
+  update: {
+    schema: offerUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing offer by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an offer by id.',
+  },
+})
