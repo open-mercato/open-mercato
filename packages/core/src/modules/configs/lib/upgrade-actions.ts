@@ -35,18 +35,19 @@ async function purgeCatalogCrudCache(container: AwilixContainer, tenantId: strin
   const cache = resolveCrudCache(container)
   if (!cache) return
   await runWithCacheTenant(tenantId ?? null, async () => {
-    try {
-      const stats = await collectCrudCacheStats(cache)
-      const catalogSegments = stats.segments.filter((segment) => segment.resource?.startsWith('catalog.'))
-      if (!catalogSegments.length) return
-      for (const segment of catalogSegments) {
+    const stats = await collectCrudCacheStats(cache)
+    const catalogSegments = stats.segments.filter((segment) => segment.resource?.startsWith('catalog.'))
+    if (!catalogSegments.length) return
+    for (const segment of catalogSegments) {
+      try {
         await purgeCrudCacheSegment(cache, segment.segment)
+      } catch (error) {
+        console.warn('[upgrade-actions] failed to purge catalog cache segment', {
+          tenantId,
+          segment: segment.segment,
+          error,
+        })
       }
-    } catch (error) {
-      console.warn('[upgrade-actions] failed to purge catalog cache segments', {
-        tenantId,
-        error,
-      })
     }
   })
 }
