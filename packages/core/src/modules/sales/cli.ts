@@ -1,12 +1,58 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { SalesTaxRate } from './data/entities'
+import { SalesPaymentMethod, SalesShippingMethod, SalesTaxRate } from './data/entities'
 import { seedSalesStatusDictionaries } from './lib/dictionaries'
 
 const DEFAULT_TAX_RATES = [
   { code: 'vat-23', name: '23% VAT', rate: '23' },
   { code: 'vat-0', name: '0% VAT', rate: '0' },
+] as const
+
+const EXAMPLE_SHIPPING_METHODS = [
+  {
+    code: 'standard-ground',
+    name: 'Standard Ground',
+    description: 'Delivery in 3-5 business days.',
+    carrierCode: 'ground',
+    serviceLevel: 'ground',
+    estimatedTransitDays: 5,
+    baseRateNet: '9.90',
+    baseRateGross: '9.90',
+    currencyCode: 'USD',
+  },
+  {
+    code: 'express-air',
+    name: 'Express Air',
+    description: 'Priority courier (1-2 business days).',
+    carrierCode: 'air',
+    serviceLevel: 'express',
+    estimatedTransitDays: 2,
+    baseRateNet: '19.90',
+    baseRateGross: '19.90',
+    currencyCode: 'USD',
+  },
+] as const
+
+const EXAMPLE_PAYMENT_METHODS = [
+  {
+    code: 'card',
+    name: 'Credit Card',
+    description: 'Visa, Mastercard, Amex.',
+    providerKey: 'card',
+    terms: 'Charge is captured on shipment.',
+  },
+  {
+    code: 'bank-transfer',
+    name: 'Bank Transfer',
+    description: 'Pay by wire transfer.',
+    terms: 'Due within 7 days of invoice.',
+  },
+  {
+    code: 'cod',
+    name: 'Cash on Delivery',
+    description: 'Pay courier on delivery.',
+  },
 ] as const
 
 function parseArgs(rest: string[]) {
@@ -115,4 +161,111 @@ const seedStatusesCommand: ModuleCli = {
   },
 }
 
-export default [seedTaxRatesCommand, seedStatusesCommand]
+const seedShippingMethodsCommand: ModuleCli = {
+  command: 'seed-shipping-methods',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato sales seed-shipping-methods --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      await em.transactional(async (tem) => {
+        const existing = await tem.find(SalesShippingMethod, {
+          tenantId,
+          organizationId,
+          deletedAt: null,
+        })
+        const existingCodes = new Set(existing.map((entry) => (entry.code ?? '').toLowerCase()))
+        const now = new Date()
+        for (const seed of EXAMPLE_SHIPPING_METHODS) {
+          if (existingCodes.has(seed.code)) continue
+          const record = tem.create(SalesShippingMethod, {
+            organizationId,
+            tenantId,
+            name: seed.name,
+            code: seed.code,
+            description: seed.description,
+            carrierCode: seed.carrierCode,
+            serviceLevel: seed.serviceLevel,
+            estimatedTransitDays: seed.estimatedTransitDays,
+            baseRateNet: seed.baseRateNet,
+            baseRateGross: seed.baseRateGross ?? seed.baseRateNet,
+            currencyCode: seed.currencyCode ?? 'USD',
+            isActive: true,
+            metadata: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          tem.persist(record)
+        }
+      })
+      console.log('🚚 Shipping methods seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+const seedPaymentMethodsCommand: ModuleCli = {
+  command: 'seed-payment-methods',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato sales seed-payment-methods --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      await em.transactional(async (tem) => {
+        const existing = await tem.find(SalesPaymentMethod, {
+          tenantId,
+          organizationId,
+          deletedAt: null,
+        })
+        const existingCodes = new Set(existing.map((entry) => (entry.code ?? '').toLowerCase()))
+        const now = new Date()
+        for (const seed of EXAMPLE_PAYMENT_METHODS) {
+          if (existingCodes.has(seed.code)) continue
+          const record = tem.create(SalesPaymentMethod, {
+            organizationId,
+            tenantId,
+            name: seed.name,
+            code: seed.code,
+            description: seed.description ?? null,
+            providerKey: seed.providerKey ?? null,
+            terms: seed.terms ?? null,
+            isActive: true,
+            metadata: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          tem.persist(record)
+        }
+      })
+      console.log('💳 Payment methods seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [
+  seedTaxRatesCommand,
+  seedStatusesCommand,
+  seedShippingMethodsCommand,
+  seedPaymentMethodsCommand,
+]

@@ -1114,6 +1114,16 @@ function ChannelInlineEditor({
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const setSearchQueryRef = React.useRef<((value: string) => void) | null>(null)
+  const containerClasses = cn(
+    'group relative rounded border bg-muted/30 p-3',
+    !editing ? 'cursor-pointer' : null
+  )
+  const triggerClasses = cn(
+    'h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
+  )
 
   React.useEffect(() => {
     if (!editing) {
@@ -1397,7 +1407,7 @@ function MethodInlineEditor({
 
   return (
     <div
-      className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}
+      className={containerClasses}
       role={!editing ? 'button' : undefined}
       tabIndex={!editing ? 0 : undefined}
       onClick={() => {
@@ -1496,7 +1506,7 @@ function MethodInlineEditor({
               </div>
             </div>
           ) : (
-            <div className="mt-1 text-sm text-foreground">
+            <div className="mt-1 text-sm">
               {currentDisplay.label ? (
                 <div className="space-y-1">
                   <span className="text-sm">{currentDisplay.label}</span>
@@ -1513,8 +1523,8 @@ function MethodInlineEditor({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          size="sm"
+          className={triggerClasses}
           onClick={(event) => {
             event.stopPropagation()
             if (editing) {
@@ -2291,7 +2301,11 @@ export default function SalesDocumentDetailPage({
   const billingSnapshot = (record?.billingAddressSnapshot ?? null) as AddressSnapshot | null
   const shippingSnapshot = (record?.shippingAddressSnapshot ?? null) as AddressSnapshot | null
   const customerName = resolveCustomerName(customerSnapshot, record?.customerName ?? record?.customerEntityId ?? null)
-  const contactEmail = resolveCustomerEmail(customerSnapshot) ?? record?.contactEmail ?? null
+  const metadataEmail =
+    record?.metadata && typeof (record.metadata as Record<string, unknown>).customerEmail === 'string'
+      ? (record.metadata as Record<string, unknown>).customerEmail
+      : null
+  const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
   const totalsItems = React.useMemo(() => {
@@ -2717,20 +2731,39 @@ export default function SalesDocumentDetailPage({
           ? Object.fromEntries(Object.entries(baseMetadata).filter(([key]) => key !== 'customerEmail'))
           : { ...baseMetadata, customerEmail: nextValue }
       const metadataPayload = Object.keys(updatedMetadata).length ? updatedMetadata : null
+      const snapshotBase = (record.customerSnapshot ?? null) as CustomerSnapshot | null
+      const nextSnapshot =
+        snapshotBase || nextValue !== null
+          ? {
+              ...(snapshotBase ?? {}),
+              customer: {
+                ...(snapshotBase?.customer ?? {}),
+                primaryEmail: nextValue,
+              },
+            }
+          : null
       try {
-        const call = await updateDocument({ metadata: metadataPayload })
+        const call = await updateDocument({ metadata: metadataPayload, customerSnapshot: nextSnapshot })
         const savedMetadata =
           (call.result?.metadata as Record<string, unknown> | null | undefined) ?? metadataPayload ?? null
+        const snapshotFromResult = (call.result?.customerSnapshot ?? null) as CustomerSnapshot | null
+        const hasSnapshotInResponse =
+          call.result && Object.prototype.hasOwnProperty.call(call.result, 'customerSnapshot')
+        const savedSnapshot = hasSnapshotInResponse ? snapshotFromResult : nextSnapshot
         const savedEmail =
-          typeof call.result?.contactEmail === 'string'
-            ? call.result.contactEmail
-            : typeof savedMetadata?.customerEmail === 'string'
-              ? (savedMetadata.customerEmail as string)
-              : nextValue
+          resolveCustomerEmail(savedSnapshot ?? null) ??
+          (typeof call.result?.contactEmail === 'string' ? call.result.contactEmail : undefined) ??
+          (typeof savedMetadata?.customerEmail === 'string' ? (savedMetadata.customerEmail as string) : undefined) ??
+          nextValue
         setRecord((prev) => {
           if (!prev) return prev
           const resolvedEmail = savedEmail === undefined ? prev.contactEmail ?? null : savedEmail ?? null
-          return { ...prev, metadata: savedMetadata ?? null, contactEmail: resolvedEmail }
+          return {
+            ...prev,
+            metadata: savedMetadata ?? null,
+            customerSnapshot: savedSnapshot ?? prev.customerSnapshot ?? null,
+            contactEmail: resolvedEmail,
+          }
         })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {

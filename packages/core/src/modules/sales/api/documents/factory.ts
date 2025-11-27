@@ -171,7 +171,9 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     status: (entity as any)?.status ?? null,
     channelId: (entity as any)?.channelId ?? null,
     customerName: resolveCustomerName(entity?.customerSnapshot ?? null, entity?.customerEntityId ?? null),
-    contactEmail: resolveCustomerEmail(entity?.customerSnapshot ?? null),
+    contactEmail:
+      resolveCustomerEmail(entity?.customerSnapshot ?? null) ??
+      (typeof entity?.metadata?.customerEmail === 'string' ? entity.metadata.customerEmail : null),
     currencyCode: entity?.currencyCode ?? null,
     placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
     expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
@@ -218,6 +220,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
         'payment_method_code',
         'payment_method_snapshot',
         'customer_reference',
+        'metadata',
         'external_reference',
         'currency_code',
         'comments',
@@ -304,6 +307,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
           customerSnapshot: item.customer_snapshot ?? null,
           billingAddressSnapshot: item.billing_address_snapshot ?? null,
           shippingAddressSnapshot: item.shipping_address_snapshot ?? null,
+          metadata: item.metadata ?? null,
           organizationId: item.organization_id ?? null,
           tenantId: item.tenant_id ?? null,
           createdAt: item.created_at,

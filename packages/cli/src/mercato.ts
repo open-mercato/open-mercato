@@ -231,6 +231,14 @@ export async function run(argv = process.argv) {
         runCommand(`yarn mercato sales seed-statuses --tenant ${tenantId} --org ${orgId}`)
         console.log('🚦 ✅ Sales statuses seeded\n')
 
+        console.log('🚚 Seeding shipping methods...')
+        runCommand(`yarn mercato sales seed-shipping-methods --tenant ${tenantId} --org ${orgId}`)
+        console.log('🚚 ✅ Shipping methods seeded\n')
+
+        console.log('💳 Seeding payment methods...')
+        runCommand(`yarn mercato sales seed-payment-methods --tenant ${tenantId} --org ${orgId}`)
+        console.log('💳 ✅ Payment methods seeded\n')
+
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {

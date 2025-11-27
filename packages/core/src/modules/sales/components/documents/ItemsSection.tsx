@@ -49,6 +49,9 @@ type PriceOption = {
   displayMode: 'including-tax' | 'excluding-tax' | null
   taxRate: number | null
   label: string
+  priceKindId?: string | null
+  priceKindTitle?: string | null
+  priceKindCode?: string | null
 }
 
 type LineFormState = {
@@ -110,6 +113,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
   const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
   const [priceOptions, setPriceOptions] = React.useState<PriceOption[]>([])
   const [priceLoading, setPriceLoading] = React.useState(false)
+  const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
+  const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
 
   const resourcePath = React.useMemo(
     () => (kind === 'order' ? 'sales/order-lines' : 'sales/quote-lines'),
@@ -226,6 +231,10 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
           } as LookupSelectItem & { option: ProductOption }
         })
         .filter((entry): entry is LookupSelectItem & { option: ProductOption } => Boolean(entry))
+        .map((entry) => {
+          productOptionsRef.current.set(entry.option.id, entry.option)
+          return entry
+        })
     },
     [],
   )
@@ -260,6 +269,10 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
           } as LookupSelectItem & { option: VariantOption }
         })
         .filter((entry): entry is LookupSelectItem & { option: VariantOption } => Boolean(entry))
+        .map((entry) => {
+          variantOptionsRef.current.set(entry.option.id, entry.option)
+          return entry
+        })
     },
     [],
   )
@@ -299,6 +312,32 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                   ? (item as any).displayMode
                   : null
             const taxRate = normalizeNumber((item as any).tax_rate, null as any)
+            const priceKindId =
+              typeof (item as any).price_kind_id === 'string'
+                ? (item as any).price_kind_id
+                : typeof (item as any).priceKindId === 'string'
+                  ? (item as any).priceKindId
+                  : null
+            const priceKindTitle =
+              typeof (item as any).price_kind_title === 'string'
+                ? (item as any).price_kind_title
+                : typeof (item as any).priceKindTitle === 'string'
+                  ? (item as any).priceKindTitle
+                  : typeof (item as any).price_kind === 'object' &&
+                      item &&
+                      typeof (item as any).price_kind?.title === 'string'
+                    ? (item as any).price_kind.title
+                    : null
+            const priceKindCode =
+              typeof (item as any).price_kind_code === 'string'
+                ? (item as any).price_kind_code
+                : typeof (item as any).priceKindCode === 'string'
+                  ? (item as any).priceKindCode
+                  : typeof (item as any).price_kind === 'object' &&
+                      item &&
+                      typeof (item as any).price_kind?.code === 'string'
+                    ? (item as any).price_kind.code
+                    : null
             const labelParts = [
               displayMode === 'including-tax' && amountGross !== null && currency
                 ? formatMoney(amountGross, currency)
@@ -306,7 +345,12 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
               displayMode === 'excluding-tax' && amountNet !== null && currency
                 ? formatMoney(amountNet, currency)
                 : null,
-              displayMode ? (displayMode === 'including-tax' ? t('sales.documents.items.priceGross', 'Gross') : t('sales.documents.items.priceNet', 'Net')) : null,
+              displayMode
+                ? displayMode === 'including-tax'
+                  ? t('sales.documents.items.priceGross', 'Gross')
+                  : t('sales.documents.items.priceNet', 'Net')
+                : null,
+              priceKindTitle ?? priceKindCode ?? null,
             ].filter(Boolean)
             const label =
               labelParts.length > 0
@@ -324,6 +368,9 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
               displayMode: displayMode as PriceOption['displayMode'],
               taxRate: Number.isFinite(taxRate) ? taxRate : null,
               label,
+              priceKindId,
+              priceKindTitle: priceKindTitle ?? null,
+              priceKindCode: priceKindCode ?? null,
             } as PriceOption
           })
           .filter((entry): entry is PriceOption => Boolean(entry))
@@ -343,7 +390,12 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     if (saving) return
     setSaving(true)
     try {
-      const quantity = Math.max(normalizeNumber(form.quantity, 1), 0)
+      const quantity = Math.max(normalizeNumber(form.quantity ?? '', 1), 0)
+      const resolvedName =
+        (form.name ?? '').trim() ||
+        variantOption?.title ||
+        productOption?.title ||
+        undefined
       const payload: Record<string, unknown> = {
         [documentKey]: documentId,
         productId: form.productId,
@@ -353,7 +405,6 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         priceId: form.priceId,
         priceMode: form.priceMode,
         taxRate: form.taxRate ?? undefined,
-        name: form.name || productOption?.title || variantOption?.title || null,
         catalogSnapshot: form.catalogSnapshot ?? null,
         metadata: {
           ...(form.catalogSnapshot ?? {}),
@@ -374,6 +425,9 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
               }
             : {}),
         },
+      }
+      if (resolvedName) {
+        payload.name = resolvedName
       }
       if (form.priceMode === 'gross') {
         payload.unitPriceGross = normalizeNumber(form.unitPrice, 0)
@@ -614,34 +668,38 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>{t('sales.documents.items.product', 'Product')}</Label>
-                <LookupSelect
-                  value={form.productId}
-                  onChange={(next, item) => {
-                    const typed = item as (LookupSelectItem & { option?: ProductOption }) | undefined
-                    setProductOption(typed?.option ?? null)
-                    setForm((prev) => ({
+              <Label>{t('sales.documents.items.product', 'Product')}</Label>
+              <LookupSelect
+                value={form.productId}
+                onChange={(next) => {
+                  const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
+                  setProductOption(selectedOption)
+                  setForm((prev) => {
+                    const shouldSetName = !(prev.name ?? '').trim().length
+                    return {
                       ...prev,
                       productId: next,
                       variantId: null,
                       priceId: null,
                       unitPrice: '',
+                      name: shouldSetName ? selectedOption?.title ?? prev.name : prev.name,
                       catalogSnapshot: next
                         ? {
                             product: {
                               id: next,
-                              title: typed?.option?.title ?? prev.catalogSnapshot?.product?.['title'] ?? null,
-                              sku: typed?.option?.sku ?? null,
-                              thumbnailUrl: typed?.option?.thumbnailUrl ?? null,
+                              title: selectedOption?.title ?? prev.catalogSnapshot?.product?.['title'] ?? null,
+                              sku: selectedOption?.sku ?? null,
+                              thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
                             },
                           }
                         : null,
-                    }))
-                    if (next) {
-                      void loadPrices(next, null)
-                    } else {
-                      setPriceOptions([])
                     }
+                  })
+                  if (next) {
+                    void loadPrices(next, null)
+                  } else {
+                    setPriceOptions([])
+                  }
                   }}
                   fetchItems={loadProductOptions}
                   searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
@@ -652,34 +710,42 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                 <Label>{t('sales.documents.items.variant', 'Variant')}</Label>
                 <LookupSelect
                   value={form.variantId}
-                  onChange={(next, item) => {
-                    const typed = item as (LookupSelectItem & { option?: VariantOption }) | undefined
-                    setVariantOption(typed?.option ?? null)
-                    setForm((prev) => ({
-                      ...prev,
-                      variantId: next,
-                      catalogSnapshot: next
-                        ? {
-                            ...(prev.catalogSnapshot ?? {}),
-                            variant: {
-                              id: next,
-                              title: typed?.option?.title ?? null,
-                              sku: typed?.option?.sku ?? null,
-                              thumbnailUrl: typed?.option?.thumbnailUrl ?? null,
-                            },
-                          }
-                        : prev.catalogSnapshot,
-                    }))
+                  onChange={(next) => {
+                    const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
+                    setVariantOption(selectedOption)
+                    setForm((prev) => {
+                      const shouldSetName = !(prev.name ?? '').trim().length
+                      return {
+                        ...prev,
+                        variantId: next,
+                        name: shouldSetName
+                          ? selectedOption?.title ?? prev.name ?? productOption?.title ?? ''
+                          : prev.name,
+                        catalogSnapshot: next
+                          ? {
+                              ...(prev.catalogSnapshot ?? {}),
+                              variant: {
+                                id: next,
+                                title: selectedOption?.title ?? null,
+                                sku: selectedOption?.sku ?? null,
+                                thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                              },
+                            }
+                          : prev.catalogSnapshot,
+                      }
+                    })
                     void loadPrices(form.productId, next)
                   }}
                   fetchItems={async (query) => {
                     if (!form.productId) return []
                     const options = await loadVariantOptions(form.productId)
-                    return options.filter((option) =>
-                      query && query.trim().length ? option.title.toLowerCase().includes(query.trim().toLowerCase()) : true,
-                    )
+                    const needle = query?.trim().toLowerCase() ?? ''
+                    return needle.length
+                      ? options.filter((option) => option.title.toLowerCase().includes(needle))
+                      : options
                   }}
                   searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
+                  minQuery={0}
                   disabled={!form.productId}
                 />
               </div>
@@ -697,18 +763,36 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                       setForm((prev) => ({ ...prev, priceId: null }))
                     }
                   }}
-                  fetchItems={async () => {
+                  fetchItems={async (query) => {
                     const prices = await loadPrices(form.productId, form.variantId)
-                    return prices.map<LookupSelectItem>((price) => ({
-                      id: price.id,
-                      title: price.label,
-                      subtitle: price.displayMode
-                        ? price.displayMode === 'including-tax'
-                          ? t('sales.documents.items.priceGross', 'Gross')
-                          : t('sales.documents.items.priceNet', 'Net')
-                        : undefined,
-                    }))
+                    const needle = query?.trim().toLowerCase() ?? ''
+                    return prices
+                      .filter((price) => {
+                        if (!needle.length) return true
+                        const haystack = [
+                          price.label,
+                          price.priceKindTitle,
+                          price.priceKindCode,
+                          price.currencyCode,
+                        ]
+                          .filter(Boolean)
+                          .join(' ')
+                          .toLowerCase()
+                        return haystack.includes(needle)
+                      })
+                      .map<LookupSelectItem>((price) => ({
+                        id: price.id,
+                        title: price.label,
+                        subtitle:
+                          price.displayMode === 'including-tax'
+                            ? t('sales.documents.items.priceGross', 'Gross')
+                            : price.displayMode === 'excluding-tax'
+                              ? t('sales.documents.items.priceNet', 'Net')
+                              : undefined,
+                        rightLabel: price.priceKindTitle ?? price.priceKindCode ?? undefined,
+                      }))
                   }}
+                  minQuery={0}
                   loading={priceLoading}
                   searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
                   disabled={!form.productId}

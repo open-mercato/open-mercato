@@ -307,17 +307,17 @@ export function InlineTextEditor({
                   minDigits={7}
                 />
               ) : (
-                <input
-                  className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={draft}
-                  onChange={(event) => {
-                    if (error) setError(null)
-                    setDraft(event.target.value)
-                  }}
-                  placeholder={placeholder}
-                  type={resolvedType}
-                  autoFocus
-                />
+              <input
+                className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={draft}
+                onChange={(event) => {
+                  if (error) setError(null)
+                  setDraft(event.target.value)
+                }}
+                placeholder={placeholder}
+                type={inputType ?? resolvedType}
+                autoFocus
+              />
               )}
               {error ? <p className="text-xs text-destructive">{error}</p> : null}
               {renderBelowInput ? renderBelowInput({ draft, resolvedType, error, saving }) : null}
