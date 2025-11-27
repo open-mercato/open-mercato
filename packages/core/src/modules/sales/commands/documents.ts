@@ -2056,6 +2056,21 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     await replaceQuoteLines(em, quote, calculation, lineInputs)
     await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs)
     applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
+    let eventBus: EventBus | null = null
+    try {
+      eventBus = ctx.container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+    await emitTotalsCalculated(eventBus, {
+      documentKind: 'quote',
+      documentId: quote.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      customerId: quote.customerEntityId ?? null,
+      totals: calculation.totals,
+      lineCount: calculation.lines.length,
+    })
     await syncSalesDocumentTags(em, {
       documentId: quote.id,
       kind: 'quote',
@@ -2467,6 +2482,21 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     await replaceOrderLines(em, order, calculation, lineInputs)
     await replaceOrderAdjustments(em, order, calculation, adjustmentInputs)
     applyOrderTotals(order, calculation.totals, calculation.lines.length)
+    let eventBus: EventBus | null = null
+    try {
+      eventBus = ctx.container.resolve('eventBus') as EventBus
+    } catch {
+      eventBus = null
+    }
+    await emitTotalsCalculated(eventBus, {
+      documentKind: 'order',
+      documentId: order.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      customerId: order.customerEntityId ?? null,
+      totals: calculation.totals,
+      lineCount: calculation.lines.length,
+    })
     await syncSalesDocumentTags(em, {
       documentId: order.id,
       kind: 'order',

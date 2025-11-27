@@ -709,9 +709,13 @@
   "sales.quotes.create": "Crear cotización",
   "sales.audit.orders.create": "Crear pedido de ventas",
   "sales.audit.orders.delete": "Eliminar pedido de ventas",
+  "sales.audit.orders.lines.upsert": "Actualizar línea de pedido",
+  "sales.audit.orders.lines.delete": "Eliminar línea de pedido",
   "sales.audit.orders.update": "Actualizar pedido de ventas",
   "sales.audit.quotes.create": "Crear cotización",
   "sales.audit.quotes.delete": "Eliminar cotización",
+  "sales.audit.quotes.lines.upsert": "Actualizar línea de cotización",
+  "sales.audit.quotes.lines.delete": "Eliminar línea de cotización",
   "sales.audit.quotes.update": "Actualizar cotización",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
