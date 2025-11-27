@@ -53,6 +53,7 @@ next-env.d.ts
 /src/generated/
 /generated/
 packages/*/generated/
+packages/client/src/generated/
 # package build outputs
 packages/*/dist/
 packages/**/dist/
@@ -75,3 +76,7 @@ tmp/
 public/uploads/*
 storage/attachments/*
 package-lock.json
+
+# IDE related
+.idea
+.claude

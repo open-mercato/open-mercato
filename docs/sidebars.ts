@@ -42,6 +42,19 @@ const sidebars: SidebarsConfig = {
             "user-guide/customers/deals",
           ],
         },
+        {
+          type: "category",
+          label: "Business Rules",
+          items: [
+            "user-guide/business-rules/index",
+            "user-guide/business-rules/creating-rules",
+            "user-guide/business-rules/rule-types",
+            "user-guide/business-rules/conditions",
+            "user-guide/business-rules/actions",
+            "user-guide/business-rules/rule-sets",
+            "user-guide/business-rules/execution-logs",
+          ],
+        },
         "user-guide/audit-logs",
       ],
     },
@@ -66,6 +79,17 @@ const sidebars: SidebarsConfig = {
             "api/entities",
             "api/attachments",
             "api/vector",
+            {
+              type: "category",
+              label: "Business Rules",
+              items: [
+                "api/business-rules",
+                "api/business-rules/rules",
+                "api/business-rules/execute",
+                "api/business-rules/logs",
+                "api/business-rules/sets",
+              ],
+            },
           ],
         },
       ],
@@ -187,6 +211,15 @@ const sidebars: SidebarsConfig = {
             "framework/runtime/request-lifecycle",
           ],
         },
+        {
+          type: "category",
+          label: "Business Rules",
+          items: [
+            "framework/business-rules/architecture",
+            "framework/business-rules/services",
+            "framework/business-rules/extending",
+          ],
+        },
       ],
     },
     {
@@ -198,6 +231,13 @@ const sidebars: SidebarsConfig = {
         "tutorials/authoring-first-module",
         "tutorials/api-data-fetching",
         "tutorials/testing",
+        {
+          type: "category",
+          label: "Business Rules",
+          items: [
+            "tutorials/business-rules/material-availability",
+          ],
+        },
       ],
     },
     {
