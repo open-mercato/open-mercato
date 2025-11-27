@@ -333,6 +333,115 @@
           "delete": "Status usunięty."
         }
       },
+      "shippingMethods": {
+        "title": "Metody dostawy",
+        "description": "Zarządzaj przewoźnikami, dostawcami i domyślnymi cenami dostawy.",
+        "actions": {
+          "add": "Dodaj metodę dostawy",
+          "edit": "Edytuj",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć \"{{name}}\"?",
+          "refresh": "Odśwież"
+        },
+        "table": {
+          "name": "Nazwa",
+          "code": "Kod",
+          "provider": "Dostawca",
+          "rate": "Stawka bazowa",
+          "currency": "Waluta",
+          "active": "Aktywna",
+          "statusActive": "Aktywna",
+          "statusInactive": "Nieaktywna",
+          "updatedAt": "Zaktualizowano",
+          "empty": "Brak metod dostawy.",
+          "search": "Szukaj metod dostawy…"
+        },
+        "form": {
+          "createTitle": "Dodaj metodę dostawy",
+          "editTitle": "Edytuj metodę dostawy",
+          "name": "Nazwa",
+          "code": "Kod",
+          "provider": "Dostawca",
+          "description": "Opis",
+          "carrierCode": "Przewoźnik",
+          "serviceLevel": "Poziom usługi",
+          "estimatedTransitDays": "Czas dostawy (dni)",
+          "baseRateNet": "Stawka bazowa (netto)",
+          "baseRateGross": "Stawka bazowa (brutto)",
+          "currencyCode": "Waluta",
+          "isActive": "Aktywna",
+          "providerSettings": "Ustawienia dostawcy",
+          "selectProvider": "Wybierz dostawcę do konfiguracji.",
+          "noSettings": "Brak dodatkowych ustawień.",
+          "ratesTitle": "Stawki",
+          "addRate": "Dodaj stawkę",
+          "metric": "Metryka",
+          "min": "Min",
+          "max": "Max",
+          "amountNet": "Kwota (netto)",
+          "amountGross": "Kwota (brutto)",
+          "currency": "Waluta",
+          "removeRate": "Usuń",
+          "applyBaseRate": "Zawsze doliczaj stawkę bazową",
+          "save": "Zapisz",
+          "cancel": "Anuluj"
+        },
+        "messages": {
+          "saved": "Metoda dostawy zapisana.",
+          "deleted": "Metoda dostawy usunięta."
+        },
+        "errors": {
+          "load": "Nie udało się wczytać metod dostawy.",
+          "save": "Nie udało się zapisać metody dostawy.",
+          "delete": "Nie udało się usunąć metody dostawy."
+        }
+      },
+      "paymentMethods": {
+        "title": "Metody płatności",
+        "description": "Konfiguruj dostawców płatności i ewentualne opłaty.",
+        "actions": {
+          "add": "Dodaj metodę płatności",
+          "edit": "Edytuj",
+          "delete": "Usuń",
+          "deleteConfirm": "Usunąć \"{{name}}\"?",
+          "refresh": "Odśwież"
+        },
+        "table": {
+          "name": "Nazwa",
+          "code": "Kod",
+          "provider": "Dostawca",
+          "active": "Aktywna",
+          "statusActive": "Aktywna",
+          "statusInactive": "Nieaktywna",
+          "updatedAt": "Zaktualizowano",
+          "empty": "Brak metod płatności.",
+          "search": "Szukaj metod płatności…"
+        },
+        "form": {
+          "createTitle": "Dodaj metodę płatności",
+          "editTitle": "Edytuj metodę płatności",
+          "name": "Nazwa",
+          "code": "Kod",
+          "provider": "Dostawca",
+          "description": "Opis",
+          "terms": "Warunki",
+          "isActive": "Aktywna",
+          "providerSettings": "Ustawienia dostawcy",
+          "selectProvider": "Wybierz dostawcę do konfiguracji.",
+          "noSettings": "Brak dodatkowych ustawień.",
+          "save": "Zapisz",
+          "cancel": "Anuluj"
+        },
+        "messages": {
+          "saved": "Metoda płatności zapisana.",
+          "deleted": "Metoda płatności usunięta."
+        },
+        "errors": {
+          "load": "Nie udało się wczytać metod płatności.",
+          "save": "Nie udało się zapisać metody płatności.",
+          "delete": "Nie udało się usunąć metody płatności."
+        }
+      },
       "orderEditing": {
         "title": "Order editing guards",
         "description": "Control when customers and addresses can be changed on an order.",
@@ -683,6 +792,21 @@
         },
         "inline": {
           "save": "Zapisz (Ctrl/Cmd + Enter)"
+        },
+        "inlineError": "Unable to update document.",
+        "customData": "Custom data",
+        "customDataLoading": "Loading custom data…",
+        "customDataDefine": "Define custom fields first.",
+        "tags": {
+          "loading": "Loading tags…",
+          "loadError": "Failed to load tags.",
+          "createError": "Failed to create tag.",
+          "updateError": "Failed to update tags.",
+          "labelRequired": "Tag name is required.",
+          "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+          "cancelShortcut": "Cancel (Esc)",
+          "success": "Tags updated.",
+          "placeholder": "No tags yet. Add labels to keep documents organized."
         },
         "status": {
           "placeholder": "Wybierz status",

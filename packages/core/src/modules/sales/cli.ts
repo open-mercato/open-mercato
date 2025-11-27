@@ -15,6 +15,7 @@ const EXAMPLE_SHIPPING_METHODS = [
     name: 'Standard Ground',
     description: 'Delivery in 3-5 business days.',
     carrierCode: 'ground',
+    providerKey: 'flat-rate',
     serviceLevel: 'ground',
     estimatedTransitDays: 5,
     baseRateNet: '9.90',
@@ -26,6 +27,7 @@ const EXAMPLE_SHIPPING_METHODS = [
     name: 'Express Air',
     description: 'Priority courier (1-2 business days).',
     carrierCode: 'air',
+    providerKey: 'flat-rate',
     serviceLevel: 'express',
     estimatedTransitDays: 2,
     baseRateNet: '19.90',
@@ -39,19 +41,28 @@ const EXAMPLE_PAYMENT_METHODS = [
     code: 'card',
     name: 'Credit Card',
     description: 'Visa, Mastercard, Amex.',
-    providerKey: 'card',
+    providerKey: 'stripe',
     terms: 'Charge is captured on shipment.',
+    providerSettings: {
+      publishableKey: 'pk_test_example',
+      secretKey: 'sk_test_example',
+      applicationFeePercent: 0,
+      applicationFeeFlat: 0,
+      captureMethod: 'automatic',
+    },
   },
   {
     code: 'bank-transfer',
     name: 'Bank Transfer',
     description: 'Pay by wire transfer.',
+    providerKey: 'wire-transfer',
     terms: 'Due within 7 days of invoice.',
   },
   {
     code: 'cod',
     name: 'Cash on Delivery',
     description: 'Pay courier on delivery.',
+    providerKey: 'cash-on-delivery',
   },
 ] as const
 
@@ -191,13 +202,17 @@ const seedShippingMethodsCommand: ModuleCli = {
             code: seed.code,
             description: seed.description,
             carrierCode: seed.carrierCode,
+            providerKey: seed.providerKey ?? null,
             serviceLevel: seed.serviceLevel,
             estimatedTransitDays: seed.estimatedTransitDays,
             baseRateNet: seed.baseRateNet,
             baseRateGross: seed.baseRateGross ?? seed.baseRateNet,
             currencyCode: seed.currencyCode ?? 'USD',
             isActive: true,
-            metadata: null,
+            metadata:
+              seed.providerSettings && Object.keys(seed.providerSettings).length
+                ? { providerSettings: seed.providerSettings }
+                : null,
             createdAt: now,
             updatedAt: now,
           })
@@ -246,7 +261,10 @@ const seedPaymentMethodsCommand: ModuleCli = {
             providerKey: seed.providerKey ?? null,
             terms: seed.terms ?? null,
             isActive: true,
-            metadata: null,
+            metadata:
+              seed.providerSettings && Object.keys(seed.providerSettings).length
+                ? { providerSettings: seed.providerSettings }
+                : null,
             createdAt: now,
             updatedAt: now,
           })

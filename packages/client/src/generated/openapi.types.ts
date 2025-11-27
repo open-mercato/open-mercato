@@ -13266,6 +13266,7 @@ export interface components {
             name: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
             providerKey: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKey"];
+            providerSettings?: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettings"];
             tenantId: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
             terms: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTerms"];
             updatedAt: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
@@ -13294,6 +13295,11 @@ export interface components {
         DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKey: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf0"] | components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf1"];
         DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf0: null;
         DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf1: string;
+        DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettings: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf0"] | components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf1"];
+        DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf0: null;
+        DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf1: {
+            [key: string]: unknown;
+        };
         DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId: components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0"] | components["schemas"]["DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1"];
         DocPathsSalesPaymentMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
         /** Format: uuid */
@@ -13318,10 +13324,11 @@ export interface components {
             code: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             description?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             isActive?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesIsActive"];
-            metadata?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            metadata?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             name: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
             providerKey?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderKey"];
+            providerSettings?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             tenantId: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
             terms?: components["schemas"]["DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesTerms"];
         };
@@ -13329,13 +13336,13 @@ export interface components {
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesIsActive: boolean;
-        DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
-            [key: string]: unknown;
-        };
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesName: string;
         /** Format: uuid */
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderKey: string;
+        DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsSalesPaymentMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesTerms: string;
@@ -13359,10 +13366,11 @@ export interface components {
             description?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             id: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             isActive?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesIsActive"];
-            metadata?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            metadata?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             name?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
             providerKey?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderKey"];
+            providerSettings?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             tenantId?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
             terms?: components["schemas"]["DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesTerms"];
         };
@@ -13372,13 +13380,13 @@ export interface components {
         /** Format: uuid */
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesIsActive: boolean;
-        DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
-            [key: string]: unknown;
-        };
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesName: string;
         /** Format: uuid */
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderKey: string;
+        DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsSalesPaymentMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesTerms: string;
@@ -14424,6 +14432,8 @@ export interface components {
             metadata: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
             name: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
+            providerKey: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKey"];
+            providerSettings?: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettings"];
             serviceLevel: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesServiceLevel"];
             tenantId: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
             updatedAt: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
@@ -14460,6 +14470,14 @@ export interface components {
         DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1: string;
+        DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKey: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf0"] | components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf1"];
+        DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf0: null;
+        DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderKeyAnyOf1: string;
+        DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettings: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf0"] | components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf1"];
+        DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf0: null;
+        DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesProviderSettingsAnyOf1: {
+            [key: string]: unknown;
+        };
         DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesServiceLevel: components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesServiceLevelAnyOf0"] | components["schemas"]["DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesServiceLevelAnyOf1"];
         DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesServiceLevelAnyOf0: null;
         DocPathsSalesShippingMethodsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesServiceLevelAnyOf1: string;
@@ -14489,9 +14507,11 @@ export interface components {
             description?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             estimatedTransitDays?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesEstimatedTransitDays"];
             isActive?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesIsActive"];
-            metadata?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            metadata?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             name: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            providerKey?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderKey"];
+            providerSettings?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             serviceLevel?: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesServiceLevel"];
             tenantId: components["schemas"]["DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
         };
@@ -14505,12 +14525,13 @@ export interface components {
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesEstimatedTransitDays: number;
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesIsActive: boolean;
-        DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
-            [key: string]: unknown;
-        };
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesName: string;
         /** Format: uuid */
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderKey: string;
+        DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings: {
+            [key: string]: unknown;
+        };
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesServiceLevel: string;
         /** Format: uuid */
         DocPathsSalesShippingMethodsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
@@ -14539,9 +14560,11 @@ export interface components {
             estimatedTransitDays?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesEstimatedTransitDays"];
             id: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             isActive?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesIsActive"];
-            metadata?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            metadata?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             name?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesName"];
             organizationId?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            providerKey?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderKey"];
+            providerSettings?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings"];
             serviceLevel?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesServiceLevel"];
             tenantId?: components["schemas"]["DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
         };
@@ -14557,12 +14580,13 @@ export interface components {
         /** Format: uuid */
         DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesIsActive: boolean;
-        DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
-            [key: string]: unknown;
-        };
         DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesName: string;
         /** Format: uuid */
         DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderKey: string;
+        DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesProviderSettings: {
+            [key: string]: unknown;
+        };
         DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesServiceLevel: string;
         /** Format: uuid */
         DocPathsSalesShippingMethodsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;

@@ -135,6 +135,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/modules/overview",
             "framework/modules/routes-and-pages",
+            "framework/modules/sales-providers",
           ],
         },
         "framework/commands/overview",

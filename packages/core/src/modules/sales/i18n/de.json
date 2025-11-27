@@ -326,6 +326,115 @@
           "delete": "Status gelöscht."
         }
       },
+      "shippingMethods": {
+        "title": "Versandarten",
+        "description": "Verwalten Sie Carrier, Provider und Standard-Versandpreise.",
+        "actions": {
+          "add": "Versandart hinzufügen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen",
+          "deleteConfirm": "\"{{name}}\" löschen?",
+          "refresh": "Aktualisieren"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "rate": "Grundpreis",
+          "currency": "Währung",
+          "active": "Aktiv",
+          "statusActive": "Aktiv",
+          "statusInactive": "Inaktiv",
+          "updatedAt": "Aktualisiert",
+          "empty": "Noch keine Versandarten.",
+          "search": "Versandarten durchsuchen…"
+        },
+        "form": {
+          "createTitle": "Versandart hinzufügen",
+          "editTitle": "Versandart bearbeiten",
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "description": "Beschreibung",
+          "carrierCode": "Carrier",
+          "serviceLevel": "Service-Level",
+          "estimatedTransitDays": "Laufzeit (Tage)",
+          "baseRateNet": "Grundpreis (netto)",
+          "baseRateGross": "Grundpreis (brutto)",
+          "currencyCode": "Währung",
+          "isActive": "Aktiv",
+          "providerSettings": "Provider-Einstellungen",
+          "selectProvider": "Wählen Sie einen Provider zur Konfiguration.",
+          "noSettings": "Keine konfigurierbaren Einstellungen.",
+          "ratesTitle": "Tarife",
+          "addRate": "Tarif hinzufügen",
+          "metric": "Metrik",
+          "min": "Min",
+          "max": "Max",
+          "amountNet": "Betrag (netto)",
+          "amountGross": "Betrag (brutto)",
+          "currency": "Währung",
+          "removeRate": "Entfernen",
+          "applyBaseRate": "Grundpreis immer einschließen",
+          "save": "Speichern",
+          "cancel": "Abbrechen"
+        },
+        "messages": {
+          "saved": "Versandart gespeichert.",
+          "deleted": "Versandart gelöscht."
+        },
+        "errors": {
+          "load": "Versandarten konnten nicht geladen werden.",
+          "save": "Versandart konnte nicht gespeichert werden.",
+          "delete": "Versandart konnte nicht gelöscht werden."
+        }
+      },
+      "paymentMethods": {
+        "title": "Zahlungsarten",
+        "description": "Konfigurieren Sie Zahlungsanbieter und eventuelle Gebühren.",
+        "actions": {
+          "add": "Zahlungsart hinzufügen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen",
+          "deleteConfirm": "\"{{name}}\" löschen?",
+          "refresh": "Aktualisieren"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "active": "Aktiv",
+          "statusActive": "Aktiv",
+          "statusInactive": "Inaktiv",
+          "updatedAt": "Aktualisiert",
+          "empty": "Noch keine Zahlungsarten.",
+          "search": "Zahlungsarten durchsuchen…"
+        },
+        "form": {
+          "createTitle": "Zahlungsart hinzufügen",
+          "editTitle": "Zahlungsart bearbeiten",
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "description": "Beschreibung",
+          "terms": "Bedingungen",
+          "isActive": "Aktiv",
+          "providerSettings": "Provider-Einstellungen",
+          "selectProvider": "Wählen Sie einen Provider zur Konfiguration.",
+          "noSettings": "Keine konfigurierbaren Einstellungen.",
+          "save": "Speichern",
+          "cancel": "Abbrechen"
+        },
+        "messages": {
+          "saved": "Zahlungsart gespeichert.",
+          "deleted": "Zahlungsart gelöscht."
+        },
+        "errors": {
+          "load": "Zahlungsarten konnten nicht geladen werden.",
+          "save": "Zahlungsart konnte nicht gespeichert werden.",
+          "delete": "Zahlungsart konnte nicht gelöscht werden."
+        }
+      },
       "orderEditing": {
         "title": "Order editing guards",
         "description": "Control when customers and addresses can be changed on an order.",
@@ -635,6 +744,21 @@
         },
         "inline": {
           "save": "Speichern (Strg/Cmd + Enter)"
+        },
+        "inlineError": "Unable to update document.",
+        "customData": "Custom data",
+        "customDataLoading": "Loading custom data…",
+        "customDataDefine": "Define custom fields first.",
+        "tags": {
+          "loading": "Loading tags…",
+          "loadError": "Failed to load tags.",
+          "createError": "Failed to create tag.",
+          "updateError": "Failed to update tags.",
+          "labelRequired": "Tag name is required.",
+          "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+          "cancelShortcut": "Cancel (Esc)",
+          "success": "Tags updated.",
+          "placeholder": "No tags yet. Add labels to keep documents organized."
         },
         "status": {
           "placeholder": "Status auswählen",

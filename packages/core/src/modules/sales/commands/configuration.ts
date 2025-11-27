@@ -103,12 +103,14 @@ type ShippingMethodSnapshot = {
   code: string
   description: string | null
   carrierCode: string | null
+  providerKey: string | null
   serviceLevel: string | null
   estimatedTransitDays: number | null
   baseRateNet: string
   baseRateGross: string
   currencyCode: string | null
   metadata: Record<string, unknown> | null
+  providerSettings: Record<string, unknown> | null
   isActive: boolean
   custom: Record<string, unknown> | null
 }
@@ -123,6 +125,7 @@ type PaymentMethodSnapshot = {
   providerKey: string | null
   terms: string | null
   metadata: Record<string, unknown> | null
+  providerSettings: Record<string, unknown> | null
   isActive: boolean
   custom: Record<string, unknown> | null
 }
@@ -154,6 +157,30 @@ type UndoPayload<T> = {
   before?: T | null
   after?: T | null
 }
+
+function mergeProviderSettings(
+  metadata: Record<string, unknown> | null | undefined,
+  settings: Record<string, unknown> | null | undefined
+) {
+  const base =
+    metadata && typeof metadata === 'object'
+      ? cloneJson(metadata)
+      : {}
+  if (settings && typeof settings === 'object' && Object.keys(settings).length > 0) {
+    return { ...base, providerSettings: cloneJson(settings) }
+  }
+  return Object.keys(base).length ? base : null
+}
+
+function readProviderSettings(metadata: Record<string, unknown> | null | undefined) {
+  if (!metadata || typeof metadata !== 'object') return null
+  const raw = (metadata as Record<string, unknown>).providerSettings
+  if (raw && typeof raw === 'object') {
+    return cloneJson(raw as Record<string, unknown>)
+  }
+  return null
+}
+
 
 const channelCrudEvents: CrudEventsConfig<SalesChannel> = {
   module: 'sales',
@@ -260,12 +287,13 @@ function shippingMethodSeedFromSnapshot(snapshot: ShippingMethodSnapshot) {
     code: snapshot.code,
     description: snapshot.description ?? null,
     carrierCode: snapshot.carrierCode ?? null,
+    providerKey: snapshot.providerKey ?? null,
     serviceLevel: snapshot.serviceLevel ?? null,
     estimatedTransitDays: snapshot.estimatedTransitDays ?? null,
     baseRateNet: snapshot.baseRateNet,
     baseRateGross: snapshot.baseRateGross,
     currencyCode: snapshot.currencyCode ?? null,
-    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    metadata: mergeProviderSettings(snapshot.metadata, snapshot.providerSettings),
     isActive: snapshot.isActive,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -282,7 +310,7 @@ function paymentMethodSeedFromSnapshot(snapshot: PaymentMethodSnapshot) {
     description: snapshot.description ?? null,
     providerKey: snapshot.providerKey ?? null,
     terms: snapshot.terms ?? null,
-    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    metadata: mergeProviderSettings(snapshot.metadata, snapshot.providerSettings),
     isActive: snapshot.isActive,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -363,12 +391,17 @@ async function loadShippingMethodSnapshot(
     code: record.code,
     description: record.description ?? null,
     carrierCode: record.carrierCode ?? null,
+    providerKey: record.providerKey ?? null,
     serviceLevel: record.serviceLevel ?? null,
     estimatedTransitDays: record.estimatedTransitDays ?? null,
     baseRateNet: record.baseRateNet,
     baseRateGross: record.baseRateGross,
     currencyCode: record.currencyCode ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    providerSettings:
+      record.metadata && typeof record.metadata === 'object' && record.metadata.providerSettings
+        ? cloneJson(record.metadata.providerSettings as Record<string, unknown>)
+        : null,
     isActive: record.isActive,
     custom: Object.keys(custom).length ? custom : null,
   }
@@ -396,6 +429,10 @@ async function loadPaymentMethodSnapshot(
     providerKey: record.providerKey ?? null,
     terms: record.terms ?? null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
+    providerSettings:
+      record.metadata && typeof record.metadata === 'object' && record.metadata.providerSettings
+        ? cloneJson(record.metadata.providerSettings as Record<string, unknown>)
+        : null,
     isActive: record.isActive,
     custom: Object.keys(custom).length ? custom : null,
   }
@@ -483,12 +520,13 @@ function applyShippingMethodSnapshot(
   record.code = snapshot.code
   record.description = snapshot.description ?? null
   record.carrierCode = snapshot.carrierCode ?? null
+  record.providerKey = snapshot.providerKey ?? null
   record.serviceLevel = snapshot.serviceLevel ?? null
   record.estimatedTransitDays = snapshot.estimatedTransitDays ?? null
   record.baseRateNet = snapshot.baseRateNet
   record.baseRateGross = snapshot.baseRateGross
   record.currencyCode = snapshot.currencyCode ?? null
-  record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.metadata = mergeProviderSettings(snapshot.metadata, snapshot.providerSettings)
   record.isActive = snapshot.isActive
 }
 
@@ -503,7 +541,7 @@ function applyPaymentMethodSnapshot(
   record.description = snapshot.description ?? null
   record.providerKey = snapshot.providerKey ?? null
   record.terms = snapshot.terms ?? null
-  record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  record.metadata = mergeProviderSettings(snapshot.metadata, snapshot.providerSettings)
   record.isActive = snapshot.isActive
 }
 
@@ -1188,12 +1226,13 @@ const createShippingMethodCommand: CommandHandler<
       code: parsed.code,
       description: parsed.description ?? null,
       carrierCode: parsed.carrierCode ?? null,
+      providerKey: parsed.providerKey ?? null,
       serviceLevel: parsed.serviceLevel ?? null,
       estimatedTransitDays: parsed.estimatedTransitDays ?? null,
       baseRateNet: toNumericString(parsed.baseRateNet) ?? '0',
       baseRateGross: toNumericString(parsed.baseRateGross) ?? '0',
       currencyCode: parsed.currencyCode ?? null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: mergeProviderSettings(parsed.metadata, parsed.providerSettings),
       isActive: parsed.isActive ?? true,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1284,6 +1323,7 @@ const updateShippingMethodCommand: CommandHandler<
     if (parsed.code !== undefined) record.code = parsed.code
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.carrierCode !== undefined) record.carrierCode = parsed.carrierCode ?? null
+    if (parsed.providerKey !== undefined) record.providerKey = parsed.providerKey ?? null
     if (parsed.serviceLevel !== undefined) record.serviceLevel = parsed.serviceLevel ?? null
     if (parsed.estimatedTransitDays !== undefined) {
       record.estimatedTransitDays = parsed.estimatedTransitDays ?? null
@@ -1295,8 +1335,18 @@ const updateShippingMethodCommand: CommandHandler<
       record.baseRateGross = toNumericString(parsed.baseRateGross) ?? '0'
     }
     if (parsed.currencyCode !== undefined) record.currencyCode = parsed.currencyCode ?? null
-    if (parsed.metadata !== undefined) {
-      record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
+    if (parsed.metadata !== undefined || parsed.providerSettings !== undefined) {
+      const baseMeta =
+        parsed.metadata !== undefined
+          ? parsed.metadata
+            ? cloneJson(parsed.metadata)
+            : null
+          : record.metadata
+      const settings =
+        parsed.providerSettings !== undefined
+          ? (parsed.providerSettings ?? null)
+          : readProviderSettings(record.metadata)
+      record.metadata = mergeProviderSettings(baseMeta, settings)
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()
@@ -1459,7 +1509,7 @@ const createPaymentMethodCommand: CommandHandler<
       description: parsed.description ?? null,
       providerKey: parsed.providerKey ?? null,
       terms: parsed.terms ?? null,
-      metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
+      metadata: mergeProviderSettings(parsed.metadata, parsed.providerSettings),
       isActive: parsed.isActive ?? true,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1551,8 +1601,18 @@ const updatePaymentMethodCommand: CommandHandler<
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.providerKey !== undefined) record.providerKey = parsed.providerKey ?? null
     if (parsed.terms !== undefined) record.terms = parsed.terms ?? null
-    if (parsed.metadata !== undefined) {
-      record.metadata = parsed.metadata ? cloneJson(parsed.metadata) : null
+    if (parsed.metadata !== undefined || parsed.providerSettings !== undefined) {
+      const baseMeta =
+        parsed.metadata !== undefined
+          ? parsed.metadata
+            ? cloneJson(parsed.metadata)
+            : null
+          : record.metadata
+      const settings =
+        parsed.providerSettings !== undefined
+          ? (parsed.providerSettings ?? null)
+          : readProviderSettings(record.metadata)
+      record.metadata = mergeProviderSettings(baseMeta, settings)
     }
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
     await em.flush()

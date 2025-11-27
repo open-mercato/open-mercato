@@ -284,3 +284,20 @@ export function registerSalesTotalsCalculator(
 ): () => void {
   return salesCalculations.registerTotalsCalculator(hook, opts)
 }
+
+export function rebuildDocumentResult(params: {
+  documentKind: SalesDocumentKind
+  currencyCode: string
+  lines: SalesLineCalculationResult[]
+  adjustments: SalesAdjustmentDraft[]
+  metadata?: Record<string, unknown>
+}): SalesDocumentCalculationResult {
+  const result = buildBaseDocumentResult({
+    documentKind: params.documentKind,
+    lines: params.lines,
+    adjustments: params.adjustments,
+    currencyCode: params.currencyCode,
+  })
+  result.metadata = params.metadata ?? {}
+  return result
+}

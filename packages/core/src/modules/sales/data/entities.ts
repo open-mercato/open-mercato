@@ -121,6 +121,9 @@ export class SalesShippingMethod {
   @Property({ name: 'carrier_code', type: 'text', nullable: true })
   carrierCode?: string | null
 
+  @Property({ name: 'provider_key', type: 'text', nullable: true })
+  providerKey?: string | null
+
   @Property({ name: 'service_level', type: 'text', nullable: true })
   serviceLevel?: string | null
 

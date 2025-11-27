@@ -327,6 +327,115 @@
           "delete": "Estado eliminado."
         }
       },
+      "shippingMethods": {
+        "title": "Métodos de envío",
+        "description": "Administra transportistas, proveedores y precios de envío predeterminados.",
+        "actions": {
+          "add": "Agregar método de envío",
+          "edit": "Editar",
+          "delete": "Eliminar",
+          "deleteConfirm": "¿Eliminar \"{{name}}\"?",
+          "refresh": "Actualizar"
+        },
+        "table": {
+          "name": "Nombre",
+          "code": "Código",
+          "provider": "Proveedor",
+          "rate": "Tarifa base",
+          "currency": "Moneda",
+          "active": "Activo",
+          "statusActive": "Activo",
+          "statusInactive": "Inactivo",
+          "updatedAt": "Actualizado",
+          "empty": "Aún no hay métodos de envío.",
+          "search": "Buscar métodos de envío…"
+        },
+        "form": {
+          "createTitle": "Agregar método de envío",
+          "editTitle": "Editar método de envío",
+          "name": "Nombre",
+          "code": "Código",
+          "provider": "Proveedor",
+          "description": "Descripción",
+          "carrierCode": "Transportista",
+          "serviceLevel": "Nivel de servicio",
+          "estimatedTransitDays": "Días de tránsito",
+          "baseRateNet": "Tarifa base (neto)",
+          "baseRateGross": "Tarifa base (bruto)",
+          "currencyCode": "Moneda",
+          "isActive": "Activo",
+          "providerSettings": "Configuración del proveedor",
+          "selectProvider": "Elige un proveedor para configurar.",
+          "noSettings": "Sin ajustes configurables.",
+          "ratesTitle": "Tarifas",
+          "addRate": "Agregar tarifa",
+          "metric": "Métrica",
+          "min": "Mín",
+          "max": "Máx",
+          "amountNet": "Importe (neto)",
+          "amountGross": "Importe (bruto)",
+          "currency": "Moneda",
+          "removeRate": "Eliminar",
+          "applyBaseRate": "Siempre incluir la tarifa base",
+          "save": "Guardar",
+          "cancel": "Cancelar"
+        },
+        "messages": {
+          "saved": "Método de envío guardado.",
+          "deleted": "Método de envío eliminado."
+        },
+        "errors": {
+          "load": "No se pudieron cargar los métodos de envío.",
+          "save": "No se pudo guardar el método de envío.",
+          "delete": "No se pudo eliminar el método de envío."
+        }
+      },
+      "paymentMethods": {
+        "title": "Métodos de pago",
+        "description": "Configura proveedores de pago y posibles comisiones.",
+        "actions": {
+          "add": "Agregar método de pago",
+          "edit": "Editar",
+          "delete": "Eliminar",
+          "deleteConfirm": "¿Eliminar \"{{name}}\"?",
+          "refresh": "Actualizar"
+        },
+        "table": {
+          "name": "Nombre",
+          "code": "Código",
+          "provider": "Proveedor",
+          "active": "Activo",
+          "statusActive": "Activo",
+          "statusInactive": "Inactivo",
+          "updatedAt": "Actualizado",
+          "empty": "Aún no hay métodos de pago.",
+          "search": "Buscar métodos de pago…"
+        },
+        "form": {
+          "createTitle": "Agregar método de pago",
+          "editTitle": "Editar método de pago",
+          "name": "Nombre",
+          "code": "Código",
+          "provider": "Proveedor",
+          "description": "Descripción",
+          "terms": "Condiciones",
+          "isActive": "Activo",
+          "providerSettings": "Configuración del proveedor",
+          "selectProvider": "Elige un proveedor para configurar.",
+          "noSettings": "Sin ajustes configurables.",
+          "save": "Guardar",
+          "cancel": "Cancelar"
+        },
+        "messages": {
+          "saved": "Método de pago guardado.",
+          "deleted": "Método de pago eliminado."
+        },
+        "errors": {
+          "load": "No se pudieron cargar los métodos de pago.",
+          "save": "No se pudo guardar el método de pago.",
+          "delete": "No se pudo eliminar el método de pago."
+        }
+      },
       "orderEditing": {
         "title": "Order editing guards",
         "description": "Control when customers and addresses can be changed on an order.",
@@ -673,6 +782,21 @@
         },
         "inline": {
           "save": "Guardar (Ctrl/Cmd + Enter)"
+        },
+        "inlineError": "Unable to update document.",
+        "customData": "Custom data",
+        "customDataLoading": "Loading custom data…",
+        "customDataDefine": "Define custom fields first.",
+        "tags": {
+          "loading": "Loading tags…",
+          "loadError": "Failed to load tags.",
+          "createError": "Failed to create tag.",
+          "updateError": "Failed to update tags.",
+          "labelRequired": "Tag name is required.",
+          "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+          "cancelShortcut": "Cancel (Esc)",
+          "success": "Tags updated.",
+          "placeholder": "No tags yet. Add labels to keep documents organized."
         },
         "status": {
           "placeholder": "Seleccionar estado",

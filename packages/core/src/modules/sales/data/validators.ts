@@ -3,6 +3,7 @@ import {
   createDictionaryEntrySchema,
   updateDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
+import { getPaymentProvider, getShippingProvider } from '../lib/providers'
 
 const uuid = () => z.string().uuid()
 
@@ -28,6 +29,7 @@ const percentage = () => decimal({ min: 0, max: 100 })
 const jsonRecord = z.record(z.string(), z.unknown())
 
 const metadata = jsonRecord.optional()
+const providerSettings = jsonRecord.optional()
 
 const channelCodeSchema = z
   .string()
@@ -100,13 +102,30 @@ export const shippingMethodCreateSchema = scoped.extend({
     .max(120),
   description: z.string().trim().max(2000).optional(),
   carrierCode: z.string().trim().max(120).optional(),
+  providerKey: z.string().trim().max(120).optional(),
   serviceLevel: z.string().trim().max(120).optional(),
   estimatedTransitDays: z.coerce.number().int().min(0).max(365).optional(),
   baseRateNet: decimal({ min: 0 }).optional(),
   baseRateGross: decimal({ min: 0 }).optional(),
   currencyCode: currencyCode.optional(),
   isActive: z.boolean().optional(),
+  providerSettings,
   metadata,
+}).superRefine((value, ctx) => {
+  if (value.providerKey) {
+    const provider = getShippingProvider(value.providerKey)
+    const schema = provider?.settings?.schema
+    if (schema) {
+      const parsed = schema.safeParse(value.providerSettings ?? {})
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: parsed.error.errors?.[0]?.message ?? 'Invalid provider configuration',
+          path: ['providerSettings'],
+        })
+      }
+    }
+  }
 })
 
 export const shippingMethodUpdateSchema = z
@@ -149,7 +168,23 @@ export const paymentMethodCreateSchema = scoped.extend({
   providerKey: z.string().trim().max(120).optional(),
   terms: z.string().trim().max(4000).optional(),
   isActive: z.boolean().optional(),
+  providerSettings,
   metadata,
+}).superRefine((value, ctx) => {
+  if (value.providerKey) {
+    const provider = getPaymentProvider(value.providerKey)
+    const schema = provider?.settings?.schema
+    if (schema) {
+      const parsed = schema.safeParse(value.providerSettings ?? {})
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: parsed.error.errors?.[0]?.message ?? 'Invalid provider configuration',
+          path: ['providerSettings'],
+        })
+      }
+    }
+  }
 })
 
 export const paymentMethodUpdateSchema = z

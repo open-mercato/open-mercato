@@ -52,6 +52,7 @@ import {
 } from './shared'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { TaxCalculationService } from '../services/taxCalculationService'
+import type { PaymentMethodContext, ShippingMethodContext } from '../lib/providers'
 import {
   type SalesLineSnapshot,
   type SalesAdjustmentDraft,
@@ -725,9 +726,20 @@ async function applyDocumentUpdate({
             name: shippingMethod.name,
             description: shippingMethod.description ?? null,
             carrierCode: shippingMethod.carrierCode ?? null,
+            providerKey: shippingMethod.providerKey ?? null,
             serviceLevel: shippingMethod.serviceLevel ?? null,
             estimatedTransitDays: shippingMethod.estimatedTransitDays ?? null,
+            baseRateNet: shippingMethod.baseRateNet,
+            baseRateGross: shippingMethod.baseRateGross,
             currencyCode: shippingMethod.currencyCode ?? null,
+            metadata: shippingMethod.metadata ? cloneJson(shippingMethod.metadata) : null,
+            providerSettings:
+              shippingMethod.metadata && typeof shippingMethod.metadata === 'object'
+                ? cloneJson(
+                    (shippingMethod.metadata as Record<string, unknown>).providerSettings ??
+                      null
+                  )
+                : null,
           }
         : null
     }
@@ -759,6 +771,14 @@ async function applyDocumentUpdate({
             description: paymentMethod.description ?? null,
             providerKey: paymentMethod.providerKey ?? null,
             terms: paymentMethod.terms ?? null,
+            metadata: paymentMethod.metadata ? cloneJson(paymentMethod.metadata) : null,
+            providerSettings:
+              paymentMethod.metadata && typeof paymentMethod.metadata === 'object'
+                ? cloneJson(
+                    (paymentMethod.metadata as Record<string, unknown>).providerSettings ??
+                      null
+                  )
+                : null,
           }
         : null
     }
@@ -980,6 +1000,145 @@ function toNumeric(value: string | number | null | undefined): number {
   }
   return 0
 }
+
+function normalizeShippingMethodContext(
+  snapshot: Record<string, unknown> | null | undefined,
+  id?: string | null,
+  code?: string | null,
+  currencyCode?: string
+): ShippingMethodContext | null {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const metadata = (snapshot as Record<string, unknown>).metadata
+  const providerSettings =
+    (snapshot as Record<string, unknown>).providerSettings ??
+    (metadata && typeof metadata === 'object'
+      ? (metadata as Record<string, unknown>).providerSettings ?? null
+      : null)
+  return {
+    id: (snapshot as Record<string, unknown>).id as string | undefined ?? id ?? null,
+    code:
+      typeof (snapshot as Record<string, unknown>).code === 'string'
+        ? ((snapshot as Record<string, unknown>).code as string)
+        : code ?? null,
+    name:
+      typeof (snapshot as Record<string, unknown>).name === 'string'
+        ? ((snapshot as Record<string, unknown>).name as string)
+        : null,
+    providerKey:
+      typeof (snapshot as Record<string, unknown>).providerKey === 'string'
+        ? ((snapshot as Record<string, unknown>).providerKey as string)
+        : null,
+    currencyCode:
+      typeof (snapshot as Record<string, unknown>).currencyCode === 'string'
+        ? ((snapshot as Record<string, unknown>).currencyCode as string)
+        : currencyCode ?? null,
+    baseRateNet: toNumeric(
+      ((snapshot as Record<string, unknown>).baseRateNet ??
+        (snapshot as Record<string, unknown>).base_rate_net) as string | number | null
+    ),
+    baseRateGross: toNumeric(
+      ((snapshot as Record<string, unknown>).baseRateGross ??
+        (snapshot as Record<string, unknown>).base_rate_gross) as string | number | null
+    ),
+    metadata:
+      metadata && typeof metadata === 'object' ? cloneJson(metadata as Record<string, unknown>) : null,
+    providerSettings:
+      providerSettings && typeof providerSettings === 'object'
+        ? cloneJson(providerSettings as Record<string, unknown>)
+        : null,
+  }
+}
+
+function normalizePaymentMethodContext(
+  snapshot: Record<string, unknown> | null | undefined,
+  id?: string | null,
+  code?: string | null
+): PaymentMethodContext | null {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const metadata = (snapshot as Record<string, unknown>).metadata
+  const providerSettings =
+    (snapshot as Record<string, unknown>).providerSettings ??
+    (metadata && typeof metadata === 'object'
+      ? (metadata as Record<string, unknown>).providerSettings ?? null
+      : null)
+  return {
+    id: (snapshot as Record<string, unknown>).id as string | undefined ?? id ?? null,
+    code:
+      typeof (snapshot as Record<string, unknown>).code === 'string'
+        ? ((snapshot as Record<string, unknown>).code as string)
+        : code ?? null,
+    name:
+      typeof (snapshot as Record<string, unknown>).name === 'string'
+        ? ((snapshot as Record<string, unknown>).name as string)
+        : null,
+    providerKey:
+      typeof (snapshot as Record<string, unknown>).providerKey === 'string'
+        ? ((snapshot as Record<string, unknown>).providerKey as string)
+        : null,
+    terms:
+      typeof (snapshot as Record<string, unknown>).terms === 'string'
+        ? ((snapshot as Record<string, unknown>).terms as string)
+        : null,
+    metadata:
+      metadata && typeof metadata === 'object' ? cloneJson(metadata as Record<string, unknown>) : null,
+    providerSettings:
+      providerSettings && typeof providerSettings === 'object'
+        ? cloneJson(providerSettings as Record<string, unknown>)
+        : null,
+  }
+}
+
+function buildProviderContext(params: {
+  shippingSnapshot?: Record<string, unknown> | null
+  paymentSnapshot?: Record<string, unknown> | null
+  shippingMethodId?: string | null
+  paymentMethodId?: string | null
+  shippingMethodCode?: string | null
+  paymentMethodCode?: string | null
+  currencyCode: string
+}) {
+  return {
+    shippingMethod: normalizeShippingMethodContext(
+      params.shippingSnapshot,
+      params.shippingMethodId,
+      params.shippingMethodCode,
+      params.currencyCode
+    ),
+    paymentMethod: normalizePaymentMethodContext(
+      params.paymentSnapshot,
+      params.paymentMethodId,
+      params.paymentMethodCode
+    ),
+  }
+}
+
+function buildCalculationContext(params: {
+  tenantId: string
+  organizationId: string
+  currencyCode: string
+  shippingSnapshot?: Record<string, unknown> | null
+  paymentSnapshot?: Record<string, unknown> | null
+  shippingMethodId?: string | null
+  paymentMethodId?: string | null
+  shippingMethodCode?: string | null
+  paymentMethodCode?: string | null
+}) {
+  return {
+    tenantId: params.tenantId,
+    organizationId: params.organizationId,
+    currencyCode: params.currencyCode,
+    metadata: buildProviderContext({
+      shippingSnapshot: params.shippingSnapshot,
+      paymentSnapshot: params.paymentSnapshot,
+      shippingMethodId: params.shippingMethodId,
+      paymentMethodId: params.paymentMethodId,
+      shippingMethodCode: params.shippingMethodCode,
+      paymentMethodCode: params.paymentMethodCode,
+      currencyCode: params.currencyCode,
+    }),
+  }
+}
+
 
 function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
   return {
@@ -1969,9 +2128,19 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
               name: shippingMethod.name,
               description: shippingMethod.description ?? null,
               carrierCode: shippingMethod.carrierCode ?? null,
+              providerKey: shippingMethod.providerKey ?? null,
               serviceLevel: shippingMethod.serviceLevel ?? null,
               estimatedTransitDays: shippingMethod.estimatedTransitDays ?? null,
+              baseRateNet: shippingMethod.baseRateNet,
+              baseRateGross: shippingMethod.baseRateGross,
               currencyCode: shippingMethod.currencyCode ?? null,
+              metadata: shippingMethod.metadata ? cloneJson(shippingMethod.metadata) : null,
+              providerSettings:
+                shippingMethod.metadata && typeof shippingMethod.metadata === 'object'
+                  ? cloneJson(
+                      (shippingMethod.metadata as Record<string, unknown>).providerSettings ?? null
+                    )
+                  : null,
             }
           : null,
       deliveryWindowSnapshot: parsed.deliveryWindowSnapshot
@@ -1997,6 +2166,13 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
               description: paymentMethod.description ?? null,
               providerKey: paymentMethod.providerKey ?? null,
               terms: paymentMethod.terms ?? null,
+              metadata: paymentMethod.metadata ? cloneJson(paymentMethod.metadata) : null,
+              providerSettings:
+                paymentMethod.metadata && typeof paymentMethod.metadata === 'object'
+                  ? cloneJson(
+                      (paymentMethod.metadata as Record<string, unknown>).providerSettings ?? null
+                    )
+                  : null,
           }
         : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
@@ -2042,15 +2218,22 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       : []
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculationContext = buildCalculationContext({
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
+      currencyCode: quote.currencyCode,
+      shippingSnapshot: quote.shippingMethodSnapshot,
+      paymentSnapshot: quote.paymentMethodSnapshot,
+      shippingMethodId: quote.shippingMethodId ?? null,
+      paymentMethodId: quote.paymentMethodId ?? null,
+      shippingMethodCode: quote.shippingMethodCode ?? null,
+      paymentMethodCode: quote.paymentMethodCode ?? null,
+    })
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'quote',
       lines: lineSnapshots,
       adjustments: adjustmentDrafts,
-      context: {
-        tenantId: quote.tenantId,
-        organizationId: quote.organizationId,
-        currencyCode: quote.currencyCode,
-      },
+      context: calculationContext,
     })
 
     await replaceQuoteLines(em, quote, calculation, lineInputs)
@@ -2390,9 +2573,19 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
               name: shippingMethod.name,
               description: shippingMethod.description ?? null,
               carrierCode: shippingMethod.carrierCode ?? null,
+              providerKey: shippingMethod.providerKey ?? null,
               serviceLevel: shippingMethod.serviceLevel ?? null,
               estimatedTransitDays: shippingMethod.estimatedTransitDays ?? null,
+              baseRateNet: shippingMethod.baseRateNet,
+              baseRateGross: shippingMethod.baseRateGross,
               currencyCode: shippingMethod.currencyCode ?? null,
+              metadata: shippingMethod.metadata ? cloneJson(shippingMethod.metadata) : null,
+              providerSettings:
+                shippingMethod.metadata && typeof shippingMethod.metadata === 'object'
+                  ? cloneJson(
+                      (shippingMethod.metadata as Record<string, unknown>).providerSettings ?? null
+                    )
+                  : null,
             }
           : null,
       deliveryWindowSnapshot: parsed.deliveryWindowSnapshot
@@ -2418,6 +2611,13 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
               description: paymentMethod.description ?? null,
               providerKey: paymentMethod.providerKey ?? null,
               terms: paymentMethod.terms ?? null,
+              metadata: paymentMethod.metadata ? cloneJson(paymentMethod.metadata) : null,
+              providerSettings:
+                paymentMethod.metadata && typeof paymentMethod.metadata === 'object'
+                  ? cloneJson(
+                      (paymentMethod.metadata as Record<string, unknown>).providerSettings ?? null
+                    )
+                  : null,
             }
           : null,
       metadata: parsed.metadata ? cloneJson(parsed.metadata) : null,
@@ -2468,15 +2668,22 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       : []
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculationContext = buildCalculationContext({
+      tenantId: order.tenantId,
+      organizationId: order.organizationId,
+      currencyCode: order.currencyCode,
+      shippingSnapshot: order.shippingMethodSnapshot,
+      paymentSnapshot: order.paymentMethodSnapshot,
+      shippingMethodId: order.shippingMethodId ?? null,
+      paymentMethodId: order.paymentMethodId ?? null,
+      shippingMethodCode: order.shippingMethodCode ?? null,
+      paymentMethodCode: order.paymentMethodCode ?? null,
+    })
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'order',
       lines: lineSnapshots,
       adjustments: adjustmentDrafts,
-      context: {
-        tenantId: order.tenantId,
-        organizationId: order.organizationId,
-        currencyCode: order.currencyCode,
-      },
+      context: calculationContext,
     })
 
     await replaceOrderLines(em, order, calculation, lineInputs)
@@ -2734,15 +2941,22 @@ const orderLineUpsertCommand: CommandHandler<
     )
     const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft)
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculationContext = buildCalculationContext({
+      tenantId: order.tenantId,
+      organizationId: order.organizationId,
+      currencyCode: order.currencyCode,
+      shippingSnapshot: order.shippingMethodSnapshot,
+      paymentSnapshot: order.paymentMethodSnapshot,
+      shippingMethodId: order.shippingMethodId ?? null,
+      paymentMethodId: order.paymentMethodId ?? null,
+      shippingMethodCode: order.shippingMethodCode ?? null,
+      paymentMethodCode: order.paymentMethodCode ?? null,
+    })
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'order',
       lines: calcLines,
       adjustments: adjustmentDrafts,
-      context: {
-        tenantId: order.tenantId,
-        organizationId: order.organizationId,
-        currencyCode: order.currencyCode,
-      },
+      context: calculationContext,
     })
     await applyOrderLineResults({
       em,
@@ -2842,15 +3056,22 @@ const orderLineDeleteCommand: CommandHandler<
     )
     const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft)
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculationContext = buildCalculationContext({
+      tenantId: order.tenantId,
+      organizationId: order.organizationId,
+      currencyCode: order.currencyCode,
+      shippingSnapshot: order.shippingMethodSnapshot,
+      paymentSnapshot: order.paymentMethodSnapshot,
+      shippingMethodId: order.shippingMethodId ?? null,
+      paymentMethodId: order.paymentMethodId ?? null,
+      shippingMethodCode: order.shippingMethodCode ?? null,
+      paymentMethodCode: order.paymentMethodCode ?? null,
+    })
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'order',
       lines: calcLines,
       adjustments: adjustmentDrafts,
-      context: {
-        tenantId: order.tenantId,
-        organizationId: order.organizationId,
-        currencyCode: order.currencyCode,
-      },
+      context: calculationContext,
     })
     await applyOrderLineResults({
       em,
@@ -3026,15 +3247,22 @@ const quoteLineUpsertCommand: CommandHandler<
     )
     const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft)
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculationContext = buildCalculationContext({
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
+      currencyCode: quote.currencyCode,
+      shippingSnapshot: quote.shippingMethodSnapshot,
+      paymentSnapshot: quote.paymentMethodSnapshot,
+      shippingMethodId: quote.shippingMethodId ?? null,
+      paymentMethodId: quote.paymentMethodId ?? null,
+      shippingMethodCode: quote.shippingMethodCode ?? null,
+      paymentMethodCode: quote.paymentMethodCode ?? null,
+    })
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'quote',
       lines: calcLines,
       adjustments: adjustmentDrafts,
-      context: {
-        tenantId: quote.tenantId,
-        organizationId: quote.organizationId,
-        currencyCode: quote.currencyCode,
-      },
+      context: calculationContext,
     })
     await applyQuoteLineResults({
       em,
@@ -3134,15 +3362,22 @@ const quoteLineDeleteCommand: CommandHandler<
     )
     const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft)
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+    const calculationContext = buildCalculationContext({
+      tenantId: quote.tenantId,
+      organizationId: quote.organizationId,
+      currencyCode: quote.currencyCode,
+      shippingSnapshot: quote.shippingMethodSnapshot,
+      paymentSnapshot: quote.paymentMethodSnapshot,
+      shippingMethodId: quote.shippingMethodId ?? null,
+      paymentMethodId: quote.paymentMethodId ?? null,
+      shippingMethodCode: quote.shippingMethodCode ?? null,
+      paymentMethodCode: quote.paymentMethodCode ?? null,
+    })
     const calculation = await salesCalculationService.calculateDocumentTotals({
       documentKind: 'quote',
       lines: calcLines,
       adjustments: adjustmentDrafts,
-      context: {
-        tenantId: quote.tenantId,
-        organizationId: quote.organizationId,
-        currencyCode: quote.currencyCode,
-      },
+      context: calculationContext,
     })
     await applyQuoteLineResults({
       em,

@@ -1048,6 +1048,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "provider_key": {
+          "name": "provider_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "service_level": {
           "name": "service_level",
           "type": "text",

@@ -333,6 +333,115 @@
           "delete": "Status deleted."
         }
       },
+      "shippingMethods": {
+        "title": "Shipping methods",
+        "description": "Manage carriers, providers, and default shipping prices.",
+        "actions": {
+          "add": "Add shipping method",
+          "edit": "Edit",
+          "delete": "Delete",
+          "deleteConfirm": "Delete \"{{name}}\"?",
+          "refresh": "Refresh"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "rate": "Base rate",
+          "currency": "Currency",
+          "active": "Active",
+          "statusActive": "Active",
+          "statusInactive": "Inactive",
+          "updatedAt": "Updated",
+          "empty": "No shipping methods yet.",
+          "search": "Search shipping methods…"
+        },
+        "form": {
+          "createTitle": "Add shipping method",
+          "editTitle": "Edit shipping method",
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "description": "Description",
+          "carrierCode": "Carrier",
+          "serviceLevel": "Service level",
+          "estimatedTransitDays": "Transit days",
+          "baseRateNet": "Base rate (net)",
+          "baseRateGross": "Base rate (gross)",
+          "currencyCode": "Currency",
+          "isActive": "Active",
+          "providerSettings": "Provider settings",
+          "selectProvider": "Choose a provider to configure settings.",
+          "noSettings": "No configurable settings.",
+          "ratesTitle": "Rates",
+          "addRate": "Add rate",
+          "metric": "Metric",
+          "min": "Min",
+          "max": "Max",
+          "amountNet": "Amount (net)",
+          "amountGross": "Amount (gross)",
+          "currency": "Currency",
+          "removeRate": "Remove",
+          "applyBaseRate": "Always include the base rate",
+          "save": "Save",
+          "cancel": "Cancel"
+        },
+        "messages": {
+          "saved": "Shipping method saved.",
+          "deleted": "Shipping method deleted."
+        },
+        "errors": {
+          "load": "Failed to load shipping methods.",
+          "save": "Failed to save shipping method.",
+          "delete": "Failed to delete shipping method."
+        }
+      },
+      "paymentMethods": {
+        "title": "Payment methods",
+        "description": "Configure payment providers and any checkout fees.",
+        "actions": {
+          "add": "Add payment method",
+          "edit": "Edit",
+          "delete": "Delete",
+          "deleteConfirm": "Delete \"{{name}}\"?",
+          "refresh": "Refresh"
+        },
+        "table": {
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "active": "Active",
+          "statusActive": "Active",
+          "statusInactive": "Inactive",
+          "updatedAt": "Updated",
+          "empty": "No payment methods yet.",
+          "search": "Search payment methods…"
+        },
+        "form": {
+          "createTitle": "Add payment method",
+          "editTitle": "Edit payment method",
+          "name": "Name",
+          "code": "Code",
+          "provider": "Provider",
+          "description": "Description",
+          "terms": "Terms",
+          "isActive": "Active",
+          "providerSettings": "Provider settings",
+          "selectProvider": "Choose a provider to configure settings.",
+          "noSettings": "No configurable settings.",
+          "save": "Save",
+          "cancel": "Cancel"
+        },
+        "messages": {
+          "saved": "Payment method saved.",
+          "deleted": "Payment method deleted."
+        },
+        "errors": {
+          "load": "Failed to load payment methods.",
+          "save": "Failed to save payment method.",
+          "delete": "Failed to delete payment method."
+        }
+      },
       "orderEditing": {
         "title": "Order editing guards",
         "description": "Control when customers and addresses can be changed on an order.",
@@ -719,6 +828,21 @@
         },
         "inline": {
           "save": "Save (Ctrl/Cmd + Enter)"
+        },
+        "inlineError": "Unable to update document.",
+        "customData": "Custom data",
+        "customDataLoading": "Loading custom data…",
+        "customDataDefine": "Define custom fields first.",
+        "tags": {
+          "loading": "Loading tags…",
+          "loadError": "Failed to load tags.",
+          "createError": "Failed to create tag.",
+          "updateError": "Failed to update tags.",
+          "labelRequired": "Tag name is required.",
+          "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+          "cancelShortcut": "Cancel (Esc)",
+          "success": "Tags updated.",
+          "placeholder": "No tags yet. Add labels to keep documents organized."
         },
         "status": {
           "placeholder": "Select status",

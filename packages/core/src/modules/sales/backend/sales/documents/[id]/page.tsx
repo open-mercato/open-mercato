@@ -3,7 +3,16 @@
 import * as React from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DetailFieldsSection, ErrorMessage, InlineTextEditor, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import {
+  CustomDataSection,
+  DetailFieldsSection,
+  ErrorMessage,
+  InlineTextEditor,
+  LoadingMessage,
+  TabEmptyState,
+  TagsSection,
+  type TagOption,
+} from '@open-mercato/ui/backend/detail'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -13,12 +22,15 @@ import { Building2, CreditCard, Mail, Pencil, Store, Trash2, Truck, UserRound, W
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
 import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDictionaryIcon, type DictionaryMap } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -784,6 +796,8 @@ type DocumentRecord = {
   createdAt?: string
   updatedAt?: string
   metadata?: Record<string, unknown> | null
+  customFields?: Record<string, unknown> | null
+  tags?: TagOption[] | null
 }
 
 type DocumentUpdateResult = {
@@ -811,6 +825,23 @@ type DocumentUpdateResult = {
   customerName?: string | null
   contactEmail?: string | null
   metadata?: Record<string, unknown> | null
+}
+
+const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.filter((entry) => entry !== undefined)
+  }
+  if (value === undefined) return null
+  return value
+}
+
+const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefined): Record<string, unknown> => {
+  if (!input || typeof input !== 'object') return {}
+  return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
+    const normalized = key.startsWith('cf_') ? key : `cf_${key}`
+    acc[normalized] = value
+    return acc
+  }, {})
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -1740,6 +1771,7 @@ export default function SalesDocumentDetailPage({
   const searchParams = useSearchParams()
   const [loading, setLoading] = React.useState(true)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
+  const [tags, setTags] = React.useState<TagOption[]>([])
   const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
@@ -1780,6 +1812,34 @@ export default function SalesDocumentDetailPage({
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save (Ctrl/Cmd + Enter)'),
     [t]
+  )
+  const customDataLabels = React.useMemo(
+    () => ({
+      loading: t('sales.documents.detail.customDataLoading', 'Loading custom data…'),
+      emptyValue: t('sales.documents.detail.empty', 'Not set'),
+      noFields: t('entities.customFields.empty'),
+      defineFields: t('sales.documents.detail.customDataDefine', 'Define custom fields first.'),
+      saveShortcut: saveShortcutLabel,
+      edit: t('ui.forms.actions.edit'),
+      cancel: t('ui.forms.actions.cancel'),
+    }),
+    [saveShortcutLabel, t],
+  )
+  const tagLabels = React.useMemo(
+    () => ({
+      loading: t('sales.documents.detail.tags.loading', 'Loading tags…'),
+      placeholder: t('sales.documents.detail.tags.placeholder', 'Type to add tags'),
+      empty: t('sales.documents.detail.tags.placeholder', 'No tags yet. Add labels to keep documents organized.'),
+      loadError: t('sales.documents.detail.tags.loadError', 'Failed to load tags.'),
+      createError: t('sales.documents.detail.tags.createError', 'Failed to create tag.'),
+      updateError: t('sales.documents.detail.tags.updateError', 'Failed to update tags.'),
+      labelRequired: t('sales.documents.detail.tags.labelRequired', 'Tag name is required.'),
+      saveShortcut: t('sales.documents.detail.tags.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter'),
+      cancelShortcut: t('sales.documents.detail.tags.cancelShortcut', 'Cancel (Esc)'),
+      edit: t('ui.forms.actions.edit'),
+      cancel: t('ui.forms.actions.cancel'),
+    }),
+    [t],
   )
 
   const upsertChannelOptions = React.useCallback((options: ChannelOption[]) => {
@@ -2212,6 +2272,10 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     loadCustomers().catch(() => {})
   }, [loadCustomers])
+
+  React.useEffect(() => {
+    setTags(Array.isArray(record?.tags) ? record.tags : [])
+  }, [record?.tags])
 
   React.useEffect(() => {
     loadChannels().catch(() => {})
@@ -3415,6 +3479,141 @@ export default function SalesDocumentDetailPage({
     )
   }
 
+  const customFieldValues = React.useMemo(
+    () => prefixCustomFieldValues(record?.customFields ?? {}),
+    [record?.customFields],
+  )
+
+  const handleCustomFieldsSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      if (!record) {
+        throw new Error(t('sales.documents.detail.inlineError', 'Unable to update document.'))
+      }
+      const customPayload = collectCustomFieldValues(values, {
+        transform: (value) => normalizeCustomFieldSubmitValue(value),
+      })
+      if (!Object.keys(customPayload).length) {
+        flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
+        return
+      }
+      const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
+      try {
+        await apiCallOrThrow(
+          endpoint,
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: record.id, customFields: customPayload }),
+          },
+          { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
+        )
+      } catch (err) {
+        const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
+        const mappedErrors = fieldErrors
+          ? Object.entries(fieldErrors).reduce<Record<string, string>>((acc, [key, value]) => {
+              const formKey = key.startsWith('cf_') ? key : `cf_${key}`
+              acc[formKey] = value
+              return acc
+            }, {})
+          : undefined
+        const error = new Error(helperMessage ?? t('sales.documents.detail.inlineError', 'Unable to update document.')) as Error & {
+          fieldErrors?: Record<string, string>
+        }
+        if (mappedErrors && Object.keys(mappedErrors).length) error.fieldErrors = mappedErrors
+        throw error
+      }
+      const prefixed = prefixCustomFieldValues(customPayload)
+      setRecord((prev) => (prev ? { ...prev, customFields: prefixed } : prev))
+      flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
+    },
+    [kind, record, t],
+  )
+
+  const loadTagOptions = React.useCallback(
+    async (query?: string): Promise<TagOption[]> => {
+      const params = new URLSearchParams({ pageSize: '100' })
+      if (query) params.set('search', query)
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/sales/tags?${params.toString()}`,
+        undefined,
+        { errorMessage: t('sales.documents.detail.tags.loadError', 'Failed to load tags.') },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items
+        .map((item: unknown): TagOption | null => {
+          if (!item || typeof item !== 'object') return null
+          const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown; color?: unknown }
+          const rawId =
+            typeof raw.id === 'string'
+              ? raw.id
+              : typeof raw.tagId === 'string'
+                ? raw.tagId
+                : null
+          if (!rawId) return null
+          const labelValue =
+            (typeof raw.label === 'string' && raw.label.trim().length && raw.label.trim()) ||
+            (typeof raw.slug === 'string' && raw.slug.trim().length && raw.slug.trim()) ||
+            rawId
+          const color = typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
+          return { id: rawId, label: labelValue, color }
+        })
+        .filter((entry): entry is TagOption => entry !== null)
+    },
+    [t],
+  )
+
+  const createTag = React.useCallback(
+    async (label: string): Promise<TagOption> => {
+      const trimmed = label.trim()
+      if (!trimmed.length) {
+        throw new Error(t('sales.documents.detail.tags.labelRequired', 'Tag name is required.'))
+      }
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/sales/tags',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: trimmed }),
+        },
+        { errorMessage: t('sales.documents.detail.tags.createError', 'Failed to create tag.') },
+      )
+      const payload = response.result ?? {}
+      const id =
+        typeof payload?.id === 'string'
+          ? payload.id
+          : typeof (payload as any)?.tagId === 'string'
+            ? (payload as any).tagId
+            : ''
+      if (!id) throw new Error(t('sales.documents.detail.tags.createError', 'Failed to create tag.'))
+      const color = typeof (payload as any)?.color === 'string' && (payload as any).color.trim().length
+        ? (payload as any).color.trim()
+        : null
+      return { id, label: trimmed, color }
+    },
+    [t],
+  )
+
+  const handleTagsSave = React.useCallback(
+    async ({ next }: { next: TagOption[] }) => {
+      if (!record) return
+      const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
+      const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
+      await apiCallOrThrow(
+        endpoint,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: record.id, tags: tagIds }),
+        },
+        { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
+      )
+      setRecord((prev) => (prev ? { ...prev, tags: next } : prev))
+      setTags(next)
+      flash(t('sales.documents.detail.tags.success', 'Tags updated.'), 'success')
+    },
+    [kind, record, t],
+  )
+
   if (loading) {
     return (
       <Page>
@@ -3738,17 +3937,24 @@ export default function SalesDocumentDetailPage({
         </div>
 
         <div className="space-y-4">
-          <p className="text-sm font-semibold">{t('sales.documents.detail.customData', 'Custom data')}</p>
-          <SectionCard title={t('sales.documents.detail.customDataTitle', 'Custom data')} muted>
-            <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.customData.placeholder', 'Attach structured attributes here.')}
-            </p>
-          </SectionCard>
-          <SectionCard title={t('sales.documents.detail.tags', 'Tags')} muted>
-            <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.tags.placeholder', 'No tags yet. Add labels to keep documents organized.')}
-            </p>
-          </SectionCard>
+          <CustomDataSection
+            title={t('sales.documents.detail.customData', 'Custom data')}
+            entityIds={[kind === 'order' ? E.sales.sales_order : E.sales.sales_quote]}
+            values={customFieldValues}
+            onSubmit={handleCustomFieldsSubmit}
+            labels={customDataLabels}
+          />
+          <TagsSection
+            title={t('sales.documents.detail.tags', 'Tags')}
+            tags={tags}
+            onChange={setTags}
+            isSubmitting={false}
+            canEdit
+            loadOptions={loadTagOptions}
+            createTag={createTag}
+            onSave={({ next }) => handleTagsSave({ next })}
+            labels={tagLabels}
+          />
         </div>
       </PageBody>
     </Page>
