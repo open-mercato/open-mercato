@@ -483,18 +483,7 @@ export function PaymentMethodsSettings() {
         </span>
       ),
     },
-    {
-      id: 'actions',
-      cell: ({ row }) => (
-        <RowActions
-          onEdit={() => openEdit(row.original)}
-          onDelete={() => deleteEntry(row.original)}
-          editLabel={translations.actions.edit}
-          deleteLabel={translations.actions.delete}
-        />
-      ),
-    },
-  ], [deleteEntry, openEdit, translations])
+  ], [translations])
 
   const filteredEntries = React.useMemo(() => {
     if (!search.trim()) return entries
@@ -532,8 +521,26 @@ export function PaymentMethodsSettings() {
           data={filteredEntries}
           searchValue={search}
           onSearchChange={setSearch}
-          emptyLabel={translations.table.empty}
           searchPlaceholder={translations.table.search}
+          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{translations.table.empty}</p>}
+          actions={(
+            <Button size="sm" onClick={openCreate}>
+              {translations.actions.add}
+            </Button>
+          )}
+          refreshButton={{
+            label: translations.actions.refresh,
+            onRefresh: () => { void loadEntries() },
+            isRefreshing: loading,
+          }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { label: translations.actions.edit, onSelect: () => openEdit(row) },
+                { label: translations.actions.delete, destructive: true, onSelect: () => deleteEntry(row) },
+              ]}
+            />
+          )}
         />
       </div>
 

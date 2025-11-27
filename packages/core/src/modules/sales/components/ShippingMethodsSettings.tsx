@@ -176,21 +176,23 @@ type RateRule = {
   currencyCode?: string | null
 }
 
+type FlatRateLabels = {
+  title: string
+  add: string
+  metric: string
+  min: string
+  max: string
+  amountNet: string
+  amountGross: string
+  currency: string
+  remove: string
+  applyBaseRate: string
+}
+
 function FlatRateSettingsEditor(props: {
   value: Record<string, unknown>
   onChange: (next: Record<string, unknown>) => void
-  translations: {
-    title: string
-    add: string
-    metric: string
-    min: string
-    max: string
-    amountNet: string
-    amountGross: string
-    currency: string
-    remove: string
-    applyBaseRate: string
-  }
+  translations: FlatRateLabels
   currencyCode?: string | null
 }) {
   const { value, onChange, translations, currencyCode } = props
@@ -337,7 +339,7 @@ function createShippingProviderSettingsRenderer(params: {
   providers: ShippingProvider[]
   selectPrompt: string
   noFieldsLabel: string
-  flatRateLabels: FlatRateSettingsEditor['props']['translations']
+  flatRateLabels: FlatRateLabels
 }) {
   const { providers, selectPrompt, noFieldsLabel, flatRateLabels } = params
   return function ShippingProviderSettingsField({
@@ -680,18 +682,7 @@ export function ShippingMethodsSettings() {
         </span>
       ),
     },
-    {
-      id: 'actions',
-      cell: ({ row }) => (
-        <RowActions
-          onEdit={() => openEdit(row.original)}
-          onDelete={() => deleteEntry(row.original)}
-          editLabel={translations.actions.edit}
-          deleteLabel={translations.actions.delete}
-        />
-      ),
-    },
-  ], [deleteEntry, openEdit, translations])
+  ], [translations])
 
   const handleSubmit = React.useCallback(async (values: ShippingFormValues) => {
     if (!dialog) return
@@ -824,8 +815,26 @@ export function ShippingMethodsSettings() {
           data={filteredEntries}
           searchValue={search}
           onSearchChange={setSearch}
-          emptyLabel={translations.table.empty}
           searchPlaceholder={translations.table.search}
+          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{translations.table.empty}</p>}
+          actions={(
+            <Button size="sm" onClick={openCreate}>
+              {translations.actions.add}
+            </Button>
+          )}
+          refreshButton={{
+            label: translations.actions.refresh,
+            onRefresh: () => { void loadEntries() },
+            isRefreshing: loading,
+          }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { label: translations.actions.edit, onSelect: () => openEdit(row) },
+                { label: translations.actions.delete, destructive: true, onSelect: () => deleteEntry(row) },
+              ]}
+            />
+          )}
         />
       </div>
 

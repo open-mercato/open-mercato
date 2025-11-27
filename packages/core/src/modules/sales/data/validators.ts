@@ -120,7 +120,7 @@ export const shippingMethodCreateSchema = scoped.extend({
       if (!parsed.success) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: parsed.error.errors?.[0]?.message ?? 'Invalid provider configuration',
+          message: parsed.error.issues?.[0]?.message ?? 'Invalid provider configuration',
           path: ['providerSettings'],
         })
       }
@@ -179,7 +179,7 @@ export const paymentMethodCreateSchema = scoped.extend({
       if (!parsed.success) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: parsed.error.errors?.[0]?.message ?? 'Invalid provider configuration',
+          message: parsed.error.issues?.[0]?.message ?? 'Invalid provider configuration',
           path: ['providerSettings'],
         })
       }

@@ -9,7 +9,21 @@ const DEFAULT_TAX_RATES = [
   { code: 'vat-0', name: '0% VAT', rate: '0' },
 ] as const
 
-const EXAMPLE_SHIPPING_METHODS = [
+type ExampleShippingSeed = {
+  code: string
+  name: string
+  description?: string
+  carrierCode?: string
+  providerKey?: string
+  providerSettings?: Record<string, unknown>
+  serviceLevel?: string
+  estimatedTransitDays?: number
+  baseRateNet: string
+  baseRateGross?: string
+  currencyCode?: string
+}
+
+const EXAMPLE_SHIPPING_METHODS: ExampleShippingSeed[] = [
   {
     code: 'standard-ground',
     name: 'Standard Ground',
@@ -36,7 +50,16 @@ const EXAMPLE_SHIPPING_METHODS = [
   },
 ] as const
 
-const EXAMPLE_PAYMENT_METHODS = [
+type ExamplePaymentSeed = {
+  code: string
+  name: string
+  description?: string
+  providerKey?: string
+  providerSettings?: Record<string, unknown>
+  terms?: string
+}
+
+const EXAMPLE_PAYMENT_METHODS: ExamplePaymentSeed[] = [
   {
     code: 'card',
     name: 'Credit Card',

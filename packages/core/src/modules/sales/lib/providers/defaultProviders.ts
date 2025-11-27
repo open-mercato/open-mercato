@@ -239,7 +239,7 @@ const shippingProviders: ShippingProvider[] = [
         return {
           adjustments: [
             {
-              kind: 'shipping',
+              kind: 'shipping' as const,
               code: method.code ?? 'shipping',
               label: method.name ?? 'Shipping',
               amountNet: baseNet,
@@ -260,7 +260,7 @@ const shippingProviders: ShippingProvider[] = [
       const adjustments = []
       if (baseAdjustment) {
         adjustments.push({
-          kind: 'shipping',
+          kind: 'shipping' as const,
           code: method.code ?? 'shipping',
           label: method.name ?? 'Shipping',
           amountNet: baseNet,
@@ -271,7 +271,7 @@ const shippingProviders: ShippingProvider[] = [
       }
       if (selected) {
         adjustments.push({
-          kind: 'shipping',
+          kind: 'shipping' as const,
           code: selected.name ?? method.code ?? 'shipping',
           label: selected.name ?? 'Shipping',
           amountNet: chosenNet,
@@ -281,7 +281,7 @@ const shippingProviders: ShippingProvider[] = [
         })
       } else if (!baseAdjustment) {
         adjustments.push({
-          kind: 'shipping',
+          kind: 'shipping' as const,
           code: method.code ?? 'shipping',
           label: method.name ?? 'Shipping',
           amountNet: baseNet,
