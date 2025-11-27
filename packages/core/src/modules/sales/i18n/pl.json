@@ -477,6 +477,7 @@
         "address.postal": "Kod pocztowy",
         "address.country": "Kraj",
         "address.saveToCustomer": "Zapisz ten adres do klienta",
+        "address.sameAsShipping": "Taki sam jak adres dostawy",
         "customer.group": "Klient",
         "addresses": "Adresy",
         "customFields": "Pola niestandardowe",
