@@ -332,6 +332,10 @@
   "upgrades.v034.cta": "Zainstaluj przykładowe produkty i kategorie katalogu",
   "upgrades.v034.loading": "Instalowanie…",
   "upgrades.v034.success": "Przykładowe produkty i kategorie katalogu zostały zainstalowane.",
+  "upgrades.v035.message": "Wersja {{version}} została zainstalowana. Nadaj roli admin dostęp do Business Rules.",
+  "upgrades.v035.cta": "Nadaj dostęp Business Rules roli admin",
+  "upgrades.v035.loading": "Aktualizowanie roli…",
+  "upgrades.v035.success": "Rola admin została zaktualizowana o dostęp do Business Rules.",
   "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
   "upgrades.loading": "Ładowanie aktualizacji…"
 }
