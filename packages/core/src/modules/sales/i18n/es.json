@@ -562,7 +562,7 @@
           },
           "items": {
             "title": "Aún no hay artículos.",
-            "description": "El editor de líneas llegará en la próxima iteración."
+            "description": "Agrega productos a este documento para calcular los totales."
           },
           "shipments": {
             "title": "Aún no hay envíos.",
@@ -578,7 +578,44 @@
           }
         },
         "items": {
-          "wip": "El editor de líneas llegará en la próxima iteración."
+          "title": "Artículos",
+          "subtitle": "Agrega productos y precios a este documento.",
+          "add": "Agregar artículo",
+          "loading": "Cargando artículos…",
+          "empty": "Aún no hay artículos.",
+          "errorLoad": "No se pudieron cargar los artículos.",
+          "errorSave": "No se pudo guardar la línea.",
+          "errorDelete": "No se pudo eliminar la línea.",
+          "created": "Línea agregada.",
+          "updated": "Línea actualizada.",
+          "deleted": "Línea eliminada.",
+          "addTitle": "Agregar línea",
+          "editTitle": "Editar línea",
+          "product": "Producto",
+          "productSearch": "Buscar producto",
+          "selectedProduct": "Seleccionado {{id}}",
+          "variant": "Variante",
+          "variantSearch": "Buscar variante",
+          "price": "Precio",
+          "priceSearch": "Seleccionar precio",
+          "priceGross": "Bruto",
+          "priceNet": "Neto",
+          "unitPrice": "Precio unitario",
+          "quantity": "Cantidad",
+          "name": "Nombre",
+          "namePlaceholder": "Nombre opcional de la línea",
+          "cancel": "Cancelar",
+          "addLine": "Agregar artículo",
+          "save": "Guardar cambios",
+          "untitled": "Sin título",
+          "table": {
+            "product": "Producto",
+            "quantity": "Cant.",
+            "unit": "Precio unitario",
+            "total": "Total",
+            "actions": "Acciones",
+            "gross": "bruto"
+          }
         },
         "shipments": {
           "wip": "La gestión de envíos está en progreso."
@@ -672,8 +709,10 @@
   "sales.quotes.create": "Crear cotización",
   "sales.audit.orders.create": "Crear pedido de ventas",
   "sales.audit.orders.delete": "Eliminar pedido de ventas",
+  "sales.audit.orders.update": "Actualizar pedido de ventas",
   "sales.audit.quotes.create": "Crear cotización",
   "sales.audit.quotes.delete": "Eliminar cotización",
+  "sales.audit.quotes.update": "Actualizar cotización",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

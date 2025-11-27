@@ -719,8 +719,10 @@
   "sales.quotes.create": "Utwórz ofertę",
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
+  "sales.audit.orders.update": "Aktualizuj zamówienie sprzedaży",
   "sales.audit.quotes.create": "Utwórz ofertę",
   "sales.audit.quotes.delete": "Usuń ofertę",
+  "sales.audit.quotes.update": "Aktualizuj ofertę",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

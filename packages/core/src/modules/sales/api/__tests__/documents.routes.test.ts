@@ -100,16 +100,24 @@ describe('sales document update routes', () => {
       filterIds: ['11111111-1111-4111-8111-111111111111'],
       allowedIds: ['11111111-1111-4111-8111-111111111111'],
     })
-    mockCommandBus.execute.mockResolvedValue({
-      result: { ok: true },
-      logEntry: {
-        id: 'log-1',
-        undoToken: 'undo-1',
-        commandId: 'sales.documents.update',
-        resourceId: '22222222-2222-4222-8222-222222222222',
-        resourceKind: 'sales.document',
-        createdAt: new Date().toISOString(),
-      },
+    mockCommandBus.execute.mockImplementation(async (commandId: string, payload: any) => {
+      const id =
+        payload?.input?.id ??
+        payload?.input?.body?.id ??
+        payload?.input?.query?.id ??
+        '00000000-0000-4000-8000-000000000000'
+      const entityKey = commandId.includes('quote') ? 'quote' : 'order'
+      return {
+        result: { [entityKey]: { id } },
+        logEntry: {
+          id: 'log-1',
+          undoToken: 'undo-1',
+          commandId,
+          resourceId: id,
+          resourceKind: commandId.includes('quote') ? 'sales.quote' : 'sales.order',
+          createdAt: new Date().toISOString(),
+        },
+      }
     })
   })
 

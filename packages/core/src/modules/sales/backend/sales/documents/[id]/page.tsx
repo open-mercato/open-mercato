@@ -17,6 +17,7 @@ import { useT } from '@/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
+import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -2772,8 +2773,10 @@ export default function SalesDocumentDetailPage({
     async (nextId: string | null) => {
       if (!record || kind !== 'order') return
       const option =
-        nextId && (shippingMethodOptionsRef.current.get(nextId) ?? shippingMethodOptions.find((entry) => entry.id === nextId))
-          ? shippingMethodOptionsRef.current.get(nextId) ?? shippingMethodOptions.find((entry) => entry.id === nextId)
+        nextId
+          ? shippingMethodOptionsRef.current.get(nextId) ??
+            shippingMethodOptions.find((entry) => entry.id === nextId) ??
+            null
           : null
       const snapshot = shippingSnapshotFromOption(option ?? null)
       try {
@@ -2829,8 +2832,10 @@ export default function SalesDocumentDetailPage({
     async (nextId: string | null) => {
       if (!record || kind !== 'order') return
       const option =
-        nextId && (paymentMethodOptionsRef.current.get(nextId) ?? paymentMethodOptions.find((entry) => entry.id === nextId))
-          ? paymentMethodOptionsRef.current.get(nextId) ?? paymentMethodOptions.find((entry) => entry.id === nextId)
+        nextId
+          ? paymentMethodOptionsRef.current.get(nextId) ??
+            paymentMethodOptions.find((entry) => entry.id === nextId) ??
+            null
           : null
       const snapshot = paymentSnapshotFromOption(option ?? null)
       try {
@@ -3356,6 +3361,15 @@ export default function SalesDocumentDetailPage({
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
+        />
+      )
+    }
+    if (activeTab === 'items') {
+      return (
+        <SalesDocumentItemsSection
+          documentId={record.id}
+          kind={kind}
+          currencyCode={record.currencyCode ?? null}
         />
       )
     }

@@ -6,6 +6,7 @@ import { requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   SalesQuote,
@@ -14,6 +15,7 @@ import {
   SalesOrder,
   SalesOrderLine,
   SalesOrderAdjustment,
+  SalesChannel,
   SalesShippingMethod,
   SalesDeliveryWindow,
   SalesPaymentMethod,
@@ -21,6 +23,7 @@ import {
   SalesDocumentTagAssignment,
   type SalesLineKind,
   type SalesAdjustmentKind,
+  type SalesSettings,
 } from '../data/entities'
 import {
   CustomerAddress,
@@ -57,6 +60,7 @@ import {
 } from '../lib/types'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
+import { loadSalesSettings } from './settings'
 
 type QuoteGraphSnapshot = {
   quote: {
@@ -269,6 +273,75 @@ type QuoteUndoPayload = {
   after?: QuoteGraphSnapshot | null
 }
 
+const currencyCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}$/, { message: 'currency_code_invalid' })
+
+const dateOnlySchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'invalid_date' })
+  .refine((value) => !Number.isNaN(new Date(value).getTime()), { message: 'invalid_date' })
+
+const addressSnapshotSchema = z.record(z.string(), z.unknown()).nullable().optional()
+
+export const documentUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+    customerEntityId: z.string().uuid().nullable().optional(),
+    customerContactId: z.string().uuid().nullable().optional(),
+    customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    customerReference: z.string().nullable().optional(),
+    externalReference: z.string().nullable().optional(),
+    comment: z.string().nullable().optional(),
+    currencyCode: currencyCodeSchema.optional(),
+    channelId: z.string().uuid().nullable().optional(),
+    statusEntryId: z.string().uuid().nullable().optional(),
+    placedAt: z.union([dateOnlySchema, z.null()]).optional(),
+    expectedDeliveryAt: z.union([dateOnlySchema, z.null()]).optional(),
+    shippingAddressId: z.string().uuid().nullable().optional(),
+    billingAddressId: z.string().uuid().nullable().optional(),
+    shippingAddressSnapshot: addressSnapshotSchema,
+    billingAddressSnapshot: addressSnapshotSchema,
+    shippingMethodId: z.string().uuid().nullable().optional(),
+    shippingMethodCode: z.string().nullable().optional(),
+    shippingMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    paymentMethodId: z.string().uuid().nullable().optional(),
+    paymentMethodCode: z.string().nullable().optional(),
+    paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .refine(
+    (input) =>
+      typeof input.currencyCode === 'string' ||
+      input.placedAt !== undefined ||
+      input.expectedDeliveryAt !== undefined ||
+      input.channelId !== undefined ||
+      input.statusEntryId !== undefined ||
+      input.shippingAddressId !== undefined ||
+      input.billingAddressId !== undefined ||
+      input.customerEntityId !== undefined ||
+      input.customerContactId !== undefined ||
+      input.customerSnapshot !== undefined ||
+      input.metadata !== undefined ||
+      input.customerReference !== undefined ||
+      input.externalReference !== undefined ||
+      input.comment !== undefined ||
+      input.shippingAddressSnapshot !== undefined ||
+      input.billingAddressSnapshot !== undefined ||
+      input.shippingMethodId !== undefined ||
+      input.shippingMethodCode !== undefined ||
+      input.shippingMethodSnapshot !== undefined ||
+      input.paymentMethodId !== undefined ||
+      input.paymentMethodCode !== undefined ||
+      input.paymentMethodSnapshot !== undefined,
+    { message: 'update_payload_empty' }
+  )
+
+export type DocumentUpdateInput = z.infer<typeof documentUpdateSchema>
+
 type DocumentLineCreateInput = QuoteLineCreateInput | OrderLineCreateInput
 type DocumentAdjustmentCreateInput = QuoteAdjustmentCreateInput | OrderAdjustmentCreateInput
 
@@ -458,6 +531,237 @@ async function resolveDocumentReferences(
     shippingMethod: shippingMethod ?? null,
     deliveryWindow: deliveryWindow ?? null,
     paymentMethod: paymentMethod ?? null,
+  }
+}
+
+async function applyDocumentUpdate({
+  kind,
+  entity,
+  input,
+  em,
+}: {
+  kind: 'order' | 'quote'
+  entity: SalesOrder | SalesQuote
+  input: DocumentUpdateInput
+  em: EntityManager
+}): Promise<void> {
+  const organizationId = (entity as any).organizationId as string
+  const tenantId = (entity as any).tenantId as string
+  const status = typeof (entity as any).status === 'string' ? (entity as any).status : null
+  const { translate } = await resolveTranslations()
+
+  const wantsCustomerChange =
+    input.customerEntityId !== undefined ||
+    input.customerContactId !== undefined ||
+    input.customerSnapshot !== undefined ||
+    input.metadata !== undefined
+  const wantsAddressChange =
+    input.shippingAddressId !== undefined ||
+    input.billingAddressId !== undefined ||
+    input.shippingAddressSnapshot !== undefined ||
+    input.billingAddressSnapshot !== undefined
+
+  let settings: SalesSettings | null = null
+  if (kind === 'order' && (wantsCustomerChange || wantsAddressChange)) {
+    settings = await loadSalesSettings(em, { organizationId, tenantId })
+  }
+
+  const guardStatus = (allowed: string[] | null | undefined, errorKey: string, fallback: string) => {
+    if (!Array.isArray(allowed)) return
+    if (allowed.length === 0) {
+      throw new CrudHttpError(400, { error: translate(errorKey, fallback) })
+    }
+    if (!status || !allowed.includes(status)) {
+      throw new CrudHttpError(400, { error: translate(errorKey, fallback) })
+    }
+  }
+
+  if (kind === 'order' && wantsCustomerChange) {
+    guardStatus(
+      settings?.orderCustomerEditableStatuses ?? null,
+      'sales.orders.edit_customer_blocked',
+      'Editing the customer is blocked for this status.'
+    )
+  }
+  if (kind === 'order' && wantsAddressChange) {
+    guardStatus(
+      settings?.orderAddressEditableStatuses ?? null,
+      'sales.orders.edit_addresses_blocked',
+      'Editing addresses is blocked for this status.'
+    )
+  }
+
+  if (input.customerEntityId !== undefined) {
+    entity.customerEntityId = input.customerEntityId ?? null
+    entity.customerSnapshot = await resolveCustomerSnapshot(
+      em,
+      organizationId,
+      tenantId,
+      input.customerEntityId,
+      input.customerContactId ?? entity.customerContactId ?? null
+    )
+    entity.customerContactId = input.customerContactId ?? null
+    entity.billingAddressId = null
+    entity.shippingAddressId = null
+    entity.billingAddressSnapshot = null
+    entity.shippingAddressSnapshot = null
+  }
+  if (input.customerContactId !== undefined) {
+    entity.customerContactId = input.customerContactId ?? null
+    if (entity.customerEntityId) {
+      entity.customerSnapshot = await resolveCustomerSnapshot(
+        em,
+        organizationId,
+        tenantId,
+        entity.customerEntityId,
+        input.customerContactId
+      )
+    }
+  }
+  if (input.customerSnapshot !== undefined) {
+    entity.customerSnapshot = input.customerSnapshot ?? null
+  }
+  if (input.metadata !== undefined) {
+    entity.metadata = input.metadata ?? null
+  }
+  if (input.externalReference !== undefined) {
+    const normalized = typeof input.externalReference === 'string' ? input.externalReference.trim() : ''
+    entity.externalReference = normalized.length ? normalized : null
+  }
+  if (input.customerReference !== undefined) {
+    const normalized = typeof input.customerReference === 'string' ? input.customerReference.trim() : ''
+    entity.customerReference = normalized.length ? normalized : null
+  }
+  if (input.comment !== undefined) {
+    const normalized = typeof input.comment === 'string' ? input.comment.trim() : ''
+    entity.comments = normalized.length ? normalized : null
+  }
+  if (typeof input.currencyCode === 'string') {
+    entity.currencyCode = input.currencyCode
+  }
+  if (input.channelId !== undefined) {
+    if (input.channelId === null) {
+      entity.channelId = null
+    } else {
+      const channel = await em.findOne(SalesChannel, {
+        id: input.channelId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+      if (!channel) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.channelInvalid', 'Selected channel could not be found.') })
+      }
+      entity.channelId = channel.id
+    }
+  }
+  if (input.statusEntryId !== undefined) {
+    const statusValue = await resolveDictionaryEntryValue(em, input.statusEntryId)
+    if (input.statusEntryId && !statusValue) {
+      throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+    }
+    ;(entity as any).statusEntryId = input.statusEntryId ?? null
+    ;(entity as any).status = statusValue
+  }
+  if (input.placedAt !== undefined) {
+    if (input.placedAt === null) {
+      entity.placedAt = null
+    } else {
+      const parsed = new Date(input.placedAt)
+      entity.placedAt = Number.isNaN(parsed.getTime()) ? entity.placedAt : parsed
+    }
+  }
+  if (input.expectedDeliveryAt !== undefined && 'expectedDeliveryAt' in entity) {
+    if (input.expectedDeliveryAt === null) {
+      (entity as SalesOrder).expectedDeliveryAt = null
+    } else {
+      const parsed = new Date(input.expectedDeliveryAt)
+      ;(entity as SalesOrder).expectedDeliveryAt = Number.isNaN(parsed.getTime())
+        ? (entity as SalesOrder).expectedDeliveryAt
+        : parsed
+    }
+  }
+  if (input.shippingAddressId !== undefined) {
+    entity.shippingAddressId = input.shippingAddressId ?? null
+    if (input.shippingAddressSnapshot === undefined) {
+      entity.shippingAddressSnapshot = await resolveAddressSnapshot(em, organizationId, tenantId, input.shippingAddressId)
+    }
+  }
+  if (input.billingAddressId !== undefined) {
+    entity.billingAddressId = input.billingAddressId ?? null
+    if (input.billingAddressSnapshot === undefined) {
+      entity.billingAddressSnapshot = await resolveAddressSnapshot(em, organizationId, tenantId, input.billingAddressId)
+    }
+  }
+  if (input.shippingAddressSnapshot !== undefined) {
+    entity.shippingAddressSnapshot = input.shippingAddressSnapshot ?? null
+  }
+  if (input.billingAddressSnapshot !== undefined) {
+    entity.billingAddressSnapshot = input.billingAddressSnapshot ?? null
+  }
+  if (input.shippingMethodId !== undefined || input.shippingMethodSnapshot !== undefined || input.shippingMethodCode !== undefined) {
+    let shippingMethod: SalesShippingMethod | null = null
+    if (input.shippingMethodId) {
+      shippingMethod = await em.findOne(SalesShippingMethod, {
+        id: input.shippingMethodId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+      if (!shippingMethod) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.shippingMethodInvalid', 'Selected shipping method could not be found.') })
+      }
+    }
+    ;(entity as any).shippingMethodId = input.shippingMethodId ?? null
+    ;(entity as any).shippingMethod = shippingMethod ?? null
+    ;(entity as any).shippingMethodCode = input.shippingMethodCode ?? shippingMethod?.code ?? null
+    if (input.shippingMethodSnapshot !== undefined) {
+      ;(entity as any).shippingMethodSnapshot = input.shippingMethodSnapshot ?? null
+    } else {
+      ;(entity as any).shippingMethodSnapshot = shippingMethod
+        ? {
+            id: shippingMethod.id,
+            code: shippingMethod.code,
+            name: shippingMethod.name,
+            description: shippingMethod.description ?? null,
+            carrierCode: shippingMethod.carrierCode ?? null,
+            serviceLevel: shippingMethod.serviceLevel ?? null,
+            estimatedTransitDays: shippingMethod.estimatedTransitDays ?? null,
+            currencyCode: shippingMethod.currencyCode ?? null,
+          }
+        : null
+    }
+  }
+  if (input.paymentMethodId !== undefined || input.paymentMethodSnapshot !== undefined || input.paymentMethodCode !== undefined) {
+    let paymentMethod: SalesPaymentMethod | null = null
+    if (input.paymentMethodId) {
+      paymentMethod = await em.findOne(SalesPaymentMethod, {
+        id: input.paymentMethodId,
+        organizationId,
+        tenantId,
+        deletedAt: null,
+      })
+      if (!paymentMethod) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.paymentMethodInvalid', 'Selected payment method could not be found.') })
+      }
+    }
+    ;(entity as any).paymentMethodId = input.paymentMethodId ?? null
+    ;(entity as any).paymentMethod = paymentMethod ?? null
+    ;(entity as any).paymentMethodCode = input.paymentMethodCode ?? paymentMethod?.code ?? null
+    if (input.paymentMethodSnapshot !== undefined) {
+      ;(entity as any).paymentMethodSnapshot = input.paymentMethodSnapshot ?? null
+    } else {
+      ;(entity as any).paymentMethodSnapshot = paymentMethod
+        ? {
+            id: paymentMethod.id,
+            code: paymentMethod.code,
+            name: paymentMethod.name,
+            description: paymentMethod.description ?? null,
+            providerKey: paymentMethod.providerKey ?? null,
+            terms: paymentMethod.terms ?? null,
+          }
+        : null
+    }
   }
 }
 
@@ -1856,6 +2160,138 @@ const deleteQuoteCommand: CommandHandler<
   },
 }
 
+const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuote }> = {
+  id: 'sales.quotes.update',
+  async prepare(input, ctx) {
+    const parsed = documentUpdateSchema.parse(input ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadQuoteSnapshot(em, parsed.id)
+    if (snapshot) {
+      ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
+    }
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(rawInput, ctx) {
+    const parsed = documentUpdateSchema.parse(rawInput ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const quote = await em.findOne(SalesQuote, { id: parsed.id, deletedAt: null })
+    if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
+    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    await applyDocumentUpdate({ kind: 'quote', entity: quote, input: parsed, em })
+    quote.updatedAt = new Date()
+    await em.flush()
+    const resourceKind = deriveResourceFromCommandId(updateQuoteCommand.id) ?? 'sales.quote'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId },
+      ctx.auth?.tenantId ?? null,
+      'updated'
+    )
+    return { quote }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    return loadQuoteSnapshot(em, result.quote.id)
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const before = snapshots.before as QuoteGraphSnapshot | undefined
+    const after = snapshots.after as QuoteGraphSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.quotes.update', 'Update sales quote'),
+      resourceKind: 'sales.quote',
+      resourceId: result.quote.id,
+      tenantId: after.quote.tenantId,
+      organizationId: after.quote.organizationId,
+      snapshotBefore: before ?? null,
+      snapshotAfter: after,
+      payload: {
+        undo: {
+          before,
+          after,
+        } satisfies QuoteUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
+    await restoreQuoteGraph(em, before)
+    await em.flush()
+  },
+}
+
+const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrder }> = {
+  id: 'sales.orders.update',
+  async prepare(input, ctx) {
+    const parsed = documentUpdateSchema.parse(input ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadOrderSnapshot(em, parsed.id)
+    if (snapshot) {
+      ensureOrderScope(ctx, snapshot.order.organizationId, snapshot.order.tenantId)
+    }
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(rawInput, ctx) {
+    const parsed = documentUpdateSchema.parse(rawInput ?? {})
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const order = await em.findOne(SalesOrder, { id: parsed.id, deletedAt: null })
+    if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
+    ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    await applyDocumentUpdate({ kind: 'order', entity: order, input: parsed, em })
+    order.updatedAt = new Date()
+    await em.flush()
+    const resourceKind = deriveResourceFromCommandId(updateOrderCommand.id) ?? 'sales.order'
+    await invalidateCrudCache(
+      ctx.container,
+      resourceKind,
+      { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+      ctx.auth?.tenantId ?? null,
+      'updated'
+    )
+    return { order }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    return loadOrderSnapshot(em, result.order.id)
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const before = snapshots.before as OrderGraphSnapshot | undefined
+    const after = snapshots.after as OrderGraphSnapshot | undefined
+    if (!after) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.orders.update', 'Update sales order'),
+      resourceKind: 'sales.order',
+      resourceId: result.order.id,
+      tenantId: after.order.tenantId,
+      organizationId: after.order.organizationId,
+      snapshotBefore: before ?? null,
+      snapshotAfter: after,
+      payload: {
+        undo: {
+          before,
+          after,
+        } satisfies OrderUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
+    await restoreOrderGraph(em, before)
+    await em.flush()
+  },
+}
+
 const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> = {
   id: 'sales.orders.create',
   async execute(rawInput, ctx) {
@@ -2735,8 +3171,10 @@ const quoteLineDeleteCommand: CommandHandler<
   },
 }
 
+registerCommand(updateQuoteCommand)
 registerCommand(createQuoteCommand)
 registerCommand(deleteQuoteCommand)
+registerCommand(updateOrderCommand)
 registerCommand(createOrderCommand)
 registerCommand(deleteOrderCommand)
 registerCommand(orderLineUpsertCommand)

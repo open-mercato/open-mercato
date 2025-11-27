@@ -608,7 +608,7 @@
           },
           "items": {
             "title": "No items yet.",
-            "description": "Line items editor is coming in the next iteration."
+            "description": "Add products to this document to calculate totals."
           },
           "shipments": {
             "title": "No shipments yet.",
@@ -624,7 +624,44 @@
           }
         },
         "items": {
-          "wip": "Line items editor is coming in the next iteration."
+          "title": "Items",
+          "subtitle": "Add products and prices to this document.",
+          "add": "Add item",
+          "loading": "Loading items…",
+          "empty": "No items yet.",
+          "errorLoad": "Failed to load items.",
+          "errorSave": "Failed to save line.",
+          "errorDelete": "Failed to delete line.",
+          "created": "Line added.",
+          "updated": "Line updated.",
+          "deleted": "Line removed.",
+          "addTitle": "Add line",
+          "editTitle": "Edit line",
+          "product": "Product",
+          "productSearch": "Search product",
+          "selectedProduct": "Selected {{id}}",
+          "variant": "Variant",
+          "variantSearch": "Search variant",
+          "price": "Price",
+          "priceSearch": "Select price",
+          "priceGross": "Gross",
+          "priceNet": "Net",
+          "unitPrice": "Unit price",
+          "quantity": "Quantity",
+          "name": "Name",
+          "namePlaceholder": "Optional line name",
+          "cancel": "Cancel",
+          "addLine": "Add item",
+          "save": "Save changes",
+          "untitled": "Untitled",
+          "table": {
+            "product": "Product",
+            "quantity": "Qty",
+            "unit": "Unit price",
+            "total": "Total",
+            "actions": "Actions",
+            "gross": "gross"
+          }
         },
         "shipments": {
           "wip": "Shipments management is work in progress."
@@ -734,8 +771,14 @@
   "sales.quotes.create": "Create sales quote",
   "sales.audit.orders.create": "Create sales order",
   "sales.audit.orders.delete": "Delete sales order",
+  "sales.audit.orders.update": "Update sales order",
+  "sales.audit.orders.lines.upsert": "Update order line",
+  "sales.audit.orders.lines.delete": "Delete order line",
   "sales.audit.quotes.create": "Create sales quote",
   "sales.audit.quotes.delete": "Delete sales quote",
+  "sales.audit.quotes.update": "Update sales quote",
+  "sales.audit.quotes.lines.upsert": "Update quote line",
+  "sales.audit.quotes.lines.delete": "Delete quote line",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

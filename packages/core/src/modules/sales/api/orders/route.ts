@@ -8,6 +8,7 @@ const route = createDocumentCrudRoute({
   entityId: E.sales.sales_order,
   numberField: 'orderNumber',
   createCommandId: 'sales.orders.create',
+  updateCommandId: 'sales.orders.update',
   deleteCommandId: 'sales.orders.delete',
   manageFeature: 'sales.orders.manage',
   viewFeature: 'sales.orders.view',

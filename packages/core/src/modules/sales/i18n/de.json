@@ -671,8 +671,10 @@
   "sales.quotes.create": "Angebot erstellen",
   "sales.audit.orders.create": "Bestellung erstellen",
   "sales.audit.orders.delete": "Bestellung löschen",
+  "sales.audit.orders.update": "Bestellung aktualisieren",
   "sales.audit.quotes.create": "Angebot erstellen",
   "sales.audit.quotes.delete": "Angebot löschen",
+  "sales.audit.quotes.update": "Angebot aktualisieren",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }
