@@ -93,6 +93,52 @@ export function register(_: AppContainer) {
 - Use `registerSalesLineCalculator` to change per-line math (e.g., bundle discounts) and `registerSalesTotalsCalculator` for cart-level adjustments.
 - Events `sales.line.calculate.before/after` and `sales.document.calculate.before/after` surround the registry so you can also observe results without mutating them.
 
+## Override via events (no code changes to core)
+
+When you only need to patch a few fields, listen to the calculation events and call `setResult` to override values per line or for the full document:
+
+```ts title="src/modules/discounts/subscribers/sales-calculation.ts"
+export const metadata = { event: 'bootstrap' }
+
+export default async function register(_, ctx) {
+  const eventBus = ctx.resolve('eventBus')
+
+  // Apply a free-gift line: zero out price on a specific SKU
+  eventBus?.on('sales.line.calculate.after', ({ line, result, setResult }) => {
+    if (line.productId === 'gift-product-id') {
+      setResult({
+        ...result,
+        netAmount: 0,
+        grossAmount: 0,
+        taxAmount: 0,
+        discountAmount: result.netAmount, // capture the waived value
+      })
+    }
+  })
+
+  // Enforce a minimum order total at the document level
+  eventBus?.on('sales.document.calculate.after', ({ result, setResult }) => {
+    const minTotal = 25
+    if (result.totals.grandTotalGrossAmount < minTotal) {
+      const bump = minTotal - result.totals.grandTotalGrossAmount
+      setResult({
+        ...result,
+        totals: {
+          ...result.totals,
+          surchargeTotalAmount: (result.totals.surchargeTotalAmount ?? 0) + bump,
+          grandTotalGrossAmount: minTotal,
+          grandTotalNetAmount: result.totals.grandTotalNetAmount + bump,
+        },
+      })
+    }
+  })
+}
+```
+
+- `sales.line.calculate.before/after` receive `{ line, context, result, setResult }`; mutate the whole `result` to keep math consistent.
+- `sales.document.calculate.before/after` receive `{ lines, adjustments, context, result, setResult }`; you can adjust any totals or swap lines entirely.
+- A post-recalc hook `sales.document.totals.calculated` fires whenever documents are persisted (create/update/delete line), useful for auditing or side effects without changing math.
+
 ## Swapping DI services entirely
 
 When an external engine must own the calculation, replace the DI token in your module `di.ts`.
