@@ -270,6 +270,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     'discount_total_amount',
     'grand_total_net_amount',
     'grand_total_gross_amount',
+    'totals_snapshot',
     'organization_id',
     'tenant_id',
     'created_at',

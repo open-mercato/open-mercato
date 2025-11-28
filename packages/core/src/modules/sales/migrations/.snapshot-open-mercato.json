@@ -1592,6 +1592,15 @@
           "default": "'0'",
           "mappedType": "decimal"
         },
+        "totals_snapshot": {
+          "name": "totals_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
         "line_item_count": {
           "name": "line_item_count",
           "type": "int",
@@ -2809,6 +2818,15 @@
           "scale": 4,
           "default": "'0'",
           "mappedType": "decimal"
+        },
+        "totals_snapshot": {
+          "name": "totals_snapshot",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
         },
         "paid_total_amount": {
           "name": "paid_total_amount",

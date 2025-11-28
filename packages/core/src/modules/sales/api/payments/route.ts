@@ -54,8 +54,8 @@ const crud = makeCrudRoute({
     entityId: E.sales.sales_payment,
     fields: [
       F.id,
-      F.order_id,
-      F.payment_method_id,
+      'order_id',
+      'payment_method_id',
       F.payment_reference,
       F.status_entry_id,
       F.status,

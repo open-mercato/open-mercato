@@ -2953,6 +2953,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/order-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List order adjustments
+         * @description Returns a paginated collection of order adjustments that belong to the current organization.
+         */
+        get: operations["sales_get_sales_order_adjustments"];
+        /**
+         * Update order adjustment
+         * @description Updates an order adjustment and recalculates totals.
+         */
+        put: operations["sales_put_sales_order_adjustments"];
+        /**
+         * Create order adjustment
+         * @description Creates an order adjustment and recalculates totals.
+         */
+        post: operations["sales_post_sales_order_adjustments"];
+        /**
+         * Delete order adjustment
+         * @description Deletes an order adjustment and recalculates totals.
+         */
+        delete: operations["sales_delete_sales_order_adjustments"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/order-line-statuses": {
         parameters: {
             query?: never;
@@ -3198,6 +3230,38 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/quote-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List quote adjustments
+         * @description Returns a paginated collection of quote adjustments that belong to the current organization.
+         */
+        get: operations["sales_get_sales_quote_adjustments"];
+        /**
+         * Update quote adjustment
+         * @description Updates a quote adjustment and recalculates totals.
+         */
+        put: operations["sales_put_sales_quote_adjustments"];
+        /**
+         * Create quote adjustment
+         * @description Creates a quote adjustment and recalculates totals.
+         */
+        post: operations["sales_post_sales_quote_adjustments"];
+        /**
+         * Delete quote adjustment
+         * @description Deletes a quote adjustment and recalculates totals.
+         */
+        delete: operations["sales_delete_sales_quote_adjustments"];
         options?: never;
         head?: never;
         patch?: never;
@@ -14161,6 +14225,211 @@ export interface components {
             error: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            orderId: components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrderId: string;
+        DocPathsSalesOrderAdjustmentsDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesOrderAdjustmentsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesOrderAdjustmentsGetParameters0Schema: number;
+        DocPathsSalesOrderAdjustmentsGetParameters1Schema: number;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsGetParameters2Schema: string;
+        DocPathsSalesOrderAdjustmentsGetParameters3Schema: string;
+        /** @enum {string} */
+        DocPathsSalesOrderAdjustmentsGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            amount_gross: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountGross"];
+            amount_net: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountNet"];
+            calculator_key?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKey"];
+            code?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCode"];
+            created_at: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
+            currency_code?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
+            id: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            kind: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind"];
+            label?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel"];
+            metadata?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
+            order_id: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderId"];
+            order_line_id?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderLineId"];
+            position: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPosition"];
+            promotion_id?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionId"];
+            rate: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRate"];
+            scope: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesScope"];
+            updated_at: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
+        };
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountGross: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountNet: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKey: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf0: null;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCode: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf0: null;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0: null;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0: null;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0: null;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderId: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderLineId: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderLineIdAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderLineIdAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderLineIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderLineIdAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPosition: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionId: components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf1"];
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRate: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesScope: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: string;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchema: {
+            amountGross?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountGross"];
+            amountNet?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountNet"];
+            calculatorKey?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
+            code?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            currencyCode?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            id?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            kind?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
+            label?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            metadata?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            orderId: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
+            orderLineId?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrderLineId"];
+            organizationId: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            position?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPosition"];
+            promotionId?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPromotionId"];
+            rate?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesRate"];
+            scope?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesScope"];
+            tenantId: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountGross: number;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountNet: number;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey: string;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
+        /** Format: regex */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** @enum {string} */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind: "tax" | "discount" | "surcharge" | "shipping" | "custom";
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrderLineId: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPosition: number;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPromotionId: string;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesRate: number;
+        /** @enum {string} */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesScope: "order" | "line";
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesId"];
+            orderId: components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesOrderId"];
+        };
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesOrderId: components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesOrderIdAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesOrderIdAnyOf1"];
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesOrderIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesOrderIdAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchema: {
+            amountGross?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountGross"];
+            amountNet?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountNet"];
+            calculatorKey?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
+            code?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            currencyCode?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            id?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            kind?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind"];
+            label?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            metadata?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            orderId: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
+            orderLineId?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrderLineId"];
+            organizationId: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            position?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPosition"];
+            promotionId?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPromotionId"];
+            rate?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesRate"];
+            scope?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesScope"];
+            tenantId: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountGross: number;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountNet: number;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey: string;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
+        /** Format: regex */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** @enum {string} */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind: "tax" | "discount" | "surcharge" | "shipping" | "custom";
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrderId: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrderLineId: string;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPosition: number;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPromotionId: string;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesRate: number;
+        /** @enum {string} */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesScope: "order" | "line";
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesId"];
+            orderId: components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesOrderId"];
+        };
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesOrderId: components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesOrderIdAnyOf0"] | components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesOrderIdAnyOf1"];
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesOrderIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesOrderIdAnyOf1: string;
         DocPathsSalesOrderLinesDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesOrderLinesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
             orderId: components["schemas"]["DocPathsSalesOrderLinesDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
@@ -15790,6 +16059,211 @@ export interface components {
             error: components["schemas"]["DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesQuoteAdjustmentsDeleteRequestBodyContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesQuoteAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            quoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesQuoteId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesQuoteId: string;
+        DocPathsSalesQuoteAdjustmentsDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesQuoteAdjustmentsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesQuoteAdjustmentsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesQuoteAdjustmentsGetParameters0Schema: number;
+        DocPathsSalesQuoteAdjustmentsGetParameters1Schema: number;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsGetParameters2Schema: string;
+        DocPathsSalesQuoteAdjustmentsGetParameters3Schema: string;
+        /** @enum {string} */
+        DocPathsSalesQuoteAdjustmentsGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            amount_gross: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountGross"];
+            amount_net: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountNet"];
+            calculator_key?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKey"];
+            code?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCode"];
+            created_at: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
+            currency_code?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
+            id: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            kind: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind"];
+            label?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel"];
+            metadata?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
+            position: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPosition"];
+            promotion_id?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionId"];
+            quote_id: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteId"];
+            quote_line_id?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteLineId"];
+            rate: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRate"];
+            scope: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesScope"];
+            updated_at: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
+        };
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountGross: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmountNet: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKey: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf0: null;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCalculatorKeyAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCode: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf0: null;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCodeAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0: null;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesKind: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0: null;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0: null;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPosition: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionId: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPromotionIdAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteId: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteLineId: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteLineIdAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteLineIdAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteLineIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteLineIdAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRate: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesScope: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: string;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchema: {
+            amountGross?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountGross"];
+            amountNet?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountNet"];
+            calculatorKey?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
+            code?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            currencyCode?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            id?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            kind?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
+            label?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            metadata?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            organizationId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            position?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPosition"];
+            promotionId?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPromotionId"];
+            quoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteId"];
+            quoteLineId?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteLineId"];
+            rate?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesRate"];
+            scope?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesScope"];
+            tenantId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountGross: number;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesAmountNet: number;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey: string;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
+        /** Format: regex */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** @enum {string} */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind: "tax" | "discount" | "surcharge" | "shipping" | "custom";
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPosition: number;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesPromotionId: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteId: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteLineId: string;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesRate: number;
+        /** @enum {string} */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesScope: "order" | "line";
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesId"];
+            quoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesQuoteId"];
+        };
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesQuoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchema: {
+            amountGross?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountGross"];
+            amountNet?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountNet"];
+            calculatorKey?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
+            code?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
+            currencyCode?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            id?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            kind?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind"];
+            label?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            metadata?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
+            organizationId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            position?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPosition"];
+            promotionId?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPromotionId"];
+            quoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesQuoteId"];
+            quoteLineId?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesQuoteLineId"];
+            rate?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesRate"];
+            scope?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesScope"];
+            tenantId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountGross: number;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesAmountNet: number;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey: string;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
+        /** Format: regex */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        /** @enum {string} */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind: "tax" | "discount" | "surcharge" | "shipping" | "custom";
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
+            [key: string]: unknown;
+        };
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPosition: number;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesPromotionId: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesQuoteId: string;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesQuoteLineId: string;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesRate: number;
+        /** @enum {string} */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesScope: "order" | "line";
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesId"];
+            quoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesQuoteId"];
+        };
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesQuoteId: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf0"] | components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf1"];
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf1: string;
         DocPathsSalesQuoteLinesDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesQuoteLinesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
             quoteId: components["schemas"]["DocPathsSalesQuoteLinesDeleteRequestBodyContentApplicationJsonSchemaPropertiesQuoteId"];
@@ -31896,6 +32370,158 @@ export interface operations {
             };
         };
     };
+    sales_get_sales_order_adjustments: {
+        parameters: {
+            query?: {
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                orderId?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetParameters2Schema"];
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetParameters1Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetParameters4Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesOrderAdjustmentsGetParameters3Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated order adjustments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_order_adjustments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fields to update on the target order adjustment. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "orderId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Order adjustment updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null,
+                     *       "orderId": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_order_adjustments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Creates an order adjustment and recalculates totals. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "orderId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Order adjustment created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null,
+                     *       "orderId": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_delete_sales_order_adjustments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Deletes an order adjustment and recalculates totals. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "orderId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Order adjustment deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     sales_get_sales_order_line_statuses: {
         parameters: {
             query?: {
@@ -33427,6 +34053,158 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_quote_adjustments: {
+        parameters: {
+            query?: {
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetParameters1Schema"];
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                quoteId?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetParameters2Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetParameters4Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesQuoteAdjustmentsGetParameters3Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated quote adjustments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_quote_adjustments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fields to update on the target quote adjustment. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "quoteId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Quote adjustment updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null,
+                     *       "quoteId": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_quote_adjustments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Creates a quote adjustment and recalculates totals. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "quoteId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Quote adjustment created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null,
+                     *       "quoteId": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_delete_sales_quote_adjustments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Deletes a quote adjustment and recalculates totals. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "quoteId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsDeleteRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Quote adjustment deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuoteAdjustmentsDeleteResponses200ContentApplicationJsonSchema"];
                 };
             };
         };
