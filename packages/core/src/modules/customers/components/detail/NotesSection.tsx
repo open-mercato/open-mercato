@@ -21,6 +21,27 @@ import { TimelineItemHeader } from './TimelineItemHeader'
 import { AppearanceDialog } from './AppearanceDialog'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
+export type NotesCreatePayload = {
+  entityId: string
+  body: string
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  dealId?: string | null
+}
+
+export type NotesUpdatePayload = {
+  body?: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+export type NotesDataAdapter<C = unknown> = {
+  list: (params: { entityId: string | null; dealId: string | null; context?: C }) => Promise<CommentSummary[]>
+  create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
+  update: (params: { id: string; patch: NotesUpdatePayload; context?: C }) => Promise<void>
+  delete: (params: { id: string; context?: C }) => Promise<void>
+}
+
 type UiMarkdownEditorProps = {
   value?: string
   height?: number
@@ -61,15 +82,17 @@ export type NotesSectionProps = {
   onLoadingChange?: (isLoading: boolean) => void
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
+  dataAdapter?: NotesDataAdapter
+  dataContext?: unknown
 }
 
-function sanitizeHexColor(value: string | null): string | null {
+export function sanitizeHexColor(value: string | null): string | null {
   if (!value) return null
   const trimmed = value.trim()
   return /^#([0-9a-f]{6})$/i.test(trimmed) ? trimmed.toLowerCase() : null
 }
 
-function mapComment(input: unknown): CommentSummary {
+export function mapCommentSummary(input: unknown): CommentSummary {
   const data = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>
   const id = typeof data.id === 'string' ? data.id : generateTempId()
   const body = typeof data.body === 'string' ? data.body : ''
@@ -135,7 +158,67 @@ function mapComment(input: unknown): CommentSummary {
   }
 }
 
-export function NotesSection({
+export function createCustomerNotesAdapter(translator: Translator): NotesDataAdapter {
+  return {
+    list: async ({ entityId, dealId }) => {
+      const params = new URLSearchParams()
+      if (entityId) params.set('entityId', entityId)
+      if (dealId) params.set('dealId', dealId)
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/comments?${params.toString()}`,
+        undefined,
+        { errorMessage: translator('customers.people.detail.notes.loadError', 'Failed to load notes.') },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items.map(mapCommentSummary)
+    },
+    create: async ({ entityId, body, appearanceIcon, appearanceColor, dealId }) => {
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/customers/comments',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            entityId,
+            body,
+            appearanceIcon: appearanceIcon ?? undefined,
+            appearanceColor: appearanceColor ?? undefined,
+            dealId: dealId ?? undefined,
+          }),
+        },
+        { errorMessage: translator('customers.people.detail.notes.error') },
+      )
+      return response.result ?? {}
+    },
+    update: async ({ id, patch }) => {
+      const payload: Record<string, unknown> = { id }
+      if (patch.body !== undefined) payload.body = patch.body
+      if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
+      if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
+      await apiCallOrThrow(
+        '/api/customers/comments',
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        { errorMessage: translator('customers.people.detail.notes.updateError') },
+      )
+    },
+    delete: async ({ id }) => {
+      await apiCallOrThrow(
+        `/api/customers/comments?id=${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+        },
+        { errorMessage: translator('customers.people.detail.notes.deleteError', 'Failed to delete note') },
+      )
+    },
+  }
+}
+
+export function NotesSection<C = unknown>({
   entityId,
   dealId,
   emptyLabel,
@@ -149,10 +232,13 @@ export function NotesSection({
   onLoadingChange,
   dealOptions,
   entityOptions,
-}: NotesSectionProps) {
+  dataAdapter,
+  dataContext,
+}: NotesSectionProps<C>) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
+  const adapter = React.useMemo(() => dataAdapter ?? createCustomerNotesAdapter(t), [dataAdapter, t])
 
   const normalizedDealOptions = React.useMemo(() => {
     if (!Array.isArray(dealOptions)) return []

@@ -1155,16 +1155,6 @@ function ChannelInlineEditor({
       ? 'opacity-100'
       : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
   )
-  const containerClasses = cn(
-    'group relative rounded border bg-muted/30 p-3',
-    !editing ? 'cursor-pointer' : null
-  )
-  const triggerClasses = cn(
-    'h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150',
-    editing
-      ? 'opacity-100'
-      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
-  )
 
   React.useEffect(() => {
     if (!editing) {
@@ -1377,6 +1367,18 @@ function MethodInlineEditor({
   const [error, setError] = React.useState<string | null>(null)
   const setSearchQueryRef = React.useRef<((value: string) => void) | null>(null)
 
+  const containerClasses = cn(
+    'group relative rounded border bg-muted/30 p-3',
+    !editing ? 'cursor-pointer' : null
+  )
+
+  const triggerClasses = cn(
+    'h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
+  )
+
   React.useEffect(() => {
     if (!editing) {
       setDraft(value ?? null)
@@ -1421,9 +1423,8 @@ function MethodInlineEditor({
 
   const prefillSearch = React.useCallback(() => {
     if (!editing || !setSearchQueryRef.current) return
-    const query = currentDisplay.label ?? value ?? ''
-    setSearchQueryRef.current(query)
-  }, [currentDisplay.label, editing, value])
+    setSearchQueryRef.current('')
+  }, [editing])
 
   React.useEffect(() => {
     if (editing) prefillSearch()
@@ -1455,7 +1456,7 @@ function MethodInlineEditor({
         if (editing) return
         setEditing(true)
         prefillSearch()
-        void onLoadOptions()
+        void onLoadOptions('')
       }}
       onKeyDown={(event) => {
         if (editing) return
@@ -1463,7 +1464,7 @@ function MethodInlineEditor({
           event.preventDefault()
           setEditing(true)
           prefillSearch()
-          void onLoadOptions()
+          void onLoadOptions('')
         }
       }}
     >
@@ -1499,6 +1500,7 @@ function MethodInlineEditor({
                     icon: icon,
                   }))
                 }}
+                minQuery={0}
                 onReady={({ setQuery }) => {
                   setSearchQueryRef.current = setQuery
                   prefillSearch()
@@ -1577,7 +1579,7 @@ function MethodInlineEditor({
               if (!prev && next) prefillSearch()
               return next
             })
-            void onLoadOptions()
+            void onLoadOptions('')
           }}
           aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
         >
@@ -1820,7 +1822,7 @@ export default function SalesDocumentDetailPage({
     [t]
   )
   const saveShortcutLabel = React.useMemo(
-    () => t('sales.documents.detail.inline.save', 'Save (Ctrl/Cmd + Enter)'),
+    () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
   )
   const customDataLabels = React.useMemo(
@@ -1963,7 +1965,7 @@ export default function SalesDocumentDetailPage({
     async (query?: string) => {
       setShippingMethodLoading(true)
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '20' })
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
         if (query && query.trim().length) params.set('search', query.trim())
         const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
           `/api/sales/shipping-methods?${params.toString()}`
@@ -2015,7 +2017,7 @@ export default function SalesDocumentDetailPage({
     async (query?: string) => {
       setPaymentMethodLoading(true)
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '20' })
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
         if (query && query.trim().length) params.set('search', query.trim())
         const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
           `/api/sales/payment-methods?${params.toString()}`

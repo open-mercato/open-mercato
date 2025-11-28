@@ -4,6 +4,7 @@ import * as React from 'react'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -572,20 +573,24 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     ? t('sales.documents.items.editTitle', 'Edit line')
     : t('sales.documents.items.addTitle', 'Add line')
 
+  const showHeader = !loading && !error && items.length > 0
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium">{t('sales.documents.items.title', 'Items')}</p>
-          <p className="text-xs text-muted-foreground">
-            {t('sales.documents.items.subtitle', 'Add products and configure pricing for this document.')}
-          </p>
+      {showHeader ? (
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">{t('sales.documents.items.title', 'Items')}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('sales.documents.items.subtitle', 'Add products and configure pricing for this document.')}
+            </p>
+          </div>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="mr-2 h-4 w-4" />
+            {t('sales.documents.items.add', 'Add item')}
+          </Button>
         </div>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('sales.documents.items.add', 'Add item')}
-        </Button>
-      </div>
+      ) : null}
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="h-4 w-4 animate-spin" />
@@ -594,7 +599,17 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t('sales.documents.items.empty', 'No items yet.')}</p>
+        <TabEmptyState
+          title={t('sales.documents.items.empty', 'No items yet.')}
+          description={t(
+            'sales.documents.items.subtitle',
+            'Add products and configure pricing for this document.'
+          )}
+          action={{
+            label: t('sales.documents.items.add', 'Add item'),
+            onClick: openCreate,
+          }}
+        />
       ) : (
         <div className="overflow-hidden rounded border">
           <table className="w-full text-sm">
@@ -709,6 +724,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
               <div className="space-y-2">
                 <Label>{t('sales.documents.items.variant', 'Variant')}</Label>
                 <LookupSelect
+                  key={form.productId ?? 'no-product'}
                   value={form.variantId}
                   onChange={(next) => {
                     const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null

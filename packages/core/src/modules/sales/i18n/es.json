@@ -783,7 +783,7 @@
           "outstandingTotal": "Pendiente"
         },
         "inline": {
-          "save": "Guardar (Ctrl/Cmd + Enter)"
+          "save": "Guardar ⌘⏎ / Ctrl+Enter"
         },
         "inlineError": "Unable to update document.",
         "customData": "Custom data",

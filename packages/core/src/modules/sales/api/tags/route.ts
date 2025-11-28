@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesDocumentTag } from '../../data/entities'
 import { salesTagCreateSchema, salesTagUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
-import { slugifyTagLabel } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 
 const rawBodySchema = z.object({}).passthrough()
 

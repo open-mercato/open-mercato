@@ -745,7 +745,7 @@
           "outstandingTotal": "Offen"
         },
         "inline": {
-          "save": "Speichern (Strg/Cmd + Enter)"
+          "save": "Speichern ⌘⏎ / Strg+Enter"
         },
         "inlineError": "Unable to update document.",
         "customData": "Custom data",

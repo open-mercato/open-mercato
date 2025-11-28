@@ -17,6 +17,7 @@ import type { CrudEventAction, CrudEventsConfig, CrudIndexerConfig } from '@open
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import {
   CatalogOffer,
   CatalogProduct,
@@ -647,17 +648,6 @@ async function syncCategoryAssignments(
       em.remove(assignment)
     }
   }
-}
-
-function slugifyTagLabel(label: string): string {
-  return (
-    label
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 80) || `tag-${Math.random().toString(36).slice(2, 10)}`
-  )
 }
 
 async function syncProductTags(

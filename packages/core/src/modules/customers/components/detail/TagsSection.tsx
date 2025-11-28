@@ -9,7 +9,7 @@ import {
 import { useT } from '@/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { slugifyTagLabel } from '../../lib/detailHelpers'
+import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 
 type TagsSectionProps = {
   entityId: string

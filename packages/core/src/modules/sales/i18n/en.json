@@ -829,7 +829,7 @@
           "outstandingTotal": "Outstanding"
         },
         "inline": {
-          "save": "Save (Ctrl/Cmd + Enter)"
+          "save": "Save ⌘⏎ / Ctrl+Enter"
         },
         "inlineError": "Unable to update document.",
         "customData": "Custom data",

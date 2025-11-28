@@ -59,16 +59,18 @@ export function DocumentCustomerCard({
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
               <Icon aria-hidden className="h-5 w-5 text-muted-foreground" />
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 min-w-0">
               {name ? (
                 <p className="text-sm font-medium leading-tight text-foreground">{name}</p>
               ) : (
                 <p className="text-sm text-muted-foreground">No customer assigned</p>
               )}
               {email ? (
-                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <p className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
                   <Mail className="h-3.5 w-3.5" aria-hidden />
-                  <span>{email}</span>
+                  <span className="truncate" title={email}>
+                    {email}
+                  </span>
                 </p>
               ) : null}
             </div>

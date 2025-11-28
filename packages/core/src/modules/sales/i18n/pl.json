@@ -793,7 +793,7 @@
           "outstandingTotal": "Do zapłaty"
         },
         "inline": {
-          "save": "Zapisz (Ctrl/Cmd + Enter)"
+          "save": "Zapisz ⌘⏎ / Ctrl+Enter"
         },
         "inlineError": "Unable to update document.",
         "customData": "Custom data",
