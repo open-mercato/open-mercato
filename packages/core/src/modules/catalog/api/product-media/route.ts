@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -68,4 +69,24 @@ export async function GET(request: Request) {
   }))
 
   return NextResponse.json({ items })
+}
+
+const productMediaItemSchema = z.object({
+  id: z.string().uuid(),
+  fileName: z.string(),
+  url: z.string(),
+  thumbnailUrl: z.string(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Catalog',
+  summary: 'Product media',
+  methods: {
+    GET: {
+      summary: 'List product media',
+      description: 'Returns media attachments for the given product.',
+      query: querySchema,
+      responses: [{ status: 200, description: 'Product media list', schema: z.object({ items: z.array(productMediaItemSchema) }) }],
+    },
+  },
 }

@@ -90,3 +90,29 @@ export async function GET(req: Request) {
     total,
   })
 }
+
+const tagItemSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  slug: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+const tagListResponseSchema = z.object({
+  items: z.array(tagItemSchema),
+  total: z.number(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Catalog',
+  summary: 'Product tags',
+  methods: {
+    GET: {
+      summary: 'List tags',
+      description: 'Returns catalog tags scoped to the authenticated organization.',
+      query: querySchema,
+      responses: [{ status: 200, description: 'Tag list', schema: tagListResponseSchema }],
+    },
+  },
+}

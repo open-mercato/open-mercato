@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -66,4 +68,34 @@ export async function GET(
     console.error('[catalog.dictionaries.GET] Unexpected error', err)
     return NextResponse.json({ error: 'Failed to load dictionary.' }, { status: 500 })
   }
+}
+
+const dictionaryEntrySchema = z.object({
+  id: z.string().uuid(),
+  value: z.string(),
+  label: z.string(),
+  color: z.string().nullable().optional(),
+  icon: z.string().nullable().optional(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Catalog',
+  summary: 'Catalog dictionaries',
+  pathParams: z.object({ key: z.string() }),
+  methods: {
+    GET: {
+      summary: 'Fetch dictionary entries',
+      description: 'Returns the dictionary matching the provided key (currency, unit, or measurement_units aliases are supported).',
+      responses: [
+        {
+          status: 200,
+          description: 'Dictionary entries',
+          schema: z.object({
+            id: z.string().uuid(),
+            entries: z.array(dictionaryEntrySchema),
+          }),
+        },
+      ],
+    },
+  },
 }
