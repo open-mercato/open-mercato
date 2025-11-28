@@ -676,7 +676,7 @@
           },
           "shipments": {
             "title": "Noch keine Sendungen.",
-            "description": "Versandverwaltung befindet sich in Arbeit."
+            "description": "Erstelle Sendungen, um erfüllte Positionen zu markieren."
           },
           "payments": {
             "title": "Noch keine Zahlungen.",
@@ -695,7 +695,48 @@
           "errorUnitPrice": "Der Stückpreis muss größer als 0 sein."
         },
         "shipments": {
-          "wip": "Versandverwaltung befindet sich in Arbeit."
+          "title": "Sendungen",
+          "subtitle": "Verfolge Pakete und Fulfillment für diesen Auftrag.",
+          "add": "Sendung hinzufügen",
+          "addTitle": "Sendung hinzufügen",
+          "editTitle": "Sendung bearbeiten",
+          "created": "Sendung erstellt.",
+          "updated": "Sendung aktualisiert.",
+          "deleted": "Sendung gelöscht.",
+          "loading": "Sendungen werden geladen…",
+          "errorLoad": "Sendungen konnten nicht geladen werden.",
+          "errorSave": "Sendung konnte nicht gespeichert werden.",
+          "errorDelete": "Sendung konnte nicht gelöscht werden.",
+          "errorItems": "Füge mindestens eine Position hinzu.",
+          "errorQuantity": "Menge überschreitet den verbleibenden Bestand.",
+          "number": "Sendungsnummer",
+          "numberLabel": "Sendung {{number}}",
+          "fallbackNumber": "Sendung {{id}}",
+          "carrier": "Versanddienst",
+          "tracking": "Tracking",
+          "trackingNumbers": "Sendungsnummern",
+          "trackingPlaceholder": "Eine pro Zeile oder durch Komma getrennt",
+          "shippedAt": "Versanddatum",
+          "deliveredAt": "Zustelldatum",
+          "notes": "Notizen",
+          "items": "Zu versendende Positionen",
+          "noLines": "Keine Bestellpositionen verfügbar.",
+          "available": "{{count}} verfügbar",
+          "shippedOn": "Versandt am {{date}}",
+          "deliveredOn": "Zugestellt am {{date}}",
+          "statusMissing": "Status ausstehend",
+          "addressSnapshot": "Adress-Snapshot gespeichert.",
+          "attachAddress": "Adress-Snapshot anhängen",
+          "addComment": "Notiz zu Kommentaren hinzufügen",
+          "comment": "Sendung {{number}} aktualisiert: {{summary}}",
+          "confirmDelete": "Diese Sendung löschen?",
+          "cancel": "Abbrechen",
+          "save": "Änderungen speichern",
+          "create": "Sendung erstellen",
+          "empty": {
+            "title": "Noch keine Sendungen.",
+            "description": "Erstelle deine erste Sendung, um erfüllte Positionen zu markieren."
+          }
         },
         "payments": {
           "wip": "Zahlungen befinden sich in Arbeit."

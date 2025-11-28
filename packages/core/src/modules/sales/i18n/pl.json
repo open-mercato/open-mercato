@@ -899,6 +899,14 @@
   "sales.audit.quotes.create": "Utwórz ofertę",
   "sales.audit.quotes.delete": "Usuń ofertę",
   "sales.audit.quotes.update": "Aktualizuj ofertę",
+  "sales.audit.shipments.create": "Utwórz wysyłkę",
+  "sales.audit.shipments.update": "Aktualizuj wysyłkę",
+  "sales.audit.shipments.delete": "Usuń wysyłkę",
+  "sales.shipments.not_found": "Nie znaleziono wysyłki",
+  "sales.shipments.items_required": "Dodaj co najmniej jedną linię do wysyłki.",
+  "sales.shipments.line_missing": "Nie znaleziono linii zamówienia.",
+  "sales.shipments.quantity_exceeded": "Nie można wysłać więcej niż pozostała ilość.",
+  "sales.shipments.invalid_order": "Wysyłka nie należy do tego zamówienia.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

@@ -20,7 +20,9 @@ import {
 } from '../../../../components/detail/ActivitiesSection'
 import {
   NotesSection,
-} from '../../../../components/detail/NotesSection'
+  type CommentSummary,
+  type SectionAction,
+} from '@open-mercato/ui/backend/detail'
 import {
   TagsSection,
   type TagOption,
@@ -39,14 +41,11 @@ import {
   type CompanyPersonSummary,
 } from '../../../../components/detail/CompanyPeopleSection'
 import { AnnualRevenueField } from '../../../../components/detail/AnnualRevenueField'
-import type {
-  ActivitySummary,
-  CommentSummary,
-  DealSummary,
-  TagSummary,
-  TodoLinkSummary,
-  SectionAction,
-} from '../../../../components/detail/types'
+import type { ActivitySummary, DealSummary, TagSummary, TodoLinkSummary } from '../../../../components/detail/types'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 
 type CompanyOverview = {
   company: {

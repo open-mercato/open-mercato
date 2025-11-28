@@ -99,6 +99,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const id = params?.id
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
+  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
@@ -718,6 +719,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   onActionChange={handleSectionActionChange}
                   translator={detailTranslator}
                   onLoadingChange={handleNotesLoadingChange}
+                  dataAdapter={notesAdapter}
+                  renderIcon={renderDictionaryIcon}
+                  renderColor={renderDictionaryColor}
+                  iconSuggestions={ICON_SUGGESTIONS}
+                  readMarkdownPreference={readMarkdownPreferenceCookie}
+                  writeMarkdownPreference={writeMarkdownPreferenceCookie}
                 />
               )}
               {activeTab === 'activities' && (
