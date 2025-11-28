@@ -8,6 +8,11 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_price_kind'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.settings.manage'] },
@@ -121,3 +126,40 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const priceKindListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    organization_id: z.string().uuid().nullable().optional(),
+    tenant_id: z.string().uuid().nullable().optional(),
+    code: z.string(),
+    title: z.string(),
+    display_mode: z.string(),
+    currency_code: z.string().nullable().optional(),
+    is_promotion: z.boolean().nullable().optional(),
+    is_active: z.boolean().nullable().optional(),
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .passthrough()
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Price kind',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(priceKindListItemSchema),
+  create: {
+    schema: priceKindCreateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Creates a catalog price kind.',
+  },
+  update: {
+    schema: priceKindUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a catalog price kind.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a price kind by id.',
+  },
+})

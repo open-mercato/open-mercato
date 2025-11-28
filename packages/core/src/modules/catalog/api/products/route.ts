@@ -33,6 +33,11 @@ import {
 import type { CatalogPricingService } from '../../services/catalogPricingService'
 import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -605,3 +610,112 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const decimalValue = z.union([z.number(), z.string()])
+
+const productOfferSchema = z
+  .object({
+    id: z.string().uuid(),
+    channelId: z.string().uuid().nullable().optional(),
+    channelName: z.string().nullable().optional(),
+    channelCode: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    isActive: z.boolean().nullable().optional(),
+    localizedContent: z.record(z.string(), z.unknown()).nullable().optional(),
+    defaultMediaId: z.string().nullable().optional(),
+    defaultMediaUrl: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .passthrough()
+
+const productCategorySchema = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string().nullable().optional(),
+    treePath: z.string().nullable().optional(),
+    parentId: z.string().uuid().nullable().optional(),
+    parentName: z.string().nullable().optional(),
+  })
+  .passthrough()
+
+const productPricingSchema = z
+  .object({
+    kind: z.string().nullable().optional(),
+    price_kind_id: z.string().uuid().nullable().optional(),
+    price_kind_code: z.string().nullable().optional(),
+    currency_code: z.string().nullable().optional(),
+    unit_price_net: decimalValue.nullable().optional(),
+    unit_price_gross: decimalValue.nullable().optional(),
+    min_quantity: z.number().nullable().optional(),
+    max_quantity: z.number().nullable().optional(),
+    tax_rate: decimalValue.nullable().optional(),
+    tax_amount: decimalValue.nullable().optional(),
+    scope: z
+      .object({
+        variant_id: z.string().uuid().nullable().optional(),
+        offer_id: z.string().uuid().nullable().optional(),
+        channel_id: z.string().uuid().nullable().optional(),
+        user_id: z.string().uuid().nullable().optional(),
+        user_group_id: z.string().uuid().nullable().optional(),
+        customer_id: z.string().uuid().nullable().optional(),
+        customer_group_id: z.string().uuid().nullable().optional(),
+      })
+      .optional(),
+  })
+  .passthrough()
+
+const productListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    title: z.string().nullable().optional(),
+    subtitle: z.string().nullable().optional(),
+    description: z.string().nullable().optional(),
+    sku: z.string().nullable().optional(),
+    handle: z.string().nullable().optional(),
+    product_type: z.string().nullable().optional(),
+    primary_currency_code: z.string().nullable().optional(),
+    default_unit: z.string().nullable().optional(),
+    default_media_id: z.string().nullable().optional(),
+    default_media_url: z.string().nullable().optional(),
+    weight_value: decimalValue.nullable().optional(),
+    weightValue: decimalValue.nullable().optional(),
+    weight_unit: z.string().nullable().optional(),
+    weightUnit: z.string().nullable().optional(),
+    dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
+    custom_fieldset_code: z.string().nullable().optional(),
+    option_schema_id: z.string().uuid().nullable().optional(),
+    is_configurable: z.boolean().nullable().optional(),
+    is_active: z.boolean().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    offers: z.array(productOfferSchema).optional(),
+    channelIds: z.array(z.string().uuid()).optional(),
+    categories: z.array(productCategorySchema).optional(),
+    categoryIds: z.array(z.string().uuid()).optional(),
+    tags: z.array(z.string()).optional(),
+    pricing: productPricingSchema.nullable().optional(),
+  })
+  .passthrough()
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Product',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(productListItemSchema),
+  create: {
+    schema: productCreateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Creates a catalog product.',
+  },
+  update: {
+    schema: productUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing catalog product.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a product by id.',
+  },
+})

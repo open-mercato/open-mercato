@@ -13,6 +13,11 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FO from '@open-mercato/core/generated/entities/catalog_option_schema_template'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -145,3 +150,38 @@ const crud = makeCrudRoute({
 })
 
 export const { GET, POST, PUT, DELETE } = crud
+
+const optionSchemaListItem = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    code: z.string(),
+    description: z.string().nullable().optional(),
+    schema: z.record(z.string(), z.unknown()).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    is_active: z.boolean().nullable().optional(),
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .passthrough()
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Option schema',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(optionSchemaListItem),
+  create: {
+    schema: optionSchemaTemplateCreateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Creates an option schema template for catalog products.',
+  },
+  update: {
+    schema: optionSchemaTemplateUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an option schema template.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an option schema template by id.',
+  },
+})

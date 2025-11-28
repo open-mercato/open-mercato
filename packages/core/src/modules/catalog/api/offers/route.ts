@@ -10,6 +10,11 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_offer'
 import { parseIdList } from '../products/route'
 import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -412,3 +417,73 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const offerPriceAmount = z.union([z.number(), z.string()])
+
+const offerPriceSchema = z
+  .object({
+    id: z.string().uuid(),
+    priceKindId: z.string().uuid().nullable().optional(),
+    priceKindCode: z.string().nullable().optional(),
+    priceKindTitle: z.string().nullable().optional(),
+    currencyCode: z.string().nullable().optional(),
+    unitPriceNet: offerPriceAmount.nullable().optional(),
+    unitPriceGross: offerPriceAmount.nullable().optional(),
+    displayMode: z.string().nullable().optional(),
+    minQuantity: z.number().nullable().optional(),
+    maxQuantity: z.number().nullable().optional(),
+  })
+  .passthrough()
+
+const offerListItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    productId: z.string().uuid().nullable().optional(),
+    organizationId: z.string().uuid().nullable().optional(),
+    tenantId: z.string().uuid().nullable().optional(),
+    channelId: z.string().uuid().nullable().optional(),
+    title: z.string(),
+    description: z.string().nullable().optional(),
+    defaultMediaId: z.string().nullable().optional(),
+    defaultMediaUrl: z.string().nullable().optional(),
+    localizedContent: z.record(z.string(), z.unknown()).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    isActive: z.boolean(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    product: z
+      .object({
+        id: z.string().uuid(),
+        title: z.string().nullable().optional(),
+        defaultMediaId: z.string().nullable().optional(),
+        defaultMediaUrl: z.string().nullable().optional(),
+        sku: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+    prices: z.array(offerPriceSchema).optional(),
+    productChannelPrice: offerPriceSchema.nullable().optional(),
+    productDefaultPrices: z.array(offerPriceSchema).optional(),
+  })
+  .passthrough()
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Offer',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(offerListItemSchema),
+  create: {
+    schema: offerCreateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Creates a channel offer for a catalog product.',
+  },
+  update: {
+    schema: offerUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates offer content, channel binding, or metadata.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an offer by id.',
+  },
+})
