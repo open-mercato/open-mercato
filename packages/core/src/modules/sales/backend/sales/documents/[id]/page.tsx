@@ -3541,7 +3541,7 @@ export default function SalesDocumentDetailPage({
         title: t('sales.documents.detail.empty.shipments.title', 'No shipments yet.'),
         description: t(
           'sales.documents.shipments.empty.description',
-          'Create shipments to track items fulfilled for this order.'
+          'Add shipments for this document to let the user track the order.'
         ),
       },
       payments: {

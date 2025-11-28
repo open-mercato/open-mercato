@@ -231,6 +231,10 @@ export async function run(argv = process.argv) {
         runCommand(`yarn mercato sales seed-statuses --tenant ${tenantId} --org ${orgId}`)
         console.log('🚦 ✅ Sales statuses seeded\n')
 
+        console.log('⚙️  Seeding adjustment kinds...')
+        runCommand(`yarn mercato sales seed-adjustment-kinds --tenant ${tenantId} --org ${orgId}`)
+        console.log('⚙️  ✅ Adjustment kinds seeded\n')
+
         console.log('🚚 Seeding shipping methods...')
         runCommand(`yarn mercato sales seed-shipping-methods --tenant ${tenantId} --org ${orgId}`)
         console.log('🚚 ✅ Shipping methods seeded\n')

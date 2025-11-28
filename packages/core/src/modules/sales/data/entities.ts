@@ -13,7 +13,8 @@ import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
-export type SalesAdjustmentKind = 'tax' | 'discount' | 'surcharge' | 'shipping' | 'custom'
+export const DEFAULT_SALES_ADJUSTMENT_KINDS = ['discount', 'tax', 'shipping', 'surcharge', 'custom'] as const
+export type SalesAdjustmentKind = (typeof DEFAULT_SALES_ADJUSTMENT_KINDS)[number] | string
 
 @Entity({ tableName: 'sales_channels' })
 @Index({ name: 'sales_channels_org_tenant_idx', properties: ['organizationId', 'tenantId'] })

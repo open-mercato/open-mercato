@@ -6,7 +6,7 @@ import {
   sanitizeDictionaryIcon,
 } from '@open-mercato/core/modules/dictionaries/lib/utils'
 
-export type SalesDictionaryKind = 'order-status' | 'order-line-status'
+export type SalesDictionaryKind = 'order-status' | 'order-line-status' | 'adjustment-kind'
 
 type SalesDictionaryDefinition = {
   key: string
@@ -33,6 +33,14 @@ const DEFINITIONS: Record<SalesDictionaryKind, SalesDictionaryDefinition> = {
     description: 'Configurable set of statuses used by sales order lines.',
     resourceKind: 'sales.order-line-status',
     commandPrefix: 'sales.order-line-statuses',
+  },
+  'adjustment-kind': {
+    key: 'sales.adjustment_kind',
+    name: 'Sales adjustment kinds',
+    singular: 'Sales adjustment kind',
+    description: 'Reusable adjustment kinds applied to sales documents.',
+    resourceKind: 'sales.adjustment-kind',
+    commandPrefix: 'sales.adjustment-kinds',
   },
 }
 
@@ -85,7 +93,7 @@ export async function resolveDictionaryEntryValue(
 
 export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }
 
-type SalesStatusSeed = {
+type SalesDictionarySeed = {
   value: string
   label: string
   color?: string | null
@@ -94,7 +102,7 @@ type SalesStatusSeed = {
 
 type SeedScope = { tenantId: string; organizationId: string }
 
-const ORDER_STATUS_DEFAULTS: SalesStatusSeed[] = [
+const ORDER_STATUS_DEFAULTS: SalesDictionarySeed[] = [
   { value: 'draft', label: 'Draft', color: '#94a3b8', icon: 'lucide:file-pen-line' },
   { value: 'confirmed', label: 'Confirmed', color: '#2563eb', icon: 'lucide:badge-check' },
   { value: 'in_fulfillment', label: 'In fulfillment', color: '#f59e0b', icon: 'lucide:loader-2' },
@@ -103,7 +111,7 @@ const ORDER_STATUS_DEFAULTS: SalesStatusSeed[] = [
   { value: 'canceled', label: 'Canceled', color: '#ef4444', icon: 'lucide:x-circle' },
 ]
 
-const ORDER_LINE_STATUS_DEFAULTS: SalesStatusSeed[] = [
+const ORDER_LINE_STATUS_DEFAULTS: SalesDictionarySeed[] = [
   { value: 'pending', label: 'Pending', color: '#94a3b8', icon: 'lucide:clock' },
   { value: 'allocated', label: 'Allocated', color: '#6366f1', icon: 'lucide:inbox' },
   { value: 'picking', label: 'Picking', color: '#f59e0b', icon: 'lucide:hand' },
@@ -115,11 +123,19 @@ const ORDER_LINE_STATUS_DEFAULTS: SalesStatusSeed[] = [
   { value: 'canceled', label: 'Canceled', color: '#ef4444', icon: 'lucide:x-circle' },
 ]
 
+const ADJUSTMENT_KIND_DEFAULTS: SalesDictionarySeed[] = [
+  { value: 'discount', label: 'Discount' },
+  { value: 'tax', label: 'Tax' },
+  { value: 'shipping', label: 'Shipping' },
+  { value: 'surcharge', label: 'Surcharge' },
+  { value: 'custom', label: 'Custom' },
+]
+
 async function ensureSalesDictionaryEntry(
   em: EntityManager,
   scope: SeedScope,
   kind: SalesDictionaryKind,
-  seed: SalesStatusSeed
+  seed: SalesDictionarySeed
 ): Promise<DictionaryEntry | null> {
   const value = seed.value?.trim()
   if (!value) return null
@@ -175,7 +191,7 @@ async function seedSalesDictionary(
   em: EntityManager,
   scope: SeedScope,
   kind: SalesDictionaryKind,
-  defaults: SalesStatusSeed[]
+  defaults: SalesDictionarySeed[]
 ): Promise<void> {
   for (const seed of defaults) {
     await ensureSalesDictionaryEntry(em, scope, kind, seed)
@@ -189,3 +205,20 @@ export async function seedSalesStatusDictionaries(
   await seedSalesDictionary(em, scope, 'order-status', ORDER_STATUS_DEFAULTS)
   await seedSalesDictionary(em, scope, 'order-line-status', ORDER_LINE_STATUS_DEFAULTS)
 }
+
+export async function seedSalesAdjustmentKinds(
+  em: EntityManager,
+  scope: SeedScope
+): Promise<void> {
+  await seedSalesDictionary(em, scope, 'adjustment-kind', ADJUSTMENT_KIND_DEFAULTS)
+}
+
+export async function seedSalesDictionaries(
+  em: EntityManager,
+  scope: SeedScope
+): Promise<void> {
+  await seedSalesStatusDictionaries(em, scope)
+  await seedSalesAdjustmentKinds(em, scope)
+}
+
+export const DEFAULT_ADJUSTMENT_KIND_VALUES = ADJUSTMENT_KIND_DEFAULTS.map((entry) => entry.value)

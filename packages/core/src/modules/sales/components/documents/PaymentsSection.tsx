@@ -4,11 +4,12 @@ import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
@@ -85,8 +86,16 @@ export function SalesDocumentPaymentsSection({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [formResetKey, setFormResetKey] = React.useState(0)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [initialValues, setInitialValues] = React.useState<Record<string, unknown>>({
+    amount: '',
+    paymentMethodId: '',
+    paymentReference: '',
+    receivedAt: '',
+  })
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
+  const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
 
   const loadPaymentMethods = React.useCallback(async () => {
     setMethodsLoading(true)
@@ -176,6 +185,13 @@ export function SalesDocumentPaymentsSection({
 
   const resetForm = React.useCallback(() => {
     setFormResetKey((prev) => prev + 1)
+    setEditingId(null)
+    setInitialValues({
+      amount: '',
+      paymentMethodId: '',
+      paymentReference: '',
+      receivedAt: '',
+    })
   }, [])
 
   const openDialog = React.useCallback(() => {
@@ -280,10 +296,15 @@ export function SalesDocumentPaymentsSection({
       if (typeof values.receivedAt === 'string' && values.receivedAt.trim().length) {
         payload.receivedAt = new Date(values.receivedAt)
       }
-      const result = await createCrud('sales/payments', payload, {
-        successMessage: t('sales.documents.payments.created', 'Payment recorded.'),
-        errorMessage: t('sales.documents.payments.errorSave', 'Failed to save payment.'),
-      })
+      const action = editingId ? updateCrud : createCrud
+      const result = await action(
+        'sales/payments',
+        editingId ? { id: editingId, ...payload } : payload,
+        {
+          successMessage: t('sales.documents.payments.created', 'Payment recorded.'),
+          errorMessage: t('sales.documents.payments.errorSave', 'Failed to save payment.'),
+        }
+      )
       if (result.ok) {
         const totals = (result.result as any)?.orderTotals as PaymentTotals | undefined
         if (totals && onTotalsChange) {
@@ -296,6 +317,7 @@ export function SalesDocumentPaymentsSection({
     },
     [
       currencyCode,
+      editingId,
       loadPayments,
       onTotalsChange,
       orderId,
@@ -350,8 +372,28 @@ export function SalesDocumentPaymentsSection({
         cell: ({ row }) =>
           row.original.createdAt ? new Date(row.original.createdAt).toLocaleString() : '—',
       },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => (
+          <RowActions
+            onEdit={() => {
+              const record = row.original
+              setEditingId(record.id)
+              setInitialValues({
+                amount: record.amount ?? '',
+                paymentMethodId: record.paymentMethodId ?? '',
+                paymentReference: record.paymentReference ?? '',
+                receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
+              })
+              setDialogOpen(true)
+            }}
+            actions={[{ id: 'edit', label: editActionLabel }]}
+          />
+        ),
+      },
     ],
-    [currencyCode, t]
+    [currencyCode, editActionLabel, t]
   )
 
   if (loading) {
@@ -404,14 +446,14 @@ export function SalesDocumentPaymentsSection({
           }}
         >
           <DialogHeader>
-            <DialogTitle>{addActionLabel}</DialogTitle>
+            <DialogTitle>{editingId ? editActionLabel : addActionLabel}</DialogTitle>
           </DialogHeader>
           <CrudForm
             key={formResetKey}
             embedded
             fields={fields}
-            initialValues={{ amount: '', paymentMethodId: '', paymentReference: '', receivedAt: '' }}
-            submitLabel={addActionLabel}
+            initialValues={initialValues}
+            submitLabel={editingId ? editActionLabel : addActionLabel}
             onSubmit={handleFormSubmit}
             loadingMessage={t('sales.documents.payments.loading', 'Loading payments…')}
             contentHeader={

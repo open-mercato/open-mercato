@@ -452,7 +452,7 @@ export function SalesShipmentsSection({
       setForm(nextForm)
       setDialogOpen(true)
     },
-    [lines, shippingAddressSnapshot]
+    [lines]
   )
 
   const closeDialog = React.useCallback(() => {
@@ -661,19 +661,19 @@ export function SalesShipmentsSection({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm font-semibold">{t('sales.documents.shipments.title', 'Shipments')}</p>
-
       {empty ? (
-        <div className="space-y-3 text-center">
-          <TabEmptyState
-            title={t('sales.documents.shipments.empty.title', 'No shipments yet.')}
-            description=""
-          />
-          <Button variant="outline" onClick={handleOpenCreate} className="mx-auto">
-            <Plus className="mr-2 h-4 w-4" />
-            {t('sales.documents.shipments.add', 'Add shipment')}
-          </Button>
-        </div>
+        <TabEmptyState
+          title={t('sales.documents.shipments.empty.title', 'No shipments yet.')}
+          description={t(
+            'sales.documents.shipments.empty.description',
+            'Add shipments for this document to let the user track the order.'
+          )}
+          action={{
+            label: t('sales.documents.shipments.add', 'Add shipment'),
+            onClick: handleOpenCreate,
+            icon: <Plus className="h-4 w-4" aria-hidden />,
+          }}
+        />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {shipments.map((shipment) => {
@@ -787,90 +787,100 @@ export function SalesShipmentsSection({
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label htmlFor="shipment-number">
+                    {t('sales.documents.shipments.number', 'Shipment number')}
+                    <RequiredMark />
+                  </Label>
+                  <Input
+                    id="shipment-number"
+                    value={form.shipmentNumber}
+                    onChange={(event) => setForm((prev) => ({ ...prev, shipmentNumber: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shipment-carrier">
+                    {t('sales.documents.shipments.carrier', 'Carrier')}
+                  </Label>
+                  <Input
+                    id="shipment-carrier"
+                    value={form.carrierName}
+                    onChange={(event) => setForm((prev) => ({ ...prev, carrierName: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shipment-method">
+                    {t('sales.documents.shipments.shippingMethod', 'Shipping method')}
+                    <RequiredMark />
+                  </Label>
+                  <LookupSelect
+                    id="shipment-method"
+                    value={form.shippingMethodId}
+                    placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
+                    fetchOptions={loadShippingMethods}
+                    options={shippingMethodOptions}
+                    loading={shippingMethodLoading}
+                    onChange={(next) => {
+                      const option = next?.option ?? null
+                      setForm((prev) => ({
+                        ...prev,
+                        shippingMethodId: option?.id ?? null,
+                        shippingMethodLabel: option?.name ?? '',
+                      }))
+                      setShippingMethodOption(option)
+                      setFormErrors((prev) => ({ ...prev, shippingMethodId: undefined }))
+                    }}
+                    defaultOpen
+                  />
+                  {formErrors.shippingMethodId ? (
+                    <p className="text-xs text-destructive">{formErrors.shippingMethodId}</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="rounded-lg border p-3 space-y-3">
+                <p className="text-sm font-medium">{t('sales.documents.shipments.trackingGroup', 'Tracking information')}</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="shipment-shipped">
+                      {t('sales.documents.shipments.shippedAt', 'Shipped date')}
+                    </Label>
+                    <Input
+                      id="shipment-shipped"
+                      type="date"
+                      value={form.shippedAt}
+                      onChange={(event) => setForm((prev) => ({ ...prev, shippedAt: event.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="shipment-delivered">
+                      {t('sales.documents.shipments.deliveredAt', 'Delivered date')}
+                    </Label>
+                    <Input
+                      id="shipment-delivered"
+                      type="date"
+                      value={form.deliveredAt}
+                      onChange={(event) => setForm((prev) => ({ ...prev, deliveredAt: event.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="shipment-tracking">
+                    {t('sales.documents.shipments.trackingNumbers', 'Tracking numbers')}
+                  </Label>
+                  <Textarea
+                    id="shipment-tracking"
+                    rows={2}
+                    placeholder={t('sales.documents.shipments.trackingPlaceholder', 'One per line or comma separated')}
+                    value={form.trackingNumbers}
+                    onChange={(event) => setForm((prev) => ({ ...prev, trackingNumbers: event.target.value }))}
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label htmlFor="shipment-number">
-                  {t('sales.documents.shipments.number', 'Shipment number')}
-                  <RequiredMark />
-                </Label>
-                <Input
-                  id="shipment-number"
-                  value={form.shipmentNumber}
-                  onChange={(event) => setForm((prev) => ({ ...prev, shipmentNumber: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="shipment-method">
-                  {t('sales.documents.shipments.shippingMethod', 'Shipping method')}
-                  <RequiredMark />
-                </Label>
-                <LookupSelect
-                  id="shipment-method"
-                  value={form.shippingMethodId}
-                  placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
-                  fetchOptions={loadShippingMethods}
-                  options={shippingMethodOptions}
-                  loading={shippingMethodLoading}
-                  onChange={(next) => {
-                    const option = next?.option ?? null
-                    setForm((prev) => ({
-                      ...prev,
-                      shippingMethodId: option?.id ?? null,
-                      shippingMethodLabel: option?.name ?? '',
-                    }))
-                    setShippingMethodOption(option)
-                    setFormErrors((prev) => ({ ...prev, shippingMethodId: undefined }))
-                  }}
-                />
-                {formErrors.shippingMethodId ? (
-                  <p className="text-xs text-destructive">{formErrors.shippingMethodId}</p>
-                ) : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="shipment-carrier">
-                  {t('sales.documents.shipments.carrier', 'Carrier')}
-                </Label>
-                <Input
-                  id="shipment-carrier"
-                  value={form.carrierName}
-                  onChange={(event) => setForm((prev) => ({ ...prev, carrierName: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="shipment-shipped">
-                  {t('sales.documents.shipments.shippedAt', 'Shipped date')}
-                </Label>
-                <Input
-                  id="shipment-shipped"
-                  type="date"
-                  value={form.shippedAt}
-                  onChange={(event) => setForm((prev) => ({ ...prev, shippedAt: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="shipment-delivered">
-                  {t('sales.documents.shipments.deliveredAt', 'Delivered date')}
-                </Label>
-                <Input
-                  id="shipment-delivered"
-                  type="date"
-                  value={form.deliveredAt}
-                  onChange={(event) => setForm((prev) => ({ ...prev, deliveredAt: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="shipment-tracking">
-                  {t('sales.documents.shipments.trackingNumbers', 'Tracking numbers')}
-                </Label>
-                <Textarea
-                  id="shipment-tracking"
-                  rows={2}
-                  placeholder={t('sales.documents.shipments.trackingPlaceholder', 'One per line or comma separated')}
-                  value={form.trackingNumbers}
-                  onChange={(event) => setForm((prev) => ({ ...prev, trackingNumbers: event.target.value }))}
-                />
-              </div>
-              <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="shipment-notes">
                   {t('sales.documents.shipments.notes', 'Notes')}
                 </Label>

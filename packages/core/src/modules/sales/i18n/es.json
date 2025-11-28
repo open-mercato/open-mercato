@@ -702,7 +702,7 @@
           },
           "shipments": {
             "title": "Aún no hay envíos.",
-            "description": "Crea envíos para marcar artículos como cumplidos."
+            "description": "Agrega envíos a este documento para que el usuario pueda seguir el pedido."
           },
           "payments": {
             "title": "Aún no hay pagos.",
@@ -776,6 +776,10 @@
           "numberLabel": "Envío {{number}}",
           "fallbackNumber": "Envío {{id}}",
           "carrier": "Transportista",
+          "shippingMethod": "Método de envío",
+          "shippingMethodPlaceholder": "Selecciona método",
+          "errorShippingMethod": "Selecciona un método de envío.",
+          "saveShortcut": "Guardar (⌘/Ctrl+S)",
           "tracking": "Seguimiento",
           "trackingNumbers": "Números de seguimiento",
           "trackingPlaceholder": "Uno por línea o separados por comas",
@@ -798,7 +802,7 @@
           "create": "Crear envío",
           "empty": {
             "title": "No hay envíos.",
-            "description": "Crea tu primer envío para marcar líneas como cumplidas."
+            "description": "Agrega envíos a este documento para que el usuario pueda seguir el pedido."
           }
         },
         "payments": {

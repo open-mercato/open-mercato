@@ -5,12 +5,14 @@ import { DocumentNumberSettings } from '../../../components/DocumentNumberSettin
 import { OrderEditingSettings } from '../../../components/OrderEditingSettings'
 import { ShippingMethodsSettings } from '../../../components/ShippingMethodsSettings'
 import { PaymentMethodsSettings } from '../../../components/PaymentMethodsSettings'
+import { AdjustmentKindSettings } from '../../../components/AdjustmentKindSettings'
 
 export default function SalesConfigurationPage() {
   return (
     <Page>
       <PageBody className="space-y-8">
         <StatusSettings />
+        <AdjustmentKindSettings />
         <ShippingMethodsSettings />
         <PaymentMethodsSettings />
         <TaxRatesSettings />

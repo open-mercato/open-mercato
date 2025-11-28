@@ -105,7 +105,6 @@ export function SalesDocumentAdjustmentsSection({
   const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
-  const [search, setSearch] = React.useState('')
 
   const resourcePath = React.useMemo(
     () => (kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'),
@@ -183,18 +182,6 @@ export function SalesDocumentAdjustmentsSection({
   React.useEffect(() => {
     void loadAdjustments()
   }, [loadAdjustments])
-
-  const filteredRows = React.useMemo(() => {
-    if (!search.trim()) return rows
-    const term = search.toLowerCase()
-    return rows.filter(
-      (row) =>
-        (row.label ?? '').toLowerCase().includes(term) ||
-        (row.code ?? '').toLowerCase().includes(term) ||
-        (row.calculatorKey ?? '').toLowerCase().includes(term) ||
-        row.kind.toLowerCase().includes(term)
-    )
-  }, [rows, search])
 
   const resetForm = React.useCallback(() => {
     setForm(defaultFormState(currencyCode))
@@ -442,13 +429,10 @@ export function SalesDocumentAdjustmentsSection({
         />
       ) : (
         <DataTable<AdjustmentRow>
-          data={filteredRows}
+          data={rows}
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
-          searchValue={search}
-          onSearchChange={setSearch}
-          searchPlaceholder={t('sales.documents.adjustments.search', 'Search adjustments')}
           emptyState={
             <TabEmptyState
               title={t('sales.documents.empty.adjustments.title', 'No adjustments yet.')}
@@ -457,18 +441,6 @@ export function SalesDocumentAdjustmentsSection({
               onAction={handleOpenCreate}
             />
           }
-          actions={
-            <Button onClick={handleOpenCreate} size="sm">
-              {t('sales.documents.adjustments.add', 'Add adjustment')}
-            </Button>
-          }
-          refreshButton={{
-            label: t('sales.documents.adjustments.refresh', 'Refresh'),
-            onRefresh: () => {
-              void loadAdjustments()
-            },
-            isRefreshing: loading,
-          }}
         />
       )}
 

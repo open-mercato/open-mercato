@@ -701,7 +701,7 @@
           },
           "shipments": {
             "title": "Noch keine Sendungen.",
-            "description": "Erstelle Sendungen, um erfüllte Positionen zu markieren."
+            "description": "Füge diesem Dokument Sendungen hinzu, damit Benutzer die Bestellung nachverfolgen können."
           },
           "payments": {
             "title": "Noch keine Zahlungen.",
@@ -738,6 +738,10 @@
           "numberLabel": "Sendung {{number}}",
           "fallbackNumber": "Sendung {{id}}",
           "carrier": "Versanddienst",
+          "shippingMethod": "Versandart",
+          "shippingMethodPlaceholder": "Versandart auswählen",
+          "errorShippingMethod": "Wähle eine Versandart aus.",
+          "saveShortcut": "Speichern (⌘/Ctrl+S)",
           "tracking": "Tracking",
           "trackingNumbers": "Sendungsnummern",
           "trackingPlaceholder": "Eine pro Zeile oder durch Komma getrennt",
@@ -760,7 +764,7 @@
           "create": "Sendung erstellen",
           "empty": {
             "title": "Noch keine Sendungen.",
-            "description": "Erstelle deine erste Sendung, um erfüllte Positionen zu markieren."
+            "description": "Füge diesem Dokument Sendungen hinzu, damit Benutzer die Bestellung nachverfolgen können."
           }
         },
         "payments": {

@@ -268,7 +268,7 @@ export const statusDictionaryUpdateSchema = scoped
 
 const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'adjustment'])
 
-const adjustmentKindSchema = z.enum(['tax', 'discount', 'surcharge', 'shipping', 'custom'])
+const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0 }),

@@ -748,7 +748,7 @@
           },
           "shipments": {
             "title": "No shipments yet.",
-            "description": "Create shipments to mark items as fulfilled."
+            "description": "Add shipments for this document to let the user track the order."
           },
           "payments": {
             "title": "No payments yet.",
@@ -848,7 +848,7 @@
           "create": "Create shipment",
           "empty": {
             "title": "No shipments yet.",
-            "description": "Create your first shipment to mark items as fulfilled."
+            "description": "Add shipments for this document to let the user track the order."
           }
         },
         "payments": {

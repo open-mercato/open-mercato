@@ -2,7 +2,7 @@ import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesPaymentMethod, SalesShippingMethod, SalesTaxRate } from './data/entities'
-import { seedSalesStatusDictionaries } from './lib/dictionaries'
+import { seedSalesAdjustmentKinds, seedSalesStatusDictionaries } from './lib/dictionaries'
 
 const DEFAULT_TAX_RATES = [
   { code: 'vat-23', name: '23% VAT', rate: '23' },
@@ -195,6 +195,33 @@ const seedStatusesCommand: ModuleCli = {
   },
 }
 
+const seedAdjustmentKindsCommand: ModuleCli = {
+  command: 'seed-adjustment-kinds',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato sales seed-adjustment-kinds --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      await em.transactional(async (tem) => {
+        await seedSalesAdjustmentKinds(tem, { tenantId, organizationId })
+        await tem.flush()
+      })
+      console.log('⚙️  Sales adjustment kinds seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
 const seedShippingMethodsCommand: ModuleCli = {
   command: 'seed-shipping-methods',
   async run(rest) {
@@ -307,6 +334,7 @@ const seedPaymentMethodsCommand: ModuleCli = {
 export default [
   seedTaxRatesCommand,
   seedStatusesCommand,
+  seedAdjustmentKindsCommand,
   seedShippingMethodsCommand,
   seedPaymentMethodsCommand,
 ]

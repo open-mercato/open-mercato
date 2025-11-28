@@ -749,7 +749,7 @@
           },
           "shipments": {
             "title": "Brak wysyłek.",
-            "description": "Utwórz wysyłki, aby oznaczać zrealizowane pozycje."
+            "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie."
           },
           "payments": {
             "title": "Brak płatności.",
@@ -786,6 +786,10 @@
           "numberLabel": "Wysyłka {{number}}",
           "fallbackNumber": "Wysyłka {{id}}",
           "carrier": "Przewoźnik",
+          "shippingMethod": "Metoda dostawy",
+          "shippingMethodPlaceholder": "Wybierz metodę",
+          "errorShippingMethod": "Wybierz metodę dostawy.",
+          "saveShortcut": "Zapisz (⌘/Ctrl+S)",
           "tracking": "Śledzenie",
           "trackingNumbers": "Numery śledzenia",
           "trackingPlaceholder": "Po jednej na linię lub rozdzielone przecinkami",
@@ -808,7 +812,7 @@
           "create": "Utwórz wysyłkę",
           "empty": {
             "title": "Brak wysyłek.",
-            "description": "Utwórz pierwszą wysyłkę, aby oznaczyć zrealizowane pozycje."
+            "description": "Dodaj wysyłki do tego dokumentu, aby użytkownik mógł śledzić zamówienie."
           }
         },
         "payments": {
