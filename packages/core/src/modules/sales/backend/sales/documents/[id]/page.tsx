@@ -29,6 +29,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
+import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -3489,6 +3490,23 @@ export default function SalesDocumentDetailPage({
     [notesViewerLabel, record, setRecord, t, updateDocument],
   )
 
+  const appendShipmentComment = React.useCallback(
+    async (body: string) => {
+      if (!record) return
+      try {
+        await salesNotesAdapter.create?.({
+          entityId: record.id,
+          body,
+          appearanceIcon: 'lucide:truck',
+          appearanceColor: '#0ea5e9',
+        })
+      } catch (err) {
+        console.error('sales.shipments.comment', err)
+      }
+    },
+    [record, salesNotesAdapter],
+  )
+
   const commentEmptyState = React.useMemo(
     () => ({
       title: t('sales.documents.detail.empty.comments.title', 'No comments yet.'),
@@ -3517,7 +3535,10 @@ export default function SalesDocumentDetailPage({
       },
       shipments: {
         title: t('sales.documents.detail.empty.shipments.title', 'No shipments yet.'),
-        description: t('sales.documents.detail.empty.shipments.description', 'Shipments management is work in progress.'),
+        description: t(
+          'sales.documents.shipments.empty.description',
+          'Create shipments to track items fulfilled for this order.'
+        ),
       },
       payments: {
         title: t('sales.documents.detail.empty.payments.title', 'No payments yet.'),
@@ -3572,6 +3593,28 @@ export default function SalesDocumentDetailPage({
           documentId={record.id}
           kind={kind}
           currencyCode={record.currencyCode ?? null}
+          organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
+          tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+        />
+      )
+    }
+    if (activeTab === 'shipments') {
+      if (kind !== 'order') {
+        const placeholder = tabEmptyStates.shipments
+        return (
+          <TabEmptyState
+            title={placeholder.title}
+            description={placeholder.description}
+          />
+        )
+      }
+      return (
+        <SalesShipmentsSection
+          orderId={record.id}
+          currencyCode={record.currencyCode ?? null}
+          shippingAddressSnapshot={shippingSnapshot ?? null}
+          onActionChange={handleSectionActionChange}
+          onAddComment={appendShipmentComment}
         />
       )
     }

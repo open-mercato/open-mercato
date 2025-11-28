@@ -724,7 +724,7 @@
           },
           "shipments": {
             "title": "Brak wysyłek.",
-            "description": "Zarządzanie wysyłkami jest w przygotowaniu."
+            "description": "Utwórz wysyłki, aby oznaczać zrealizowane pozycje."
           },
           "payments": {
             "title": "Brak płatności.",
@@ -743,7 +743,48 @@
           "errorUnitPrice": "Cena jednostkowa musi być większa niż 0."
         },
         "shipments": {
-          "wip": "Zarządzanie wysyłkami jest w przygotowaniu."
+          "title": "Wysyłki",
+          "subtitle": "Śledź paczki i realizację dla tego zamówienia.",
+          "add": "Dodaj wysyłkę",
+          "addTitle": "Dodaj wysyłkę",
+          "editTitle": "Edytuj wysyłkę",
+          "created": "Wysyłka utworzona.",
+          "updated": "Wysyłka zaktualizowana.",
+          "deleted": "Wysyłka usunięta.",
+          "loading": "Ładowanie wysyłek…",
+          "errorLoad": "Nie udało się wczytać wysyłek.",
+          "errorSave": "Nie udało się zapisać wysyłki.",
+          "errorDelete": "Nie udało się usunąć wysyłki.",
+          "errorItems": "Dodaj przynajmniej jedną linię do wysyłki.",
+          "errorQuantity": "Ilość przekracza pozostałe dostępne sztuki.",
+          "number": "Numer wysyłki",
+          "numberLabel": "Wysyłka {{number}}",
+          "fallbackNumber": "Wysyłka {{id}}",
+          "carrier": "Przewoźnik",
+          "tracking": "Śledzenie",
+          "trackingNumbers": "Numery śledzenia",
+          "trackingPlaceholder": "Po jednej na linię lub rozdzielone przecinkami",
+          "shippedAt": "Data wysyłki",
+          "deliveredAt": "Data dostarczenia",
+          "notes": "Notatki",
+          "items": "Pozycje do wysyłki",
+          "noLines": "Brak dostępnych linii zamówienia.",
+          "available": "{{count}} dostępne",
+          "shippedOn": "Wysłano {{date}}",
+          "deliveredOn": "Dostarczono {{date}}",
+          "statusMissing": "Status oczekujący",
+          "addressSnapshot": "Zapisano migawkę adresu.",
+          "attachAddress": "Dołącz migawkę adresu",
+          "addComment": "Dodaj notatkę w komentarzach",
+          "comment": "Wysyłka {{number}} zaktualizowana: {{summary}}",
+          "confirmDelete": "Usunąć tę wysyłkę?",
+          "cancel": "Anuluj",
+          "save": "Zapisz zmiany",
+          "create": "Utwórz wysyłkę",
+          "empty": {
+            "title": "Brak wysyłek.",
+            "description": "Utwórz pierwszą wysyłkę, aby oznaczyć zrealizowane pozycje."
+          }
         },
         "payments": {
           "wip": "Płatności są w przygotowaniu."

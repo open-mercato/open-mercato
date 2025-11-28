@@ -19,7 +19,9 @@ import {
 } from '../../../../components/detail/ActivitiesSection'
 import {
   NotesSection,
-} from '../../../../components/detail/NotesSection'
+  type CommentSummary,
+  type SectionAction,
+} from '@open-mercato/ui/backend/detail'
 import {
   TagsSection,
   type TagOption,
@@ -36,17 +38,14 @@ import {
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
-import type {
-  ActivitySummary,
-  CommentSummary,
-  DealSummary,
-  TagSummary,
-  TodoLinkSummary,
-  SectionAction,
-} from '../../../../components/detail/types'
+import type { ActivitySummary, DealSummary, TagSummary, TodoLinkSummary } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 
 type PersonOverview = {
   person: {

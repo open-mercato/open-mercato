@@ -677,7 +677,7 @@
           },
           "shipments": {
             "title": "Aún no hay envíos.",
-            "description": "La gestión de envíos está en progreso."
+            "description": "Crea envíos para marcar artículos como cumplidos."
           },
           "payments": {
             "title": "Aún no hay pagos.",
@@ -733,7 +733,48 @@
           }
         },
         "shipments": {
-          "wip": "La gestión de envíos está en progreso."
+          "title": "Envíos",
+          "subtitle": "Realiza seguimiento de paquetes y cumplimiento para este pedido.",
+          "add": "Agregar envío",
+          "addTitle": "Agregar envío",
+          "editTitle": "Editar envío",
+          "created": "Envío creado.",
+          "updated": "Envío actualizado.",
+          "deleted": "Envío eliminado.",
+          "loading": "Cargando envíos…",
+          "errorLoad": "No se pudieron cargar los envíos.",
+          "errorSave": "No se pudo guardar el envío.",
+          "errorDelete": "No se pudo eliminar el envío.",
+          "errorItems": "Envía al menos una línea.",
+          "errorQuantity": "La cantidad supera lo disponible.",
+          "number": "Número de envío",
+          "numberLabel": "Envío {{number}}",
+          "fallbackNumber": "Envío {{id}}",
+          "carrier": "Transportista",
+          "tracking": "Seguimiento",
+          "trackingNumbers": "Números de seguimiento",
+          "trackingPlaceholder": "Uno por línea o separados por comas",
+          "shippedAt": "Fecha de envío",
+          "deliveredAt": "Fecha de entrega",
+          "notes": "Notas",
+          "items": "Líneas a enviar",
+          "noLines": "No hay líneas de pedido disponibles.",
+          "available": "{{count}} disponible(s)",
+          "shippedOn": "Enviado el {{date}}",
+          "deliveredOn": "Entregado el {{date}}",
+          "statusMissing": "Estado pendiente",
+          "addressSnapshot": "Instantánea de dirección guardada.",
+          "attachAddress": "Adjuntar instantánea de dirección",
+          "addComment": "Agregar nota a comentarios",
+          "comment": "Envío {{number}} actualizado: {{summary}}",
+          "confirmDelete": "¿Eliminar este envío?",
+          "cancel": "Cancelar",
+          "save": "Guardar cambios",
+          "create": "Crear envío",
+          "empty": {
+            "title": "No hay envíos.",
+            "description": "Crea tu primer envío para marcar líneas como cumplidas."
+          }
         },
         "payments": {
           "wip": "Los pagos están en desarrollo."
@@ -852,6 +893,14 @@
   "sales.audit.quotes.lines.upsert": "Actualizar línea de cotización",
   "sales.audit.quotes.lines.delete": "Eliminar línea de cotización",
   "sales.audit.quotes.update": "Actualizar cotización",
+  "sales.audit.shipments.create": "Crear envío",
+  "sales.audit.shipments.update": "Actualizar envío",
+  "sales.audit.shipments.delete": "Eliminar envío",
+  "sales.shipments.not_found": "Envío no encontrado",
+  "sales.shipments.items_required": "Agrega al menos una línea para enviar.",
+  "sales.shipments.line_missing": "Línea de pedido no encontrada.",
+  "sales.shipments.quantity_exceeded": "No se puede enviar más de la cantidad restante.",
+  "sales.shipments.invalid_order": "El envío no pertenece a este pedido.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

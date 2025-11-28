@@ -723,7 +723,7 @@
           },
           "shipments": {
             "title": "No shipments yet.",
-            "description": "Shipments management is work in progress."
+            "description": "Create shipments to mark items as fulfilled."
           },
           "payments": {
             "title": "No payments yet.",
@@ -779,7 +779,48 @@
           }
         },
         "shipments": {
-          "wip": "Shipments management is work in progress."
+          "title": "Shipments",
+          "subtitle": "Track packages and fulfillment for this order.",
+          "add": "Add shipment",
+          "addTitle": "Add shipment",
+          "editTitle": "Edit shipment",
+          "created": "Shipment created.",
+          "updated": "Shipment updated.",
+          "deleted": "Shipment deleted.",
+          "loading": "Loading shipments…",
+          "errorLoad": "Failed to load shipments.",
+          "errorSave": "Failed to save shipment.",
+          "errorDelete": "Failed to delete shipment.",
+          "errorItems": "Ship at least one line item.",
+          "errorQuantity": "Quantity exceeds remaining available.",
+          "number": "Shipment number",
+          "numberLabel": "Shipment {{number}}",
+          "fallbackNumber": "Shipment {{id}}",
+          "carrier": "Carrier",
+          "tracking": "Tracking",
+          "trackingNumbers": "Tracking numbers",
+          "trackingPlaceholder": "One per line or comma separated",
+          "shippedAt": "Shipped date",
+          "deliveredAt": "Delivered date",
+          "notes": "Notes",
+          "items": "Items to ship",
+          "noLines": "No order lines available.",
+          "available": "{{count}} available",
+          "shippedOn": "Shipped on {{date}}",
+          "deliveredOn": "Delivered on {{date}}",
+          "statusMissing": "Status pending",
+          "addressSnapshot": "Address snapshot saved.",
+          "attachAddress": "Attach address snapshot",
+          "addComment": "Add note to comments",
+          "comment": "Shipment {{number}} updated: {{summary}}",
+          "confirmDelete": "Delete this shipment?",
+          "cancel": "Cancel",
+          "save": "Save changes",
+          "create": "Create shipment",
+          "empty": {
+            "title": "No shipments yet.",
+            "description": "Create your first shipment to mark items as fulfilled."
+          }
         },
         "payments": {
           "wip": "Payments are work in progress."
@@ -914,6 +955,14 @@
   "sales.audit.quotes.update": "Update sales quote",
   "sales.audit.quotes.lines.upsert": "Update quote line",
   "sales.audit.quotes.lines.delete": "Delete quote line",
+  "sales.audit.shipments.create": "Create shipment",
+  "sales.audit.shipments.update": "Update shipment",
+  "sales.audit.shipments.delete": "Delete shipment",
+  "sales.shipments.not_found": "Shipment not found",
+  "sales.shipments.items_required": "Add at least one line to ship.",
+  "sales.shipments.line_missing": "Order line not found.",
+  "sales.shipments.quantity_exceeded": "Cannot ship more than the remaining quantity.",
+  "sales.shipments.invalid_order": "Shipment does not belong to this order.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

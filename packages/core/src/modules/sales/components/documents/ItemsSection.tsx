@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { DollarSign, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 
@@ -74,6 +74,8 @@ type SalesDocumentItemsSectionProps = {
   documentId: string
   kind: 'order' | 'quote'
   currencyCode: string | null | undefined
+  organizationId?: string | null
+  tenantId?: string | null
 }
 
 const defaultForm = (currencyCode?: string | null): LineFormState => ({
@@ -103,9 +105,11 @@ function formatMoney(value: number, currency: string | null | undefined): string
   return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(value)
 }
 
-export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: SalesDocumentItemsSectionProps) {
+export function SalesDocumentItemsSection({ documentId, kind, currencyCode, organizationId: orgFromProps, tenantId: tenantFromProps }: SalesDocumentItemsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
+  const resolvedTenantId = tenantFromProps ?? tenantId ?? null
   const [items, setItems] = React.useState<ItemRecord[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -418,9 +422,21 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     if (!Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
       nextErrors.unitPrice = t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.')
     }
+    const resolvedCurrency = form.currencyCode ?? currencyCode ?? priceOptions.find((price) => price.currencyCode)?.currencyCode ?? null
+    if (!resolvedCurrency) {
+      nextErrors.currencyCode = t('sales.documents.items.errorCurrency', 'Currency is required.')
+    }
+    if (!resolvedOrganizationId || !resolvedTenantId) {
+      nextErrors.metadata = t('sales.documents.items.errorScope', 'Organization and tenant are required.')
+    }
     setFormErrors(nextErrors)
+    if (nextErrors.metadata) {
+      setSubmitError(nextErrors.metadata)
+    } else if (nextErrors.currencyCode) {
+      setSubmitError(nextErrors.currencyCode)
+    }
     return Object.keys(nextErrors).length === 0
-  }, [form.productId, form.variantId, form.quantity, form.unitPrice, t])
+  }, [currencyCode, form.currencyCode, form.productId, form.quantity, form.unitPrice, form.variantId, priceOptions, resolvedOrganizationId, resolvedTenantId, t])
 
   const handleSubmit = React.useCallback(async () => {
     if (saving) return
@@ -434,8 +450,9 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         variantOption?.title ||
         productOption?.title ||
         undefined
-      const scopedOrganizationId = organizationId ?? undefined
-      const scopedTenantId = tenantId ?? undefined
+      const resolvedCurrency = form.currencyCode ?? currencyCode ?? priceOptions.find((price) => price.currencyCode)?.currencyCode ?? null
+      const scopedOrganizationId = resolvedOrganizationId ?? undefined
+      const scopedTenantId = resolvedTenantId ?? undefined
       const payload: Record<string, unknown> = {
         [documentKey]: documentId,
         organizationId: scopedOrganizationId,
@@ -443,7 +460,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         productId: form.productId,
         productVariantId: form.variantId,
         quantity,
-        currencyCode: form.currencyCode ?? currencyCode,
+        currencyCode: resolvedCurrency ?? undefined,
         priceId: form.priceId,
         priceMode: form.priceMode,
         taxRate: form.taxRate ?? undefined,
@@ -515,8 +532,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     form.variantId,
     form.taxRate,
     form.quantity,
-    organizationId,
-    tenantId,
+    resolvedOrganizationId,
+    resolvedTenantId,
     loadItems,
     productOption,
     resetForm,
@@ -581,8 +598,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         await deleteCrud(resourcePath, {
           id: line.id,
           [documentKey]: documentId,
-          organizationId: organizationId ?? undefined,
-          tenantId: tenantId ?? undefined,
+          organizationId: resolvedOrganizationId ?? undefined,
+          tenantId: resolvedTenantId ?? undefined,
         }, {
           successMessage: t('sales.documents.items.deleted', 'Line removed.'),
           errorMessage: t('sales.documents.items.errorDelete', 'Failed to delete line.'),
@@ -592,7 +609,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         console.error('sales.document.items.delete', err)
       }
     },
-    [documentId, documentKey, loadItems, organizationId, resourcePath, t, tenantId],
+    [documentId, documentKey, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
   )
 
   const renderImage = (record: ItemRecord) => {
@@ -863,13 +880,15 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                       .map<LookupSelectItem>((price) => ({
                         id: price.id,
                         title: price.label,
-                        subtitle:
+                        subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
+                        description:
                           price.displayMode === 'including-tax'
                             ? t('sales.documents.items.priceGross', 'Gross')
                             : price.displayMode === 'excluding-tax'
                               ? t('sales.documents.items.priceNet', 'Net')
                               : undefined,
-                        rightLabel: price.priceKindTitle ?? price.priceKindCode ?? undefined,
+                        rightLabel: price.currencyCode ?? undefined,
+                        icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
                       }))
                   }}
                   minQuery={0}
@@ -878,6 +897,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                   disabled={!form.productId}
                 />
                 {formErrors.priceId ? <p className="text-xs text-destructive">{formErrors.priceId}</p> : null}
+                {formErrors.currencyCode ? <p className="text-xs text-destructive">{formErrors.currencyCode}</p> : null}
               </div>
               <div className="space-y-2">
                 <Label>{t('sales.documents.items.unitPrice', 'Unit price')}</Label>
