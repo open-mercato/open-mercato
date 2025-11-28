@@ -30,6 +30,7 @@ import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/component
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
 import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/components/documents/PaymentsSection'
+import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sales/components/documents/AdjustmentsSection'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -3549,7 +3550,10 @@ export default function SalesDocumentDetailPage({
       },
       adjustments: {
         title: t('sales.documents.detail.empty.adjustments.title', 'No adjustments yet.'),
-        description: t('sales.documents.detail.empty.adjustments.description', 'Adjustments are work in progress.'),
+        description: t(
+          'sales.documents.detail.empty.adjustments.description',
+          'Add discounts, surcharges, taxes, or shipping to refine totals.'
+        ),
       },
     }),
     [t]
@@ -3623,6 +3627,18 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           onActionChange={handleSectionActionChange}
           onAddComment={appendShipmentComment}
+        />
+      )
+    }
+    if (activeTab === 'adjustments') {
+      return (
+        <SalesDocumentAdjustmentsSection
+          documentId={record.id}
+          kind={kind}
+          currencyCode={record.currencyCode ?? null}
+          organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
+          tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+          onActionChange={handleSectionActionChange}
         />
       )
     }

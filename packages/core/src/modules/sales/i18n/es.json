@@ -708,7 +708,7 @@
           },
           "adjustments": {
             "title": "Aún no hay ajustes.",
-            "description": "Los ajustes están en desarrollo."
+            "description": "Agrega descuentos, tarifas o impuestos a este documento."
           }
         },
         "items": {
@@ -803,7 +803,43 @@
           "wip": "Los pagos están en desarrollo."
         },
         "adjustments": {
-          "wip": "Los ajustes están en desarrollo."
+          "title": "Ajustes",
+          "subtitle": "Agrega descuentos, recargos, impuestos o tarifas de envío.",
+          "add": "Agregar ajuste",
+          "addTitle": "Agregar ajuste",
+          "editTitle": "Editar ajuste",
+          "loading": "Cargando ajustes…",
+          "empty": "Aún no hay ajustes.",
+          "search": "Buscar ajustes",
+          "errorLoad": "No se pudieron cargar los ajustes.",
+          "errorSave": "No se pudo guardar el ajuste.",
+          "errorDelete": "No se pudo eliminar el ajuste.",
+          "errorAmount": "Proporciona al menos un monto.",
+          "errorCurrency": "La moneda es obligatoria.",
+          "errorScope": "Se requieren organización y arrendatario.",
+          "created": "Ajuste agregado.",
+          "updated": "Ajuste actualizado.",
+          "deleted": "Ajuste eliminado.",
+          "label": "Etiqueta",
+          "labelPlaceholder": "p. ej. Tarifa de envío",
+          "code": "Código",
+          "codePlaceholder": "PROMO10",
+          "kindLabel": "Tipo",
+          "calculatorKey": "Clave de cálculo",
+          "rate": "Tasa",
+          "amountNet": "Monto neto",
+          "amountGross": "Monto bruto",
+          "currency": "Moneda",
+          "currencyPlaceholder": "p. ej. USD",
+          "position": "Posición",
+          "untitled": "Sin título",
+          "kindLabels": {
+            "discount": "Descuento",
+            "tax": "Impuesto",
+            "shipping": "Envío",
+            "surcharge": "Recargo",
+            "custom": "Personalizado"
+          }
         },
         "shipping": "Dirección de envío",
         "billing": "Dirección de facturación",
@@ -911,11 +947,15 @@
   "sales.audit.orders.lines.upsert": "Actualizar línea de pedido",
   "sales.audit.orders.lines.delete": "Eliminar línea de pedido",
   "sales.audit.orders.update": "Actualizar pedido de ventas",
+  "sales.audit.orders.adjustments.upsert": "Actualizar ajuste de pedido",
+  "sales.audit.orders.adjustments.delete": "Eliminar ajuste de pedido",
   "sales.audit.quotes.create": "Crear cotización",
   "sales.audit.quotes.delete": "Eliminar cotización",
   "sales.audit.quotes.lines.upsert": "Actualizar línea de cotización",
   "sales.audit.quotes.lines.delete": "Eliminar línea de cotización",
   "sales.audit.quotes.update": "Actualizar cotización",
+  "sales.audit.quotes.adjustments.upsert": "Actualizar ajuste de cotización",
+  "sales.audit.quotes.adjustments.delete": "Eliminar ajuste de cotización",
   "sales.audit.shipments.create": "Crear envío",
   "sales.audit.shipments.update": "Actualizar envío",
   "sales.audit.shipments.delete": "Eliminar envío",

@@ -5,7 +5,7 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -665,10 +665,10 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
         </div>
       ) : null}
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner className="h-4 w-4 animate-spin" />
-          {t('sales.documents.items.loading', 'Loading items…')}
-        </div>
+        <LoadingMessage
+          label={t('sales.documents.items.loading', 'Loading items…')}
+          className="border-0 bg-transparent p-0 py-8 justify-center"
+        />
       ) : error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : items.length === 0 ? (

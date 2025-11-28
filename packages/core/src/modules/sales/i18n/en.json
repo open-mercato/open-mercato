@@ -754,7 +754,7 @@
           },
           "adjustments": {
             "title": "No adjustments yet.",
-            "description": "Adjustments are work in progress."
+            "description": "Add discounts, fees, or taxes to this document."
           }
         },
         "items": {
@@ -849,7 +849,44 @@
           "wip": "Payments are work in progress."
         },
         "adjustments": {
-          "wip": "Adjustments are work in progress."
+          "title": "Adjustments",
+          "subtitle": "Add discounts, surcharges, taxes, or shipping fees.",
+          "add": "Add adjustment",
+          "addTitle": "Add adjustment",
+          "editTitle": "Edit adjustment",
+          "loading": "Loading adjustments…",
+          "empty": "No adjustments yet.",
+          "search": "Search adjustments",
+          "errorLoad": "Failed to load adjustments.",
+          "errorSave": "Failed to save adjustment.",
+          "errorDelete": "Failed to delete adjustment.",
+          "errorAmount": "Provide at least one amount.",
+          "errorCurrency": "Currency is required.",
+          "errorScope": "Organization and tenant are required.",
+          "created": "Adjustment added.",
+          "updated": "Adjustment updated.",
+          "deleted": "Adjustment removed.",
+          "label": "Label",
+          "labelPlaceholder": "e.g. Shipping fee",
+          "code": "Code",
+          "codePlaceholder": "PROMO10",
+          "kind": "Kind",
+          "calculatorKey": "Calculator key",
+          "rate": "Rate",
+          "amountNet": "Net amount",
+          "amountGross": "Gross amount",
+          "currency": "Currency",
+          "currencyPlaceholder": "e.g. USD",
+          "position": "Position",
+          "untitled": "Untitled",
+          "kindLabel": "Kind",
+          "kindLabels": {
+            "discount": "Discount",
+            "tax": "Tax",
+            "shipping": "Shipping",
+            "surcharge": "Surcharge",
+            "custom": "Custom"
+          }
         },
         "shipping": "Shipping address",
         "billing": "Billing address",
@@ -973,11 +1010,15 @@
   "sales.audit.orders.update": "Update sales order",
   "sales.audit.orders.lines.upsert": "Update order line",
   "sales.audit.orders.lines.delete": "Delete order line",
+  "sales.audit.orders.adjustments.upsert": "Update order adjustment",
+  "sales.audit.orders.adjustments.delete": "Delete order adjustment",
   "sales.audit.quotes.create": "Create sales quote",
   "sales.audit.quotes.delete": "Delete sales quote",
   "sales.audit.quotes.update": "Update sales quote",
   "sales.audit.quotes.lines.upsert": "Update quote line",
   "sales.audit.quotes.lines.delete": "Delete quote line",
+  "sales.audit.quotes.adjustments.upsert": "Update quote adjustment",
+  "sales.audit.quotes.adjustments.delete": "Delete quote adjustment",
   "sales.audit.shipments.create": "Create shipment",
   "sales.audit.shipments.update": "Update shipment",
   "sales.audit.shipments.delete": "Delete shipment",

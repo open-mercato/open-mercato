@@ -707,7 +707,7 @@
           },
           "adjustments": {
             "title": "Noch keine Anpassungen.",
-            "description": "Anpassungen befinden sich in Arbeit."
+            "description": "Füge Rabatte, Gebühren oder Steuern zu diesem Dokument hinzu."
           }
         },
         "items": {
@@ -765,7 +765,43 @@
           "wip": "Zahlungen befinden sich in Arbeit."
         },
         "adjustments": {
-          "wip": "Anpassungen befinden sich in Arbeit."
+          "title": "Anpassungen",
+          "subtitle": "Rabatte, Zuschläge, Steuern oder Versandgebühren hinzufügen.",
+          "add": "Anpassung hinzufügen",
+          "addTitle": "Anpassung hinzufügen",
+          "editTitle": "Anpassung bearbeiten",
+          "loading": "Anpassungen werden geladen…",
+          "empty": "Noch keine Anpassungen.",
+          "search": "Anpassungen suchen",
+          "errorLoad": "Anpassungen konnten nicht geladen werden.",
+          "errorSave": "Anpassung konnte nicht gespeichert werden.",
+          "errorDelete": "Anpassung konnte nicht gelöscht werden.",
+          "errorAmount": "Gib mindestens einen Betrag an.",
+          "errorCurrency": "Währung ist erforderlich.",
+          "errorScope": "Organisation und Mandant sind erforderlich.",
+          "created": "Anpassung hinzugefügt.",
+          "updated": "Anpassung aktualisiert.",
+          "deleted": "Anpassung entfernt.",
+          "label": "Label",
+          "labelPlaceholder": "z. B. Versandkosten",
+          "code": "Code",
+          "codePlaceholder": "PROMO10",
+          "kindLabel": "Typ",
+          "calculatorKey": "Kalkulator-Schlüssel",
+          "rate": "Rate",
+          "amountNet": "Nettobetrag",
+          "amountGross": "Bruttobetrag",
+          "currency": "Währung",
+          "currencyPlaceholder": "z. B. USD",
+          "position": "Position",
+          "untitled": "Ohne Titel",
+          "kindLabels": {
+            "discount": "Rabatt",
+            "tax": "Steuer",
+            "shipping": "Versand",
+            "surcharge": "Zuschlag",
+            "custom": "Benutzerdefiniert"
+          }
         },
         "shipping": "Lieferadresse",
         "billing": "Rechnungsadresse",
@@ -871,9 +907,13 @@
   "sales.audit.orders.create": "Bestellung erstellen",
   "sales.audit.orders.delete": "Bestellung löschen",
   "sales.audit.orders.update": "Bestellung aktualisieren",
+  "sales.audit.orders.adjustments.upsert": "Auftragsanpassung aktualisieren",
+  "sales.audit.orders.adjustments.delete": "Auftragsanpassung löschen",
   "sales.audit.quotes.create": "Angebot erstellen",
   "sales.audit.quotes.delete": "Angebot löschen",
   "sales.audit.quotes.update": "Angebot aktualisieren",
+  "sales.audit.quotes.adjustments.upsert": "Angebotsanpassung aktualisieren",
+  "sales.audit.quotes.adjustments.delete": "Angebotsanpassung löschen",
   "sales.audit.shipments.create": "Sendung erstellen",
   "sales.audit.shipments.update": "Sendung aktualisieren",
   "sales.audit.shipments.delete": "Sendung löschen",

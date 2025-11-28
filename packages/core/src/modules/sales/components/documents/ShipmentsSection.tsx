@@ -15,11 +15,14 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+
+const RequiredMark = () => <span className="ml-1 text-destructive">*</span>
 
 type ShipmentItem = {
   id: string
@@ -56,12 +59,13 @@ type OrderLine = {
 
 type FormState = {
   shipmentNumber: string
+  shippingMethodId: string | null
+  shippingMethodLabel: string
   carrierName: string
   trackingNumbers: string
   shippedAt: string
   deliveredAt: string
   notes: string
-  attachAddress: boolean
   postComment: boolean
   items: Record<string, string>
 }
@@ -76,19 +80,20 @@ type SalesShipmentsSectionProps = {
   onAddComment?: (body: string) => Promise<void>
 }
 
-const defaultFormState = (lines: OrderLine[], attachAddress: boolean): FormState => {
+const defaultFormState = (lines: OrderLine[]): FormState => {
   const items: Record<string, string> = {}
   lines.forEach((line) => {
     items[line.id] = ''
   })
   return {
     shipmentNumber: '',
+    shippingMethodId: null,
+    shippingMethodLabel: '',
     carrierName: '',
     trackingNumbers: '',
     shippedAt: '',
     deliveredAt: '',
     notes: '',
-    attachAddress,
     postComment: true,
     items,
   }
@@ -117,11 +122,14 @@ export function SalesShipmentsSection({
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const [shipments, setShipments] = React.useState<ShipmentRow[]>([])
   const [lines, setLines] = React.useState<OrderLine[]>([])
+  const [shippingMethodOptions, setShippingMethodOptions] = React.useState<Array<LookupSelectItem & { option: { id: string; name: string; code: string | null } }>>([])
+  const [shippingMethodLoading, setShippingMethodLoading] = React.useState(false)
+  const [shippingMethodOption, setShippingMethodOption] = React.useState<{ id: string; name: string; code: string | null } | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
-  const [form, setForm] = React.useState<FormState>(() => defaultFormState([], Boolean(shippingAddressSnapshot)))
+  const [form, setForm] = React.useState<FormState>(() => defaultFormState([]))
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
   const [submitError, setSubmitError] = React.useState<string | null>(null)
@@ -330,13 +338,52 @@ export function SalesShipmentsSection({
     }
   }, [orderId, t])
 
+  const loadShippingMethods = React.useCallback(
+    async (search?: string): Promise<LookupSelectItem[]> => {
+      setShippingMethodLoading(true)
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '25' })
+        if (search && search.trim().length) params.set('search', search.trim())
+        const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/sales/shipping-methods?${params.toString()}`,
+          undefined,
+          { fallback: { items: [] } }
+        )
+        const items = Array.isArray(response.result?.items) ? response.result?.items : []
+        const options = items
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            if (!id) return null
+            const name = typeof item.name === 'string' ? item.name : id
+            const code = typeof (item as any).code === 'string' ? (item as any).code : null
+            return {
+              id,
+              title: name,
+              subtitle: code ?? undefined,
+              option: { id, name, code },
+            } as LookupSelectItem & { option: { id: string; name: string; code: string | null } }
+          })
+          .filter((entry): entry is LookupSelectItem & { option: { id: string; name: string; code: string | null } } => Boolean(entry))
+        setShippingMethodOptions(options)
+        return options
+      } catch (err) {
+        console.error('sales.shipments.shipping-methods.load', err)
+        return []
+      } finally {
+        setShippingMethodLoading(false)
+      }
+    },
+    []
+  )
+
   React.useEffect(() => {
     void loadLines()
     void loadShipments()
-  }, [loadLines, loadShipments])
+    void loadShippingMethods()
+  }, [loadLines, loadShipments, loadShippingMethods])
 
   const resetForm = React.useCallback(() => {
-    setForm(defaultFormState(lines, Boolean(shippingAddressSnapshot)))
+    setForm(defaultFormState(lines))
     setFormErrors({})
     setSubmitError(null)
     setEditingId(null)
@@ -359,21 +406,20 @@ export function SalesShipmentsSection({
 
   const handleEdit = React.useCallback(
     (shipment: ShipmentRow) => {
-      const nextForm = defaultFormState(lines, Boolean(shippingAddressSnapshot))
+      const nextForm = defaultFormState(lines)
       nextForm.shipmentNumber = shipment.shipmentNumber ?? ''
       nextForm.carrierName = shipment.carrierName ?? ''
       nextForm.trackingNumbers = shipment.trackingNumbers.join('\n')
       nextForm.shippedAt = shipment.shippedAt ? shipment.shippedAt.slice(0, 10) : ''
       nextForm.deliveredAt = shipment.deliveredAt ? shipment.deliveredAt.slice(0, 10) : ''
       nextForm.notes = shipment.notes ?? ''
+      nextForm.shippingMethodId = shipment.shippingMethodId ?? null
+      nextForm.shippingMethodLabel = shipment.shippingMethodCode ?? ''
       nextForm.items = lines.reduce<Record<string, string>>((acc, line) => {
         const found = shipment.items.find((item) => item.orderLineId === line.id)
         acc[line.id] = found ? found.quantity.toString() : ''
         return acc
       }, {})
-      nextForm.attachAddress = Boolean(
-        shipment.metadata && ADDRESS_SNAPSHOT_KEY in shipment.metadata
-      )
       setEditingId(shipment.id)
       setForm(nextForm)
       setDialogOpen(true)
@@ -396,7 +442,10 @@ export function SalesShipmentsSection({
         setSubmitError(t('sales.documents.shipments.errorItems', 'Ship at least one line item.'))
         throw new Error('validation_failed')
       }
-      const errors: Record<string, string> = {}
+        const errors: Record<string, string> = {}
+      if (!form.shippingMethodId) {
+        errors.shippingMethodId = t('sales.documents.shipments.errorShippingMethod', 'Select a shipping method.')
+      }
       entries.forEach((entry) => {
         const available = computeAvailable(entry.lineId, excludeShipmentId)
         if (entry.quantity > available + 1e-6) {
@@ -425,6 +474,7 @@ export function SalesShipmentsSection({
           organizationId,
           tenantId,
           shipmentNumber: form.shipmentNumber?.trim() || undefined,
+          shippingMethodId: form.shippingMethodId ?? undefined,
           carrierName: form.carrierName?.trim() || undefined,
           trackingNumbers: parseTrackingNumbers(form.trackingNumbers ?? ''),
           shippedAt: form.shippedAt ? new Date(form.shippedAt) : undefined,
@@ -435,7 +485,7 @@ export function SalesShipmentsSection({
             quantity: item.quantity,
           })),
         }
-        if (form.attachAddress && shippingAddressSnapshot) {
+        if (shippingAddressSnapshot) {
           payload.shipmentAddressSnapshot = shippingAddressSnapshot
         }
         const action = editingId ? updateCrud : createCrud
@@ -567,7 +617,12 @@ export function SalesShipmentsSection({
   )
 
   if (loading) {
-    return <LoadingMessage label={t('sales.documents.shipments.loading', 'Loading shipments…')} />
+    return (
+      <LoadingMessage
+        label={t('sales.documents.shipments.loading', 'Loading shipments…')}
+        className="border-0 bg-transparent p-0 py-8 justify-center"
+      />
+    )
   }
 
   if (error) {
