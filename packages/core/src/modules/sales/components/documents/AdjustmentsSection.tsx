@@ -3,7 +3,6 @@
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'

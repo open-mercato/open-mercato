@@ -80,10 +80,6 @@ type SalesShipmentsSectionProps = {
 }
 
 const defaultFormState = (lines: OrderLine[]): ShipmentFormValues => {
-  const items: Record<string, string> = {}
-  lines.forEach((line) => {
-    items[line.id] = ''
-  })
   return {
     shipmentNumber: '',
     shippingMethodId: null,
@@ -93,7 +89,7 @@ const defaultFormState = (lines: OrderLine[]): ShipmentFormValues => {
     deliveredAt: '',
     notes: '',
     postComment: true,
-    items,
+    items: [],
   }
 }
 
