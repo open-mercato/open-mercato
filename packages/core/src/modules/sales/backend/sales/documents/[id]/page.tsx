@@ -18,7 +18,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Building2, CreditCard, Mail, Pencil, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
+import { Building2, CreditCard, Mail, Pencil, Plus, Store, Trash2, Truck, UserRound, Wand2, X } from 'lucide-react'
 import Link from 'next/link'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -37,6 +37,9 @@ import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDict
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
+import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/core/modules/customers/components/detail/NotesSection'
+import type { CommentSummary, SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
+import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 
 function CurrencyInlineEditor({
   label,
@@ -842,6 +845,21 @@ const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefin
     acc[normalized] = value
     return acc
   }, {})
+}
+
+const SALES_NOTES_KEY = 'salesNotes'
+
+const readSalesNotes = (metadata: Record<string, unknown> | null | undefined): CommentSummary[] => {
+  if (!metadata || typeof metadata !== 'object') return []
+  const raw = (metadata as Record<string, unknown>)[SALES_NOTES_KEY]
+  if (!Array.isArray(raw)) return []
+  return raw.map(mapCommentSummary)
+}
+
+const applySalesNotes = (metadata: Record<string, unknown> | null | undefined, notes: CommentSummary[]): Record<string, unknown> => {
+  const next = { ...(metadata ?? {}) }
+  ;(next as Record<string, unknown>)[SALES_NOTES_KEY] = notes
+  return next
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -1788,6 +1806,7 @@ export default function SalesDocumentDetailPage({
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<'comments' | 'addresses' | 'items' | 'shipments' | 'payments' | 'adjustments'>('comments')
+  const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const detailSectionRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
@@ -3407,22 +3426,86 @@ export default function SalesDocumentDetailPage({
     { id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') },
   ]
 
+  const notesViewerLabel = React.useMemo(() => t('customers.people.detail.notes.you', 'You'), [t])
+
+  const salesNotesAdapter = React.useMemo<NotesDataAdapter>(
+    () => ({
+      list: async ({ entityId }) => {
+        if (!record) return []
+        if (entityId && record.id !== entityId) return []
+        return readSalesNotes(record.metadata)
+      },
+      create: async ({ entityId, body, appearanceIcon, appearanceColor }) => {
+        if (!record || record.id !== entityId) {
+          throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
+        }
+        const existingNotes = readSalesNotes(record.metadata)
+        const newNote: CommentSummary = {
+          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : generateTempId(),
+          body,
+          createdAt: new Date().toISOString(),
+          authorName: notesViewerLabel,
+          authorEmail: null,
+          authorUserId: null,
+          appearanceIcon: appearanceIcon ?? null,
+          appearanceColor: appearanceColor ?? null,
+        }
+        const nextMetadata = applySalesNotes(record.metadata ?? {}, [newNote, ...existingNotes])
+        const call = await updateDocument({ metadata: nextMetadata })
+        const savedMetadata = call.result?.metadata ?? nextMetadata
+        setRecord((prev) => (prev ? { ...prev, metadata: savedMetadata } : prev))
+        return {
+          id: newNote.id,
+          authorName: newNote.authorName,
+          authorEmail: newNote.authorEmail,
+          authorUserId: newNote.authorUserId,
+        }
+      },
+      update: async ({ id, patch }) => {
+        if (!record) throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
+        const existingNotes = readSalesNotes(record.metadata)
+        const nextNotes = existingNotes.map((note) => {
+          if (note.id !== id) return note
+          const next = { ...note }
+          if (patch.body !== undefined) next.body = patch.body ?? ''
+          if (patch.appearanceIcon !== undefined) next.appearanceIcon = patch.appearanceIcon ?? null
+          if (patch.appearanceColor !== undefined) next.appearanceColor = patch.appearanceColor ?? null
+          return next
+        })
+        const nextMetadata = applySalesNotes(record.metadata ?? {}, nextNotes)
+        const call = await updateDocument({ metadata: nextMetadata })
+        const savedMetadata = call.result?.metadata ?? nextMetadata
+        setRecord((prev) => (prev ? { ...prev, metadata: savedMetadata } : prev))
+      },
+      delete: async ({ id }) => {
+        if (!record) throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
+        const remaining = readSalesNotes(record.metadata).filter((note) => note.id !== id)
+        const nextMetadata = applySalesNotes(record.metadata ?? {}, remaining)
+        const call = await updateDocument({ metadata: nextMetadata })
+        const savedMetadata = call.result?.metadata ?? nextMetadata
+        setRecord((prev) => (prev ? { ...prev, metadata: savedMetadata } : prev))
+      },
+    }),
+    [notesViewerLabel, record, setRecord, t, updateDocument],
+  )
+
   const commentEmptyState = React.useMemo(
     () => ({
       title: t('sales.documents.detail.empty.comments.title', 'No comments yet.'),
       description: t('sales.documents.detail.empty.comments.description', 'Notes from teammates will appear here.'),
-      action: {
-        label: t('sales.documents.detail.comments.add', 'Add comment'),
-        onClick: () => {
-          const target = detailSectionRef.current
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }
-        },
-      },
+      actionLabel: t('sales.documents.detail.comments.add', 'Add comment'),
     }),
     [t]
   )
+
+  const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
+    setSectionAction(action)
+  }, [])
+
+  const handleSectionAction = React.useCallback(() => {
+    if (!sectionAction || sectionAction.disabled) return
+    sectionAction.onClick()
+  }, [sectionAction])
 
   const tabEmptyStates = React.useMemo<
     Record<'items' | 'shipments' | 'payments' | 'adjustments', { title: string; description?: string }>
@@ -3451,10 +3534,20 @@ export default function SalesDocumentDetailPage({
   const renderTabContent = () => {
     if (activeTab === 'comments') {
       return (
-        <TabEmptyState
-          title={commentEmptyState.title}
-          description={commentEmptyState.description}
-          action={commentEmptyState.action}
+        <NotesSection
+          entityId={record.id}
+          emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+          viewerUserId={null}
+          viewerName={notesViewerLabel}
+          addActionLabel={commentEmptyState.actionLabel}
+          emptyState={{
+            title: commentEmptyState.title,
+            description: commentEmptyState.description,
+            actionLabel: commentEmptyState.actionLabel,
+          }}
+          translator={t}
+          dataAdapter={salesNotesAdapter}
+          onActionChange={handleSectionActionChange}
         />
       )
     }
@@ -3917,22 +4010,35 @@ export default function SalesDocumentDetailPage({
         </div>
 
         <div>
-          <div className="mb-3 flex flex-wrap items-center gap-2 pb-2">
-            {tabButtons.map((tab) => (
-              <button
-                key={tab.id}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 pb-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {tabButtons.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={cn(
+                    'px-3 py-2 text-sm font-medium transition-colors',
+                    activeTab === tab.id
+                      ? 'border-b-2 border-primary text-primary'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {sectionAction ? (
+              <Button
                 type="button"
-                className={cn(
-                  'px-3 py-2 text-sm font-medium transition-colors',
-                  activeTab === tab.id
-                    ? 'border-b-2 border-primary text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-                onClick={() => setActiveTab(tab.id)}
+                size="sm"
+                onClick={handleSectionAction}
+                disabled={sectionAction.disabled}
               >
-                {tab.label}
-              </button>
-            ))}
+                <Plus className="mr-2 h-4 w-4" />
+                {sectionAction.label}
+              </Button>
+            ) : null}
           </div>
           {renderTabContent()}
         </div>

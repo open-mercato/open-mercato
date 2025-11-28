@@ -688,7 +688,11 @@
           }
         },
         "items": {
-          "wip": "Der Positioneneditor kommt in der nächsten Iteration."
+          "wip": "Der Positioneneditor kommt in der nächsten Iteration.",
+          "errorProductRequired": "Wähle ein Produkt aus, um fortzufahren.",
+          "errorVariantRequired": "Wähle eine Variante aus, um fortzufahren.",
+          "errorQuantity": "Die Menge muss größer als 0 sein.",
+          "errorUnitPrice": "Der Stückpreis muss größer als 0 sein."
         },
         "shipments": {
           "wip": "Versandverwaltung befindet sich in Arbeit."

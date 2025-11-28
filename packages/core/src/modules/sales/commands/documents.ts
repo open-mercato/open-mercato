@@ -313,6 +313,7 @@ export const documentUpdateSchema = z
     paymentMethodId: z.string().uuid().nullable().optional(),
     paymentMethodCode: z.string().nullable().optional(),
     paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+    tags: z.array(z.string().uuid()).optional(),
   })
   .refine(
     (input) =>
@@ -337,7 +338,8 @@ export const documentUpdateSchema = z
       input.shippingMethodSnapshot !== undefined ||
       input.paymentMethodId !== undefined ||
       input.paymentMethodCode !== undefined ||
-      input.paymentMethodSnapshot !== undefined,
+      input.paymentMethodSnapshot !== undefined ||
+      input.tags !== undefined,
     { message: 'update_payload_empty' }
   )
 
@@ -782,6 +784,16 @@ async function applyDocumentUpdate({
           }
         : null
     }
+  }
+
+  if (input.tags !== undefined) {
+    await syncSalesDocumentTags(em, {
+      documentId: entity.id,
+      kind,
+      organizationId,
+      tenantId,
+      tagIds: input.tags,
+    })
   }
 }
 

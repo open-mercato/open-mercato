@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -12,6 +13,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 
 type ItemRecord = {
   id: string
@@ -103,6 +105,7 @@ function formatMoney(value: number, currency: string | null | undefined): string
 
 export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: SalesDocumentItemsSectionProps) {
   const t = useT()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
   const [items, setItems] = React.useState<ItemRecord[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -114,6 +117,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
   const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
   const [priceOptions, setPriceOptions] = React.useState<PriceOption[]>([])
   const [priceLoading, setPriceLoading] = React.useState(false)
+  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
 
@@ -184,6 +189,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     setVariantOption(null)
     setPriceOptions([])
     setEditingId(null)
+    setFormErrors({})
+    setSubmitError(null)
   }, [currencyCode])
 
   const openCreate = React.useCallback(() => {
@@ -387,8 +394,38 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     [t],
   )
 
+  React.useEffect(() => {
+    if (!form.productId) {
+      setPriceOptions([])
+      return
+    }
+    void loadPrices(form.productId, form.variantId)
+  }, [form.productId, form.variantId, loadPrices])
+
+  const validateForm = React.useCallback(() => {
+    const nextErrors: Record<string, string> = {}
+    if (!form.productId) {
+      nextErrors.productId = t('sales.documents.items.errorProductRequired', 'Select a product to continue.')
+    }
+    if (!form.variantId) {
+      nextErrors.variantId = t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.')
+    }
+    const quantityValue = normalizeNumber(form.quantity, NaN)
+    if (!Number.isFinite(quantityValue) || quantityValue <= 0) {
+      nextErrors.quantity = t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.')
+    }
+    const unitPriceValue = normalizeNumber(form.unitPrice, NaN)
+    if (!Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
+      nextErrors.unitPrice = t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.')
+    }
+    setFormErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }, [form.productId, form.variantId, form.quantity, form.unitPrice, t])
+
   const handleSubmit = React.useCallback(async () => {
     if (saving) return
+    setSubmitError(null)
+    if (!validateForm()) return
     setSaving(true)
     try {
       const quantity = Math.max(normalizeNumber(form.quantity ?? '', 1), 0)
@@ -397,8 +434,12 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         variantOption?.title ||
         productOption?.title ||
         undefined
+      const scopedOrganizationId = organizationId ?? undefined
+      const scopedTenantId = tenantId ?? undefined
       const payload: Record<string, unknown> = {
         [documentKey]: documentId,
+        organizationId: scopedOrganizationId,
+        tenantId: scopedTenantId,
         productId: form.productId,
         productVariantId: form.variantId,
         quantity,
@@ -449,6 +490,13 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
       }
     } catch (err) {
       console.error('sales.document.items.save', err)
+      const mapped = mapCrudServerErrorToFormErrors(err)
+      if (mapped.fieldErrors) {
+        setFormErrors((prev) => ({ ...prev, ...mapped.fieldErrors }))
+      }
+      if (mapped.message) {
+        setSubmitError(mapped.message)
+      }
     } finally {
       setSaving(false)
     }
@@ -467,11 +515,14 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
     form.variantId,
     form.taxRate,
     form.quantity,
+    organizationId,
+    tenantId,
     loadItems,
     productOption,
     resetForm,
     resourcePath,
     saving,
+    validateForm,
     t,
     variantOption,
   ])
@@ -527,7 +578,12 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
   const handleDelete = React.useCallback(
     async (line: ItemRecord) => {
       try {
-        await deleteCrud(resourcePath, { id: line.id, [documentKey]: documentId }, {
+        await deleteCrud(resourcePath, {
+          id: line.id,
+          [documentKey]: documentId,
+          organizationId: organizationId ?? undefined,
+          tenantId: tenantId ?? undefined,
+        }, {
           successMessage: t('sales.documents.items.deleted', 'Line removed.'),
           errorMessage: t('sales.documents.items.errorDelete', 'Failed to delete line.'),
         })
@@ -536,7 +592,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
         console.error('sales.document.items.delete', err)
       }
     },
-    [documentId, documentKey, loadItems, resourcePath, t],
+    [documentId, documentKey, loadItems, organizationId, resourcePath, t, tenantId],
   )
 
   const renderImage = (record: ItemRecord) => {
@@ -687,6 +743,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
               <LookupSelect
                 value={form.productId}
                 onChange={(next) => {
+                  setSubmitError(null)
+                  setFormErrors((prev) => ({ ...prev, productId: undefined, variantId: undefined }))
                   const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
                   setProductOption(selectedOption)
                   setForm((prev) => {
@@ -720,6 +778,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                   searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
                   selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
                 />
+                {formErrors.productId ? <p className="text-xs text-destructive">{formErrors.productId}</p> : null}
               </div>
               <div className="space-y-2">
                 <Label>{t('sales.documents.items.variant', 'Variant')}</Label>
@@ -727,6 +786,8 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                   key={form.productId ?? 'no-product'}
                   value={form.variantId}
                   onChange={(next) => {
+                    setSubmitError(null)
+                    setFormErrors((prev) => ({ ...prev, variantId: undefined }))
                     const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
                     setVariantOption(selectedOption)
                     setForm((prev) => {
@@ -764,14 +825,17 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                   minQuery={0}
                   disabled={!form.productId}
                 />
+                {formErrors.variantId ? <p className="text-xs text-destructive">{formErrors.variantId}</p> : null}
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label>{t('sales.documents.items.price', 'Price')}</Label>
                 <LookupSelect
+                  key={form.productId ? `${form.productId}-${form.variantId ?? 'no-variant'}` : 'price'}
                   value={form.priceId}
                   onChange={(next) => {
+                    setSubmitError(null)
                     const selected = priceOptions.find((entry) => entry.id === next) ?? null
                     if (selected) {
                       onPriceSelect(selected)
@@ -813,13 +877,18 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                   searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
                   disabled={!form.productId}
                 />
+                {formErrors.priceId ? <p className="text-xs text-destructive">{formErrors.priceId}</p> : null}
               </div>
               <div className="space-y-2">
                 <Label>{t('sales.documents.items.unitPrice', 'Unit price')}</Label>
                 <div className="flex gap-2">
                   <Input
                     value={form.unitPrice}
-                    onChange={(event) => setForm((prev) => ({ ...prev, unitPrice: event.target.value }))}
+                    onChange={(event) => {
+                      setSubmitError(null)
+                      setFormErrors((prev) => ({ ...prev, unitPrice: undefined }))
+                      setForm((prev) => ({ ...prev, unitPrice: event.target.value }))
+                    }}
                     placeholder="0.00"
                   />
                   <select
@@ -834,14 +903,20 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                     <option value="net">{t('sales.documents.items.priceNet', 'Net')}</option>
                   </select>
                 </div>
+                {formErrors.unitPrice ? <p className="text-xs text-destructive">{formErrors.unitPrice}</p> : null}
               </div>
               <div className="space-y-2">
                 <Label>{t('sales.documents.items.quantity', 'Quantity')}</Label>
                 <Input
                   value={form.quantity}
-                  onChange={(event) => setForm((prev) => ({ ...prev, quantity: event.target.value }))}
+                  onChange={(event) => {
+                    setSubmitError(null)
+                    setFormErrors((prev) => ({ ...prev, quantity: undefined }))
+                    setForm((prev) => ({ ...prev, quantity: event.target.value }))
+                  }}
                   placeholder="1"
                 />
+                {formErrors.quantity ? <p className="text-xs text-destructive">{formErrors.quantity}</p> : null}
               </div>
             </div>
             <div className="space-y-2">
@@ -852,6 +927,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode }: Sa
                 placeholder={t('sales.documents.items.namePlaceholder', 'Optional line name')}
               />
             </div>
+            {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={onCloseDialog} type="button">

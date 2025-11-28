@@ -48,14 +48,14 @@ export function DocumentCustomerCard({
       {...interactiveProps}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-2 min-w-0">
           {label ? (
             <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
               <Icon aria-hidden className="h-3.5 w-3.5" />
               {label}
             </p>
           ) : null}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
               <Icon aria-hidden className="h-5 w-5 text-muted-foreground" />
             </div>
@@ -66,7 +66,7 @@ export function DocumentCustomerCard({
                 <p className="text-sm text-muted-foreground">No customer assigned</p>
               )}
               {email ? (
-                <p className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+                <p className="flex w-full items-center gap-1 text-xs text-muted-foreground min-w-0">
                   <Mail className="h-3.5 w-3.5" aria-hidden />
                   <span className="truncate" title={email}>
                     {email}

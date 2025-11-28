@@ -736,7 +736,11 @@
           }
         },
         "items": {
-          "wip": "Edytor pozycji pojawi się w następnej iteracji."
+          "wip": "Edytor pozycji pojawi się w następnej iteracji.",
+          "errorProductRequired": "Wybierz produkt, aby kontynuować.",
+          "errorVariantRequired": "Wybierz wariant, aby kontynuować.",
+          "errorQuantity": "Ilość musi być większa niż 0.",
+          "errorUnitPrice": "Cena jednostkowa musi być większa niż 0."
         },
         "shipments": {
           "wip": "Zarządzanie wysyłkami jest w przygotowaniu."

@@ -68,7 +68,7 @@ type AppearanceDialogState =
   | { mode: 'create'; icon: string | null; color: string | null }
   | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
 
-export type NotesSectionProps = {
+export type NotesSectionProps<C = unknown> = {
   entityId: string | null
   dealId?: string | null
   emptyLabel: string
@@ -82,8 +82,8 @@ export type NotesSectionProps = {
   onLoadingChange?: (isLoading: boolean) => void
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
-  dataAdapter?: NotesDataAdapter
-  dataContext?: unknown
+  dataAdapter?: NotesDataAdapter<C>
+  dataContext?: C
 }
 
 export function sanitizeHexColor(value: string | null): string | null {
@@ -394,17 +394,12 @@ export function NotesSection<C = unknown>({
     pushLoading()
     async function loadNotes() {
       try {
-        const params = new URLSearchParams()
-        if (queryEntityId) params.set('entityId', queryEntityId)
-        if (queryDealId) params.set('dealId', queryDealId)
-        const payload = await readApiResultOrThrow<Record<string, unknown>>(
-          `/api/customers/comments?${params.toString()}`,
-          undefined,
-          { errorMessage: t('customers.people.detail.notes.loadError', 'Failed to load notes.') },
-        )
+        const mapped = await adapter.list({
+          entityId: queryEntityId || null,
+          dealId: queryDealId || null,
+          context: dataContext,
+        })
         if (cancelled) return
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const mapped = items.map(mapComment)
         setNotes(mapped)
       } catch (err) {
         if (cancelled) return
@@ -422,7 +417,7 @@ export function NotesSection<C = unknown>({
     return () => {
       cancelled = true
     }
-  }, [dealId, entityId, popLoading, pushLoading, t])
+  }, [adapter, dataContext, dealId, entityId, popLoading, pushLoading, t])
 
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
@@ -504,22 +499,15 @@ export function NotesSection<C = unknown>({
       setIsSubmitting(true)
       pushLoading()
       try {
-        const response = await apiCallOrThrow<Record<string, unknown>>(
-          '/api/customers/comments',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              entityId: resolvedEntityId,
-              body,
-              appearanceIcon: icon ?? undefined,
-              appearanceColor: color ?? undefined,
-              dealId: targetDealId ?? undefined,
-            }),
-          },
-          { errorMessage: t('customers.people.detail.notes.error') },
-        )
-        const responseBody = response.result ?? {}
+        const responseBody =
+          (await adapter.create({
+            entityId: resolvedEntityId,
+            body,
+            appearanceIcon: icon,
+            appearanceColor: color,
+            dealId: targetDealId,
+            context: dataContext,
+          })) ?? {}
         setNotes((prev) => {
           const viewerId = viewerUserId ?? null
           const resolvedAuthorId =
@@ -561,7 +549,7 @@ export function NotesSection<C = unknown>({
         popLoading()
       }
     },
-    [dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerName, viewerUserId],
+    [adapter, dataContext, dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerName, viewerUserId],
   )
 
   const handleUpdateNote = React.useCallback(
@@ -576,19 +564,15 @@ export function NotesSection<C = unknown>({
       const sanitizedColor =
         patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
       try {
-        const payload: Record<string, unknown> = { id: noteId }
-        if (sanitizedBody !== undefined) payload.body = sanitizedBody
-        if (sanitizedIcon !== undefined) payload.appearanceIcon = sanitizedIcon
-        if (sanitizedColor !== undefined) payload.appearanceColor = sanitizedColor
-        await apiCallOrThrow(
-          '/api/customers/comments',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+        await adapter.update({
+          id: noteId,
+          patch: {
+            body: sanitizedBody,
+            appearanceIcon: sanitizedIcon,
+            appearanceColor: sanitizedColor,
           },
-          { errorMessage: t('customers.people.detail.notes.updateError') },
-        )
+          context: dataContext,
+        })
         setNotes((prev) => {
           const nextComments = prev.map((comment) => {
             if (comment.id !== noteId) return comment
@@ -607,7 +591,7 @@ export function NotesSection<C = unknown>({
         throw error instanceof Error ? error : new Error(message)
       }
     },
-    [t],
+    [adapter, dataContext, t],
   )
 
   const handleDeleteNote = React.useCallback(
@@ -620,14 +604,7 @@ export function NotesSection<C = unknown>({
       setDeletingNoteId(note.id)
       pushLoading()
       try {
-        await apiCallOrThrow(
-          `/api/customers/comments?id=${encodeURIComponent(note.id)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.people.detail.notes.deleteError', 'Failed to delete note') },
-        )
+        await adapter.delete({ id: note.id, context: dataContext })
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
         flash(t('customers.people.detail.notes.deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
@@ -638,7 +615,7 @@ export function NotesSection<C = unknown>({
         popLoading()
       }
     },
-    [popLoading, pushLoading, t],
+    [adapter, dataContext, popLoading, pushLoading, t],
   )
 
   const handleSubmit = React.useCallback(
