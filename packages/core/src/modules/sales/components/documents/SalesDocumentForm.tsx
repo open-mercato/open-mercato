@@ -703,13 +703,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
 
         return (
           <div className="space-y-2">
-            <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
               <Input
                 value={typeof value === 'string' ? value : ''}
                 onChange={(event) => updateValue(event.target.value)}
                 disabled={loading}
                 spellCheck={false}
-                className="w-full sm:flex-1 sm:min-w-[32rem] sm:max-w-5xl"
+                className="w-full md:flex-1"
               />
               <Button type="button" variant="outline" onClick={requestNumber} disabled={loading}>
                 {loading
@@ -780,7 +780,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         const customerRequired = !formValues.customerEntityId
         return (
           <div className="space-y-3">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-base font-semibold">
                   {t('sales.documents.form.shipping.title', 'Shipping address')}
@@ -884,7 +884,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
 
         return (
           <div className="space-y-3">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-base font-semibold">
                   {t('sales.documents.form.billing.title', 'Billing address')}
@@ -907,7 +907,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     }
                   }}
                 />
-                <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping address')}</span>
+                <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}</span>
               </label>
             </div>
 

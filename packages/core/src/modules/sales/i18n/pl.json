@@ -638,6 +638,8 @@
         "currency.manage": "Zarządzaj słownikiem walut",
         "shipping.title": "Adres dostawy",
         "shipping.custom": "Zdefiniuj nowy adres",
+        "address.sameAsShipping": "Jak adres dostawy",
+        "address.sameAsShippingHint": "Adres rozliczeniowy będzie taki sam jak dostawy. Odznacz, aby edytować.",
         "address.customerRequired": "Najpierw wybierz klienta",
         "billing.title": "Adres rozliczeniowy",
         "address.loading": "Ładowanie adresów…",

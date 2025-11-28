@@ -637,6 +637,8 @@
         "currency.manage": "Manage currency dictionary",
         "shipping.title": "Shipping address",
         "shipping.custom": "Define new address",
+        "address.sameAsShipping": "Same as shipping",
+        "address.sameAsShippingHint": "Billing will mirror the shipping address. Uncheck to edit.",
         "address.customerRequired": "Select a customer first",
         "billing.title": "Billing address",
         "address.loading": "Loading addresses…",

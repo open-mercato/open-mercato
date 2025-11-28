@@ -1155,6 +1155,16 @@ function ChannelInlineEditor({
       ? 'opacity-100'
       : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
   )
+  const containerClasses = cn(
+    'group relative rounded border bg-muted/30 p-3',
+    !editing ? 'cursor-pointer' : null
+  )
+  const triggerClasses = cn(
+    'h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150',
+    editing
+      ? 'opacity-100'
+      : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
+  )
 
   React.useEffect(() => {
     if (!editing) {

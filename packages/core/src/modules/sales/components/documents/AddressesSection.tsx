@@ -897,7 +897,7 @@ export function SalesDocumentAddressesSection({
         ) : null}
 
         <div className="space-y-3 rounded border bg-card p-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-semibold">{t('sales.documents.form.shipping.title', 'Shipping address')}</p>
               <p className="text-xs text-muted-foreground">
@@ -945,7 +945,7 @@ export function SalesDocumentAddressesSection({
         </div>
 
         <div className="space-y-3 rounded border bg-card p-4">
-          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-semibold">{t('sales.documents.form.billing.title', 'Billing address')}</p>
               <p className="text-xs text-muted-foreground">
@@ -970,7 +970,7 @@ export function SalesDocumentAddressesSection({
                 }}
                 disabled={locked}
               />
-              <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping address')}</span>
+              <span>{t('sales.documents.form.address.sameAsShipping', 'Same as shipping')}</span>
             </label>
           </div>
 
@@ -1028,7 +1028,7 @@ export function SalesDocumentAddressesSection({
               }
             />
           ) : null}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-semibold">
                 {t('sales.documents.detail.addresses.additional', 'Additional addresses')}
@@ -1177,7 +1177,7 @@ export function SalesDocumentAddressesSection({
 
         {additionalFormOpen ? (
           <div className="space-y-3 rounded border border-dashed p-3">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
               <p className="text-sm font-semibold">
                 {t('sales.documents.detail.addresses.new', 'Add a new address')}
               </p>
@@ -1239,7 +1239,7 @@ export function SalesDocumentAddressesSection({
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         {addressesLoading || documentAddressesLoading ? (
           <div className="flex-1">
             <LoadingMessage

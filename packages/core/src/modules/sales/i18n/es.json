@@ -593,6 +593,8 @@
         "currency.manage": "Administrar diccionario de monedas",
         "shipping.title": "Dirección de envío",
         "shipping.custom": "Definir nueva dirección",
+        "address.sameAsShipping": "Igual que envío",
+        "address.sameAsShippingHint": "La facturación reflejará la dirección de envío. Desmarca para editar.",
         "address.customerRequired": "Selecciona primero un cliente",
         "billing.title": "Dirección de facturación",
         "address.loading": "Cargando direcciones…",

@@ -592,6 +592,8 @@
         "currency.manage": "Währungswörterbuch verwalten",
         "shipping.title": "Lieferadresse",
         "shipping.custom": "Neue Adresse definieren",
+        "address.sameAsShipping": "Wie Lieferadresse",
+        "address.sameAsShippingHint": "Rechnungsadresse entspricht der Lieferadresse. Zum Bearbeiten deaktivieren.",
         "address.customerRequired": "Bitte zuerst Kunden auswählen",
         "billing.title": "Rechnungsadresse",
         "address.loading": "Adressen werden geladen…",

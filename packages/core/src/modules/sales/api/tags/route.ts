@@ -4,6 +4,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesDocumentTag } from '../../data/entities'
 import { salesTagCreateSchema, salesTagUpdateSchema } from '../../data/validators'
+import { withScopedPayload } from '../utils'
+import { slugifyTagLabel } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -56,7 +58,15 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         try {
-          return salesTagCreateSchema.parse(raw ?? {})
+          const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+          const slug =
+            typeof scoped.slug === 'string' && scoped.slug.trim().length
+              ? scoped.slug.trim()
+              : typeof scoped.label === 'string'
+                ? slugifyTagLabel(scoped.label)
+                : scoped.slug
+          const payload = { ...scoped, slug }
+          return salesTagCreateSchema.parse(payload)
         } catch {
           throw new CrudHttpError(400, { error: translate('sales.errors.tag_invalid', 'Invalid tag payload') })
         }
