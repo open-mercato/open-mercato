@@ -4,6 +4,7 @@ import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import * as semver from 'semver'
 
 export type UpgradeActionContext = CatalogSeedScope & {
   container: AwilixContainer
@@ -20,14 +21,22 @@ export type UpgradeActionDefinition = {
   run: (ctx: UpgradeActionContext) => Promise<void>
 }
 
-function compareVersions(a: string, b: string): number {
-  const parse = (value: string) => value.split('.').map((part) => Number(part) || 0)
-  const [aMajor, aMinor, aPatch] = parse(a)
-  const [bMajor, bMinor, bPatch] = parse(b)
-  if (aMajor !== bMajor) return aMajor - bMajor
-  if (aMinor !== bMinor) return aMinor - bMinor
-  if (aPatch !== bPatch) return aPatch - bPatch
-  return 0
+/**
+ * Compare two semantic version strings.
+ * Uses the semver library for robust version comparison.
+ * Returns negative if a < b, positive if a > b, 0 if equal.
+ * Throws an error if either version string is invalid.
+ */
+export function compareVersions(a: string, b: string): number {
+  const cleanA = semver.valid(semver.coerce(a))
+  const cleanB = semver.valid(semver.coerce(b))
+  if (!cleanA) {
+    throw new Error(`Invalid version string: "${a}". Expected a valid semver format (e.g., "1.2.3").`)
+  }
+  if (!cleanB) {
+    throw new Error(`Invalid version string: "${b}". Expected a valid semver format (e.g., "1.2.3").`)
+  }
+  return semver.compare(cleanA, cleanB)
 }
 
 async function purgeCatalogCrudCache(container: AwilixContainer, tenantId: string | null) {
