@@ -66,6 +66,9 @@ function buildBaseDocumentResult(params: {
   currencyCode: string
 }): SalesDocumentCalculationResult {
   const { documentKind, lines, adjustments, currencyCode } = params
+  const orderedAdjustments = [...(adjustments ?? [])].sort(
+    (a, b) => (a.position ?? 0) - (b.position ?? 0)
+  )
   let subtotalNet = 0
   let subtotalGross = 0
   let discountTotal = 0
@@ -81,7 +84,7 @@ function buildBaseDocumentResult(params: {
     taxTotal += toNumber(line.taxAmount, 0)
   }
 
-  const scopedAdjustments = (adjustments ?? []).filter(
+  const scopedAdjustments = orderedAdjustments.filter(
     (adj) => !adj.scope || adj.scope === 'order'
   )
 
@@ -121,7 +124,7 @@ function buildBaseDocumentResult(params: {
     kind: documentKind,
     currencyCode,
     lines,
-    adjustments,
+    adjustments: orderedAdjustments,
     metadata: {},
     totals: {
       subtotalNetAmount: round(subtotalNet),

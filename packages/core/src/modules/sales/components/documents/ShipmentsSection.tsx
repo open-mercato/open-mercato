@@ -33,6 +33,8 @@ type ShipmentItem = {
 type ShipmentRow = {
   id: string
   shipmentNumber: string | null
+  shippingMethodId?: string | null
+  shippingMethodCode?: string | null
   status: string | null
   statusEntryId?: string | null
   carrierName: string | null
@@ -259,6 +261,18 @@ export function SalesShipmentsSection({
                 : typeof (item as any).shipmentNumber === 'string'
                   ? (item as any).shipmentNumber
                   : null,
+            shippingMethodId:
+              typeof (item as any).shipping_method_id === 'string'
+                ? (item as any).shipping_method_id
+                : typeof (item as any).shippingMethodId === 'string'
+                  ? (item as any).shippingMethodId
+                  : null,
+            shippingMethodCode:
+              typeof (item as any).shipping_method_code === 'string'
+                ? (item as any).shipping_method_code
+                : typeof (item as any).shippingMethodCode === 'string'
+                  ? (item as any).shippingMethodCode
+                  : null,
             status:
               typeof item.status === 'string'
                 ? item.status
@@ -321,16 +335,6 @@ export function SalesShipmentsSection({
     void loadShipments()
   }, [loadLines, loadShipments])
 
-  React.useEffect(() => {
-    if (!onActionChange) return
-    onActionChange({
-      label: t('sales.documents.shipments.add', 'Add shipment'),
-      onClick: handleOpenCreate,
-      disabled: false,
-    })
-    return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, t])
-
   const resetForm = React.useCallback(() => {
     setForm(defaultFormState(lines, Boolean(shippingAddressSnapshot)))
     setFormErrors({})
@@ -342,6 +346,16 @@ export function SalesShipmentsSection({
     resetForm()
     setDialogOpen(true)
   }, [resetForm])
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: t('sales.documents.shipments.add', 'Add shipment'),
+      onClick: handleOpenCreate,
+      disabled: false,
+    })
+    return () => onActionChange(null)
+  }, [handleOpenCreate, onActionChange, t])
 
   const handleEdit = React.useCallback(
     (shipment: ShipmentRow) => {
@@ -564,17 +578,11 @@ export function SalesShipmentsSection({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold">{t('sales.documents.shipments.title', 'Shipments')}</p>
-          <p className="text-sm text-muted-foreground">
-            {t('sales.documents.shipments.subtitle', 'Track packages and fulfillment for this order.')}
-          </p>
-        </div>
-        <Button size="sm" onClick={handleOpenCreate}>
-          <Plus className="mr-2 h-4 w-4" />
-          {t('sales.documents.shipments.add', 'Add shipment')}
-        </Button>
+      <div className="space-y-1">
+        <p className="text-sm font-semibold">{t('sales.documents.shipments.title', 'Shipments')}</p>
+        <p className="text-sm text-muted-foreground">
+          {t('sales.documents.shipments.subtitle', 'Track packages and fulfillment for this order.')}
+        </p>
       </div>
 
       {empty ? (

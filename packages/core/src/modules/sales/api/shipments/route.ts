@@ -3,7 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { SalesOrderLine, SalesShipment, SalesShipmentItem } from '../../data/entities'
+import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../../data/entities'
 import { shipmentCreateSchema, shipmentUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
 import {
@@ -138,11 +139,28 @@ const crud = makeCrudRoute({
         .filter((value: string | null): value is string => typeof value === 'string')
       if (!shipmentIds.length) return
       const em = ctx.container.resolve('em') as EntityManager
-      const shipmentItems = await em.find(
-        SalesShipmentItem,
-        { shipment: { $in: shipmentIds } },
-        { populate: ['orderLine'] }
-      )
+      const [shipmentItems, shippingMethods] = await Promise.all([
+        em.find(
+          SalesShipmentItem,
+          { shipment: { $in: shipmentIds } },
+          { populate: ['orderLine'] }
+        ),
+        (async () => {
+          const ids = Array.from(
+            new Set(
+              items
+                .map((item: unknown) => {
+                  if (!item || typeof item !== 'object') return null
+                  const raw = (item as Record<string, unknown>).shipping_method_id
+                  return typeof raw === 'string' ? raw : null
+                })
+                .filter((value): value is string => !!value)
+            )
+          )
+          if (!ids.length) return []
+          return em.find(SalesShippingMethod, { id: { $in: ids } })
+        })(),
+      ])
       const orderLineIds = Array.from(
         new Set(
           shipmentItems
@@ -193,11 +211,38 @@ const crud = makeCrudRoute({
         acc.set(shipmentId, list)
         return acc
       }, new Map())
+      const shippingMap = new Map(
+        shippingMethods.map((method) => [method.id, method.code ?? null])
+      )
+      const statusIds = Array.from(
+        new Set(
+          items
+            .map((item: unknown) => {
+              if (!item || typeof item !== 'object') return null
+              const raw = (item as Record<string, unknown>).status_entry_id
+              return typeof raw === 'string' ? raw : null
+            })
+            .filter((value): value is string => !!value)
+        )
+      )
+      const statusMap = new Map<string, string | null>()
+      if (statusIds.length) {
+        const entries = await em.find(DictionaryEntry, { id: { $in: statusIds } })
+        entries.forEach((entry) => statusMap.set(entry.id, entry.value ?? null))
+      }
       items.forEach((item: unknown) => {
         if (!item || typeof item !== 'object') return
         const id = (item as Record<string, unknown>).id
         if (typeof id !== 'string') return
         ;(item as Record<string, unknown>).items = grouped.get(id) ?? []
+        const shippingId = (item as Record<string, unknown>).shipping_method_id
+        if (typeof shippingId === 'string' && shippingMap.has(shippingId)) {
+          ;(item as Record<string, unknown>).shipping_method_code = shippingMap.get(shippingId)
+        }
+        const statusId = (item as Record<string, unknown>).status_entry_id
+        if (!(item as Record<string, unknown>).status && typeof statusId === 'string' && statusMap.has(statusId)) {
+          ;(item as Record<string, unknown>).status = statusMap.get(statusId)
+        }
       })
     },
   },
@@ -221,9 +266,10 @@ const shipmentSchema = z
     id: z.string().uuid(),
     order_id: z.string().uuid(),
     shipment_number: z.string().nullable().optional(),
-    shipping_method_id: z.string().uuid().nullable().optional(),
-    status_entry_id: z.string().uuid().nullable().optional(),
-    status: z.string().nullable().optional(),
+  shipping_method_id: z.string().uuid().nullable().optional(),
+  shipping_method_code: z.string().nullable().optional(),
+  status_entry_id: z.string().uuid().nullable().optional(),
+  status: z.string().nullable().optional(),
     carrier_name: z.string().nullable().optional(),
     tracking_numbers: z.array(z.string()).nullable().optional(),
     shipped_at: z.string().nullable().optional(),

@@ -69,18 +69,14 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-function MarkdownEditorFallback({ translator }: { translator: Translator }) {
-  return (
-    <LoadingMessage
-      label={translator('customers.people.detail.notes.editorLoading', 'Loading editor…')}
-      className="min-h-[220px] justify-center"
-    />
-  )
-}
-
 const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
   ssr: false,
-  loading: () => null,
+  loading: () => (
+    <LoadingMessage
+      label="Loading editor…"
+      className="min-h-[220px] justify-center"
+    />
+  ),
 }) as unknown as React.ComponentType<UiMarkdownEditorProps>
 
 function generateTempId() {

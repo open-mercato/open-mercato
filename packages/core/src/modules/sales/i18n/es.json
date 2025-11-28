@@ -620,6 +620,29 @@
         "success": "Documento de ventas creado.",
         "nextStep": "Después de crear agregarás ítems, precios y detalles de envío."
       },
+      "payments": {
+        "add": "Add payment",
+        "loading": "Loading payments…",
+        "errorLoad": "Failed to load payments.",
+        "errorSave": "Failed to save payment.",
+        "created": "Payment recorded.",
+        "retry": "Retry",
+        "amountRequired": "Enter a positive amount.",
+        "currencyRequired": "Currency is required.",
+        "reference": "Reference",
+        "method": "Method",
+        "status": "Status",
+        "amount": "Amount",
+        "receivedAt": "Received at",
+        "createdAt": "Created",
+        "emptyTitle": "No payments yet.",
+        "emptyDescription": "Track received payments to keep outstanding balances up to date.",
+        "loadingMethods": "Loading payment methods…",
+        "methodsEmpty": "No payment methods",
+        "methodSelected": "Selected method: {{id}}",
+        "currency": "Currency",
+        "referencePlaceholder": "External reference or note"
+      },
       "detail": {
         "title": "Documento de ventas",
         "error": "Documento no encontrado o sin acceso.",
@@ -681,7 +704,7 @@
           },
           "payments": {
             "title": "Aún no hay pagos.",
-            "description": "Los pagos están en desarrollo."
+            "description": "Track received payments to keep outstanding balances up to date."
           },
           "adjustments": {
             "title": "Aún no hay ajustes.",

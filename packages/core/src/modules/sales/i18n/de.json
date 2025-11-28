@@ -619,6 +619,29 @@
         "success": "Verkaufsdokument erstellt.",
         "nextStep": "Nach dem Erstellen fügst du Positionen, Preise und Versanddetails hinzu."
       },
+      "payments": {
+        "add": "Add payment",
+        "loading": "Loading payments…",
+        "errorLoad": "Failed to load payments.",
+        "errorSave": "Failed to save payment.",
+        "created": "Payment recorded.",
+        "retry": "Retry",
+        "amountRequired": "Enter a positive amount.",
+        "currencyRequired": "Currency is required.",
+        "reference": "Reference",
+        "method": "Method",
+        "status": "Status",
+        "amount": "Amount",
+        "receivedAt": "Received at",
+        "createdAt": "Created",
+        "emptyTitle": "No payments yet.",
+        "emptyDescription": "Track received payments to keep outstanding balances up to date.",
+        "loadingMethods": "Loading payment methods…",
+        "methodsEmpty": "No payment methods",
+        "methodSelected": "Selected method: {{id}}",
+        "currency": "Currency",
+        "referencePlaceholder": "External reference or note"
+      },
       "detail": {
         "title": "Verkaufsdokument",
         "error": "Dokument nicht gefunden oder kein Zugriff.",
@@ -680,7 +703,7 @@
           },
           "payments": {
             "title": "Noch keine Zahlungen.",
-            "description": "Zahlungen befinden sich in Arbeit."
+            "description": "Track received payments to keep outstanding balances up to date."
           },
           "adjustments": {
             "title": "Noch keine Anpassungen.",

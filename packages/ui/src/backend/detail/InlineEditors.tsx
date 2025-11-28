@@ -117,7 +117,7 @@ export function InlineTextEditor({
   }, [draft, onDraftChange])
 
   const containerClasses = cn(
-    'group',
+    'group overflow-hidden',
     variant === 'muted'
       ? 'relative rounded border bg-muted/20 p-3'
       : variant === 'plain'
@@ -222,8 +222,8 @@ export function InlineTextEditor({
     const baseValue = value && typeof value === 'string' ? value : ''
     const anchorClass =
       variant === 'plain'
-        ? 'inline-flex items-center gap-2 text-xl font-semibold leading-tight text-primary hover:text-primary/90 hover:underline'
-        : 'flex items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline'
+        ? 'inline-flex max-w-full min-w-0 items-center gap-2 text-xl font-semibold leading-tight text-primary hover:text-primary/90 hover:underline'
+        : 'flex max-w-full min-w-0 items-center gap-2 text-sm text-primary hover:text-primary/90 hover:underline'
     const textClass = variant === 'plain' ? 'text-2xl font-semibold leading-tight' : 'text-sm break-words'
     if (resolvedType === 'email') {
       if (!baseValue.length) {
@@ -236,7 +236,7 @@ export function InlineTextEditor({
       return (
         <a className={anchorClass} href={`mailto:${baseValue}`}>
           <Mail aria-hidden className={variant === 'plain' ? 'h-5 w-5' : 'h-4 w-4'} />
-          <span className="truncate">{baseValue}</span>
+          <span className="truncate min-w-0">{baseValue}</span>
         </a>
       )
     }
@@ -271,7 +271,7 @@ export function InlineTextEditor({
 
   return (
     <div className={containerClasses} onClick={handleInteractiveClick}>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2 min-w-0">
         <div className={readOnlyWrapperClasses} {...interactiveProps}>
           {hideLabel ? null : <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>}
           {editing ? (

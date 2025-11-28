@@ -667,6 +667,29 @@
         "success": "Dokument sprzedaży utworzony.",
         "nextStep": "Po utworzeniu dodasz pozycje, ceny i szczegóły dostawy."
       },
+      "payments": {
+        "add": "Add payment",
+        "loading": "Loading payments…",
+        "errorLoad": "Failed to load payments.",
+        "errorSave": "Failed to save payment.",
+        "created": "Payment recorded.",
+        "retry": "Retry",
+        "amountRequired": "Enter a positive amount.",
+        "currencyRequired": "Currency is required.",
+        "reference": "Reference",
+        "method": "Method",
+        "status": "Status",
+        "amount": "Amount",
+        "receivedAt": "Received at",
+        "createdAt": "Created",
+        "emptyTitle": "No payments yet.",
+        "emptyDescription": "Track received payments to keep outstanding balances up to date.",
+        "loadingMethods": "Loading payment methods…",
+        "methodsEmpty": "No payment methods",
+        "methodSelected": "Selected method: {{id}}",
+        "currency": "Currency",
+        "referencePlaceholder": "External reference or note"
+      },
       "detail": {
         "title": "Dokument sprzedaży",
         "error": "Dokument nie znaleziony lub brak dostępu.",
@@ -728,7 +751,7 @@
           },
           "payments": {
             "title": "Brak płatności.",
-            "description": "Płatności są w przygotowaniu."
+            "description": "Track received payments to keep outstanding balances up to date."
           },
           "adjustments": {
             "title": "Brak korekt.",

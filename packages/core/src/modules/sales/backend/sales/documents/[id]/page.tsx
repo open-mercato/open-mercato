@@ -29,6 +29,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
+import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/components/documents/PaymentsSection'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -3622,6 +3623,41 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           onActionChange={handleSectionActionChange}
           onAddComment={appendShipmentComment}
+        />
+      )
+    }
+    if (activeTab === 'payments') {
+      if (kind !== 'order') {
+        const placeholder = tabEmptyStates.payments
+        return (
+          <TabEmptyState
+            title={placeholder.title}
+            description={placeholder.description}
+          />
+        )
+      }
+      return (
+        <SalesDocumentPaymentsSection
+          orderId={record.id}
+          currencyCode={record.currencyCode ?? null}
+          organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
+          tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+          onActionChange={handleSectionActionChange}
+          onTotalsChange={(totals) =>
+            setRecord((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    paidTotalAmount:
+                      totals?.paidTotalAmount ?? prev.paidTotalAmount ?? null,
+                    refundedTotalAmount:
+                      totals?.refundedTotalAmount ?? prev.refundedTotalAmount ?? null,
+                    outstandingAmount:
+                      totals?.outstandingAmount ?? prev.outstandingAmount ?? null,
+                  }
+                : prev
+            )
+          }
         />
       )
     }

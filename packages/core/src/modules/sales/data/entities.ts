@@ -460,6 +460,9 @@ export class SalesOrder {
   @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   grandTotalGrossAmount: string = '0'
 
+  @Property({ name: 'totals_snapshot', type: 'jsonb', nullable: true })
+  totalsSnapshot?: Record<string, unknown> | null
+
   @Property({ name: 'paid_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   paidTotalAmount: string = '0'
 
@@ -933,6 +936,9 @@ export class SalesQuote {
 
   @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   grandTotalGrossAmount: string = '0'
+
+  @Property({ name: 'totals_snapshot', type: 'jsonb', nullable: true })
+  totalsSnapshot?: Record<string, unknown> | null
 
   @Property({ name: 'line_item_count', type: 'integer', default: 0 })
   lineItemCount: number = 0
