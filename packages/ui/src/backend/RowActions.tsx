@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { createPortal } from 'react-dom'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type RowActionItem = {
   label: string
@@ -10,6 +11,7 @@ export type RowActionItem = {
 }
 
 export function RowActions({ items }: { items: RowActionItem[] }) {
+  const t = useT()
   const [open, setOpen] = React.useState(false)
   const btnRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
@@ -94,7 +96,7 @@ export function RowActions({ items }: { items: RowActionItem[] }) {
         onClick={() => { setOpen((v) => !v); requestAnimationFrame(updatePosition) }}
       >
         <span aria-hidden="true">⋯</span>
-        <span className="sr-only">Open actions</span>
+        <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>
       </button>
       {open && anchorRect && createPortal(
         <div

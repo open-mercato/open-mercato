@@ -1,6 +1,6 @@
 {
   "name": "open-mercato-docs",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "scripts": {
     "dev": "docusaurus start",

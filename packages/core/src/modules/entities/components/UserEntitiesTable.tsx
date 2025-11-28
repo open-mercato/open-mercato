@@ -7,6 +7,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable, RowActions, Button } from '@open-mercato/ui'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@/lib/i18n/context'
 
 type EntityRow = {
   entityId: string
@@ -18,24 +19,26 @@ type EntityRow = {
 
 type EntitiesResponse = { items: EntityRow[] }
 
-const columns: ColumnDef<EntityRow>[] = [
-  { accessorKey: 'entityId', header: 'Entity', meta: { priority: 1 }, cell: ({ getValue }) => <span className="font-mono">{String(getValue())}</span> },
-  { accessorKey: 'label', header: 'Label', meta: { priority: 2 } },
-  { accessorKey: 'source', header: 'Source', meta: { priority: 3 } },
-  { accessorKey: 'count', header: 'Fields', meta: { priority: 4 } },
-  { 
-    accessorKey: 'showInSidebar', 
-    header: 'In Sidebar', 
-    meta: { priority: 5 },
-    cell: ({ getValue }) => (
-      <span className={`px-2 py-1 rounded text-xs ${
-        getValue() ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-      }`}>
-        {getValue() ? 'Yes' : 'No'}
-      </span>
-    )
-  },
-]
+function buildColumns(t: (key: string, fallback: string) => string): ColumnDef<EntityRow>[] {
+  return [
+    { accessorKey: 'entityId', header: t('entities.user.table.column.entity', 'Entity'), meta: { priority: 1 }, cell: ({ getValue }) => <span className="font-mono">{String(getValue())}</span> },
+    { accessorKey: 'label', header: t('entities.user.table.column.label', 'Label'), meta: { priority: 2 } },
+    { accessorKey: 'source', header: t('entities.user.table.column.source', 'Source'), meta: { priority: 3 } },
+    { accessorKey: 'count', header: t('entities.user.table.column.fields', 'Fields'), meta: { priority: 4 } },
+    { 
+      accessorKey: 'showInSidebar', 
+      header: t('entities.user.table.column.inSidebar', 'In Sidebar'), 
+      meta: { priority: 5 },
+      cell: ({ getValue }) => (
+        <span className={`px-2 py-1 rounded text-xs ${
+          getValue() ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+        }`}>
+          {getValue() ? t('common.yes', 'Yes') : t('common.no', 'No')}
+        </span>
+      )
+    },
+  ]
+}
 
 function toCsv(rows: EntityRow[]) {
   const header = ['entityId','label','source','count','showInSidebar']
@@ -50,10 +53,13 @@ function toCsv(rows: EntityRow[]) {
 }
 
 export default function UserEntitiesTable() {
+  const t = useT()
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'entityId', desc: false }])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const scopeVersion = useOrganizationScopeVersion()
+  
+  const columns = React.useMemo(() => buildColumns(t), [t])
 
   const { data, isLoading } = useQuery<EntitiesResponse>({
     queryKey: ['custom-entities', scopeVersion],
@@ -75,7 +81,7 @@ export default function UserEntitiesTable() {
 
   return (
     <DataTable
-      title="User Entities"
+      title={t('entities.user.table.title', 'User Entities')}
       actions={(
         <>
           <Button variant="outline" onClick={() => {
@@ -87,9 +93,9 @@ export default function UserEntitiesTable() {
             a.download = 'entities-user.csv'
             a.click()
             URL.revokeObjectURL(url)
-          }}>Export</Button>
+          }}>{t('common.export', 'Export')}</Button>
           <Button asChild>
-            <Link href="/backend/entities/user/create">Create</Link>
+            <Link href="/backend/entities/user/create">{t('common.create', 'Create')}</Link>
           </Button>
         </>
       )}
@@ -104,8 +110,8 @@ export default function UserEntitiesTable() {
       rowActions={(row) => (
         <RowActions
           items={[
-            { label: 'Edit', href: `/backend/entities/user/${encodeURIComponent(row.entityId)}` },
-            { label: 'Show records', href: `/backend/entities/user/${encodeURIComponent(row.entityId)}/records` },
+            { label: t('common.edit', 'Edit'), href: `/backend/entities/user/${encodeURIComponent(row.entityId)}` },
+            { label: t('entities.user.table.actions.showRecords', 'Show records'), href: `/backend/entities/user/${encodeURIComponent(row.entityId)}/records` },
           ]}
         />
       )}

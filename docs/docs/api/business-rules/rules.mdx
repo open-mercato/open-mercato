@@ -1,0 +1,508 @@
+---
+title: Rules API
+description: CRUD operations for business rules via REST API.
+---
+
+# Rules API
+
+Manage business rules programmatically with the Rules API. Create, read, update, and delete rules, with support for filtering, pagination, and search.
+
+## Environment Setup
+
+```bash
+export BASE_URL="http://localhost:3000"
+export API_KEY="your_api_key_here"
+```
+
+## List Rules
+
+Retrieve a paginated list of business rules with optional filters.
+
+### GET /api/business_rules/rules
+
+**Feature Required**: `business_rules.rules.view`
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `page` | number | Page number (default: 1) |
+| `pageSize` | number | Items per page (default: 20, max: 100) |
+| `search` | string | Search rule names and IDs |
+| `ruleId` | string | Filter by exact rule ID |
+| `ruleType` | string | Filter by type: GUARD, VALIDATION, CALCULATION, ACTION, ASSIGNMENT |
+| `entityType` | string | Filter by entity type |
+| `eventType` | string | Filter by event type |
+| `enabled` | boolean | Filter by enabled status |
+| `ruleCategory` | string | Filter by category |
+| `sortField` | string | Sort by field: ruleName, priority, createdAt, updatedAt |
+| `sortDir` | string | Sort direction: asc, desc |
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/rules?ruleType=GUARD&enabled=true&sortField=priority&sortDir=desc" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Accept: application/json"
+```
+
+**Example Response** (200 OK):
+
+```json
+{
+  "data": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "ruleId": "MATERIAL_AVAILABILITY_CHECK",
+      "ruleName": "Block Work Order Release Without Materials",
+      "description": "Prevents work orders from being released when materials are unavailable",
+      "ruleType": "GUARD",
+      "ruleCategory": "Material Planning",
+      "entityType": "WorkOrder",
+      "eventType": "onStatusChange",
+      "conditionExpression": {
+        "operator": "AND",
+        "rules": [
+          {"field": "newStatus", "operator": "=", "value": "RELEASED"},
+          {"field": "materialsAvailable", "operator": "=", "value": false}
+        ]
+      },
+      "successActions": null,
+      "failureActions": [
+        {
+          "type": "BLOCK_TRANSITION",
+          "config": {"message": "Cannot release work order. Materials not available."}
+        }
+      ],
+      "enabled": true,
+      "priority": 800,
+      "version": 1,
+      "effectiveFrom": null,
+      "effectiveTo": null,
+      "tenantId": "tenant-123",
+      "organizationId": "org-456",
+      "createdAt": "2024-01-15T10:30:00Z",
+      "updatedAt": "2024-01-15T10:30:00Z",
+      "createdBy": "user-789"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 45,
+    "totalPages": 3
+  }
+}
+```
+
+## Create Rule
+
+Create a new business rule.
+
+### POST /api/business_rules/rules
+
+**Feature Required**: `business_rules.rules.create`
+
+**Request Body**:
+
+```typescript
+{
+  ruleId: string              // Required, unique, max 50 chars
+  ruleName: string            // Required, max 200 chars
+  description?: string        // Optional, max 5000 chars
+  ruleType: RuleType          // Required: GUARD | VALIDATION | CALCULATION | ACTION | ASSIGNMENT
+  ruleCategory?: string       // Optional, max 50 chars
+  entityType: string          // Required, max 50 chars
+  eventType?: string          // Optional, max 50 chars
+  conditionExpression: any    // Required, JSON condition structure
+  successActions?: Action[]   // Optional array of actions
+  failureActions?: Action[]   // Optional array of actions
+  enabled: boolean            // Required
+  priority: number            // Required, 0-9999
+  version: number             // Required, positive integer
+  effectiveFrom?: string      // Optional, ISO 8601 date
+  effectiveTo?: string        // Optional, ISO 8601 date
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/rules" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleId": "LARGE_ORDER_APPROVAL",
+    "ruleName": "Require Approval for Large Orders",
+    "description": "Orders over $10,000 require manager approval",
+    "ruleType": "VALIDATION",
+    "ruleCategory": "Approval Workflow",
+    "entityType": "Order",
+    "eventType": "beforeCreate",
+    "conditionExpression": {
+      "field": "total",
+      "operator": ">",
+      "value": 10000
+    },
+    "successActions": [
+      {
+        "type": "SET_FIELD",
+        "config": {"field": "approvalRequired", "value": "true"}
+      },
+      {
+        "type": "NOTIFY",
+        "config": {
+          "recipients": "manager@company.com",
+          "message": "Order {{orderId}} requires approval. Total: {{total}}"
+        }
+      }
+    ],
+    "failureActions": null,
+    "enabled": true,
+    "priority": 500,
+    "version": 1
+  }'
+```
+
+**Example Response** (201 Created):
+
+```json
+{
+  "id": "987e6543-e21b-43d2-a654-426614174111",
+  "ruleId": "LARGE_ORDER_APPROVAL",
+  "ruleName": "Require Approval for Large Orders",
+  ...
+  "createdAt": "2024-01-20T14:25:00Z"
+}
+```
+
+**Validation Errors** (400 Bad Request):
+
+```json
+{
+  "error": "Validation failed",
+  "details": {
+    "ruleId": "Rule ID must be unique",
+    "conditionExpression": "Invalid condition structure"
+  }
+}
+```
+
+## Get Rule
+
+Retrieve a single rule by ID.
+
+### GET /api/business_rules/rules/[id]
+
+**Feature Required**: `business_rules.rules.view`
+
+**Path Parameters**:
+- `id` - UUID of the rule
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/rules/123e4567-e89b-12d3-a456-426614174000" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Accept: application/json"
+```
+
+**Example Response** (200 OK):
+
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "ruleId": "MATERIAL_AVAILABILITY_CHECK",
+  "ruleName": "Block Work Order Release Without Materials",
+  ...
+}
+```
+
+**Not Found** (404):
+
+```json
+{
+  "error": "Rule not found"
+}
+```
+
+## Update Rule
+
+Update an existing business rule.
+
+### PUT /api/business_rules/rules
+
+**Feature Required**: `business_rules.rules.edit`
+
+**Request Body**:
+
+Same as Create Rule, plus:
+- `id` (required) - UUID of the rule to update
+
+**Example Request**:
+
+```bash
+curl -X PUT "$BASE_URL/api/business_rules/rules" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "ruleId": "MATERIAL_AVAILABILITY_CHECK",
+    "ruleName": "Block Work Order Release Without Materials",
+    "description": "Updated description",
+    "enabled": false,
+    "priority": 900,
+    ...
+  }'
+```
+
+**Example Response** (200 OK):
+
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "ruleId": "MATERIAL_AVAILABILITY_CHECK",
+  ...
+  "updatedAt": "2024-01-20T15:45:00Z"
+}
+```
+
+## Delete Rule
+
+Delete a rule (soft delete - rule is marked as deleted but not removed from database).
+
+### DELETE /api/business_rules/rules?id=[id]
+
+**Feature Required**: `business_rules.rules.delete`
+
+**Query Parameters**:
+- `id` - UUID of the rule to delete
+
+**Example Request**:
+
+```bash
+curl -X DELETE "$BASE_URL/api/business_rules/rules?id=123e4567-e89b-12d3-a456-426614174000" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Example Response** (204 No Content):
+
+No response body.
+
+**Not Found** (404):
+
+```json
+{
+  "error": "Rule not found"
+}
+```
+
+## Condition Expression Format
+
+Conditions use a recursive JSON structure.
+
+**Simple Condition**:
+
+```json
+{
+  "field": "status",
+  "operator": "=",
+  "value": "ACTIVE"
+}
+```
+
+**Group Condition**:
+
+```json
+{
+  "operator": "AND",
+  "rules": [
+    {"field": "status", "operator": "=", "value": "ACTIVE"},
+    {"field": "total", "operator": ">", "value": 1000}
+  ]
+}
+```
+
+**Nested Groups**:
+
+```json
+{
+  "operator": "AND",
+  "rules": [
+    {"field": "entityType", "operator": "=", "value": "Order"},
+    {
+      "operator": "OR",
+      "rules": [
+        {"field": "priority", "operator": "=", "value": "HIGH"},
+        {"field": "total", "operator": ">", "value": 5000}
+      ]
+    }
+  ]
+}
+```
+
+**Field Comparison**:
+
+```json
+{
+  "field": "plannedEndDate",
+  "operator": "<",
+  "compareToField": "actualEndDate"
+}
+```
+
+## Action Format
+
+Actions are arrays of action objects.
+
+**Example Actions Array**:
+
+```json
+[
+  {
+    "type": "LOG",
+    "config": {
+      "level": "info",
+      "message": "Rule {{ruleId}} executed for {{entityType}} {{entityId}}"
+    }
+  },
+  {
+    "type": "SET_FIELD",
+    "config": {
+      "field": "processedAt",
+      "value": "{{now}}"
+    }
+  },
+  {
+    "type": "NOTIFY",
+    "config": {
+      "recipients": "admin@company.com,manager@company.com",
+      "message": "Action required for {{entityType}} {{entityId}}"
+    }
+  }
+]
+```
+
+## Common Workflows
+
+### Create a GUARD Rule
+
+```bash
+curl -X POST "$BASE_URL/api/business_rules/rules" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleId": "BLOCK_INVALID_STATUS_CHANGE",
+    "ruleName": "Block Invalid Status Changes",
+    "ruleType": "GUARD",
+    "entityType": "WorkOrder",
+    "eventType": "onStatusChange",
+    "conditionExpression": {
+      "operator": "AND",
+      "rules": [
+        {"field": "oldStatus", "operator": "=", "value": "COMPLETED"},
+        {"field": "newStatus", "operator": "!=", "value": "ARCHIVED"}
+      ]
+    },
+    "successActions": null,
+    "failureActions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {"message": "Completed work orders can only be archived"}
+      }
+    ],
+    "enabled": true,
+    "priority": 900,
+    "version": 1
+  }'
+```
+
+### Bulk Enable/Disable Rules
+
+```bash
+# Get all rules in a category
+rules=$(curl -s -X GET "$BASE_URL/api/business_rules/rules?ruleCategory=Quality%20Control" \
+  -H "Authorization: Bearer $API_KEY" | jq -r '.data[].id')
+
+# Disable each rule
+for id in $rules; do
+  # Get full rule data
+  rule=$(curl -s -X GET "$BASE_URL/api/business_rules/rules/$id" \
+    -H "Authorization: Bearer $API_KEY")
+
+  # Update with enabled=false
+  echo "$rule" | jq '.enabled = false' | \
+    curl -X PUT "$BASE_URL/api/business_rules/rules" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H "Content-Type: application/json" \
+      -d @-
+done
+```
+
+### Search and Filter Rules
+
+```bash
+# Search by name
+curl -X GET "$BASE_URL/api/business_rules/rules?search=approval" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Filter by multiple criteria
+curl -X GET "$BASE_URL/api/business_rules/rules?entityType=Order&ruleType=VALIDATION&enabled=true" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Get highest priority rules
+curl -X GET "$BASE_URL/api/business_rules/rules?sortField=priority&sortDir=desc&pageSize=10" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+## Error Handling
+
+**Duplicate Rule ID** (409 Conflict):
+
+```json
+{
+  "error": "Rule with ID 'MATERIAL_CHECK' already exists"
+}
+```
+
+**Invalid Condition** (400 Bad Request):
+
+```json
+{
+  "error": "Validation failed",
+  "details": {
+    "conditionExpression": "Invalid operator: UNKNOWN_OP"
+  }
+}
+```
+
+**Permission Denied** (403 Forbidden):
+
+```json
+{
+  "error": "Insufficient permissions",
+  "required": ["business_rules.rules.create"]
+}
+```
+
+## Best Practices
+
+**Unique Rule IDs**: Use descriptive, unique IDs that won't conflict
+
+**Version Incrementing**: Increment version when making significant changes
+
+**Test Before Enabling**: Create rules as disabled, test thoroughly, then enable
+
+**Use Priorities Wisely**: Higher priority for GUARD rules, lower for ACTION rules
+
+**Document Rules**: Use description field to explain business rationale
+
+**Validate Conditions**: Test condition logic before deployment
+
+**Monitor Performance**: High-priority rules with complex conditions can impact performance
+
+## Next Steps
+
+- [**Execute API**](./execute) - Trigger rule execution
+- [**Logs API**](./logs) - Query execution history
+- [**User Guide**](../../user-guide/business-rules) - Learn how to use rules effectively

@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   PerspectiveDto,
   RolePerspectiveDto,
@@ -38,10 +39,6 @@ export type PerspectiveSidebarProps = {
 
 const emptyArray: any[] = []
 
-function perspectiveLabel(p: PerspectiveDto | RolePerspectiveDto) {
-  return p.name.trim().length ? p.name : 'Untitled perspective'
-}
-
 export function PerspectiveSidebar({
   open,
   onOpenChange,
@@ -63,6 +60,11 @@ export function PerspectiveSidebar({
   roleClearingIds,
   apiWarning,
 }: PerspectiveSidebarProps) {
+  const t = useT()
+  
+  function perspectiveLabel(p: PerspectiveDto | RolePerspectiveDto) {
+    return p.name.trim().length ? p.name : t('ui.perspectives.untitled', 'Untitled perspective')
+  }
   const [name, setName] = React.useState('')
   const [isDefault, setIsDefault] = React.useState(false)
   const [applyToRoles, setApplyToRoles] = React.useState<string[]>([])
@@ -147,8 +149,8 @@ export function PerspectiveSidebar({
                       <div className="space-y-1">
                         <div className="text-sm font-medium">{perspectiveLabel(p)}</div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2">
-                          {p.isDefault ? <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary text-[11px] uppercase tracking-wide">Default</span> : null}
-                          <span>Updated {new Date(p.updatedAt ?? p.createdAt).toLocaleString()}</span>
+                          {p.isDefault ? <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary text-[11px] uppercase tracking-wide">{t('ui.perspectives.badge.default', 'Default')}</span> : null}
+                          <span>{t('ui.perspectives.updated', 'Updated {date}', { date: new Date(p.updatedAt ?? p.createdAt).toLocaleString() })}</span>
                         </div>
                       </div>
                       <div className="flex flex-col gap-1">
@@ -158,7 +160,7 @@ export function PerspectiveSidebar({
                           onClick={() => onActivatePerspective(p, 'personal')}
                           disabled={isActive || deleting}
                         >
-                          {isActive ? 'Active' : 'Use'}
+                          {isActive ? t('ui.perspectives.actions.active', 'Active') : t('ui.perspectives.actions.use', 'Use')}
                         </Button>
                         <Button
                           size="sm"
@@ -166,7 +168,7 @@ export function PerspectiveSidebar({
                           onClick={() => void onDeletePerspective(p.id)}
                           disabled={deleting}
                         >
-                          {deleting ? 'Removing…' : 'Delete'}
+                          {deleting ? t('ui.perspectives.actions.removing', 'Removing…') : t('common.delete', 'Delete')}
                         </Button>
                       </div>
                     </div>
@@ -191,8 +193,8 @@ export function PerspectiveSidebar({
                     <div key={roleId} className="rounded border px-3 py-2 space-y-2 bg-muted/40">
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <div className="text-sm font-semibold">{role?.name ?? 'Role'}</div>
-                          {role?.hasDefault ? <div className="text-xs text-muted-foreground">Default perspective configured</div> : null}
+                          <div className="text-sm font-semibold">{role?.name ?? t('ui.perspectives.role.fallback', 'Role')}</div>
+                          {role?.hasDefault ? <div className="text-xs text-muted-foreground">{t('ui.perspectives.role.defaultConfigured', 'Default perspective configured')}</div> : null}
                         </div>
                         <Button
                           size="sm"
@@ -211,8 +213,8 @@ export function PerspectiveSidebar({
                               <div className="space-y-1">
                                 <div className="text-sm font-medium">{perspectiveLabel(item)}</div>
                                 <div className="text-xs text-muted-foreground flex items-center gap-2">
-                                  {item.isDefault ? <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary text-[11px] uppercase tracking-wide">Role default</span> : null}
-                                  <span>Updated {new Date(item.updatedAt ?? item.createdAt).toLocaleString()}</span>
+                                  {item.isDefault ? <span className="inline-flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-primary text-[11px] uppercase tracking-wide">{t('ui.perspectives.badge.roleDefault', 'Role default')}</span> : null}
+                                  <span>{t('ui.perspectives.updated', 'Updated {date}', { date: new Date(item.updatedAt ?? item.createdAt).toLocaleString() })}</span>
                                 </div>
                               </div>
                               <Button
@@ -221,7 +223,7 @@ export function PerspectiveSidebar({
                                 onClick={() => onActivatePerspective(item, 'role')}
                                 disabled={isActive}
                               >
-                                {isActive ? 'Active' : 'Use'}
+                                {isActive ? t('ui.perspectives.actions.active', 'Active') : t('ui.perspectives.actions.use', 'Use')}
                               </Button>
                             </div>
                           )
@@ -241,11 +243,11 @@ export function PerspectiveSidebar({
               </div>
             ) : null}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground uppercase">Name</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase">{t('ui.perspectives.form.nameLabel', 'Name')}</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. My condensed view"
+                placeholder={t('ui.perspectives.form.namePlaceholder', 'e.g. My condensed view')}
                 className="w-full h-9 rounded border px-2 text-sm"
               />
             </div>
@@ -256,15 +258,15 @@ export function PerspectiveSidebar({
                   checked={isDefault}
                   onChange={(e) => setIsDefault(e.target.checked)}
                 />
-                Make this my default perspective
+                {t('ui.perspectives.form.makeDefault', 'Make this my default perspective')}
               </label>
             </div>
             {canApplyToRoles ? (
               <div className="space-y-2">
-                <div className="text-xs font-medium text-muted-foreground uppercase">Share with roles</div>
+                <div className="text-xs font-medium text-muted-foreground uppercase">{t('ui.perspectives.form.shareWithRoles', 'Share with roles')}</div>
                 <div className="max-h-32 overflow-auto border rounded p-2 space-y-1">
                   {roles.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">No roles available.</div>
+                    <div className="text-xs text-muted-foreground">{t('ui.perspectives.form.noRolesAvailable', 'No roles available.')}</div>
                   ) : roles.map((role) => (
                     <label key={role.id} className="flex items-center gap-2 text-sm">
                       <input
@@ -283,17 +285,17 @@ export function PerspectiveSidebar({
                     onChange={(e) => setSetRoleDefault(e.target.checked)}
                     disabled={applyToRoles.length === 0}
                   />
-                  Set as default for selected roles
+                  {t('ui.perspectives.form.setRoleDefault', 'Set as default for selected roles')}
                 </label>
               </div>
             ) : null}
             {error ? <div className="text-sm text-red-600">{error}</div> : null}
             <Button size="sm" onClick={() => void handleSave()} disabled={saving || !name.trim() || Boolean(apiWarning)}>
-              {saving ? 'Saving…' : 'Save perspective'}
+              {saving ? t('ui.perspectives.form.saving', 'Saving…') : t('ui.perspectives.form.save', 'Save perspective')}
             </Button>
           </section>
           <section className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold uppercase text-muted-foreground">Columns</h3>
+            <h3 className="text-sm font-semibold uppercase text-muted-foreground">{t('ui.perspectives.form.columns', 'Columns')}</h3>
             <div className="space-y-2">
               {columnOptions.map((col, index) => (
                 <div key={col.id} className="flex items-center justify-between gap-2 rounded border px-3 py-2 bg-card">

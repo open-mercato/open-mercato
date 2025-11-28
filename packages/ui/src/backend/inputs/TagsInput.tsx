@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type TagsInputOption = {
   value: string
@@ -55,6 +56,7 @@ export function TagsInput({
   disabled = false,
   allowCustomValues = true,
 }: TagsInputProps) {
+  const t = useT()
   const [input, setInput] = React.useState('')
   const [asyncOptions, setAsyncOptions] = React.useState<TagsInputOption[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -205,7 +207,7 @@ export function TagsInput({
         <input
           className="flex-1 min-w-[120px] border-0 py-1 text-sm outline-none disabled:bg-transparent"
           value={input}
-          placeholder={placeholder || 'Add tag and press Enter'}
+          placeholder={placeholder || t('ui.inputs.tagsInput.placeholder', 'Add tag and press Enter')}
           autoFocus={autoFocus}
           data-crud-focus-target=""
           disabled={disabled}

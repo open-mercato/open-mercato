@@ -28,6 +28,7 @@ type AddressSnapshot = {
   entityId: string
   name: string | null
   purpose: string | null
+  companyName: string | null
   addressLine1: string
   addressLine2: string | null
   buildingNumber: string | null
@@ -56,6 +57,7 @@ async function loadAddressSnapshot(em: EntityManager, id: string): Promise<Addre
     entityId: typeof address.entity === 'string' ? address.entity : address.entity.id,
     name: address.name ?? null,
     purpose: address.purpose ?? null,
+    companyName: address.companyName ?? null,
     addressLine1: address.addressLine1,
     addressLine2: address.addressLine2 ?? null,
     buildingNumber: address.buildingNumber ?? null,
@@ -95,6 +97,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       entity,
       name: parsed.name ?? null,
       purpose: parsed.purpose ?? null,
+      companyName: parsed.companyName ?? null,
       addressLine1: parsed.addressLine1,
       addressLine2: parsed.addressLine2 ?? null,
       buildingNumber: parsed.buildingNumber ?? null,
@@ -189,6 +192,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     }
     if (parsed.name !== undefined) address.name = parsed.name ?? null
     if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
+    if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
     if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
     if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
     if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
@@ -238,6 +242,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
               'entityId',
               'name',
               'purpose',
+              'companyName',
               'addressLine1',
               'addressLine2',
               'buildingNumber',
@@ -284,6 +289,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
         entity,
         name: before.name,
         purpose: before.purpose,
+        companyName: before.companyName,
         addressLine1: before.addressLine1,
         addressLine2: before.addressLine2,
         buildingNumber: before.buildingNumber,
@@ -303,6 +309,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
       address.entity = entity
       address.name = before.name
       address.purpose = before.purpose
+      address.companyName = before.companyName
       address.addressLine1 = before.addressLine1
       address.addressLine2 = before.addressLine2
       address.buildingNumber = before.buildingNumber
@@ -395,14 +402,15 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {
-        address = em.create(CustomerAddress, {
-          id: before.id,
-          organizationId: before.organizationId,
-          tenantId: before.tenantId,
-          entity,
-          name: before.name,
-          purpose: before.purpose,
-          addressLine1: before.addressLine1,
+      address = em.create(CustomerAddress, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        entity,
+        name: before.name,
+        purpose: before.purpose,
+        companyName: before.companyName,
+        addressLine1: before.addressLine1,
           addressLine2: before.addressLine2,
           buildingNumber: before.buildingNumber,
           flatNumber: before.flatNumber,

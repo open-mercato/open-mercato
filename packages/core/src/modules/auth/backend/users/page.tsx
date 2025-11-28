@@ -344,7 +344,7 @@ export default function UsersListPage() {
   }, [showTenantColumn])
 
   const handleDelete = React.useCallback(async (row: Row) => {
-    if (!window.confirm(`Delete user "${row.email}"?`)) return
+    if (!window.confirm(t('auth.users.list.confirmDelete', 'Delete user "{email}"?', { email: row.email }))) return
     const deleteErrorMessage = t('auth.users.list.error.delete', 'Failed to delete user')
     try {
       const call = await apiCall(`/api/auth/users?id=${encodeURIComponent(row.id)}`, { method: 'DELETE' })
@@ -363,10 +363,10 @@ export default function UsersListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title="Users"
+          title={t('auth.users.list.title', 'Users')}
           actions={(
             <Button asChild>
-              <Link href="/backend/users/create">Create</Link>
+              <Link href="/backend/users/create">{t('common.create', 'Create')}</Link>
             </Button>
           )}
           columns={columns}
@@ -383,9 +383,9 @@ export default function UsersListPage() {
           perspective={{ tableId: 'auth.users.list' }}
           rowActions={(row) => (
             <RowActions items={[
-              { label: 'Edit', href: `/backend/users/${row.id}/edit` },
-              { label: 'Show roles', href: `/backend/roles?userId=${encodeURIComponent(row.id)}` },
-              { label: 'Delete', destructive: true, onSelect: () => { void handleDelete(row) } },
+              { label: t('common.edit', 'Edit'), href: `/backend/users/${row.id}/edit` },
+              { label: t('auth.users.list.actions.showRoles', 'Show roles'), href: `/backend/roles?userId=${encodeURIComponent(row.id)}` },
+              { label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}

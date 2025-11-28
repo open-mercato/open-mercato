@@ -138,22 +138,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
   // Maintain internal nav state so we can augment it client-side
   const [navGroups, setNavGroups] = React.useState(AppShell.cloneGroups(groups))
-  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() => {
-    const base = Object.fromEntries(groups.map(g => [resolveGroupKey(g), true])) as Record<string, boolean>
-    if (typeof window === 'undefined') return base
-    try {
-      const savedOpen = localStorage.getItem('om:sidebarOpenGroups')
-      if (savedOpen) {
-        const parsed = JSON.parse(savedOpen) as Record<string, boolean>
-        for (const group of groups) {
-          const key = resolveGroupKey(group)
-          if (key in parsed) base[key] = !!parsed[key]
-          else if (group.name in parsed) base[key] = !!parsed[group.name]
-        }
-      }
-    } catch {}
-    return base
-  })
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>(() =>
+    Object.fromEntries(groups.map((g) => [resolveGroupKey(g), true])) as Record<string, boolean>
+  )
   const [customizing, setCustomizing] = React.useState(false)
   const [customDraft, setCustomDraft] = React.useState<SidebarCustomizationDraft | null>(null)
   const [loadingPreferences, setLoadingPreferences] = React.useState(false)
@@ -167,6 +154,25 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   const [headerBreadcrumb, setHeaderBreadcrumb] = React.useState<Breadcrumb | undefined>(breadcrumb)
   const effectiveCollapsed = customizing ? false : collapsed
   const expandedSidebarWidth = customizing ? '320px' : '240px'
+
+  React.useEffect(() => {
+    try {
+      const savedOpen = typeof window !== 'undefined' ? localStorage.getItem('om:sidebarOpenGroups') : null
+      if (!savedOpen) return
+      const parsed = JSON.parse(savedOpen) as Record<string, boolean>
+      setOpenGroups((prev) => {
+        const next = { ...prev }
+        for (const group of groups) {
+          const key = resolveGroupKey(group)
+          if (key in parsed) next[key] = !!parsed[key]
+          else if (group.name in parsed) next[key] = !!parsed[group.name]
+        }
+        return next
+      })
+    } catch {
+      // ignore localStorage errors to avoid breaking hydration
+    }
+  }, [groups])
 
   const toggleGroup = (groupId: string) => setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))
 
