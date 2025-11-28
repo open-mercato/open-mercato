@@ -205,13 +205,17 @@ export function SalesDocumentPaymentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!payments.length) {
+      onActionChange(null)
+      return () => onActionChange(null)
+    }
     onActionChange({
       label: addActionLabel,
       onClick: openDialog,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, onActionChange, openDialog])
+  }, [addActionLabel, onActionChange, openDialog, payments.length])
 
   const currencyLabel = React.useMemo(() => {
     const code = currencyCode ? currencyCode.toUpperCase() : ''

@@ -498,24 +498,16 @@ export function PaymentMethodsSettings() {
   }, [entries, search])
 
   return (
-    <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-semibold">{translations.title}</h2>
-          <p className="text-sm text-muted-foreground">{translations.description}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => loadEntries()}>
-            {translations.actions.refresh}
-          </Button>
-          <Button size="sm" onClick={openCreate}>
-            {translations.actions.add}
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-4">
+    <section className="rounded border bg-card text-card-foreground shadow-sm">
+      <div className="px-2 py-4 sm:px-4">
         <DataTable
+          title={(
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold leading-tight">{translations.title}</h2>
+              <p className="text-sm text-muted-foreground">{translations.description}</p>
+            </div>
+          )}
+          embedded
           isLoading={loading}
           columns={columns}
           data={filteredEntries}

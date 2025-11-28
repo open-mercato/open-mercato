@@ -409,13 +409,17 @@ export function SalesShipmentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!shipments.length) {
+      onActionChange(null)
+      return () => onActionChange(null)
+    }
     onActionChange({
       label: t('sales.documents.shipments.add', 'Add shipment'),
       onClick: handleOpenCreate,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, t])
+  }, [handleOpenCreate, onActionChange, shipments.length, t])
 
   const handleEdit = React.useCallback(
     (shipment: ShipmentRow) => {

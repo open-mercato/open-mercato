@@ -384,7 +384,8 @@ export function AdjustmentKindSettings() {
               <AppearanceSelector
                 color={form.color}
                 icon={form.icon}
-                onChange={(next) => setForm((prev) => ({ ...prev, color: next.color, icon: next.icon }))}
+                onColorChange={(next) => setForm((prev) => ({ ...prev, color: next }))}
+                onIconChange={(next) => setForm((prev) => ({ ...prev, icon: next }))}
                 labels={labels.appearanceLabels}
               />
             </div>

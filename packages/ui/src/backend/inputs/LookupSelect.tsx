@@ -26,6 +26,7 @@ type LookupSelectProps = {
   actionSlot?: React.ReactNode
   onReady?: (controls: { setQuery: (value: string) => void }) => void
   searchPlaceholder?: string
+  placeholder?: string
   clearLabel?: string
   emptyLabel?: string
   loadingLabel?: string
@@ -44,7 +45,8 @@ export function LookupSelect({
   minQuery = 2,
   actionSlot,
   onReady,
-  searchPlaceholder = 'Search…',
+  placeholder,
+  searchPlaceholder = placeholder ?? 'Search…',
   clearLabel = 'Clear selection',
   emptyLabel = 'No results',
   loadingLabel = 'Searching…',
