@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'

@@ -139,7 +139,7 @@ const crud = makeCrudRoute({
                 ? ((item as any).payment_method_id as string)
                 : null
             )
-            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
         )
       )
       if (!methodIds.length) return

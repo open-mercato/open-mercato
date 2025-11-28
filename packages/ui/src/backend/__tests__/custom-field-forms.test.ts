@@ -10,8 +10,8 @@ describe('buildFormFieldsFromCustomFields', () => {
         key: 'severity',
         kind: 'select',
         options: [
-          { id: 'low', value: 'low' },
-          { id: 'high', value: 'high' },
+          { value: 'low', label: 'low' },
+          { value: 'high', label: 'high' },
         ],
         multi: false,
         filterable: true,
@@ -21,8 +21,8 @@ describe('buildFormFieldsFromCustomFields', () => {
         key: 'labels',
         kind: 'select',
         options: [
-          { id: 'bug', value: 'bug' },
-          { id: 'feature', value: 'feature' },
+          { value: 'bug', label: 'bug' },
+          { value: 'feature', label: 'feature' },
         ],
         multi: true,
         filterable: true,

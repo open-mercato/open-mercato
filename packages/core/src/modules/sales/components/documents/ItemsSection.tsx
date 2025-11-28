@@ -25,8 +25,8 @@ type ItemRecord = {
   unitPriceGross: number
   taxRate: number
   totalGross: number
-  metadata?: Record<string, unknown> | null
-  catalogSnapshot?: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
+  catalogSnapshot: Record<string, unknown> | null
 }
 
 type ProductOption = {
@@ -142,33 +142,37 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
       )
       if (response.ok && Array.isArray(response.result?.items)) {
         const mapped: ItemRecord[] = response.result.items
-          .map((item) => ({
-            id: typeof item.id === 'string' ? item.id : null,
-            name:
-              typeof item.name === 'string'
-                ? item.name
-                : typeof item.catalog_snapshot === 'object' &&
-                    item.catalog_snapshot &&
-                    typeof (item.catalog_snapshot as any).name === 'string'
-                  ? (item.catalog_snapshot as any).name
-                  : null,
-            productId: typeof item.product_id === 'string' ? item.product_id : null,
-            productVariantId: typeof item.product_variant_id === 'string' ? item.product_variant_id : null,
-            quantity: normalizeNumber(item.quantity, 0),
-            currencyCode:
-              typeof item.currency_code === 'string'
-                ? item.currency_code
-                : typeof currencyCode === 'string'
-                  ? currencyCode
-                  : null,
-            unitPriceNet: normalizeNumber(item.unit_price_net, 0),
-            unitPriceGross: normalizeNumber(item.unit_price_gross, 0),
-            taxRate: normalizeNumber(item.tax_rate, 0),
-            totalGross: normalizeNumber(item.total_gross_amount, 0),
-            metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
-            catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
-          }))
-          .filter((entry): entry is ItemRecord => Boolean(entry.id))
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            if (!id) return null
+            return {
+              id,
+              name:
+                typeof item.name === 'string'
+                  ? item.name
+                  : typeof item.catalog_snapshot === 'object' &&
+                      item.catalog_snapshot &&
+                      typeof (item.catalog_snapshot as any).name === 'string'
+                    ? (item.catalog_snapshot as any).name
+                    : null,
+              productId: typeof item.product_id === 'string' ? item.product_id : null,
+              productVariantId: typeof item.product_variant_id === 'string' ? item.product_variant_id : null,
+              quantity: normalizeNumber(item.quantity, 0),
+              currencyCode:
+                typeof item.currency_code === 'string'
+                  ? item.currency_code
+                  : typeof currencyCode === 'string'
+                    ? currencyCode
+                    : null,
+              unitPriceNet: normalizeNumber(item.unit_price_net, 0),
+              unitPriceGross: normalizeNumber(item.unit_price_gross, 0),
+              taxRate: normalizeNumber(item.tax_rate, 0),
+              totalGross: normalizeNumber(item.total_gross_amount, 0),
+              metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
+              catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
+            }
+          })
+          .filter((entry): entry is ItemRecord => Boolean(entry))
         setItems(mapped)
       } else {
         setItems([])

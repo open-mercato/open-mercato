@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'

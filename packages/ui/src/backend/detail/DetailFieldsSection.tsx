@@ -7,6 +7,7 @@ import {
   InlineTextEditor,
   type InlineSelectOption,
   type InlineTextEditorProps,
+  type InlineMultilineEditorProps,
 } from './InlineEditors'
 
 type EditorVariant = 'default' | 'muted' | 'plain'

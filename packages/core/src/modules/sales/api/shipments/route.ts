@@ -154,7 +154,7 @@ const crud = makeCrudRoute({
                   const raw = (item as Record<string, unknown>).shipping_method_id
                   return typeof raw === 'string' ? raw : null
                 })
-                .filter((value): value is string => typeof value === 'string' && value.length > 0)
+                .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
             )
           )
           if (!ids.length) return []
@@ -222,7 +222,7 @@ const crud = makeCrudRoute({
               const raw = (item as Record<string, unknown>).status_entry_id
               return typeof raw === 'string' ? raw : null
             })
-            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
         )
       )
       const statusMap = new Map<string, string | null>()

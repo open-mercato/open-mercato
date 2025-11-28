@@ -13,7 +13,7 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError, mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -537,7 +537,7 @@ export function SalesShipmentsSection({
             const note = t(
               'sales.documents.shipments.comment',
               'Shipment {{number}} updated: {{summary}}',
-              { number: label || result.result?.id || '', summary }
+              { number: label || String((result.result as any)?.id ?? ''), summary }
             )
             try {
               await onAddComment(note)
@@ -569,7 +569,6 @@ export function SalesShipmentsSection({
       closeDialog,
       computeAvailable,
       editingId,
-      form.attachAddress,
       form.carrierName,
       form.deliveredAt,
       form.items,
@@ -807,14 +806,13 @@ export function SalesShipmentsSection({
                     <RequiredMark />
                   </Label>
                   <LookupSelect
-                    id="shipment-method"
                     value={form.shippingMethodId}
                     placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
                     fetchOptions={loadShippingMethods}
                     options={shippingMethodOptions}
                     loading={shippingMethodLoading}
                     onChange={(next) => {
-                      const option = next?.option ?? null
+                      const option = shippingMethodOptions.find((entry) => entry.id === next)?.option ?? null
                       setForm((prev) => ({
                         ...prev,
                         shippingMethodId: option?.id ?? null,

@@ -9,9 +9,9 @@ describe('buildFilterDefsFromCustomFields', () => {
         kind: 'select',
         filterable: true,
         options: [
-          { id: 'low', value: 'low' },
-          { id: 'medium', value: 'medium' },
-          { id: 'high', value: 'high' },
+          { value: 'low', label: 'low' },
+          { value: 'medium', label: 'medium' },
+          { value: 'high', label: 'high' },
         ],
       },
       {
@@ -19,8 +19,8 @@ describe('buildFilterDefsFromCustomFields', () => {
         kind: 'select',
         filterable: true,
         options: [
-          { id: 'bug', value: 'bug' },
-          { id: 'feature', value: 'feature' },
+          { value: 'bug', label: 'bug' },
+          { value: 'feature', label: 'feature' },
         ],
         multi: true,
       },
@@ -58,8 +58,8 @@ describe('buildFilterDefsFromCustomFields', () => {
         filterable: true,
         multi: true,
         options: [
-          { id: 'bug', value: 'bug' },
-          { id: 'feature', value: 'feature' },
+          { value: 'bug', label: 'bug' },
+          { value: 'feature', label: 'feature' },
         ],
       },
     ]
