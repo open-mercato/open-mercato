@@ -4,16 +4,14 @@ import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import {
   DictionaryEntrySelect,
@@ -111,14 +109,17 @@ export function SalesDocumentAdjustmentsSection({
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingId, setEditingId] = React.useState<string | null>(null)
-  const [form, setForm] = React.useState<AdjustmentFormState>(() => defaultFormState(currencyCode))
-  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
-  const [submitError, setSubmitError] = React.useState<string | null>(null)
-  const [saving, setSaving] = React.useState(false)
+  const [formResetKey, setFormResetKey] = React.useState(0)
+  const [initialValues, setInitialValues] = React.useState<AdjustmentFormState>(() => defaultFormState(currencyCode))
   const [kindOptions, setKindOptions] = React.useState<DictionaryOption[]>([])
+  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
-  const resourcePath = React.useMemo(
+  const apiResourcePath = React.useMemo(
     () => (kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'),
+    [kind]
+  )
+  const crudResourcePath = React.useMemo(
+    () => (kind === 'order' ? 'sales/order-adjustments' : 'sales/quote-adjustments'),
     [kind]
   )
   const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
@@ -216,7 +217,7 @@ export function SalesDocumentAdjustmentsSection({
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '200', [documentKey]: documentId })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `${resourcePath}?${params.toString()}`,
+        `${apiResourcePath}?${params.toString()}`,
         undefined,
         { fallback: { items: [] } }
       )
@@ -275,7 +276,7 @@ export function SalesDocumentAdjustmentsSection({
     } finally {
       setLoading(false)
     }
-  }, [currencyCode, documentId, documentKey, resourcePath, t])
+  }, [apiResourcePath, currencyCode, documentId, documentKey, t])
 
   React.useEffect(() => {
     void loadAdjustments()
@@ -297,9 +298,8 @@ export function SalesDocumentAdjustmentsSection({
   }, [fallbackKindOptions, kindOptions])
 
   const resetForm = React.useCallback(() => {
-    setForm(defaultFormState(currencyCode, resolveDefaultKind()))
-    setFormErrors({})
-    setSubmitError(null)
+    setInitialValues(defaultFormState(currencyCode, resolveDefaultKind()))
+    setFormResetKey((prev) => prev + 1)
     setEditingId(null)
   }, [currencyCode, resolveDefaultKind])
 
@@ -311,16 +311,17 @@ export function SalesDocumentAdjustmentsSection({
   const handleEdit = React.useCallback(
     (row: AdjustmentRow) => {
       setEditingId(row.id)
-      setForm({
+      setFormResetKey((prev) => prev + 1)
+      setInitialValues({
         label: row.label ?? '',
         code: row.code ?? '',
         kind: row.kind,
         calculatorKey: row.calculatorKey ?? '',
-        rate: row.rate?.toString() ?? '',
-        amountNet: row.amountNet?.toString() ?? '',
-        amountGross: row.amountGross?.toString() ?? '',
+        rate: row.rate ?? '',
+        amountNet: row.amountNet ?? '',
+        amountGross: row.amountGross ?? '',
         currencyCode: row.currencyCode ?? currencyCode ?? null,
-        position: row.position.toString(),
+        position: row.position ?? '',
       })
       setDialogOpen(true)
     },
@@ -329,8 +330,6 @@ export function SalesDocumentAdjustmentsSection({
 
   const handleCloseDialog = React.useCallback(() => {
     setDialogOpen(false)
-    setSubmitError(null)
-    setFormErrors({})
   }, [])
 
   React.useEffect(() => {
@@ -343,56 +342,57 @@ export function SalesDocumentAdjustmentsSection({
     return () => onActionChange(null)
   }, [handleOpenCreate, onActionChange, t])
 
-  const validateForm = React.useCallback(() => {
-    const nextErrors: Record<string, string> = {}
-    const resolvedCurrency = form.currencyCode ?? currencyCode ?? null
-    const net = normalizeNumber(form.amountNet, NaN)
-    const gross = normalizeNumber(form.amountGross, NaN)
-    if (!Number.isFinite(net) && !Number.isFinite(gross)) {
-      nextErrors.amountNet = t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.')
-    }
-    if (!resolvedCurrency) {
-      nextErrors.currencyCode = t('sales.documents.adjustments.errorCurrency', 'Currency is required.')
-    }
-    if (!resolvedOrganizationId || !resolvedTenantId) {
-      nextErrors.position = t('sales.documents.adjustments.errorScope', 'Organization and tenant are required.')
-    }
-    setFormErrors(nextErrors)
-    if (nextErrors.amountNet) {
-      setSubmitError(nextErrors.amountNet)
-    } else if (nextErrors.currencyCode) {
-      setSubmitError(nextErrors.currencyCode)
-    } else if (nextErrors.position) {
-      setSubmitError(nextErrors.position)
-    }
-    return Object.keys(nextErrors).length === 0
-  }, [currencyCode, form.amountGross, form.amountNet, form.currencyCode, resolvedOrganizationId, resolvedTenantId, t])
-
-  const handleSubmit = React.useCallback(async () => {
-    if (saving) return
-    setSubmitError(null)
-    if (!validateForm()) return
-    setSaving(true)
-    try {
-      const resolvedCurrency = form.currencyCode ?? currencyCode ?? null
+  const handleFormSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      const resolvedCurrency = (values.currencyCode as string | null | undefined) ?? currencyCode ?? null
+      const amountNet = normalizeNumber(values.amountNet, NaN)
+      const amountGross = normalizeNumber(values.amountGross, NaN)
+      if (!resolvedCurrency || resolvedCurrency.trim().length !== 3) {
+        throw createCrudFormError(
+          t('sales.documents.adjustments.errorCurrency', 'Currency is required.'),
+          { currencyCode: t('sales.documents.adjustments.errorCurrency', 'Currency is required.') }
+        )
+      }
+      if (!Number.isFinite(amountNet) && !Number.isFinite(amountGross)) {
+        throw createCrudFormError(
+          t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.'),
+          { amountNet: t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.') }
+        )
+      }
+      if (!resolvedOrganizationId || !resolvedTenantId) {
+        throw createCrudFormError(
+          t('sales.documents.adjustments.errorScope', 'Organization and tenant are required.')
+        )
+      }
       const payload: Record<string, unknown> = {
         [documentKey]: documentId,
-        organizationId: resolvedOrganizationId ?? undefined,
-        tenantId: resolvedTenantId ?? undefined,
+        organizationId: resolvedOrganizationId,
+        tenantId: resolvedTenantId,
         scope: 'order',
-        kind: form.kind,
-        code: form.code?.trim() || undefined,
-        label: form.label?.trim() || undefined,
-        calculatorKey: form.calculatorKey?.trim() || undefined,
-        rate: form.rate ? normalizeNumber(form.rate, 0) : undefined,
-        amountNet: form.amountNet ? normalizeNumber(form.amountNet, 0) : undefined,
-        amountGross: form.amountGross ? normalizeNumber(form.amountGross, 0) : undefined,
-        currencyCode: resolvedCurrency ?? undefined,
-        position: form.position ? normalizeNumber(form.position, 0) : undefined,
+        kind:
+          typeof values.kind === 'string' && values.kind.trim().length
+            ? (values.kind as SalesAdjustmentKind)
+            : 'custom',
+        code:
+          typeof values.code === 'string' && values.code.trim().length ? values.code.trim() : undefined,
+        label:
+          typeof values.label === 'string' && values.label.trim().length ? values.label.trim() : undefined,
+        calculatorKey:
+          typeof values.calculatorKey === 'string' && values.calculatorKey.trim().length
+            ? values.calculatorKey.trim()
+            : undefined,
+        rate: Number.isFinite(normalizeNumber(values.rate, NaN)) ? normalizeNumber(values.rate, NaN) : undefined,
+        amountNet: Number.isFinite(amountNet) ? amountNet : undefined,
+        amountGross: Number.isFinite(amountGross) ? amountGross : undefined,
+        currencyCode: resolvedCurrency.toUpperCase(),
+        position: Number.isFinite(normalizeNumber(values.position, NaN))
+          ? normalizeNumber(values.position, NaN)
+          : undefined,
       }
+
       const action = editingId ? updateCrud : createCrud
       const result = await action(
-        resourcePath,
+        crudResourcePath,
         editingId ? { id: editingId, ...payload } : payload,
         {
           successMessage: editingId
@@ -404,49 +404,26 @@ export function SalesDocumentAdjustmentsSection({
       if (result.ok) {
         await loadAdjustments()
         setDialogOpen(false)
-        resetForm()
       }
-    } catch (err) {
-      console.error('sales.document.adjustments.save', err)
-      const mapped = mapCrudServerErrorToFormErrors(err)
-      if (mapped.fieldErrors) {
-        setFormErrors((prev) => ({ ...prev, ...mapped.fieldErrors }))
-      }
-      if (mapped.message) {
-        setSubmitError(mapped.message)
-      }
-    } finally {
-      setSaving(false)
-    }
-  }, [
-    currencyCode,
-    documentId,
-    documentKey,
-    editingId,
-    form.amountGross,
-    form.amountNet,
-    form.calculatorKey,
-    form.code,
-    form.currencyCode,
-    form.kind,
-    form.label,
-    form.position,
-    form.rate,
-    loadAdjustments,
-    resourcePath,
-    resolvedOrganizationId,
-    resolvedTenantId,
-    resetForm,
-    saving,
-    t,
-    validateForm,
-  ])
+    },
+    [
+      currencyCode,
+      documentId,
+      documentKey,
+      editingId,
+      loadAdjustments,
+      crudResourcePath,
+      resolvedOrganizationId,
+      resolvedTenantId,
+      t,
+    ]
+  )
 
   const handleDelete = React.useCallback(
     async (row: AdjustmentRow) => {
       try {
         const result = await deleteCrud(
-          resourcePath,
+          crudResourcePath,
           { id: row.id, [documentKey]: documentId },
           {
             successMessage: t('sales.documents.adjustments.deleted', 'Adjustment removed.'),
@@ -461,7 +438,7 @@ export function SalesDocumentAdjustmentsSection({
         flash(t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'), 'error')
       }
     },
-    [documentId, documentKey, loadAdjustments, resourcePath, t]
+    [crudResourcePath, documentId, documentKey, loadAdjustments, t]
   )
 
   const columns = React.useMemo<ColumnDef<AdjustmentRow>[]>(
@@ -566,11 +543,13 @@ export function SalesDocumentAdjustmentsSection({
               handleCloseDialog()
               return
             }
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
-              void handleSubmit()
+              const form = dialogContentRef.current?.querySelector('form')
+              form?.requestSubmit()
             }
           }}
+          ref={dialogContentRef}
         >
           <DialogHeader>
             <DialogTitle>
@@ -579,127 +558,86 @@ export function SalesDocumentAdjustmentsSection({
                 : t('sales.documents.adjustments.addTitle', 'Add adjustment')}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="adjustment-label">{t('sales.documents.adjustments.label', 'Label')}</Label>
-              <Input
-                id="adjustment-label"
-                value={form.label}
-                onChange={(event) => setForm((prev) => ({ ...prev, label: event.target.value }))}
-                placeholder={t('sales.documents.adjustments.labelPlaceholder', 'e.g. Shipping fee')}
-              />
-              {formErrors.label ? <p className="text-xs text-destructive">{formErrors.label}</p> : null}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="adjustment-code">{t('sales.documents.adjustments.code', 'Code')}</Label>
-                <Input
-                  id="adjustment-code"
-                  value={form.code}
-                  onChange={(event) => setForm((prev) => ({ ...prev, code: event.target.value }))}
-                  placeholder={t('sales.documents.adjustments.codePlaceholder', 'PROMO10')}
-                />
-                {formErrors.code ? <p className="text-xs text-destructive">{formErrors.code}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="adjustment-kind">{t('sales.documents.adjustments.kindLabel', 'Kind')}</Label>
-                <DictionaryEntrySelect
-                  value={form.kind}
-                  onChange={(value) => setForm((prev) => ({ ...prev, kind: (value ?? 'custom') as SalesAdjustmentKind }))}
-                  fetchOptions={loadKindOptions}
-                  labels={kindSelectLabels}
-                  allowInlineCreate={false}
-                  manageHref="/backend/config/sales#adjustment-kinds"
-                  selectClassName="w-full"
-                  showLabelInput={false}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="adjustment-calculator-key">{t('sales.documents.adjustments.calculatorKey', 'Calculator key')}</Label>
-              <Input
-                id="adjustment-calculator-key"
-                value={form.calculatorKey}
-                onChange={(event) => setForm((prev) => ({ ...prev, calculatorKey: event.target.value }))}
-                placeholder="optional"
-              />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="adjustment-rate">{t('sales.documents.adjustments.rate', 'Rate')}</Label>
-                <Input
-                  id="adjustment-rate"
-                  type="number"
-                  inputMode="decimal"
-                  value={form.rate}
-                  onChange={(event) => setForm((prev) => ({ ...prev, rate: event.target.value }))}
-                  placeholder="0.00"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="adjustment-position">{t('sales.documents.adjustments.position', 'Position')}</Label>
-                <Input
-                  id="adjustment-position"
-                  type="number"
-                  inputMode="numeric"
-                  value={form.position}
-                  onChange={(event) => setForm((prev) => ({ ...prev, position: event.target.value }))}
-                  placeholder="0"
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="adjustment-amount-net">{t('sales.documents.adjustments.amountNet', 'Net amount')}</Label>
-                <Input
-                  id="adjustment-amount-net"
-                  type="number"
-                  inputMode="decimal"
-                  value={form.amountNet}
-                  onChange={(event) => setForm((prev) => ({ ...prev, amountNet: event.target.value }))}
-                  placeholder="0.00"
-                />
-                {formErrors.amountNet ? <p className="text-xs text-destructive">{formErrors.amountNet}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="adjustment-amount-gross">{t('sales.documents.adjustments.amountGross', 'Gross amount')}</Label>
-                <Input
-                  id="adjustment-amount-gross"
-                  type="number"
-                  inputMode="decimal"
-                  value={form.amountGross}
-                  onChange={(event) => setForm((prev) => ({ ...prev, amountGross: event.target.value }))}
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="adjustment-currency">{t('sales.documents.adjustments.currency', 'Currency')}</Label>
-              <Input
-                id="adjustment-currency"
-                value={form.currencyCode ?? ''}
-                onChange={(event) => setForm((prev) => ({ ...prev, currencyCode: event.target.value.toUpperCase() }))}
-                placeholder={t('sales.documents.adjustments.currencyPlaceholder', 'e.g. USD')}
-              />
-              {formErrors.currencyCode ? <p className="text-xs text-destructive">{formErrors.currencyCode}</p> : null}
-            </div>
-            {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-          </div>
-          <DialogFooter className="pt-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={handleCloseDialog}
-              className="w-full sm:w-auto"
-              disabled={saving}
-            >
-              {t('ui.actions.cancel', 'Cancel')}
-            </Button>
-            <Button type="button" onClick={() => void handleSubmit()} className="w-full sm:w-auto" disabled={saving}>
-              {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {t('ui.actions.save', 'Save')}
-            </Button>
-          </DialogFooter>
+          <CrudForm
+            key={formResetKey}
+            embedded
+            fields={[
+              {
+                id: 'label',
+                label: t('sales.documents.adjustments.label', 'Label'),
+                type: 'text',
+                placeholder: t('sales.documents.adjustments.labelPlaceholder', 'e.g. Shipping fee'),
+              },
+              {
+                id: 'code',
+                label: t('sales.documents.adjustments.code', 'Code'),
+                type: 'text',
+                placeholder: t('sales.documents.adjustments.codePlaceholder', 'PROMO10'),
+              },
+              {
+                id: 'kind',
+                label: t('sales.documents.adjustments.kindLabel', 'Kind'),
+                type: 'custom',
+                component: ({ value, setValue }) => (
+                  <DictionaryEntrySelect
+                    value={typeof value === 'string' ? value : undefined}
+                    onChange={(next) => setValue(next ?? 'custom')}
+                    fetchOptions={loadKindOptions}
+                    labels={kindSelectLabels}
+                    allowInlineCreate={false}
+                    manageHref="/backend/config/sales#adjustment-kinds"
+                    selectClassName="w-full"
+                    showLabelInput={false}
+                  />
+                ),
+              },
+              {
+                id: 'calculatorKey',
+                label: t('sales.documents.adjustments.calculatorKey', 'Calculator key'),
+                type: 'text',
+                placeholder: 'optional',
+              },
+              {
+                id: 'rate',
+                label: t('sales.documents.adjustments.rate', 'Rate'),
+                type: 'number',
+                placeholder: '0.00',
+              },
+              {
+                id: 'position',
+                label: t('sales.documents.adjustments.position', 'Position'),
+                type: 'number',
+                placeholder: '0',
+              },
+              {
+                id: 'amountNet',
+                label: t('sales.documents.adjustments.amountNet', 'Net amount'),
+                type: 'number',
+                placeholder: '0.00',
+              },
+              {
+                id: 'amountGross',
+                label: t('sales.documents.adjustments.amountGross', 'Gross amount'),
+                type: 'number',
+                placeholder: '0.00',
+              },
+              {
+                id: 'currencyCode',
+                label: t('sales.documents.adjustments.currency', 'Currency'),
+                type: 'text',
+                placeholder: t('sales.documents.adjustments.currencyPlaceholder', 'e.g. USD'),
+                transform: (val) => (typeof val === 'string' ? val.toUpperCase() : val),
+              },
+            ]}
+            initialValues={initialValues}
+            submitLabel={
+              editingId
+                ? t('sales.documents.adjustments.updated', 'Adjustment updated.')
+                : t('sales.documents.adjustments.created', 'Adjustment added.')
+            }
+            onSubmit={handleFormSubmit}
+            loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
+          />
         </DialogContent>
       </Dialog>
     </div>

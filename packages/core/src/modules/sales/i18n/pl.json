@@ -740,7 +740,7 @@
         "methodPlaceholder": "Search payment method",
         "currency": "Currency",
         "referencePlaceholder": "External reference or note",
-        "saveShortcut": "Save ⌘/Ctrl + S"
+        "saveShortcut": "Save ⌘⏎ / Ctrl+Enter"
       },
       "detail": {
         "title": "Dokument sprzedaży",

@@ -326,6 +326,55 @@
           "delete": "Status gelöscht."
         }
       },
+      "adjustmentKinds": {
+        "title": "Anpassungsarten",
+        "description": "Verwalten Sie wiederverwendbare Anpassungsarten für Steuern, Zuschläge, Versand und Rabatte.",
+        "actions": {
+          "add": "Anpassungsart hinzufügen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen",
+          "refresh": "Aktualisieren",
+          "create": "Erstellen",
+          "save": "Änderungen speichern"
+        },
+        "confirm": {
+          "delete": "Anpassungsart \"{{code}}\" löschen?"
+        },
+        "dialog": {
+          "createTitle": "Anpassungsart erstellen",
+          "editTitle": "Anpassungsart bearbeiten",
+          "createDescription": "Definieren Sie eine wiederverwendbare Anpassungsart für das Dialogfenster.",
+          "editDescription": "Aktualisieren Sie Code, Bezeichnung oder Darstellung dieser Anpassungsart."
+        },
+        "form": {
+          "codeLabel": "Code",
+          "codePlaceholder": "z. B. discount",
+          "labelLabel": "Bezeichnung",
+          "labelPlaceholder": "z. B. Rabatt",
+          "appearanceLabel": "Darstellung"
+        },
+        "errors": {
+          "required": "Code ist erforderlich.",
+          "load": "Anpassungsarten konnten nicht geladen werden.",
+          "save": "Anpassungsart konnte nicht gespeichert werden.",
+          "delete": "Anpassungsart konnte nicht gelöscht werden."
+        },
+        "messages": {
+          "created": "Anpassungsart erstellt.",
+          "updated": "Anpassungsart aktualisiert.",
+          "deleted": "Anpassungsart gelöscht."
+        },
+        "table": {
+          "code": "Code",
+          "label": "Bezeichnung",
+          "appearance": "Darstellung",
+          "empty": "Noch keine Anpassungsarten."
+        },
+        "search": {
+          "placeholder": "Nach Code oder Bezeichnung suchen…"
+        },
+        "loading": "Anpassungsarten werden geladen…"
+      },
       "shippingMethods": {
         "title": "Versandarten",
         "description": "Verwalten Sie Carrier, Provider und Standard-Versandpreise.",
@@ -795,6 +844,9 @@
           "code": "Code",
           "codePlaceholder": "PROMO10",
           "kindLabel": "Typ",
+          "kindSelect": {
+            "placeholder": "Anpassungsart auswählen…"
+          },
           "calculatorKey": "Kalkulator-Schlüssel",
           "rate": "Rate",
           "amountNet": "Nettobetrag",

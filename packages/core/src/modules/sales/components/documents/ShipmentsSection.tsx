@@ -7,15 +7,15 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -57,17 +57,16 @@ type OrderLine = {
   quantity: number
 }
 
-type FormState = {
+type ShipmentFormValues = {
   shipmentNumber: string
   shippingMethodId: string | null
-  shippingMethodLabel: string
   carrierName: string
   trackingNumbers: string
   shippedAt: string
   deliveredAt: string
   notes: string
   postComment: boolean
-  items: Record<string, string>
+  items: Array<{ orderLineId: string; quantity: number }>
 }
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
@@ -80,7 +79,7 @@ type SalesShipmentsSectionProps = {
   onAddComment?: (body: string) => Promise<void>
 }
 
-const defaultFormState = (lines: OrderLine[]): FormState => {
+const defaultFormState = (lines: OrderLine[]): ShipmentFormValues => {
   const items: Record<string, string> = {}
   lines.forEach((line) => {
     items[line.id] = ''
@@ -88,7 +87,6 @@ const defaultFormState = (lines: OrderLine[]): FormState => {
   return {
     shipmentNumber: '',
     shippingMethodId: null,
-    shippingMethodLabel: '',
     carrierName: '',
     trackingNumbers: '',
     shippedAt: '',
@@ -128,11 +126,10 @@ export function SalesShipmentsSection({
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
-  const [form, setForm] = React.useState<FormState>(() => defaultFormState([]))
   const [editingId, setEditingId] = React.useState<string | null>(null)
-  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
-  const [submitError, setSubmitError] = React.useState<string | null>(null)
+  const [initialValues, setInitialValues] = React.useState<ShipmentFormValues>(() => defaultFormState([]))
+  const [formResetKey, setFormResetKey] = React.useState(0)
+  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
   const lineMap = React.useMemo(() => new Map(lines.map((line) => [line.id, line])), [lines])
 
@@ -162,24 +159,6 @@ export function SalesShipmentsSection({
     },
     [lineMap, shipments, shippedTotals]
   )
-
-  React.useEffect(() => {
-    if (form.shippingMethodId && shippingMethodOption) {
-      setShippingMethodOptions((prev) => {
-        const exists = prev.some((opt) => opt.option.id === shippingMethodOption.id)
-        if (exists) return prev
-        return [
-          ...prev,
-          {
-            id: shippingMethodOption.id,
-            title: shippingMethodOption.name,
-            subtitle: shippingMethodOption.code ?? undefined,
-            option: shippingMethodOption,
-          } as LookupSelectItem & { option: { id: string; name: string; code: string | null } },
-        ]
-      })
-    }
-  }, [form.shippingMethodId, shippingMethodOption])
 
   const loadLines = React.useCallback(async () => {
     const params = new URLSearchParams({ page: '1', pageSize: '200', orderId })
@@ -401,9 +380,8 @@ export function SalesShipmentsSection({
   }, [loadLines, loadShipments, loadShippingMethods])
 
   const resetForm = React.useCallback(() => {
-    setForm(defaultFormState(lines))
-    setFormErrors({})
-    setSubmitError(null)
+    setInitialValues(defaultFormState(lines))
+    setFormResetKey((prev) => prev + 1)
     setEditingId(null)
     setShippingMethodOption(null)
   }, [lines])
@@ -433,7 +411,6 @@ export function SalesShipmentsSection({
       nextForm.deliveredAt = shipment.deliveredAt ? shipment.deliveredAt.slice(0, 10) : ''
       nextForm.notes = shipment.notes ?? ''
       nextForm.shippingMethodId = shipment.shippingMethodId ?? null
-      nextForm.shippingMethodLabel = shipment.shippingMethodCode ?? ''
       setShippingMethodOption(
         shipment.shippingMethodId
           ? {
@@ -449,7 +426,8 @@ export function SalesShipmentsSection({
         return acc
       }, {})
       setEditingId(shipment.id)
-      setForm(nextForm)
+      setInitialValues(nextForm)
+      setFormResetKey((prev) => prev + 1)
       setDialogOpen(true)
     },
     [lines]
