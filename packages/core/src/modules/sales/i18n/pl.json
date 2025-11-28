@@ -333,6 +333,55 @@
           "delete": "Status usunięty."
         }
       },
+      "adjustmentKinds": {
+        "title": "Typy korekt",
+        "description": "Zarządzaj typami korekt dla podatków, dopłat, dostawy i rabatów.",
+        "actions": {
+          "add": "Dodaj typ korekty",
+          "edit": "Edytuj",
+          "delete": "Usuń",
+          "refresh": "Odśwież",
+          "create": "Utwórz",
+          "save": "Zapisz zmiany"
+        },
+        "confirm": {
+          "delete": "Usunąć typ korekty \"{{code}}\"?"
+        },
+        "dialog": {
+          "createTitle": "Utwórz typ korekty",
+          "editTitle": "Edytuj typ korekty",
+          "createDescription": "Zdefiniuj typ korekty używany w formularzu dodawania korekt.",
+          "editDescription": "Zaktualizuj kod, etykietę lub wygląd tego typu korekty."
+        },
+        "form": {
+          "codeLabel": "Kod",
+          "codePlaceholder": "np. discount",
+          "labelLabel": "Etykieta",
+          "labelPlaceholder": "np. Rabat",
+          "appearanceLabel": "Wygląd"
+        },
+        "errors": {
+          "required": "Kod jest wymagany.",
+          "load": "Nie udało się wczytać typów korekt.",
+          "save": "Nie udało się zapisać typu korekty.",
+          "delete": "Nie udało się usunąć typu korekty."
+        },
+        "messages": {
+          "created": "Typ korekty utworzony.",
+          "updated": "Typ korekty zaktualizowany.",
+          "deleted": "Typ korekty usunięty."
+        },
+        "table": {
+          "code": "Kod",
+          "label": "Etykieta",
+          "appearance": "Wygląd",
+          "empty": "Brak typów korekt."
+        },
+        "search": {
+          "placeholder": "Szukaj po kodzie lub etykiecie…"
+        },
+        "loading": "Ładowanie typów korekt…"
+      },
       "shippingMethods": {
         "title": "Metody dostawy",
         "description": "Zarządzaj przewoźnikami, dostawcami i domyślnymi cenami dostawy.",
@@ -843,6 +892,9 @@
           "code": "Kod",
           "codePlaceholder": "PROMO10",
           "kindLabel": "Typ",
+          "kindSelect": {
+            "placeholder": "Wybierz typ korekty…"
+          },
           "calculatorKey": "Klucz kalkulatora",
           "rate": "Stawka",
           "amountNet": "Kwota netto",

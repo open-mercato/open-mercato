@@ -98,7 +98,7 @@ export function SalesDocumentPaymentsSection({
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
   const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
-  const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save ⌘/Ctrl + S')
+  const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
 
   const loadPaymentMethods = React.useCallback(async () => {
     setMethodsLoading(true)
@@ -134,7 +134,7 @@ export function SalesDocumentPaymentsSection({
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200', orderId })
+      const params = new URLSearchParams({ page: '1', pageSize: '100', orderId })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/sales/payments?${params.toString()}`,
         undefined,
