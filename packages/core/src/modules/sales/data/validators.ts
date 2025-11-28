@@ -543,6 +543,7 @@ export const shipmentCreateSchema = scoped.extend({
   currencyCode: currencyCode.optional(),
   notes: z.string().trim().max(4000).optional(),
   metadata,
+  shipmentAddressSnapshot: jsonRecord.optional(),
   items: z
     .array(
       z.object({

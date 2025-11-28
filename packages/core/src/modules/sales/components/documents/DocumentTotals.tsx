@@ -99,33 +99,3 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
     </div>
   )
 }
-                <td className="px-4 py-3 font-medium text-foreground/90">{item.label}</td>
-                <td className="px-4 py-3 text-right">
-                  <PriceWithCurrency amount={item.amount} currency={currency} className="font-mono text-base" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          {emphasizedRows.length ? (
-            <tfoot className="border-t-2 border-primary/40 bg-primary/5">
-              {emphasizedRows.map((item) => (
-                <tr key={item.key}>
-                  <td className="px-4 py-3 font-semibold uppercase tracking-wide text-foreground">
-                    {item.label}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <PriceWithCurrency
-                      amount={item.amount}
-                      currency={currency}
-                      className="font-mono text-lg font-semibold text-foreground"
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tfoot>
-          ) : null}
-        </table>
-      </div>
-    </div>
-  )
-}
