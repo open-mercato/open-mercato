@@ -11,13 +11,16 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { NotesSection } from '../../../../components/detail/NotesSection'
+import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealForm, type DealFormSubmitPayload } from '../../../../components/detail/DealForm'
-import type { SectionAction } from '../../../../components/detail/types'
 import { useCustomerDictionary } from '../../../../components/detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryMap } from '../../../../lib/dictionaries'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 
 type DealAssociation = {
   id: string
@@ -89,6 +92,7 @@ function resolveDictionaryLabel(
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
+  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
   const id = params?.id ?? ''
   const scopeVersion = useOrganizationScopeVersion()
@@ -519,6 +523,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     onActionChange={setSectionAction}
                     translator={detailTranslator}
                     onLoadingChange={handleNotesLoadingChange}
+                    dataAdapter={notesAdapter}
+                    renderIcon={renderDictionaryIcon}
+                    renderColor={renderDictionaryColor}
+                    iconSuggestions={ICON_SUGGESTIONS}
+                    readMarkdownPreference={readMarkdownPreferenceCookie}
+                    writeMarkdownPreference={writeMarkdownPreferenceCookie}
                   />
                 ) : null}
                 {activeTab === 'activities' ? (

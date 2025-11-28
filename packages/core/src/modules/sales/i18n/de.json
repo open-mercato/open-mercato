@@ -851,6 +851,14 @@
   "sales.audit.quotes.create": "Angebot erstellen",
   "sales.audit.quotes.delete": "Angebot löschen",
   "sales.audit.quotes.update": "Angebot aktualisieren",
+  "sales.audit.shipments.create": "Sendung erstellen",
+  "sales.audit.shipments.update": "Sendung aktualisieren",
+  "sales.audit.shipments.delete": "Sendung löschen",
+  "sales.shipments.not_found": "Sendung wurde nicht gefunden",
+  "sales.shipments.items_required": "Füge mindestens eine Position zur Sendung hinzu.",
+  "sales.shipments.line_missing": "Bestellposition wurde nicht gefunden.",
+  "sales.shipments.quantity_exceeded": "Es kann nicht mehr als die verbleibende Menge versendet werden.",
+  "sales.shipments.invalid_order": "Die Sendung gehört nicht zu dieser Bestellung.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
   "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
 }

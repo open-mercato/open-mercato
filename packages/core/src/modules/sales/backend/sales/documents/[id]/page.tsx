@@ -38,9 +38,11 @@ import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDict
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
-import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/core/modules/customers/components/detail/NotesSection'
-import type { CommentSummary, SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
+import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
+import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
 
 function CurrencyInlineEditor({
   label,
@@ -3569,6 +3571,11 @@ export default function SalesDocumentDetailPage({
           translator={t}
           dataAdapter={salesNotesAdapter}
           onActionChange={handleSectionActionChange}
+          renderIcon={renderDictionaryIcon}
+          renderColor={renderDictionaryColor}
+          iconSuggestions={ICON_SUGGESTIONS}
+          readMarkdownPreference={readMarkdownPreferenceCookie}
+          writeMarkdownPreference={writeMarkdownPreferenceCookie}
         />
       )
     }
