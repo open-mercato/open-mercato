@@ -1,8 +1,9 @@
 "use client"
 
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import type { Translator } from '@open-mercato/ui/backend/detail/NotesSection'
 import { mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail/NotesSection'
+
+type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
 export function createCustomerNotesAdapter(translator: Translator): NotesDataAdapter {
   return {

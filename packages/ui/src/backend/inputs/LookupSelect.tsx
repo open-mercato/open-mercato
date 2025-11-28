@@ -19,7 +19,9 @@ export type LookupSelectItem = {
 type LookupSelectProps = {
   value: string | null
   onChange: (next: string | null) => void
-  fetchItems: (query: string) => Promise<LookupSelectItem[]>
+  fetchItems?: (query: string) => Promise<LookupSelectItem[]>
+  fetchOptions?: (query?: string) => Promise<LookupSelectItem[]>
+  options?: LookupSelectItem[]
   minQuery?: number
   actionSlot?: React.ReactNode
   onReady?: (controls: { setQuery: (value: string) => void }) => void
@@ -28,12 +30,17 @@ type LookupSelectProps = {
   emptyLabel?: string
   loadingLabel?: string
   selectedHintLabel?: (id: string) => string
+  disabled?: boolean
+  loading?: boolean
+  defaultOpen?: boolean
 }
 
 export function LookupSelect({
   value,
   onChange,
   fetchItems,
+  fetchOptions,
+  options,
   minQuery = 2,
   actionSlot,
   onReady,
@@ -42,30 +49,44 @@ export function LookupSelect({
   emptyLabel = 'No results',
   loadingLabel = 'Searching…',
   selectedHintLabel,
+  disabled = false,
+  loading: loadingProp = false,
+  defaultOpen = false,
 }: LookupSelectProps) {
   const [query, setQuery] = React.useState('')
-  const [items, setItems] = React.useState<LookupSelectItem[]>([])
+  const [items, setItems] = React.useState<LookupSelectItem[]>(options ?? [])
   const [loading, setLoading] = React.useState(false)
-  const [hasTyped, setHasTyped] = React.useState(false)
+  const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
-  const fetchItemsRef = React.useRef(fetchItems)
+  const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
 
   React.useEffect(() => {
-    fetchItemsRef.current = fetchItems
-  }, [fetchItems])
+    fetchItemsRef.current = fetchItems ?? fetchOptions
+  }, [fetchItems, fetchOptions])
+
+  React.useEffect(() => {
+    if (Array.isArray(options)) {
+      setItems(options)
+    }
+  }, [options])
 
   React.useEffect(() => {
     setQueryRef.current = setQuery
     if (onReady) onReady({ setQuery })
   }, [onReady, setQuery])
 
-  const shouldSearch = query.trim().length >= minQuery
+  const shouldSearch = defaultOpen || query.trim().length >= minQuery
   React.useEffect(() => {
+    if (disabled) {
+      setItems(options ?? [])
+      setLoading(false)
+      return
+    }
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
     if (!shouldSearch) {
-      setItems([])
+      setItems(options ?? [])
       setLoading(false)
       setError(null)
       return () => { cancelled = true }
@@ -74,7 +95,9 @@ export function LookupSelect({
     setError(null)
     timer = setTimeout(() => {
       const requestId = Date.now()
-      fetchItemsRef.current(query.trim())
+      const fetcher = fetchItemsRef.current
+      const loader = fetcher ?? (() => Promise.resolve(options ?? []))
+      loader(query.trim())
         .then((result) => {
           if (cancelled) return
           setItems(result)
@@ -108,19 +131,20 @@ export function LookupSelect({
               setHasTyped(true)
             }}
             placeholder={searchPlaceholder}
+            disabled={disabled}
           />
         </div>
         {actionSlot ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
       {shouldSearch ? (
         <div className="space-y-2">
-          {loading ? (
+          {loading || loadingProp ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {loadingLabel}
             </div>
           ) : null}
-          {!loading && !items.length ? (
+          {!loading && !loadingProp && !items.length ? (
             <p className="text-xs text-muted-foreground">{emptyLabel}</p>
           ) : null}
           <div className="space-y-2 max-h-80 overflow-y-auto">

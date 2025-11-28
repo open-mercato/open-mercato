@@ -278,7 +278,7 @@ export function InlineDictionaryEditor({
           <DictionarySelectField
             kind={kind}
             value={selectValue.length ? selectValue : undefined}
-            onChange={onChange}
+            onChange={(next) => onChange(next ?? '')}
             labels={dictionaryLabels}
             selectClassName={selectClassName}
           />

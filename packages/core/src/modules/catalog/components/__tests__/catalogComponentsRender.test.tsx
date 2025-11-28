@@ -233,8 +233,20 @@ describe('catalog module components', () => {
 
   it('syncs category slug automatically', async () => {
     const setValue = jest.fn()
-    const { rerender } = render(<CategorySlugFieldSync values={{ name: '', slug: '' }} setValue={setValue} />)
-    rerender(<CategorySlugFieldSync values={{ name: 'Summer Hat', slug: '' }} setValue={setValue} />)
+    const { rerender } = render(
+      <CategorySlugFieldSync
+        values={{ name: '', slug: '' }}
+        errors={{}}
+        setValue={setValue}
+      />,
+    )
+    rerender(
+      <CategorySlugFieldSync
+        values={{ name: 'Summer Hat', slug: '' }}
+        errors={{}}
+        setValue={setValue}
+      />,
+    )
     await waitFor(() => {
       expect(setValue).toHaveBeenCalledWith('slug', 'summer-hat')
     })

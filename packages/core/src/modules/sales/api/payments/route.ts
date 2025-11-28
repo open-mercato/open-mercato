@@ -131,7 +131,7 @@ const crud = makeCrudRoute({
     afterList: async (payload, ctx) => {
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
-      const methodIds = Array.from(
+      const methodIds: string[] = Array.from(
         new Set(
           items
             .map((item: unknown) =>
@@ -139,7 +139,7 @@ const crud = makeCrudRoute({
                 ? ((item as any).payment_method_id as string)
                 : null
             )
-            .filter((value): value is string => !!value)
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
         )
       )
       if (!methodIds.length) return

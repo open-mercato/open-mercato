@@ -6,8 +6,28 @@ describe('buildFormFieldsFromCustomFields', () => {
     const defs: CustomFieldDefDto[] = [
       { key: 'blocked', kind: 'boolean', filterable: true, formEditable: true },
       { key: 'priority', kind: 'integer', filterable: true, formEditable: true },
-      { key: 'severity', kind: 'select', options: ['low','high'], multi: false, filterable: true, formEditable: true },
-      { key: 'labels', kind: 'select', options: ['bug','feature'], multi: true, filterable: true, formEditable: true },
+      {
+        key: 'severity',
+        kind: 'select',
+        options: [
+          { id: 'low', value: 'low' },
+          { id: 'high', value: 'high' },
+        ],
+        multi: false,
+        filterable: true,
+        formEditable: true,
+      },
+      {
+        key: 'labels',
+        kind: 'select',
+        options: [
+          { id: 'bug', value: 'bug' },
+          { id: 'feature', value: 'feature' },
+        ],
+        multi: true,
+        filterable: true,
+        formEditable: true,
+      },
       { key: 'notes', kind: 'multiline', filterable: false, formEditable: true },
       // text with editor hint should render richtext
       { key: 'desc', kind: 'text', filterable: false, formEditable: true, editor: 'htmlRichText' },

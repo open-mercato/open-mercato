@@ -191,7 +191,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
   })
 
   const attachTags = async (payload: any, ctx: any) => {
-    const items = Array.isArray(payload?.items) ? payload.items : []
+    const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
     if (!items.length) return
     const ids = items
       .map((item) => (item && typeof item.id === 'string' ? item.id : null))
@@ -230,7 +230,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       list.push(entry)
       grouped.set(documentId, list)
     })
-    items.forEach((item) => {
+    items.forEach((item: Record<string, any>) => {
       const id = item && typeof item.id === 'string' ? item.id : null
       if (!id) return
       const list = grouped.get(id)

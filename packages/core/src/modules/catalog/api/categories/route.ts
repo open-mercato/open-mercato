@@ -304,7 +304,7 @@ const categoryTreeNodeSchema: z.ZodType<TreeNode> = z.lazy(() =>
   z.object({
     id: z.string().uuid(),
     name: z.string(),
-    parentId: z.string().uuid().nullable().optional(),
+    parentId: z.string().uuid().nullable(),
     depth: z.number(),
     pathLabel: z.string(),
     ancestorIds: z.array(z.string().uuid()),

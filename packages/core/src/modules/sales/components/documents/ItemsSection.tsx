@@ -3,15 +3,14 @@
 import * as React from 'react'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { DollarSign, Pencil, Plus, Trash2 } from 'lucide-react'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 
@@ -114,17 +113,16 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
   const [editingId, setEditingId] = React.useState<string | null>(null)
-  const [form, setForm] = React.useState<LineFormState>(() => defaultForm(currencyCode))
+  const [initialValues, setInitialValues] = React.useState<LineFormState>(() => defaultForm(currencyCode))
+  const [formResetKey, setFormResetKey] = React.useState(0)
   const [productOption, setProductOption] = React.useState<ProductOption | null>(null)
   const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
   const [priceOptions, setPriceOptions] = React.useState<PriceOption[]>([])
   const [priceLoading, setPriceLoading] = React.useState(false)
-  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
-  const [submitError, setSubmitError] = React.useState<string | null>(null)
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
+  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
   const resourcePath = React.useMemo(
     () => (kind === 'order' ? 'sales/order-lines' : 'sales/quote-lines'),
@@ -188,13 +186,12 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
   }, [loadItems])
 
   const resetForm = React.useCallback(() => {
-    setForm(defaultForm(currencyCode))
+    setInitialValues(defaultForm(currencyCode))
     setProductOption(null)
     setVariantOption(null)
     setPriceOptions([])
     setEditingId(null)
-    setFormErrors({})
-    setSubmitError(null)
+    setFormResetKey((prev) => prev + 1)
   }, [currencyCode])
 
   const openCreate = React.useCallback(() => {
@@ -398,151 +395,131 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
     [t],
   )
 
-  React.useEffect(() => {
-    if (!form.productId) {
-      setPriceOptions([])
-      return
-    }
-    void loadPrices(form.productId, form.variantId)
-  }, [form.productId, form.variantId, loadPrices])
+  const handleFormSubmit = React.useCallback(
+    async (values: LineFormState) => {
+      if (!values.productId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorProductRequired', 'Select a product to continue.'),
+          { productId: t('sales.documents.items.errorProductRequired', 'Select a product to continue.') },
+        )
+      }
+      if (!values.variantId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.'),
+          { variantId: t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.') },
+        )
+      }
+      const quantity = Math.max(normalizeNumber(values.quantity, NaN), 0)
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.'),
+          { quantity: t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.') },
+        )
+      }
+      const unitPriceValue = normalizeNumber(values.unitPrice, NaN)
+      if (!Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.'),
+          { unitPrice: t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.') },
+        )
+      }
+      const selectedPrice = values.priceId
+        ? priceOptions.find((price) => price.id === values.priceId) ?? null
+        : null
+      const resolvedCurrency =
+        values.currencyCode ??
+        selectedPrice?.currencyCode ??
+        currencyCode ??
+        priceOptions.find((price) => price.currencyCode)?.currencyCode ??
+        null
+      if (!resolvedCurrency) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorCurrency', 'Currency is required.'),
+          { priceId: t('sales.documents.items.errorCurrency', 'Currency is required.') },
+        )
+      }
+      if (!resolvedOrganizationId || !resolvedTenantId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorScope', 'Organization and tenant are required.'),
+        )
+      }
 
-  const validateForm = React.useCallback(() => {
-    const nextErrors: Record<string, string> = {}
-    if (!form.productId) {
-      nextErrors.productId = t('sales.documents.items.errorProductRequired', 'Select a product to continue.')
-    }
-    if (!form.variantId) {
-      nextErrors.variantId = t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.')
-    }
-    const quantityValue = normalizeNumber(form.quantity, NaN)
-    if (!Number.isFinite(quantityValue) || quantityValue <= 0) {
-      nextErrors.quantity = t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.')
-    }
-    const unitPriceValue = normalizeNumber(form.unitPrice, NaN)
-    if (!Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
-      nextErrors.unitPrice = t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.')
-    }
-    const resolvedCurrency = form.currencyCode ?? currencyCode ?? priceOptions.find((price) => price.currencyCode)?.currencyCode ?? null
-    if (!resolvedCurrency) {
-      nextErrors.currencyCode = t('sales.documents.items.errorCurrency', 'Currency is required.')
-    }
-    if (!resolvedOrganizationId || !resolvedTenantId) {
-      nextErrors.metadata = t('sales.documents.items.errorScope', 'Organization and tenant are required.')
-    }
-    setFormErrors(nextErrors)
-    if (nextErrors.metadata) {
-      setSubmitError(nextErrors.metadata)
-    } else if (nextErrors.currencyCode) {
-      setSubmitError(nextErrors.currencyCode)
-    }
-    return Object.keys(nextErrors).length === 0
-  }, [currencyCode, form.currencyCode, form.productId, form.quantity, form.unitPrice, form.variantId, priceOptions, resolvedOrganizationId, resolvedTenantId, t])
-
-  const handleSubmit = React.useCallback(async () => {
-    if (saving) return
-    setSubmitError(null)
-    if (!validateForm()) return
-    setSaving(true)
-    try {
-      const quantity = Math.max(normalizeNumber(form.quantity ?? '', 1), 0)
       const resolvedName =
-        (form.name ?? '').trim() ||
-        variantOption?.title ||
-        productOption?.title ||
-        undefined
-      const resolvedCurrency = form.currencyCode ?? currencyCode ?? priceOptions.find((price) => price.currencyCode)?.currencyCode ?? null
-      const scopedOrganizationId = resolvedOrganizationId ?? undefined
-      const scopedTenantId = resolvedTenantId ?? undefined
+        (values.name ?? '').trim() || variantOption?.title || productOption?.title || undefined
+      const resolvedPriceMode = values.priceMode === 'net' ? 'net' : 'gross'
+      const catalogSnapshot =
+        typeof values.catalogSnapshot === 'object' && values.catalogSnapshot ? values.catalogSnapshot : null
+      const metadata = {
+        ...(catalogSnapshot ?? {}),
+        ...(values.priceId ? { priceId: values.priceId } : {}),
+        ...(resolvedPriceMode ? { priceMode: resolvedPriceMode } : {}),
+        ...(productOption
+          ? {
+              productTitle: productOption.title,
+              productSku: productOption.sku ?? null,
+              productThumbnail: productOption.thumbnailUrl ?? null,
+            }
+          : {}),
+        ...(variantOption
+          ? {
+              variantTitle: variantOption.title,
+              variantSku: variantOption.sku ?? null,
+              variantThumbnail: variantOption.thumbnailUrl ?? productOption?.thumbnailUrl ?? null,
+            }
+          : {}),
+      }
+
       const payload: Record<string, unknown> = {
         [documentKey]: documentId,
-        organizationId: scopedOrganizationId,
-        tenantId: scopedTenantId,
-        productId: form.productId,
-        productVariantId: form.variantId,
+        organizationId: resolvedOrganizationId,
+        tenantId: resolvedTenantId,
+        productId: values.productId,
+        productVariantId: values.variantId,
         quantity,
-        currencyCode: resolvedCurrency ?? undefined,
-        priceId: form.priceId,
-        priceMode: form.priceMode,
-        taxRate: form.taxRate ?? undefined,
-        catalogSnapshot: form.catalogSnapshot ?? null,
-        metadata: {
-          ...(form.catalogSnapshot ?? {}),
-          ...(form.priceId ? { priceId: form.priceId } : {}),
-          ...(form.priceMode ? { priceMode: form.priceMode } : {}),
-          ...(productOption
-            ? {
-                productTitle: productOption.title,
-                productSku: productOption.sku ?? null,
-                productThumbnail: productOption.thumbnailUrl ?? null,
-              }
-            : {}),
-          ...(variantOption
-            ? {
-                variantTitle: variantOption.title,
-                variantSku: variantOption.sku ?? null,
-                variantThumbnail: variantOption.thumbnailUrl ?? productOption?.thumbnailUrl ?? null,
-              }
-            : {}),
-        },
+        currencyCode: resolvedCurrency,
+        priceId: values.priceId ?? undefined,
+        priceMode: resolvedPriceMode,
+        taxRate: values.taxRate ?? undefined,
+        catalogSnapshot,
+        metadata,
       }
-      if (resolvedName) {
-        payload.name = resolvedName
-      }
-      if (form.priceMode === 'gross') {
-        payload.unitPriceGross = normalizeNumber(form.unitPrice, 0)
+      if (resolvedName) payload.name = resolvedName
+      if (resolvedPriceMode === 'gross') {
+        payload.unitPriceGross = unitPriceValue
       } else {
-        payload.unitPriceNet = normalizeNumber(form.unitPrice, 0)
+        payload.unitPriceNet = unitPriceValue
       }
+
       const action = editingId ? updateCrud : createCrud
-      const result = await action(resourcePath, editingId ? { id: editingId, ...payload } : payload, {
-        successMessage: editingId
-          ? t('sales.documents.items.updated', 'Line updated.')
-          : t('sales.documents.items.created', 'Line added.'),
-        errorMessage: t('sales.documents.items.errorSave', 'Failed to save line.'),
-      })
+      const result = await action(
+        resourcePath,
+        editingId ? { id: editingId, ...payload } : payload,
+        {
+          errorMessage: t('sales.documents.items.errorSave', 'Failed to save line.'),
+        },
+      )
       if (result.ok) {
         await loadItems()
         setDialogOpen(false)
         resetForm()
       }
-    } catch (err) {
-      console.error('sales.document.items.save', err)
-      const mapped = mapCrudServerErrorToFormErrors(err)
-      if (mapped.fieldErrors) {
-        setFormErrors((prev) => ({ ...prev, ...mapped.fieldErrors }))
-      }
-      if (mapped.message) {
-        setSubmitError(mapped.message)
-      }
-    } finally {
-      setSaving(false)
-    }
-  }, [
-    currencyCode,
-    documentId,
-    documentKey,
-    editingId,
-    form.catalogSnapshot,
-    form.currencyCode,
-    form.name,
-    form.priceId,
-    form.priceMode,
-    form.productId,
-    form.unitPrice,
-    form.variantId,
-    form.taxRate,
-    form.quantity,
-    resolvedOrganizationId,
-    resolvedTenantId,
-    loadItems,
-    productOption,
-    resetForm,
-    resourcePath,
-    saving,
-    validateForm,
-    t,
-    variantOption,
-  ])
+    },
+    [
+      currencyCode,
+      documentId,
+      documentKey,
+      editingId,
+      loadItems,
+      priceOptions,
+      productOption,
+      resetForm,
+      resolvedOrganizationId,
+      resolvedTenantId,
+      resourcePath,
+      t,
+      variantOption,
+    ],
+  )
 
   const handleEdit = React.useCallback(
     (line: ItemRecord) => {
@@ -553,7 +530,7 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
       nextForm.quantity = line.quantity.toString()
       nextForm.unitPrice = line.unitPriceGross.toString()
       nextForm.priceMode = 'gross'
-      nextForm.taxRate = line.taxRate
+      nextForm.taxRate = Number.isFinite(line.taxRate) ? line.taxRate : null
       nextForm.name = line.name ?? ''
       nextForm.catalogSnapshot = line.catalogSnapshot ?? null
       const meta = line.metadata ?? {}
@@ -570,38 +547,48 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
         const productSku = typeof (meta as any).productSku === 'string' ? (meta as any).productSku : null
         const productThumbnail =
           typeof (meta as any).productThumbnail === 'string' ? (meta as any).productThumbnail : null
-        if (productTitle) {
-          setProductOption({ id: line.productId ?? '', title: productTitle, sku: productSku, thumbnailUrl: productThumbnail })
+        if (productTitle && line.productId) {
+          const option = { id: line.productId, title: productTitle, sku: productSku, thumbnailUrl: productThumbnail }
+          productOptionsRef.current.set(line.productId, option)
+          setProductOption(option)
         }
         const variantTitle = typeof (meta as any).variantTitle === 'string' ? (meta as any).variantTitle : null
         const variantSku = typeof (meta as any).variantSku === 'string' ? (meta as any).variantSku : null
         const variantThumb =
           typeof (meta as any).variantThumbnail === 'string' ? (meta as any).variantThumbnail : productThumbnail
         if (variantTitle && line.productVariantId) {
-          setVariantOption({
+          const option = {
             id: line.productVariantId,
             title: variantTitle,
             sku: variantSku,
             thumbnailUrl: variantThumb ?? null,
-          })
+          }
+          variantOptionsRef.current.set(line.productVariantId, option)
+          setVariantOption(option)
         }
       }
-      setForm(nextForm)
+      setInitialValues(nextForm)
+      setFormResetKey((prev) => prev + 1)
       setDialogOpen(true)
+      if (line.productId) {
+        void loadPrices(line.productId, line.productVariantId)
+      } else {
+        setPriceOptions([])
+      }
     },
-    [currencyCode],
+    [currencyCode, loadPrices],
   )
 
   const handleDelete = React.useCallback(
     async (line: ItemRecord) => {
       try {
         await deleteCrud(resourcePath, {
-          id: line.id,
-          [documentKey]: documentId,
-          organizationId: resolvedOrganizationId ?? undefined,
-          tenantId: resolvedTenantId ?? undefined,
-        }, {
-          successMessage: t('sales.documents.items.deleted', 'Line removed.'),
+          body: {
+            id: line.id,
+            [documentKey]: documentId,
+            organizationId: resolvedOrganizationId ?? undefined,
+            tenantId: resolvedTenantId ?? undefined,
+          },
           errorMessage: t('sales.documents.items.errorDelete', 'Failed to delete line.'),
         })
         await loadItems()
@@ -624,23 +611,237 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
     return <div className="flex h-10 w-10 items-center justify-center rounded border bg-muted text-xs text-muted-foreground">N/A</div>
   }
 
-  const onPriceSelect = React.useCallback(
-    (price: PriceOption | null) => {
-      if (!price) return
-      setForm((prev) => ({
-        ...prev,
-        priceId: price.id,
-        priceMode: price.displayMode === 'excluding-tax' ? 'net' : 'gross',
-        unitPrice:
-          price.displayMode === 'excluding-tax'
-            ? (price.amountNet ?? price.amountGross ?? 0).toString()
-            : (price.amountGross ?? price.amountNet ?? 0).toString(),
-        taxRate: price.taxRate,
-        currencyCode: price.currencyCode ?? prev.currencyCode ?? currencyCode ?? null,
-      }))
-    },
-    [currencyCode],
-  )
+  const fields = React.useMemo<CrudField[]>(() => {
+    return [
+      {
+        id: 'productId',
+        label: t('sales.documents.items.product', 'Product'),
+        type: 'custom',
+        required: true,
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => (
+          <LookupSelect
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => {
+              const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
+              setProductOption(selectedOption)
+              setVariantOption(null)
+              setPriceOptions([])
+              setValue(next ?? null)
+              setFormValue?.('variantId', null)
+              setFormValue?.('priceId', null)
+              setFormValue?.('unitPrice', '')
+              setFormValue?.('priceMode', 'gross')
+              setFormValue?.('taxRate', null)
+              const existingName = typeof values?.name === 'string' ? values.name : ''
+              if (!existingName.trim() && selectedOption?.title) {
+                setFormValue?.('name', selectedOption.title)
+              }
+              setFormValue?.(
+                'catalogSnapshot',
+                next
+                  ? {
+                      product: {
+                        id: next,
+                        title: selectedOption?.title ?? null,
+                        sku: selectedOption?.sku ?? null,
+                        thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                      },
+                    }
+                  : null,
+              )
+              if (next) {
+                void loadPrices(next, null)
+              }
+            }}
+            fetchItems={loadProductOptions}
+            searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
+            selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
+          />
+        ),
+      },
+      {
+        id: 'variantId',
+        label: t('sales.documents.items.variant', 'Variant'),
+        type: 'custom',
+        required: true,
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const productId = typeof values?.productId === 'string' ? values.productId : null
+          return (
+            <LookupSelect
+              key={productId ?? 'no-product'}
+              value={typeof value === 'string' ? value : null}
+              onChange={(next) => {
+                const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
+                setVariantOption(selectedOption)
+                setValue(next ?? null)
+                const existingName = typeof values?.name === 'string' ? values.name : ''
+                if (!existingName.trim()) {
+                  setFormValue?.('name', selectedOption?.title ?? productOption?.title ?? existingName)
+                }
+                const prevSnapshot =
+                  typeof values?.catalogSnapshot === 'object' && values.catalogSnapshot
+                    ? (values.catalogSnapshot as Record<string, unknown>)
+                    : null
+                if (next) {
+                  setFormValue?.('catalogSnapshot', {
+                    ...(prevSnapshot ?? {}),
+                    variant: {
+                      id: next,
+                      title: selectedOption?.title ?? null,
+                      sku: selectedOption?.sku ?? null,
+                      thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                    },
+                  })
+                } else if (prevSnapshot) {
+                  const snapshot = { ...prevSnapshot }
+                  if ('variant' in snapshot) delete (snapshot as any).variant
+                  setFormValue?.('catalogSnapshot', Object.keys(snapshot).length ? snapshot : null)
+                } else {
+                  setFormValue?.('catalogSnapshot', null)
+                }
+                if (productId) {
+                  void loadPrices(productId, next)
+                }
+              }}
+              fetchItems={async (query) => {
+                if (!productId) return []
+                const options = await loadVariantOptions(productId)
+                const needle = query?.trim().toLowerCase() ?? ''
+                return needle.length
+                  ? options.filter((option) => option.title.toLowerCase().includes(needle))
+                  : options
+              }}
+              searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
+              minQuery={0}
+              disabled={!productId}
+            />
+          )
+        },
+      },
+      {
+        id: 'priceId',
+        label: t('sales.documents.items.price', 'Price'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const productId = typeof values?.productId === 'string' ? values.productId : null
+          const variantId = typeof values?.variantId === 'string' ? values.variantId : null
+          return (
+            <LookupSelect
+              key={productId ? `${productId}-${variantId ?? 'no-variant'}` : 'price'}
+              value={typeof value === 'string' ? value : null}
+              onChange={(next) => {
+                setValue(next ?? null)
+                const selected = next ? priceOptions.find((entry) => entry.id === next) ?? null : null
+                if (selected) {
+                  const mode = selected.displayMode === 'excluding-tax' ? 'net' : 'gross'
+                  const amount =
+                    mode === 'net'
+                      ? selected.amountNet ?? selected.amountGross ?? 0
+                      : selected.amountGross ?? selected.amountNet ?? 0
+                  setFormValue?.('priceMode', mode)
+                  setFormValue?.('unitPrice', amount.toString())
+                  setFormValue?.('taxRate', selected.taxRate ?? null)
+                  setFormValue?.(
+                    'currencyCode',
+                    selected.currencyCode ?? values?.currencyCode ?? currencyCode ?? null,
+                  )
+                } else {
+                  setFormValue?.('taxRate', null)
+                }
+              }}
+              fetchItems={async (query) => {
+                const prices = await loadPrices(productId, variantId)
+                const needle = query?.trim().toLowerCase() ?? ''
+                return prices
+                  .filter((price) => {
+                    if (!needle.length) return true
+                    const haystack = [
+                      price.label,
+                      price.priceKindTitle,
+                      price.priceKindCode,
+                      price.currencyCode,
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+                      .toLowerCase()
+                    return haystack.includes(needle)
+                  })
+                  .map<LookupSelectItem>((price) => ({
+                    id: price.id,
+                    title: price.label,
+                    subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
+                    description:
+                      price.displayMode === 'including-tax'
+                        ? t('sales.documents.items.priceGross', 'Gross')
+                        : price.displayMode === 'excluding-tax'
+                          ? t('sales.documents.items.priceNet', 'Net')
+                          : undefined,
+                    rightLabel: price.currencyCode ?? undefined,
+                    icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
+                  }))
+              }}
+              minQuery={0}
+              loading={priceLoading}
+              searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
+              disabled={!productId}
+            />
+          )
+        },
+      },
+      {
+        id: 'unitPrice',
+        label: t('sales.documents.items.unitPrice', 'Unit price'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const mode = values?.priceMode === 'net' ? 'net' : 'gross'
+          return (
+            <div className="flex gap-2">
+              <Input
+                value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder="0.00"
+              />
+              <select
+                className="w-32 rounded border px-2 text-sm"
+                value={mode}
+                onChange={(event) => {
+                  const nextMode = event.target.value === 'net' ? 'net' : 'gross'
+                  setFormValue?.('priceMode', nextMode)
+                }}
+              >
+                <option value="gross">{t('sales.documents.items.priceGross', 'Gross')}</option>
+                <option value="net">{t('sales.documents.items.priceNet', 'Net')}</option>
+              </select>
+            </div>
+          )
+        },
+      },
+      {
+        id: 'quantity',
+        label: t('sales.documents.items.quantity', 'Quantity'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue }) => (
+          <Input
+            value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="1"
+          />
+        ),
+      },
+      {
+        id: 'name',
+        label: t('sales.documents.items.name', 'Name'),
+        type: 'text',
+        placeholder: t('sales.documents.items.namePlaceholder', 'Optional line name'),
+        layout: 'full',
+      },
+    ]
+  }, [currencyCode, loadPrices, loadProductOptions, loadVariantOptions, priceLoading, priceOptions, productOption, t])
 
   const dialogTitle = editingId
     ? t('sales.documents.items.editTitle', 'Edit line')
@@ -739,10 +940,11 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
       <Dialog open={dialogOpen} onOpenChange={(open) => (open ? setDialogOpen(true) : onCloseDialog())}>
         <DialogContent
           className="sm:max-w-2xl"
+          ref={dialogContentRef}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
-              void handleSubmit()
+              dialogContentRef.current?.querySelector('form')?.requestSubmit()
             }
             if (event.key === 'Escape') {
               event.preventDefault()
@@ -753,211 +955,19 @@ export function SalesDocumentItemsSection({ documentId, kind, currencyCode, orga
           <DialogHeader>
             <DialogTitle>{dialogTitle}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-              <Label>{t('sales.documents.items.product', 'Product')}</Label>
-              <LookupSelect
-                value={form.productId}
-                onChange={(next) => {
-                  setSubmitError(null)
-                  setFormErrors((prev) => ({ ...prev, productId: undefined, variantId: undefined }))
-                  const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
-                  setProductOption(selectedOption)
-                  setForm((prev) => {
-                    const shouldSetName = !(prev.name ?? '').trim().length
-                    return {
-                      ...prev,
-                      productId: next,
-                      variantId: null,
-                      priceId: null,
-                      unitPrice: '',
-                      name: shouldSetName ? selectedOption?.title ?? prev.name : prev.name,
-                      catalogSnapshot: next
-                        ? {
-                            product: {
-                              id: next,
-                              title: selectedOption?.title ?? prev.catalogSnapshot?.product?.['title'] ?? null,
-                              sku: selectedOption?.sku ?? null,
-                              thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
-                            },
-                          }
-                        : null,
-                    }
-                  })
-                  if (next) {
-                    void loadPrices(next, null)
-                  } else {
-                    setPriceOptions([])
-                  }
-                  }}
-                  fetchItems={loadProductOptions}
-                  searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
-                  selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
-                />
-                {formErrors.productId ? <p className="text-xs text-destructive">{formErrors.productId}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label>{t('sales.documents.items.variant', 'Variant')}</Label>
-                <LookupSelect
-                  key={form.productId ?? 'no-product'}
-                  value={form.variantId}
-                  onChange={(next) => {
-                    setSubmitError(null)
-                    setFormErrors((prev) => ({ ...prev, variantId: undefined }))
-                    const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
-                    setVariantOption(selectedOption)
-                    setForm((prev) => {
-                      const shouldSetName = !(prev.name ?? '').trim().length
-                      return {
-                        ...prev,
-                        variantId: next,
-                        name: shouldSetName
-                          ? selectedOption?.title ?? prev.name ?? productOption?.title ?? ''
-                          : prev.name,
-                        catalogSnapshot: next
-                          ? {
-                              ...(prev.catalogSnapshot ?? {}),
-                              variant: {
-                                id: next,
-                                title: selectedOption?.title ?? null,
-                                sku: selectedOption?.sku ?? null,
-                                thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
-                              },
-                            }
-                          : prev.catalogSnapshot,
-                      }
-                    })
-                    void loadPrices(form.productId, next)
-                  }}
-                  fetchItems={async (query) => {
-                    if (!form.productId) return []
-                    const options = await loadVariantOptions(form.productId)
-                    const needle = query?.trim().toLowerCase() ?? ''
-                    return needle.length
-                      ? options.filter((option) => option.title.toLowerCase().includes(needle))
-                      : options
-                  }}
-                  searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
-                  minQuery={0}
-                  disabled={!form.productId}
-                />
-                {formErrors.variantId ? <p className="text-xs text-destructive">{formErrors.variantId}</p> : null}
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>{t('sales.documents.items.price', 'Price')}</Label>
-                <LookupSelect
-                  key={form.productId ? `${form.productId}-${form.variantId ?? 'no-variant'}` : 'price'}
-                  value={form.priceId}
-                  onChange={(next) => {
-                    setSubmitError(null)
-                    const selected = priceOptions.find((entry) => entry.id === next) ?? null
-                    if (selected) {
-                      onPriceSelect(selected)
-                    } else {
-                      setForm((prev) => ({ ...prev, priceId: null }))
-                    }
-                  }}
-                  fetchItems={async (query) => {
-                    const prices = await loadPrices(form.productId, form.variantId)
-                    const needle = query?.trim().toLowerCase() ?? ''
-                    return prices
-                      .filter((price) => {
-                        if (!needle.length) return true
-                        const haystack = [
-                          price.label,
-                          price.priceKindTitle,
-                          price.priceKindCode,
-                          price.currencyCode,
-                        ]
-                          .filter(Boolean)
-                          .join(' ')
-                          .toLowerCase()
-                        return haystack.includes(needle)
-                      })
-                      .map<LookupSelectItem>((price) => ({
-                        id: price.id,
-                        title: price.label,
-                        subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
-                        description:
-                          price.displayMode === 'including-tax'
-                            ? t('sales.documents.items.priceGross', 'Gross')
-                            : price.displayMode === 'excluding-tax'
-                              ? t('sales.documents.items.priceNet', 'Net')
-                              : undefined,
-                        rightLabel: price.currencyCode ?? undefined,
-                        icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
-                      }))
-                  }}
-                  minQuery={0}
-                  loading={priceLoading}
-                  searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
-                  disabled={!form.productId}
-                />
-                {formErrors.priceId ? <p className="text-xs text-destructive">{formErrors.priceId}</p> : null}
-                {formErrors.currencyCode ? <p className="text-xs text-destructive">{formErrors.currencyCode}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label>{t('sales.documents.items.unitPrice', 'Unit price')}</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={form.unitPrice}
-                    onChange={(event) => {
-                      setSubmitError(null)
-                      setFormErrors((prev) => ({ ...prev, unitPrice: undefined }))
-                      setForm((prev) => ({ ...prev, unitPrice: event.target.value }))
-                    }}
-                    placeholder="0.00"
-                  />
-                  <select
-                    className="w-32 rounded border px-2 text-sm"
-                    value={form.priceMode}
-                    onChange={(event) => {
-                      const mode = event.target.value === 'net' ? 'net' : 'gross'
-                      setForm((prev) => ({ ...prev, priceMode: mode }))
-                    }}
-                  >
-                    <option value="gross">{t('sales.documents.items.priceGross', 'Gross')}</option>
-                    <option value="net">{t('sales.documents.items.priceNet', 'Net')}</option>
-                  </select>
-                </div>
-                {formErrors.unitPrice ? <p className="text-xs text-destructive">{formErrors.unitPrice}</p> : null}
-              </div>
-              <div className="space-y-2">
-                <Label>{t('sales.documents.items.quantity', 'Quantity')}</Label>
-                <Input
-                  value={form.quantity}
-                  onChange={(event) => {
-                    setSubmitError(null)
-                    setFormErrors((prev) => ({ ...prev, quantity: undefined }))
-                    setForm((prev) => ({ ...prev, quantity: event.target.value }))
-                  }}
-                  placeholder="1"
-                />
-                {formErrors.quantity ? <p className="text-xs text-destructive">{formErrors.quantity}</p> : null}
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('sales.documents.items.name', 'Name')}</Label>
-              <Input
-                value={form.name}
-                onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-                placeholder={t('sales.documents.items.namePlaceholder', 'Optional line name')}
-              />
-            </div>
-            {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={onCloseDialog} type="button">
-              {t('sales.documents.items.cancel', 'Cancel')}
-            </Button>
-            <Button onClick={() => void handleSubmit()} disabled={saving} type="button">
-              {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {editingId ? t('sales.documents.items.save', 'Save changes') : t('sales.documents.items.addLine', 'Add item')}
-            </Button>
-          </DialogFooter>
+          <CrudForm<LineFormState>
+            key={formResetKey}
+            embedded
+            fields={fields}
+            initialValues={initialValues}
+            submitLabel={
+              editingId
+                ? t('sales.documents.items.save', 'Save changes')
+                : t('sales.documents.items.addLine', 'Add item')
+            }
+            onSubmit={handleFormSubmit}
+            loadingMessage={t('sales.documents.items.loading', 'Loading items…')}
+          />
         </DialogContent>
       </Dialog>
     </div>

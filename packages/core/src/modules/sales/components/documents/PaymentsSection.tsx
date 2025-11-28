@@ -13,6 +13,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { CreditCard } from 'lucide-react'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -234,11 +235,11 @@ export function SalesDocumentPaymentsSection({
         component: ({ value, setValue }) => {
           const currentValue = typeof value === 'string' && value.length ? value : null
           const fetchItems = async (query?: string): Promise<LookupSelectItem[]> => {
-            if (!paymentMethodOptions.length) {
+            if (!paymentMethods.length) {
               await loadPaymentMethods()
             }
             const term = query?.trim().toLowerCase() ?? ''
-            return paymentMethodOptions
+            return paymentMethods
               .filter(
                 (option) =>
                   !term.length ||
@@ -286,7 +287,7 @@ export function SalesDocumentPaymentsSection({
         component: () => <p className="text-sm text-muted-foreground">{currencyLabel}</p>,
       },
     ],
-    [currencyLabel, loadPaymentMethods, paymentMethodOptions, t]
+    [currencyLabel, loadPaymentMethods, paymentMethods, t]
   )
 
   const handleFormSubmit = React.useCallback(
@@ -324,7 +325,6 @@ export function SalesDocumentPaymentsSection({
         'sales/payments',
         editingId ? { id: editingId, ...payload } : payload,
         {
-          successMessage: t('sales.documents.payments.created', 'Payment recorded.'),
           errorMessage: t('sales.documents.payments.errorSave', 'Failed to save payment.'),
         }
       )
@@ -398,22 +398,20 @@ export function SalesDocumentPaymentsSection({
       {
         id: 'actions',
         header: '',
-        cell: ({ row }) => (
-          <RowActions
-            onEdit={() => {
-              const record = row.original
-              setEditingId(record.id)
-              setInitialValues({
-                amount: record.amount ?? '',
-                paymentMethodId: record.paymentMethodId ?? '',
-                paymentReference: record.paymentReference ?? '',
-                receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
-              })
-              setDialogOpen(true)
-            }}
-            actions={[{ id: 'edit', label: editActionLabel }]}
-          />
-        ),
+        cell: ({ row }) => {
+          const handleEdit = () => {
+            const record = row.original
+            setEditingId(record.id)
+            setInitialValues({
+              amount: record.amount ?? '',
+              paymentMethodId: record.paymentMethodId ?? '',
+              paymentReference: record.paymentReference ?? '',
+              receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
+            })
+            setDialogOpen(true)
+          }
+          return <RowActions items={[{ label: editActionLabel, onSelect: handleEdit }]} />
+        },
       },
     ],
     [currencyCode, editActionLabel, t]

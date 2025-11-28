@@ -19,6 +19,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 
@@ -30,24 +31,24 @@ type ShipmentItem = {
   orderLineName: string | null
   orderLineNumber: number | null
   quantity: number
-  metadata?: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
 }
 
 type ShipmentRow = {
   id: string
   shipmentNumber: string | null
-  shippingMethodId?: string | null
-  shippingMethodCode?: string | null
+  shippingMethodId: string | null
+  shippingMethodCode: string | null
   status: string | null
-  statusEntryId?: string | null
+  statusEntryId: string | null
   carrierName: string | null
   trackingNumbers: string[]
   shippedAt: string | null
   deliveredAt: string | null
   notes: string | null
-  metadata?: Record<string, unknown> | null
+  metadata: Record<string, unknown> | null
   items: ShipmentItem[]
-  createdAt?: string | null
+  createdAt: string | null
 }
 
 type OrderLine = {
@@ -66,7 +67,8 @@ type ShipmentFormValues = {
   deliveredAt: string
   notes: string
   postComment: boolean
-  items: Array<{ orderLineId: string; quantity: number }>
+  items: Record<string, string>
+  shippingMethodLabel?: string
 }
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
@@ -79,19 +81,21 @@ type SalesShipmentsSectionProps = {
   onAddComment?: (body: string) => Promise<void>
 }
 
-const defaultFormState = (lines: OrderLine[]): ShipmentFormValues => {
-  return {
-    shipmentNumber: '',
-    shippingMethodId: null,
-    carrierName: '',
-    trackingNumbers: '',
-    shippedAt: '',
-    deliveredAt: '',
-    notes: '',
-    postComment: true,
-    items: [],
-  }
-}
+const defaultFormState = (lines: OrderLine[]): ShipmentFormValues => ({
+  shipmentNumber: '',
+  shippingMethodId: null,
+  carrierName: '',
+  trackingNumbers: '',
+  shippedAt: '',
+  deliveredAt: '',
+  notes: '',
+  postComment: true,
+  items: lines.reduce<Record<string, string>>((acc, line) => {
+    acc[line.id] = ''
+    return acc
+  }, {}),
+  shippingMethodLabel: '',
+})
 
 const parseTrackingNumbers = (value: string): string[] =>
   value
@@ -124,6 +128,10 @@ export function SalesShipmentsSection({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [initialValues, setInitialValues] = React.useState<ShipmentFormValues>(() => defaultFormState([]))
+  const [form, setForm] = React.useState<ShipmentFormValues>(() => defaultFormState([]))
+  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
+  const [submitError, setSubmitError] = React.useState<string | null>(null)
+  const [saving, setSaving] = React.useState(false)
   const [formResetKey, setFormResetKey] = React.useState(0)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -375,11 +383,23 @@ export function SalesShipmentsSection({
     void loadShippingMethods()
   }, [loadLines, loadShipments, loadShippingMethods])
 
+  React.useEffect(() => {
+    const next = defaultFormState(lines)
+    setInitialValues(next)
+    setForm(next)
+    setFormErrors({})
+    setSubmitError(null)
+  }, [lines])
+
   const resetForm = React.useCallback(() => {
-    setInitialValues(defaultFormState(lines))
+    const next = defaultFormState(lines)
+    setInitialValues(next)
+    setForm(next)
     setFormResetKey((prev) => prev + 1)
     setEditingId(null)
     setShippingMethodOption(null)
+    setFormErrors({})
+    setSubmitError(null)
   }, [lines])
 
   const handleOpenCreate = React.useCallback(() => {
@@ -421,6 +441,7 @@ export function SalesShipmentsSection({
         acc[line.id] = found ? found.quantity.toString() : ''
         return acc
       }, {})
+      setForm(nextForm)
       setEditingId(shipment.id)
       setInitialValues(nextForm)
       setFormResetKey((prev) => prev + 1)
@@ -495,9 +516,6 @@ export function SalesShipmentsSection({
           'sales/shipments',
           editingId ? { id: editingId, ...payload } : payload,
           {
-            successMessage: editingId
-              ? t('sales.documents.shipments.updated', 'Shipment updated.')
-              : t('sales.documents.shipments.created', 'Shipment created.'),
             errorMessage: t('sales.documents.shipments.errorSave', 'Failed to save shipment.'),
           }
         )
@@ -580,16 +598,15 @@ export function SalesShipmentsSection({
       )
       if (!confirmed) return
       try {
-        const result = await deleteCrud(
-          'sales/shipments',
-          {
+        const result = await deleteCrud('sales/shipments', {
+          body: {
             id: shipment.id,
             orderId,
             organizationId,
             tenantId,
           },
-          { successMessage: t('sales.documents.shipments.deleted', 'Shipment deleted.') }
-        )
+          errorMessage: t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'),
+        })
         if (result.ok) {
           await loadShipments()
         }

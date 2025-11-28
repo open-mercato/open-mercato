@@ -207,6 +207,10 @@ export function CustomDataSection({
 }: CustomDataSectionProps) {
   const queryClient = useQueryClient()
   const scopeVersion = scopeVersionProp ?? useOrganizationScopeVersion()
+  const resolvedScopeVersion = React.useMemo(
+    () => (typeof scopeVersion === 'number' ? scopeVersion : Number(scopeVersion) || 0),
+    [scopeVersion],
+  )
   const [dictionaryMapsByField, setDictionaryMapsByField] = React.useState<Record<string, DictionaryMap>>({})
   const [editing, setEditing] = React.useState(false)
   const sectionRef = React.useRef<HTMLDivElement | null>(null)
@@ -229,7 +233,7 @@ export function CustomDataSection({
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : undefined
   const customFieldFormsQuery = useQuery({
-    queryKey: ['customFieldForms', scopeVersion, ...resolvedEntityIds],
+    queryKey: ['customFieldForms', resolvedScopeVersion, ...resolvedEntityIds],
     enabled: resolvedEntityIds.length > 0,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
@@ -331,7 +335,7 @@ export function CustomDataSection({
         await Promise.all(
           uniqueDictionaryIds.map(async (dictionaryId) => {
             try {
-              const data = await ensureDictionaryEntries(queryClient, dictionaryId, scopeVersion)
+              const data = await ensureDictionaryEntries(queryClient, dictionaryId, resolvedScopeVersion)
               mapsByDictionaryId[dictionaryId] = data.map
             } catch {
               mapsByDictionaryId[dictionaryId] = {}
@@ -384,7 +388,7 @@ export function CustomDataSection({
     return () => {
       cancelled = true
     }
-  }, [definitions, fields, queryClient, resolvedEntityIds, scopeVersion])
+  }, [definitions, fields, queryClient, resolvedEntityIds, resolvedScopeVersion])
 
   const handleSubmit = React.useCallback(
     async (input: Record<string, unknown>) => {

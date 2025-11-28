@@ -128,7 +128,8 @@ export async function PUT(req: Request) {
     })
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute('sales.settings.save', { input: commandInput, ctx })
+    const response = await commandBus.execute('sales.settings.save', { input: commandInput, ctx })
+    const result = (response as { result?: { orderCustomerEditableStatuses?: string[] | null; orderAddressEditableStatuses?: string[] | null } }).result
 
     const orderStatuses = await loadStatusOptions(em, tenantId, organizationId)
 

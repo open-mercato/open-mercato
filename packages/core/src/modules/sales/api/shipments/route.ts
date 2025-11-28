@@ -146,7 +146,7 @@ const crud = makeCrudRoute({
           { populate: ['orderLine'] }
         ),
         (async () => {
-          const ids = Array.from(
+          const ids: string[] = Array.from(
             new Set(
               items
                 .map((item: unknown) => {
@@ -154,7 +154,7 @@ const crud = makeCrudRoute({
                   const raw = (item as Record<string, unknown>).shipping_method_id
                   return typeof raw === 'string' ? raw : null
                 })
-                .filter((value): value is string => !!value)
+                .filter((value): value is string => typeof value === 'string' && value.length > 0)
             )
           )
           if (!ids.length) return []
@@ -214,7 +214,7 @@ const crud = makeCrudRoute({
       const shippingMap = new Map(
         shippingMethods.map((method) => [method.id, method.code ?? null])
       )
-      const statusIds = Array.from(
+      const statusIds: string[] = Array.from(
         new Set(
           items
             .map((item: unknown) => {
@@ -222,7 +222,7 @@ const crud = makeCrudRoute({
               const raw = (item as Record<string, unknown>).status_entry_id
               return typeof raw === 'string' ? raw : null
             })
-            .filter((value): value is string => !!value)
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
         )
       )
       const statusMap = new Map<string, string | null>()

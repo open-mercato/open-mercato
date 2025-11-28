@@ -39,6 +39,7 @@ export type DetailMultilineFieldConfig = DetailFieldCommon & {
   placeholder?: string
   onSave: (value: string | null) => Promise<void>
   validator?: (value: string) => string | null
+  renderDisplay?: InlineMultilineEditorProps['renderDisplay']
 }
 
 export type DetailSelectFieldConfig = DetailFieldCommon & {
@@ -110,6 +111,7 @@ export function DetailFieldsSection({ fields, className }: DetailFieldsSectionPr
                 activateOnClick={activateOnClick}
                 containerClassName={containerClassName}
                 triggerClassName={triggerClassName}
+                renderDisplay={field.renderDisplay}
               />
             </div>
           )
