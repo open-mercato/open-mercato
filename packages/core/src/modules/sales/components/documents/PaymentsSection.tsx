@@ -4,18 +4,13 @@ import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { CalendarRange, CreditCard, DollarSign, Plus } from 'lucide-react'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -37,14 +32,6 @@ type PaymentTotals = {
   outstandingAmount?: number | null
 }
 
-type PaymentFormState = {
-  amount: string
-  currencyCode: string
-  paymentMethodId: string
-  paymentReference: string
-  receivedAt: string
-}
-
 type PaymentMethodOption = {
   id: string
   name: string
@@ -59,14 +46,6 @@ type SalesDocumentPaymentsSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   onTotalsChange?: (totals: PaymentTotals) => void
 }
-
-const defaultForm = (currencyCode?: string | null): PaymentFormState => ({
-  amount: '',
-  currencyCode: currencyCode ?? '',
-  paymentMethodId: '',
-  paymentReference: '',
-  receivedAt: '',
-})
 
 function normalizeNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -104,10 +83,8 @@ export function SalesDocumentPaymentsSection({
   const [methodsLoading, setMethodsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
-  const [form, setForm] = React.useState<PaymentFormState>(() => defaultForm(currencyCode))
-  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
-  const [submitError, setSubmitError] = React.useState<string | null>(null)
+  const [formResetKey, setFormResetKey] = React.useState(0)
+  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
 
@@ -198,10 +175,8 @@ export function SalesDocumentPaymentsSection({
   }, [loadPaymentMethods])
 
   const resetForm = React.useCallback(() => {
-    setForm(defaultForm(currencyCode))
-    setFormErrors({})
-    setSubmitError(null)
-  }, [currencyCode])
+    setFormResetKey((prev) => prev + 1)
+  }, [])
 
   const openDialog = React.useCallback(() => {
     resetForm()
@@ -213,43 +188,97 @@ export function SalesDocumentPaymentsSection({
     onActionChange({
       label: addActionLabel,
       onClick: openDialog,
-      disabled: saving,
+      disabled: false,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, onActionChange, openDialog, saving])
+  }, [addActionLabel, onActionChange, openDialog])
 
-  const validateForm = React.useCallback(() => {
-    const errors: Record<string, string> = {}
-    const amountValue = normalizeNumber(form.amount)
-    if (amountValue <= 0) {
-      errors.amount = t('sales.documents.payments.amountRequired', 'Enter a positive amount.')
-    }
-    const currency = form.currencyCode || currencyCode || ''
-    if (!currency.trim().length) {
-      errors.currencyCode = t('sales.documents.payments.currencyRequired', 'Currency is required.')
-    }
-    return errors
-  }, [currencyCode, form.amount, form.currencyCode, t])
+  const paymentMethodOptions = React.useMemo(() => paymentMethods, [paymentMethods])
 
-  const handleSubmit = React.useCallback(async () => {
-    if (saving) return
-    const errors = validateForm()
-    setFormErrors(errors)
-    if (Object.keys(errors).length) return
-    setSaving(true)
-    setSubmitError(null)
-    try {
+  const currencyLabel = React.useMemo(() => {
+    const code = currencyCode ? currencyCode.toUpperCase() : ''
+    if (!code) return t('sales.documents.detail.empty', 'Not set')
+    return code
+  }, [currencyCode, t])
+
+  const fields = React.useMemo<CrudField[]>(
+    () => [
+      {
+        id: 'amount',
+        label: t('sales.documents.payments.amount', 'Amount'),
+        type: 'number',
+        placeholder: '0.00',
+        required: true,
+      },
+      {
+        id: 'paymentMethodId',
+        label: t('sales.documents.payments.method', 'Method'),
+        type: 'select',
+        placeholder: t('sales.documents.payments.methodPlaceholder', 'Search payment method'),
+        listbox: true,
+        loadOptions: async (query?: string) => {
+          if (!paymentMethodOptions.length) await loadPaymentMethods()
+          const term = query?.trim().toLowerCase() ?? ''
+          return paymentMethodOptions
+            .filter(
+              (option) =>
+                !term.length ||
+                option.name.toLowerCase().includes(term) ||
+                option.code.toLowerCase().includes(term)
+            )
+            .map((option) => ({ value: option.id, label: option.name }))
+        },
+      },
+      {
+        id: 'paymentReference',
+        label: t('sales.documents.payments.reference', 'Reference'),
+        type: 'text',
+        placeholder: t('sales.documents.payments.referencePlaceholder', 'External reference or note'),
+      },
+      {
+        id: 'receivedAt',
+        label: t('sales.documents.payments.receivedAt', 'Received at'),
+        type: 'date',
+      },
+      {
+        id: 'currencyDisplay',
+        label: t('sales.documents.payments.currency', 'Currency'),
+        type: 'custom',
+        component: () => <p className="text-sm text-muted-foreground">{currencyLabel}</p>,
+      },
+    ],
+    [currencyLabel, loadPaymentMethods, paymentMethodOptions, t]
+  )
+
+  const handleFormSubmit = React.useCallback(
+    async (values: Record<string, unknown>) => {
+      const resolvedCurrency = currencyCode ? currencyCode.toUpperCase() : ''
+      const amountValue = normalizeNumber(values.amount)
+      if (!resolvedCurrency.trim()) {
+        throw createCrudFormError(t('sales.documents.payments.currencyRequired', 'Currency is required.'))
+      }
+      if (amountValue <= 0) {
+        throw createCrudFormError(t('sales.documents.payments.amountRequired', 'Enter a positive amount.'), {
+          amount: t('sales.documents.payments.amountRequired', 'Enter a positive amount.'),
+        })
+      }
       const payload: Record<string, unknown> = {
         orderId,
-        amount: normalizeNumber(form.amount),
-        currencyCode: (form.currencyCode || currencyCode || '').toUpperCase(),
-        paymentReference: form.paymentReference?.trim()?.length ? form.paymentReference.trim() : undefined,
-        paymentMethodId: form.paymentMethodId || undefined,
+        amount: amountValue,
+        currencyCode: resolvedCurrency,
+        paymentReference:
+          typeof values.paymentReference === 'string' && values.paymentReference.trim().length
+            ? values.paymentReference.trim()
+            : undefined,
+        paymentMethodId:
+          typeof values.paymentMethodId === 'string' && values.paymentMethodId.trim().length
+            ? values.paymentMethodId
+            : undefined,
         organizationId: resolvedOrganizationId ?? undefined,
         tenantId: resolvedTenantId ?? undefined,
       }
-      if (form.receivedAt && form.receivedAt.trim().length) {
-        payload.receivedAt = new Date(form.receivedAt)
+      if (typeof values.receivedAt === 'string' && values.receivedAt.trim().length) {
+        payload.receivedAt = new Date(values.receivedAt)
       }
       const result = await createCrud('sales/payments', payload, {
         successMessage: t('sales.documents.payments.created', 'Payment recorded.'),
@@ -264,37 +293,26 @@ export function SalesDocumentPaymentsSection({
         setDialogOpen(false)
         resetForm()
       }
-    } catch (err) {
-      console.error('sales.payments.save', err)
-      const mapped = mapCrudServerErrorToFormErrors(err)
-      if (mapped.fieldErrors) {
-        setFormErrors((prev) => ({ ...prev, ...mapped.fieldErrors }))
-      }
-      if (mapped.message) {
-        setSubmitError(mapped.message)
-      }
-    } finally {
-      setSaving(false)
-    }
-  }, [
-    currencyCode,
-    form.amount,
-    form.currencyCode,
-    form.paymentMethodId,
-    form.paymentReference,
-    form.receivedAt,
-    loadPayments,
-    onTotalsChange,
-    orderId,
-    resetForm,
-    resolvedOrganizationId,
-    resolvedTenantId,
-    saving,
-    t,
-    validateForm,
-  ])
+    },
+    [
+      currencyCode,
+      loadPayments,
+      onTotalsChange,
+      orderId,
+      resetForm,
+      resolvedOrganizationId,
+      resolvedTenantId,
+      t,
+    ]
+  )
 
-  const paymentMethodOptions = React.useMemo(() => paymentMethods, [paymentMethods])
+  const handleShortcutSubmit = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault()
+      const form = dialogContentRef.current?.querySelector('form')
+      form?.requestSubmit()
+    }
+  }, [])
 
   const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
     () => [
@@ -340,7 +358,7 @@ export function SalesDocumentPaymentsSection({
     return (
       <LoadingMessage
         label={t('sales.documents.payments.loading', 'Loading payments…')}
-        className="min-w-[280px]"
+        className="border-0 bg-transparent p-0 py-8 justify-center"
       />
     )
   }
@@ -376,122 +394,41 @@ export function SalesDocumentPaymentsSection({
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
+          ref={dialogContentRef}
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault()
               setDialogOpen(false)
             }
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault()
-              void handleSubmit()
-            }
+            handleShortcutSubmit(event)
           }}
         >
           <DialogHeader>
             <DialogTitle>{addActionLabel}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="payment-amount" className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-                {t('sales.documents.payments.amount', 'Amount')}
-              </Label>
-              <Input
-                id="payment-amount"
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.amount}
-                onChange={(evt) => setForm((prev) => ({ ...prev, amount: evt.target.value }))}
-                placeholder="0.00"
-              />
-              {formErrors.amount ? <p className="text-xs text-destructive">{formErrors.amount}</p> : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="payment-currency">{t('sales.documents.payments.currency', 'Currency')}</Label>
-              <Input
-                id="payment-currency"
-                value={form.currencyCode || currencyCode || ''}
-                onChange={(evt) => setForm((prev) => ({ ...prev, currencyCode: evt.target.value.toUpperCase() }))}
-                placeholder="USD"
-                maxLength={3}
-              />
-              {formErrors.currencyCode ? <p className="text-xs text-destructive">{formErrors.currencyCode}</p> : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="payment-method" className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-muted-foreground" />
-                {t('sales.documents.payments.method', 'Method')}
-              </Label>
-              <LookupSelect
-                value={form.paymentMethodId || null}
-                onChange={(next) => setForm((prev) => ({ ...prev, paymentMethodId: next ?? '' }))}
-                fetchItems={async (query) => {
-                  const term = query?.trim().toLowerCase() ?? ''
-                  return paymentMethodOptions
-                    .filter(
-                      (option) =>
-                        !term.length ||
-                        option.name.toLowerCase().includes(term) ||
-                        option.code.toLowerCase().includes(term)
-                    )
-                    .map<LookupSelectItem>((option) => ({
-                      id: option.id,
-                      title: option.name,
-                      subtitle: option.code,
-                      icon: <CreditCard className="h-5 w-5 text-muted-foreground" />,
-                    }))
-                }}
-                loadingLabel={t('sales.documents.payments.loadingMethods', 'Loading methods…')}
-                emptyLabel={t('sales.documents.payments.methodsEmpty', 'No payment methods')}
-                selectedHintLabel={(id) =>
-                  t('sales.documents.payments.methodSelected', 'Selected method: {{id}}', { id })
-                }
-              />
-              {methodsLoading ? (
+          <CrudForm
+            key={formResetKey}
+            embedded
+            fields={fields}
+            initialValues={{ amount: '', paymentMethodId: '', paymentReference: '', receivedAt: '' }}
+            submitLabel={addActionLabel}
+            onSubmit={handleFormSubmit}
+            loadingMessage={t('sales.documents.payments.loading', 'Loading payments…')}
+            contentHeader={
+              methodsLoading ? (
                 <p className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Spinner className="h-3.5 w-3.5 animate-spin" />
-                  {t('sales.documents.payments.loadingMethods', 'Loading methods…')}
+                  {t('sales.documents.payments.loadingMethods', 'Loading payment methods…')}
                 </p>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="payment-reference">{t('sales.documents.payments.reference', 'Reference')}</Label>
-              <Input
-                id="payment-reference"
-                value={form.paymentReference}
-                onChange={(evt) => setForm((prev) => ({ ...prev, paymentReference: evt.target.value }))}
-                placeholder={t('sales.documents.payments.referencePlaceholder', 'External reference or note')}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="payment-received" className="flex items-center gap-2">
-                <CalendarRange className="h-4 w-4 text-muted-foreground" />
-                {t('sales.documents.payments.receivedAt', 'Received at')}
-              </Label>
-              <Input
-                id="payment-received"
-                type="date"
-                value={form.receivedAt}
-                onChange={(evt) => setForm((prev) => ({ ...prev, receivedAt: evt.target.value }))}
-              />
-            </div>
-            {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+              ) : null
+            }
+          />
+          <div className="flex items-center justify-between pt-1 text-xs text-muted-foreground">
+            <span>{t('sales.documents.payments.saveShortcut', 'Save ⌘/Ctrl + S')}</span>
+            <span>
+              {t('sales.documents.payments.currency', 'Currency')}: {currencyLabel}
+            </span>
           </div>
-          <DialogFooter className="flex flex-row items-center justify-between gap-2">
-            <div className="text-xs text-muted-foreground">
-              {t('customers.people.detail.inline.saveShortcut')}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={() => setDialogOpen(false)} disabled={saving}>
-                {t('ui.detail.inline.cancel', 'Cancel')}
-              </Button>
-              <Button onClick={() => void handleSubmit()} disabled={saving}>
-                {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                {addActionLabel}
-              </Button>
-            </div>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

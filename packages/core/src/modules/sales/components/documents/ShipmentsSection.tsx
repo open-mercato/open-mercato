@@ -163,6 +163,24 @@ export function SalesShipmentsSection({
     [lineMap, shipments, shippedTotals]
   )
 
+  React.useEffect(() => {
+    if (form.shippingMethodId && shippingMethodOption) {
+      setShippingMethodOptions((prev) => {
+        const exists = prev.some((opt) => opt.option.id === shippingMethodOption.id)
+        if (exists) return prev
+        return [
+          ...prev,
+          {
+            id: shippingMethodOption.id,
+            title: shippingMethodOption.name,
+            subtitle: shippingMethodOption.code ?? undefined,
+            option: shippingMethodOption,
+          } as LookupSelectItem & { option: { id: string; name: string; code: string | null } },
+        ]
+      })
+    }
+  }, [form.shippingMethodId, shippingMethodOption])
+
   const loadLines = React.useCallback(async () => {
     const params = new URLSearchParams({ page: '1', pageSize: '200', orderId })
     const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
@@ -387,7 +405,8 @@ export function SalesShipmentsSection({
     setFormErrors({})
     setSubmitError(null)
     setEditingId(null)
-  }, [lines, shippingAddressSnapshot])
+    setShippingMethodOption(null)
+  }, [lines])
 
   const handleOpenCreate = React.useCallback(() => {
     resetForm()
@@ -415,6 +434,15 @@ export function SalesShipmentsSection({
       nextForm.notes = shipment.notes ?? ''
       nextForm.shippingMethodId = shipment.shippingMethodId ?? null
       nextForm.shippingMethodLabel = shipment.shippingMethodCode ?? ''
+      setShippingMethodOption(
+        shipment.shippingMethodId
+          ? {
+              id: shipment.shippingMethodId,
+              name: shipment.shippingMethodCode ?? shipment.shippingMethodId,
+              code: shipment.shippingMethodCode ?? null,
+            }
+          : null
+      )
       nextForm.items = lines.reduce<Record<string, string>>((acc, line) => {
         const found = shipment.items.find((item) => item.orderLineId === line.id)
         acc[line.id] = found ? found.quantity.toString() : ''
@@ -633,21 +661,19 @@ export function SalesShipmentsSection({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <p className="text-sm font-semibold">{t('sales.documents.shipments.title', 'Shipments')}</p>
-        <p className="text-sm text-muted-foreground">
-          {t('sales.documents.shipments.subtitle', 'Track packages and fulfillment for this order.')}
-        </p>
-      </div>
+      <p className="text-sm font-semibold">{t('sales.documents.shipments.title', 'Shipments')}</p>
 
       {empty ? (
-        <TabEmptyState
-          title={t('sales.documents.shipments.empty.title', 'No shipments yet.')}
-          description={t(
-            'sales.documents.shipments.empty.description',
-            'Create your first shipment to mark items as fulfilled.'
-          )}
-        />
+        <div className="space-y-3 text-center">
+          <TabEmptyState
+            title={t('sales.documents.shipments.empty.title', 'No shipments yet.')}
+            description=""
+          />
+          <Button variant="outline" onClick={handleOpenCreate} className="mx-auto">
+            <Plus className="mr-2 h-4 w-4" />
+            {t('sales.documents.shipments.add', 'Add shipment')}
+          </Button>
+        </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {shipments.map((shipment) => {
@@ -747,6 +773,10 @@ export function SalesShipmentsSection({
               event.preventDefault()
               void handleSubmit()
             }
+            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+              event.preventDefault()
+              void handleSubmit()
+            }
           }}
         >
           <DialogHeader>
@@ -761,12 +791,40 @@ export function SalesShipmentsSection({
               <div className="space-y-2">
                 <Label htmlFor="shipment-number">
                   {t('sales.documents.shipments.number', 'Shipment number')}
+                  <RequiredMark />
                 </Label>
                 <Input
                   id="shipment-number"
                   value={form.shipmentNumber}
                   onChange={(event) => setForm((prev) => ({ ...prev, shipmentNumber: event.target.value }))}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="shipment-method">
+                  {t('sales.documents.shipments.shippingMethod', 'Shipping method')}
+                  <RequiredMark />
+                </Label>
+                <LookupSelect
+                  id="shipment-method"
+                  value={form.shippingMethodId}
+                  placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
+                  fetchOptions={loadShippingMethods}
+                  options={shippingMethodOptions}
+                  loading={shippingMethodLoading}
+                  onChange={(next) => {
+                    const option = next?.option ?? null
+                    setForm((prev) => ({
+                      ...prev,
+                      shippingMethodId: option?.id ?? null,
+                      shippingMethodLabel: option?.name ?? '',
+                    }))
+                    setShippingMethodOption(option)
+                    setFormErrors((prev) => ({ ...prev, shippingMethodId: undefined }))
+                  }}
+                />
+                {formErrors.shippingMethodId ? (
+                  <p className="text-xs text-destructive">{formErrors.shippingMethodId}</p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="shipment-carrier">
@@ -828,6 +886,7 @@ export function SalesShipmentsSection({
             <div className="space-y-2">
               <p className="text-sm font-medium">
                 {t('sales.documents.shipments.items', 'Items to ship')}
+                <RequiredMark />
               </p>
               {lines.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -886,32 +945,17 @@ export function SalesShipmentsSection({
               )}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="shipment-address"
-                  checked={form.attachAddress}
-                  onCheckedChange={(checked) =>
-                    setForm((prev) => ({ ...prev, attachAddress: Boolean(checked) }))
-                  }
-                  disabled={!shippingAddressSnapshot}
-                />
-                <Label htmlFor="shipment-address" className="cursor-pointer">
-                  {t('sales.documents.shipments.attachAddress', 'Attach address snapshot')}
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="shipment-comment"
-                  checked={form.postComment}
-                  onCheckedChange={(checked) =>
-                    setForm((prev) => ({ ...prev, postComment: Boolean(checked) }))
-                  }
-                />
-                <Label htmlFor="shipment-comment" className="cursor-pointer">
-                  {t('sales.documents.shipments.addComment', 'Add note to comments')}
-                </Label>
-              </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="shipment-comment"
+                checked={form.postComment}
+                onCheckedChange={(checked) =>
+                  setForm((prev) => ({ ...prev, postComment: Boolean(checked) }))
+                }
+              />
+              <Label htmlFor="shipment-comment" className="cursor-pointer">
+                {t('sales.documents.shipments.addComment', 'Add note to comments')}
+              </Label>
             </div>
 
             {submitError ? <ErrorMessage label={submitError} /> : null}
@@ -920,7 +964,11 @@ export function SalesShipmentsSection({
             <Button variant="ghost" onClick={closeDialog}>
               {t('sales.documents.shipments.cancel', 'Cancel')}
             </Button>
-            <Button onClick={(event) => void handleSubmit(event)} disabled={saving || lines.length === 0}>
+            <Button
+              onClick={(event) => void handleSubmit(event)}
+              disabled={saving || lines.length === 0}
+              title={t('sales.documents.shipments.saveShortcut', 'Save (⌘/Ctrl+S)')}
+            >
               {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
               {editingId
                 ? t('sales.documents.shipments.save', 'Save changes')

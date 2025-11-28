@@ -686,8 +686,10 @@
         "loadingMethods": "Loading payment methods…",
         "methodsEmpty": "No payment methods",
         "methodSelected": "Selected method: {{id}}",
+        "methodPlaceholder": "Search payment method",
         "currency": "Currency",
-        "referencePlaceholder": "External reference or note"
+        "referencePlaceholder": "External reference or note",
+        "saveShortcut": "Save ⌘/Ctrl + S"
       },
       "detail": {
         "title": "Sales document",
@@ -820,6 +822,10 @@
           "numberLabel": "Shipment {{number}}",
           "fallbackNumber": "Shipment {{id}}",
           "carrier": "Carrier",
+          "shippingMethod": "Shipping method",
+          "shippingMethodPlaceholder": "Select method",
+          "errorShippingMethod": "Select a shipping method.",
+          "saveShortcut": "Save (⌘/Ctrl+S)",
           "tracking": "Tracking",
           "trackingNumbers": "Tracking numbers",
           "trackingPlaceholder": "One per line or comma separated",
@@ -866,6 +872,7 @@
           "created": "Adjustment added.",
           "updated": "Adjustment updated.",
           "deleted": "Adjustment removed.",
+          "refresh": "Refresh",
           "label": "Label",
           "labelPlaceholder": "e.g. Shipping fee",
           "code": "Code",

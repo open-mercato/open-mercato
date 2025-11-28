@@ -639,8 +639,10 @@
         "loadingMethods": "Loading payment methods…",
         "methodsEmpty": "No payment methods",
         "methodSelected": "Selected method: {{id}}",
+        "methodPlaceholder": "Search payment method",
         "currency": "Currency",
-        "referencePlaceholder": "External reference or note"
+        "referencePlaceholder": "External reference or note",
+        "saveShortcut": "Save ⌘/Ctrl + S"
       },
       "detail": {
         "title": "Verkaufsdokument",
@@ -782,6 +784,7 @@
           "created": "Anpassung hinzugefügt.",
           "updated": "Anpassung aktualisiert.",
           "deleted": "Anpassung entfernt.",
+          "refresh": "Aktualisieren",
           "label": "Label",
           "labelPlaceholder": "z. B. Versandkosten",
           "code": "Code",

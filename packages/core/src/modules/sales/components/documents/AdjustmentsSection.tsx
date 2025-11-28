@@ -9,7 +9,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import { ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -428,40 +428,49 @@ export function SalesDocumentAdjustmentsSection({
     [currencyCode, handleDelete, handleEdit, t]
   )
 
+  const showLoadingState = loading && rows.length === 0
+
   return (
     <div className="space-y-4">
       {error ? (
         <ErrorMessage title={t('sales.documents.adjustments.errorLoad', 'Failed to load adjustments.')} description={error} onRetry={() => void loadAdjustments()} />
       ) : null}
-      <DataTable<AdjustmentRow>
-        data={filteredRows}
-        columns={columns}
-        isLoading={loading}
-        embedded
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder={t('sales.documents.adjustments.search', 'Search adjustments')}
-        emptyState={
-          <TabEmptyState
-            title={t('sales.documents.empty.adjustments.title', 'No adjustments yet.')}
-            description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
-            actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
-            onAction={handleOpenCreate}
-          />
-        }
-        actions={
-          <Button onClick={handleOpenCreate} size="sm">
-            {t('sales.documents.adjustments.add', 'Add adjustment')}
-          </Button>
-        }
-        refreshButton={{
-          label: t('sales.documents.adjustments.refresh', 'Refresh'),
-          onRefresh: () => {
-            void loadAdjustments()
-          },
-          isRefreshing: loading,
-        }}
-      />
+      {showLoadingState ? (
+        <LoadingMessage
+          label={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
+          className="border-0 bg-transparent p-0 py-8 justify-center"
+        />
+      ) : (
+        <DataTable<AdjustmentRow>
+          data={filteredRows}
+          columns={columns}
+          isLoading={loading && rows.length > 0}
+          embedded
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder={t('sales.documents.adjustments.search', 'Search adjustments')}
+          emptyState={
+            <TabEmptyState
+              title={t('sales.documents.empty.adjustments.title', 'No adjustments yet.')}
+              description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
+              actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
+              onAction={handleOpenCreate}
+            />
+          }
+          actions={
+            <Button onClick={handleOpenCreate} size="sm">
+              {t('sales.documents.adjustments.add', 'Add adjustment')}
+            </Button>
+          }
+          refreshButton={{
+            label: t('sales.documents.adjustments.refresh', 'Refresh'),
+            onRefresh: () => {
+              void loadAdjustments()
+            },
+            isRefreshing: loading,
+          }}
+        />
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleCloseDialog(); }}>
         <DialogContent

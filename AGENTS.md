@@ -150,6 +150,8 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## UI Interaction
 - Every new dialog must support `Cmd/Ctrl + Enter` as a primary action shortcut and `Escape` to cancel, mirroring the shared UX patterns used across modules.
+- Default to `CrudForm` for new forms and `DataTable` for tables displaying information unless a different component is explicitly required.
+- Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.

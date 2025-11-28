@@ -687,8 +687,10 @@
         "loadingMethods": "Loading payment methods…",
         "methodsEmpty": "No payment methods",
         "methodSelected": "Selected method: {{id}}",
+        "methodPlaceholder": "Search payment method",
         "currency": "Currency",
-        "referencePlaceholder": "External reference or note"
+        "referencePlaceholder": "External reference or note",
+        "saveShortcut": "Save ⌘/Ctrl + S"
       },
       "detail": {
         "title": "Dokument sprzedaży",
@@ -755,7 +757,7 @@
           },
           "adjustments": {
             "title": "Brak korekt.",
-            "description": "Korekty są w przygotowaniu."
+            "description": "Dodaj rabaty, opłaty lub podatki do tego dokumentu."
           }
         },
         "items": {
@@ -813,7 +815,44 @@
           "wip": "Płatności są w przygotowaniu."
         },
         "adjustments": {
-          "wip": "Korekty są w przygotowaniu."
+          "title": "Korekty",
+          "subtitle": "Dodaj rabaty, dopłaty, podatki lub koszty wysyłki.",
+          "add": "Dodaj korektę",
+          "addTitle": "Dodaj korektę",
+          "editTitle": "Edytuj korektę",
+          "loading": "Ładowanie korekt…",
+          "empty": "Brak korekt.",
+          "search": "Szukaj korekt",
+          "errorLoad": "Nie udało się wczytać korekt.",
+          "errorSave": "Nie udało się zapisać korekty.",
+          "errorDelete": "Nie udało się usunąć korekty.",
+          "errorAmount": "Podaj co najmniej jedną kwotę.",
+          "errorCurrency": "Waluta jest wymagana.",
+          "errorScope": "Wymagane są identyfikatory organizacji i dzierżawcy.",
+          "created": "Korekta dodana.",
+          "updated": "Korekta zaktualizowana.",
+          "deleted": "Korekta usunięta.",
+          "refresh": "Odśwież",
+          "label": "Etykieta",
+          "labelPlaceholder": "np. Koszt wysyłki",
+          "code": "Kod",
+          "codePlaceholder": "PROMO10",
+          "kindLabel": "Typ",
+          "calculatorKey": "Klucz kalkulatora",
+          "rate": "Stawka",
+          "amountNet": "Kwota netto",
+          "amountGross": "Kwota brutto",
+          "currency": "Waluta",
+          "currencyPlaceholder": "np. USD",
+          "position": "Pozycja",
+          "untitled": "Bez tytułu",
+          "kindLabels": {
+            "discount": "Rabat",
+            "tax": "Podatek",
+            "shipping": "Wysyłka",
+            "surcharge": "Dopłata",
+            "custom": "Niestandardowe"
+          }
         },
         "shipping": "Adres dostawy",
         "billing": "Adres rozliczeniowy",
@@ -919,9 +958,13 @@
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
   "sales.audit.orders.update": "Aktualizuj zamówienie sprzedaży",
+  "sales.audit.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
+  "sales.audit.orders.adjustments.delete": "Usuń korektę zamówienia",
   "sales.audit.quotes.create": "Utwórz ofertę",
   "sales.audit.quotes.delete": "Usuń ofertę",
   "sales.audit.quotes.update": "Aktualizuj ofertę",
+  "sales.audit.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
+  "sales.audit.quotes.adjustments.delete": "Usuń korektę oferty",
   "sales.audit.shipments.create": "Utwórz wysyłkę",
   "sales.audit.shipments.update": "Aktualizuj wysyłkę",
   "sales.audit.shipments.delete": "Usuń wysyłkę",

@@ -640,8 +640,10 @@
         "loadingMethods": "Loading payment methods…",
         "methodsEmpty": "No payment methods",
         "methodSelected": "Selected method: {{id}}",
+        "methodPlaceholder": "Search payment method",
         "currency": "Currency",
-        "referencePlaceholder": "External reference or note"
+        "referencePlaceholder": "External reference or note",
+        "saveShortcut": "Save ⌘/Ctrl + S"
       },
       "detail": {
         "title": "Documento de ventas",
@@ -820,6 +822,7 @@
           "created": "Ajuste agregado.",
           "updated": "Ajuste actualizado.",
           "deleted": "Ajuste eliminado.",
+          "refresh": "Actualizar",
           "label": "Etiqueta",
           "labelPlaceholder": "p. ej. Tarifa de envío",
           "code": "Código",
