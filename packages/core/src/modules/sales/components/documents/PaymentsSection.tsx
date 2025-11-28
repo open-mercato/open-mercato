@@ -10,8 +10,10 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { CreditCard } from 'lucide-react'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -96,6 +98,7 @@ export function SalesDocumentPaymentsSection({
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
   const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
+  const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save ⌘/Ctrl + S')
 
   const loadPaymentMethods = React.useCallback(async () => {
     setMethodsLoading(true)
@@ -209,8 +212,6 @@ export function SalesDocumentPaymentsSection({
     return () => onActionChange(null)
   }, [addActionLabel, onActionChange, openDialog])
 
-  const paymentMethodOptions = React.useMemo(() => paymentMethods, [paymentMethods])
-
   const currencyLabel = React.useMemo(() => {
     const code = currencyCode ? currencyCode.toUpperCase() : ''
     if (!code) return t('sales.documents.detail.empty', 'Not set')
@@ -229,20 +230,42 @@ export function SalesDocumentPaymentsSection({
       {
         id: 'paymentMethodId',
         label: t('sales.documents.payments.method', 'Method'),
-        type: 'select',
-        placeholder: t('sales.documents.payments.methodPlaceholder', 'Search payment method'),
-        listbox: true,
-        loadOptions: async (query?: string) => {
-          if (!paymentMethodOptions.length) await loadPaymentMethods()
-          const term = query?.trim().toLowerCase() ?? ''
-          return paymentMethodOptions
-            .filter(
-              (option) =>
-                !term.length ||
-                option.name.toLowerCase().includes(term) ||
-                option.code.toLowerCase().includes(term)
-            )
-            .map((option) => ({ value: option.id, label: option.name }))
+        type: 'custom',
+        component: ({ value, setValue }) => {
+          const currentValue = typeof value === 'string' && value.length ? value : null
+          const fetchItems = async (query?: string): Promise<LookupSelectItem[]> => {
+            if (!paymentMethodOptions.length) {
+              await loadPaymentMethods()
+            }
+            const term = query?.trim().toLowerCase() ?? ''
+            return paymentMethodOptions
+              .filter(
+                (option) =>
+                  !term.length ||
+                  option.name.toLowerCase().includes(term) ||
+                  option.code.toLowerCase().includes(term)
+              )
+              .map<LookupSelectItem>((option) => ({
+                id: option.id,
+                title: option.name,
+                subtitle: option.code,
+                icon: <CreditCard className="h-4 w-4 text-muted-foreground" />,
+              }))
+          }
+          return (
+            <LookupSelect
+              value={currentValue}
+              onChange={(next) => setValue(next ?? '')}
+              fetchItems={fetchItems}
+              searchPlaceholder={t('sales.documents.payments.methodPlaceholder', 'Search payment method')}
+              emptyLabel={t('sales.documents.payments.methodsEmpty', 'No payment methods')}
+              loadingLabel={t('sales.documents.payments.loadingMethods', 'Loading payment methods…')}
+              selectedHintLabel={(id) =>
+                t('sales.documents.payments.methodSelected', 'Selected method: {{id}}', { id })
+              }
+              minQuery={0}
+            />
+          )
         },
       },
       {
@@ -453,7 +476,7 @@ export function SalesDocumentPaymentsSection({
             embedded
             fields={fields}
             initialValues={initialValues}
-            submitLabel={editingId ? editActionLabel : addActionLabel}
+            submitLabel={`${editingId ? editActionLabel : addActionLabel} · ${shortcutLabel}`}
             onSubmit={handleFormSubmit}
             loadingMessage={t('sales.documents.payments.loading', 'Loading payments…')}
             contentHeader={
@@ -465,12 +488,6 @@ export function SalesDocumentPaymentsSection({
               ) : null
             }
           />
-          <div className="flex items-center justify-between pt-1 text-xs text-muted-foreground">
-            <span>{t('sales.documents.payments.saveShortcut', 'Save ⌘/Ctrl + S')}</span>
-            <span>
-              {t('sales.documents.payments.currency', 'Currency')}: {currencyLabel}
-            </span>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

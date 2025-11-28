@@ -333,6 +333,55 @@
           "delete": "Status deleted."
         }
       },
+      "adjustmentKinds": {
+        "title": "Adjustment kinds",
+        "description": "Manage reusable adjustment kinds for taxes, surcharges, shipping, and discounts.",
+        "actions": {
+          "add": "Add adjustment kind",
+          "edit": "Edit",
+          "delete": "Delete",
+          "refresh": "Refresh",
+          "create": "Create",
+          "save": "Save changes"
+        },
+        "confirm": {
+          "delete": "Delete adjustment kind \"{{code}}\"?"
+        },
+        "dialog": {
+          "createTitle": "Create adjustment kind",
+          "editTitle": "Edit adjustment kind",
+          "createDescription": "Define a reusable adjustment kind shown in document adjustment dialogs.",
+          "editDescription": "Update the code, label, or appearance for this adjustment kind."
+        },
+        "form": {
+          "codeLabel": "Code",
+          "codePlaceholder": "e.g. discount",
+          "labelLabel": "Label",
+          "labelPlaceholder": "e.g. Discount",
+          "appearanceLabel": "Appearance"
+        },
+        "errors": {
+          "required": "Code is required.",
+          "load": "Failed to load adjustment kinds.",
+          "save": "Failed to save adjustment kind.",
+          "delete": "Failed to delete adjustment kind."
+        },
+        "messages": {
+          "created": "Adjustment kind created.",
+          "updated": "Adjustment kind updated.",
+          "deleted": "Adjustment kind deleted."
+        },
+        "table": {
+          "code": "Code",
+          "label": "Label",
+          "appearance": "Appearance",
+          "empty": "No adjustment kinds yet."
+        },
+        "search": {
+          "placeholder": "Search by code or label…"
+        },
+        "loading": "Loading adjustment kinds…"
+      },
       "shippingMethods": {
         "title": "Shipping methods",
         "description": "Manage carriers, providers, and default shipping prices.",
@@ -672,6 +721,7 @@
         "errorLoad": "Failed to load payments.",
         "errorSave": "Failed to save payment.",
         "created": "Payment recorded.",
+        "edit": "Edit payment",
         "retry": "Retry",
         "amountRequired": "Enter a positive amount.",
         "currencyRequired": "Currency is required.",
@@ -887,6 +937,9 @@
           "position": "Position",
           "untitled": "Untitled",
           "kindLabel": "Kind",
+          "kindSelect": {
+            "placeholder": "Select adjustment kind…"
+          },
           "kindLabels": {
             "discount": "Discount",
             "tax": "Tax",

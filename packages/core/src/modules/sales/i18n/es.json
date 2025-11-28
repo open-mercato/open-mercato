@@ -327,6 +327,55 @@
           "delete": "Estado eliminado."
         }
       },
+      "adjustmentKinds": {
+        "title": "Tipos de ajustes",
+        "description": "Gestiona tipos de ajuste reutilizables para impuestos, recargos, envíos y descuentos.",
+        "actions": {
+          "add": "Agregar tipo de ajuste",
+          "edit": "Editar",
+          "delete": "Eliminar",
+          "refresh": "Actualizar",
+          "create": "Crear",
+          "save": "Guardar cambios"
+        },
+        "confirm": {
+          "delete": "¿Eliminar el tipo de ajuste \"{{code}}\"?"
+        },
+        "dialog": {
+          "createTitle": "Crear tipo de ajuste",
+          "editTitle": "Editar tipo de ajuste",
+          "createDescription": "Define un tipo de ajuste reutilizable que se mostrará en los diálogos de ajustes.",
+          "editDescription": "Actualiza el código, la etiqueta o la apariencia de este tipo de ajuste."
+        },
+        "form": {
+          "codeLabel": "Código",
+          "codePlaceholder": "p. ej. discount",
+          "labelLabel": "Etiqueta",
+          "labelPlaceholder": "p. ej. Descuento",
+          "appearanceLabel": "Apariencia"
+        },
+        "errors": {
+          "required": "El código es obligatorio.",
+          "load": "No se pudieron cargar los tipos de ajuste.",
+          "save": "No se pudo guardar el tipo de ajuste.",
+          "delete": "No se pudo eliminar el tipo de ajuste."
+        },
+        "messages": {
+          "created": "Tipo de ajuste creado.",
+          "updated": "Tipo de ajuste actualizado.",
+          "deleted": "Tipo de ajuste eliminado."
+        },
+        "table": {
+          "code": "Código",
+          "label": "Etiqueta",
+          "appearance": "Apariencia",
+          "empty": "Aún no hay tipos de ajuste."
+        },
+        "search": {
+          "placeholder": "Buscar por código o etiqueta…"
+        },
+        "loading": "Cargando tipos de ajuste…"
+      },
       "shippingMethods": {
         "title": "Métodos de envío",
         "description": "Administra transportistas, proveedores y precios de envío predeterminados.",
@@ -626,6 +675,7 @@
         "errorLoad": "Failed to load payments.",
         "errorSave": "Failed to save payment.",
         "created": "Payment recorded.",
+        "edit": "Edit payment",
         "retry": "Retry",
         "amountRequired": "Enter a positive amount.",
         "currencyRequired": "Currency is required.",
@@ -832,6 +882,9 @@
           "code": "Código",
           "codePlaceholder": "PROMO10",
           "kindLabel": "Tipo",
+          "kindSelect": {
+            "placeholder": "Selecciona el tipo de ajuste…"
+          },
           "calculatorKey": "Clave de cálculo",
           "rate": "Tasa",
           "amountNet": "Monto neto",

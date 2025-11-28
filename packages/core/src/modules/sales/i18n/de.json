@@ -625,6 +625,7 @@
         "errorLoad": "Failed to load payments.",
         "errorSave": "Failed to save payment.",
         "created": "Payment recorded.",
+        "edit": "Edit payment",
         "retry": "Retry",
         "amountRequired": "Enter a positive amount.",
         "currencyRequired": "Currency is required.",

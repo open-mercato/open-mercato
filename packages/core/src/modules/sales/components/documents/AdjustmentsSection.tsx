@@ -15,6 +15,10 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import {
+  DictionaryEntrySelect,
+  type DictionaryOption,
+} from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
@@ -55,12 +59,18 @@ type SalesDocumentAdjustmentsSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
 }
 
-const ADJUSTMENT_KINDS: SalesAdjustmentKind[] = ['discount', 'tax', 'shipping', 'surcharge', 'custom']
+const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
+  'discount',
+  'tax',
+  'shipping',
+  'surcharge',
+  'custom',
+]
 
-const defaultFormState = (currencyCode?: string | null): AdjustmentFormState => ({
+const defaultFormState = (currencyCode?: string | null, kindValue: SalesAdjustmentKind = 'custom'): AdjustmentFormState => ({
   label: '',
   code: '',
-  kind: 'custom',
+  kind: kindValue,
   calculatorKey: '',
   rate: '',
   amountNet: '',
@@ -105,12 +115,100 @@ export function SalesDocumentAdjustmentsSection({
   const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [kindOptions, setKindOptions] = React.useState<DictionaryOption[]>([])
 
   const resourcePath = React.useMemo(
     () => (kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'),
     [kind]
   )
   const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
+  const fallbackKindOptions = React.useMemo<DictionaryOption[]>(
+    () =>
+      FALLBACK_ADJUSTMENT_KIND_VALUES.map((value) => ({
+        value,
+        label: t(`sales.documents.adjustments.kindLabels.${value}`, value),
+        color: null,
+        icon: null,
+      })),
+    [t]
+  )
+  const kindOptionMap = React.useMemo(
+    () =>
+      kindOptions.reduce<Record<string, DictionaryOption>>((acc, entry) => {
+        acc[entry.value] = entry
+        return acc
+      }, {}),
+    [kindOptions]
+  )
+  const kindSelectLabels = React.useMemo(
+    () => ({
+      placeholder: t('sales.documents.adjustments.kindSelect.placeholder', 'Select adjustment kind…'),
+      addLabel: t('sales.config.adjustmentKinds.actions.add', 'Add adjustment kind'),
+      addPrompt: t('sales.config.adjustmentKinds.dialog.createDescription', 'Define a reusable adjustment kind shown in document adjustment dialogs.'),
+      dialogTitle: t('sales.config.adjustmentKinds.dialog.createTitle', 'Create adjustment kind'),
+      valueLabel: t('sales.config.adjustmentKinds.form.codeLabel', 'Code'),
+      valuePlaceholder: t('sales.config.adjustmentKinds.form.codePlaceholder', 'e.g. discount'),
+      labelLabel: t('sales.config.adjustmentKinds.form.labelLabel', 'Label'),
+      labelPlaceholder: t('sales.config.adjustmentKinds.form.labelPlaceholder', 'e.g. Discount'),
+      emptyError: t('sales.config.adjustmentKinds.errors.required', 'Code is required.'),
+      cancelLabel: t('ui.actions.cancel', 'Cancel'),
+      saveLabel: t('ui.actions.save', 'Save'),
+      saveShortcutHint: t('ui.actions.saveShortcut', 'Cmd/Ctrl + Enter'),
+      successCreateLabel: t('sales.config.adjustmentKinds.messages.created', 'Adjustment kind created.'),
+      errorLoad: t('sales.config.adjustmentKinds.errors.load', 'Failed to load adjustment kinds.'),
+      errorSave: t('sales.config.adjustmentKinds.errors.save', 'Failed to save adjustment kind.'),
+      loadingLabel: t('sales.config.adjustmentKinds.loading', 'Loading adjustment kinds…'),
+      manageTitle: t('sales.config.adjustmentKinds.title', 'Adjustment kinds'),
+    }),
+    [t]
+  )
+
+  const loadKindOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/adjustment-kinds?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const parsed = items
+        .map((item) => {
+          const value = typeof (item as any).value === 'string' ? (item as any).value.trim() : ''
+          if (!value) return null
+          const label =
+            typeof (item as any).label === 'string' && (item as any).label.trim().length
+              ? (item as any).label.trim()
+              : value
+          const color =
+            typeof (item as any).color === 'string' && /^#([0-9a-fA-F]{6})$/.test((item as any).color)
+              ? `#${(item as any).color.slice(1).toLowerCase()}`
+              : null
+          const icon =
+            typeof (item as any).icon === 'string' && (item as any).icon.trim().length
+              ? (item as any).icon.trim()
+              : null
+          return { value, label, color, icon }
+        })
+        .filter((entry): entry is DictionaryOption => Boolean(entry))
+      const merged = new Map<string, DictionaryOption>()
+      fallbackKindOptions.forEach((entry) => merged.set(entry.value, entry))
+      parsed.forEach((entry) => merged.set(entry.value, entry))
+      const options = Array.from(merged.values()).sort((a, b) =>
+        a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
+      )
+      setKindOptions(options)
+      return options
+    } catch (err) {
+      console.error('sales.adjustment-kinds.fetch', err)
+      setKindOptions(fallbackKindOptions)
+      return fallbackKindOptions
+    }
+  }, [fallbackKindOptions])
+
+  React.useEffect(() => {
+    loadKindOptions().catch(() => {})
+  }, [loadKindOptions, resolvedOrganizationId, resolvedTenantId])
 
   const loadAdjustments = React.useCallback(async () => {
     setLoading(true)
@@ -137,8 +235,8 @@ export function SalesDocumentAdjustmentsSection({
           )
           const rateRaw = normalizeNumber((item as any).rate, NaN)
           const kindValue =
-            typeof item.kind === 'string' && ADJUSTMENT_KINDS.includes(item.kind as SalesAdjustmentKind)
-              ? (item.kind as SalesAdjustmentKind)
+            typeof item.kind === 'string' && item.kind.trim().length
+              ? (item.kind.trim() as SalesAdjustmentKind)
               : 'custom'
           const currency =
             typeof (item as any).currency_code === 'string'
@@ -183,12 +281,27 @@ export function SalesDocumentAdjustmentsSection({
     void loadAdjustments()
   }, [loadAdjustments])
 
+  const resolveKindLabel = React.useCallback(
+    (kindValue: SalesAdjustmentKind) => {
+      const option = kindOptionMap[kindValue]
+      if (option) return option.label
+      return t(`sales.documents.adjustments.kindLabels.${kindValue}`, typeof kindValue === 'string' ? kindValue : String(kindValue))
+    },
+    [kindOptionMap, t]
+  )
+
+  const resolveDefaultKind = React.useCallback((): SalesAdjustmentKind => {
+    if (kindOptions.length) return kindOptions[0]?.value as SalesAdjustmentKind
+    if (fallbackKindOptions.length) return fallbackKindOptions[0]?.value as SalesAdjustmentKind
+    return 'custom'
+  }, [fallbackKindOptions, kindOptions])
+
   const resetForm = React.useCallback(() => {
-    setForm(defaultFormState(currencyCode))
+    setForm(defaultFormState(currencyCode, resolveDefaultKind()))
     setFormErrors({})
     setSubmitError(null)
     setEditingId(null)
-  }, [currencyCode])
+  }, [currencyCode, resolveDefaultKind])
 
   const handleOpenCreate = React.useCallback(() => {
     resetForm()
@@ -366,7 +479,7 @@ export function SalesDocumentAdjustmentsSection({
       {
         id: 'kind',
         header: t('sales.documents.adjustments.kindLabel', 'Kind'),
-        cell: ({ row }) => <Badge variant="outline">{row.original.kind}</Badge>,
+        cell: ({ row }) => <Badge variant="outline">{resolveKindLabel(row.original.kind)}</Badge>,
       },
       {
         id: 'amountNet',
@@ -412,7 +525,7 @@ export function SalesDocumentAdjustmentsSection({
         ),
       },
     ],
-    [currencyCode, handleDelete, handleEdit, t]
+    [currencyCode, handleDelete, handleEdit, resolveKindLabel, t]
   )
 
   const showLoadingState = loading && rows.length === 0
@@ -490,18 +603,16 @@ export function SalesDocumentAdjustmentsSection({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="adjustment-kind">{t('sales.documents.adjustments.kindLabel', 'Kind')}</Label>
-                <select
-                  id="adjustment-kind"
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                <DictionaryEntrySelect
                   value={form.kind}
-                  onChange={(event) => setForm((prev) => ({ ...prev, kind: event.target.value as SalesAdjustmentKind }))}
-                >
-                  {ADJUSTMENT_KINDS.map((kindValue) => (
-                    <option key={kindValue} value={kindValue}>
-                      {t(`sales.documents.adjustments.kindLabels.${kindValue}`, kindValue)}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setForm((prev) => ({ ...prev, kind: (value ?? 'custom') as SalesAdjustmentKind }))}
+                  fetchOptions={loadKindOptions}
+                  labels={kindSelectLabels}
+                  allowInlineCreate={false}
+                  manageHref="/backend/config/sales#adjustment-kinds"
+                  selectClassName="w-full"
+                  showLabelInput={false}
+                />
               </div>
             </div>
             <div className="space-y-2">
