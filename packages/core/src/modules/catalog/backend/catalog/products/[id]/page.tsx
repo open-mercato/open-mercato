@@ -599,6 +599,12 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     const metadata = buildMetadataPayload(values)
     const dimensions = sanitizeProductDimensions(values.dimensions ?? null)
     const weight = sanitizeProductWeight(values.weight ?? null)
+    const resolveTaxRateValue = (taxRateId?: string | null) => {
+      if (!taxRateId) return null
+      const match = taxRates.find((rate) => rate.id === taxRateId)
+      return typeof match?.rate === 'number' && Number.isFinite(match.rate) ? match.rate : null
+    }
+    const productTaxRateValue = resolveTaxRateValue(values.taxRateId ?? null)
     const defaultMediaId = typeof values.defaultMediaId === 'string' && values.defaultMediaId.trim().length
       ? values.defaultMediaId
       : null
@@ -615,6 +621,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       description,
       handle,
       taxRateId: values.taxRateId ?? null,
+      taxRate: productTaxRateValue ?? null,
       isConfigurable: Boolean(values.hasVariants),
       metadata,
       dimensions,

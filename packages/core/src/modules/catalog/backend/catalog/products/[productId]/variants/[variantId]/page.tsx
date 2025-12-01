@@ -48,6 +48,8 @@ type ProductResponse = {
     metadata?: Record<string, unknown> | null
     tax_rate_id?: string | null
     taxRateId?: string | null
+    tax_rate?: number | string | null
+    taxRate?: number | string | null
   }>
 }
 
@@ -74,6 +76,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [error, setError] = React.useState<string | null>(null)
   const [currentProductId, setCurrentProductId] = React.useState<string | null>(productId)
   const [productTitle, setProductTitle] = React.useState<string>('')
+  const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
+  const [productTaxRate, setProductTaxRate] = React.useState<number | null>(null)
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -176,7 +180,19 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                   : typeof (product as any).taxRateId === 'string'
                     ? (product as any).taxRateId
                     : null
+              const taxRateValueRaw =
+                typeof (product as any).tax_rate === 'number'
+                  ? (product as any).tax_rate
+                  : typeof (product as any).tax_rate === 'string'
+                    ? Number((product as any).tax_rate)
+                    : typeof (product as any).taxRate === 'number'
+                      ? (product as any).taxRate
+                      : typeof (product as any).taxRate === 'string'
+                        ? Number((product as any).taxRate)
+                        : null
+              const taxRateValue = Number.isFinite(taxRateValueRaw) ? Number(taxRateValueRaw) : null
               setProductTaxRateId(taxRateId)
+              setProductTaxRate(taxRateValue)
               const productMetadata = (product.metadata ?? {}) as Record<string, unknown>
               const optionSchemaId =
                 typeof (product as any).option_schema_id === 'string'
@@ -241,6 +257,12 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             defaultMediaId,
             defaultMediaUrl,
             prices: priceDrafts,
+            taxRateId:
+              typeof (record as any).tax_rate_id === 'string'
+                ? (record as any).tax_rate_id
+                : typeof (record as any).taxRateId === 'string'
+                  ? (record as any).taxRateId
+                  : null,
             customFieldsetCode:
               typeof record.custom_fieldset_code === 'string'
                 ? record.custom_fieldset_code
@@ -400,6 +422,18 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               const message = t('catalog.variants.form.errors.nameRequired', 'Provide the variant name.')
               throw createCrudFormError(message, { name: message })
             }
+            const resolveTaxRateValue = (taxRateId?: string | null) => {
+              if (!taxRateId) return null
+              const match = taxRates.find((rate) => rate.id === taxRateId)
+              return typeof match?.rate === 'number' && Number.isFinite(match.rate) ? match.rate : null
+            }
+            const resolvedTaxRateId = values.taxRateId ?? productTaxRateId ?? null
+            const resolvedTaxRateValue =
+              values.taxRateId && resolvedTaxRateId
+                ? resolveTaxRateValue(resolvedTaxRateId)
+                : productTaxRateId
+                  ? resolveTaxRateValue(productTaxRateId) ?? productTaxRate
+                  : productTaxRate ?? null
             const metadata = typeof values.metadata === 'object' && values.metadata ? { ...values.metadata } : {}
             const defaultMediaEntry = values.defaultMediaId
               ? (Array.isArray(values.mediaItems) ? values.mediaItems : []).find((item) => item.id === values.defaultMediaId)
@@ -422,6 +456,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               defaultMediaId: values.defaultMediaId ?? undefined,
               defaultMediaUrl: defaultMediaUrl ?? undefined,
               customFieldsetCode: values.customFieldsetCode?.trim().length ? values.customFieldsetCode : undefined,
+              taxRateId: resolvedTaxRateId,
+              taxRate: resolvedTaxRateValue,
             }
             const customFields = collectCustomFieldValues(values)
             if (Object.keys(customFields).length) payload.customFields = customFields
@@ -436,6 +472,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               taxRates,
               taxRateId: values.taxRateId,
               productTaxRateId,
+              productTaxRate,
             })
             flash(t('catalog.variants.form.updated', 'Variant updated.'), 'success')
             router.push(productVariantsHref)
@@ -592,6 +629,7 @@ async function syncVariantPricesUpdate({
   taxRates,
   taxRateId,
   productTaxRateId,
+  productTaxRate,
 }: {
   priceKinds: PriceKindSummary[]
   priceDrafts: Record<string, VariantPriceDraft>
@@ -601,13 +639,18 @@ async function syncVariantPricesUpdate({
   taxRates: TaxRateSummary[]
   taxRateId: string | null
   productTaxRateId?: string | null
+  productTaxRate?: number | null
 }): Promise<void> {
   const selectedTaxRate = taxRates.find((rate) => rate.id === taxRateId) ?? null
   const fallbackProductTaxRate =
     !selectedTaxRate && productTaxRateId
       ? taxRates.find((rate) => rate.id === productTaxRateId) ?? null
       : null
-  const resolvedTaxRate = selectedTaxRate ?? fallbackProductTaxRate ?? null
+  const resolvedTaxRateValue =
+    selectedTaxRate?.rate ??
+    fallbackProductTaxRate?.rate ??
+    (Number.isFinite(productTaxRate ?? null) ? productTaxRate ?? null : null)
+  const resolvedTaxRateId = (selectedTaxRate ?? fallbackProductTaxRate)?.id ?? null
   for (const kind of priceKinds) {
     const draft = priceDrafts?.[kind.id]
     const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
@@ -630,8 +673,8 @@ async function syncVariantPricesUpdate({
       priceKindId: kind.id,
       currencyCode: kind.currencyCode ?? undefined,
     }
-    if (resolvedTaxRate?.id) payload.taxRateId = resolvedTaxRate.id
-    else if (typeof resolvedTaxRate?.rate === 'number' && Number.isFinite(resolvedTaxRate.rate)) payload.taxRate = resolvedTaxRate.rate
+    if (resolvedTaxRateId) payload.taxRateId = resolvedTaxRateId
+    else if (typeof resolvedTaxRateValue === 'number' && Number.isFinite(resolvedTaxRateValue)) payload.taxRate = resolvedTaxRateValue
     if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
     else payload.unitPriceNet = numeric
     if (existingId) {
