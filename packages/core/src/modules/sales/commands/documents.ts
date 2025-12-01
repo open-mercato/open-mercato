@@ -10,6 +10,8 @@ import type { EventBus } from '@open-mercato/events'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -318,6 +320,8 @@ export const documentUpdateSchema = z
     paymentMethodCode: z.string().nullable().optional(),
     paymentMethodSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     tags: z.array(z.string().uuid()).optional(),
+    customFields: z.record(z.string(), z.unknown()).optional(),
+    customFieldSetId: z.string().uuid().nullable().optional(),
   })
   .refine(
     (input) =>
@@ -343,7 +347,9 @@ export const documentUpdateSchema = z
       input.paymentMethodId !== undefined ||
       input.paymentMethodCode !== undefined ||
       input.paymentMethodSnapshot !== undefined ||
-      input.tags !== undefined,
+      input.tags !== undefined ||
+      input.customFields !== undefined ||
+      input.customFieldSetId !== undefined,
     { message: 'update_payload_empty' }
   )
 
@@ -797,6 +803,24 @@ async function applyDocumentUpdate({
       organizationId,
       tenantId,
       tagIds: input.tags,
+    })
+  }
+
+  if (input.customFieldSetId !== undefined) {
+    ;(entity as any).customFieldSetId = input.customFieldSetId ?? null
+  }
+
+  if (input.customFields !== undefined) {
+    const values =
+      input.customFields && typeof input.customFields === 'object' && !Array.isArray(input.customFields)
+        ? (input.customFields as Record<string, unknown>)
+        : {}
+    await setRecordCustomFields(em, {
+      entityId: kind === 'order' ? E.sales.sales_order : E.sales.sales_quote,
+      recordId: entity.id,
+      organizationId,
+      tenantId,
+      values,
     })
   }
 }

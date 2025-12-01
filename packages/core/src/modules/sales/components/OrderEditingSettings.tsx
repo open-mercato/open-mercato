@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -59,6 +60,7 @@ export function OrderEditingSettings() {
       ),
       actions: {
         refresh: t('sales.config.orderEditing.actions.refresh', 'Refresh'),
+        refreshing: t('sales.config.orderEditing.actions.refreshing', 'Refreshing…'),
         save: t('sales.config.orderEditing.actions.save', 'Save settings'),
       },
       messages: {
@@ -144,7 +146,7 @@ export function OrderEditingSettings() {
     (kind: 'customer' | 'address', values: string[] | null, label: string) => {
       const allowedAny = values === null
       return (
-        <div className="space-y-3 rounded-lg border bg-card/30 p-4">
+        <div className="space-y-3 rounded-none border bg-card/30 p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="space-y-1">
               <p className="text-sm font-medium">{label}</p>
@@ -164,7 +166,10 @@ export function OrderEditingSettings() {
               {options.map((status) => {
                 const checked = values?.includes(status.value) ?? false
                 return (
-                  <label key={status.id} className="flex items-center gap-2 rounded-md border bg-background p-2 text-sm">
+                  <label
+                    key={status.id}
+                    className="flex items-center gap-2 rounded-none border bg-background p-2 text-sm"
+                  >
                     <input
                       type="checkbox"
                       className="h-4 w-4 rounded border"
@@ -190,15 +195,24 @@ export function OrderEditingSettings() {
   )
 
   return (
-    <section className="space-y-4 rounded-lg border bg-card/30 p-5 shadow-sm">
+    <section className="space-y-4 rounded-none border bg-card/30 p-5 shadow-sm !rounded-none">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">{translations.title}</h2>
           <p className="text-sm text-muted-foreground">{translations.description}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" type="button" onClick={() => void loadSettings()} disabled={loading || saving}>
-            {translations.actions.refresh}
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            className="rounded-none border-0 shadow-none hover:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+            onClick={() => void loadSettings()}
+            disabled={loading || saving}
+            aria-label={translations.actions.refresh}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            <span className="sr-only">{loading ? translations.actions.refreshing : translations.actions.refresh}</span>
           </Button>
         </div>
       </div>
@@ -208,8 +222,17 @@ export function OrderEditingSettings() {
         {renderStatusList('address', addressStatuses, translations.addressLabel)}
       </div>
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="secondary" onClick={() => void loadSettings()} disabled={loading || saving}>
-          {translations.actions.refresh}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="rounded-none border-0 shadow-none hover:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+          onClick={() => void loadSettings()}
+          disabled={loading || saving}
+          aria-label={translations.actions.refresh}
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          <span className="sr-only">{loading ? translations.actions.refreshing : translations.actions.refresh}</span>
         </Button>
         <Button type="button" onClick={() => void handleSubmit()} disabled={loading || saving}>
           {translations.actions.save}

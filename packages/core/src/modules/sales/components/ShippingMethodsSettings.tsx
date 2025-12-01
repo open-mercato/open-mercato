@@ -793,14 +793,12 @@ export function ShippingMethodsSettings() {
 
   return (
     <section className="rounded border bg-card text-card-foreground shadow-sm">
+      <div className="border-b px-6 py-4 space-y-1">
+        <h2 className="text-lg font-medium">{translations.title}</h2>
+        <p className="text-sm text-muted-foreground">{translations.description}</p>
+      </div>
       <div className="px-2 py-4 sm:px-4">
         <DataTable
-          title={(
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold leading-tight">{translations.title}</h2>
-              <p className="text-sm text-muted-foreground">{translations.description}</p>
-            </div>
-          )}
           embedded
           isLoading={loading}
           columns={columns}
