@@ -45,6 +45,7 @@ export type SalesAdjustmentDraft = {
   amountGross?: number | null
   currencyCode?: string | null
   metadata?: Record<string, unknown> | null
+  customFields?: Record<string, unknown> | null
   position?: number | null
 }
 

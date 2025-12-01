@@ -33,11 +33,13 @@ import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
 import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/components/documents/PaymentsSection'
 import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sales/components/documents/AdjustmentsSection'
+import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/components/documents/AdjustmentDialog'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
+import type { SalesAdjustmentKind } from '@open-mercato/core/modules/sales/data/entities'
 import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDictionaryIcon, type DictionaryMap } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -1846,9 +1848,18 @@ export default function SalesDocumentDetailPage({
   const [statusOptions, setStatusOptions] = React.useState<StatusOption[]>([])
   const [statusLoading, setStatusLoading] = React.useState(false)
   const statusOptionsRef = React.useRef<Map<string, StatusOption>>(new Map())
+  const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
   const scopeVersion = useOrganizationScopeVersion()
+  const parseNumber = React.useCallback((value: unknown): number => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim().length) {
+      const parsed = Number(value)
+      if (!Number.isNaN(parsed)) return parsed
+    }
+    return NaN
+  }, [])
 
   const loadErrorMessage = React.useMemo(
     () => t('sales.documents.detail.error', 'Document not found or inaccessible.'),
@@ -2426,6 +2437,80 @@ export default function SalesDocumentDetailPage({
     setReloadKey((prev) => prev + 1)
   }, [])
 
+  const loadAdjustmentsForTotals = React.useCallback(async () => {
+    if (!record?.id) return
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '200', [kind === 'order' ? 'orderId' : 'quoteId']: record.id })
+      const resourcePath = kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `${resourcePath}?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped: AdjustmentRowData[] = items
+        .map((item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          if (!id) return null
+          const amountNet = parseNumber(
+            (item as any).amount_net ?? (item as any).amountNet ?? (item as any).amount_net_amount
+          )
+          const amountGross = parseNumber(
+            (item as any).amount_gross ?? (item as any).amountGross ?? (item as any).amount_gross_amount
+          )
+          const rateRaw = parseNumber((item as any).rate)
+          const kindValue =
+            typeof item.kind === 'string' && item.kind.trim().length
+              ? (item.kind.trim() as SalesAdjustmentKind)
+              : 'custom'
+          const currency =
+            typeof (item as any).currency_code === 'string'
+              ? (item as any).currency_code
+              : typeof (item as any).currencyCode === 'string'
+                ? (item as any).currencyCode
+                : record?.currencyCode ?? null
+          return {
+            id,
+            label: typeof item.label === 'string' ? item.label : null,
+            code: typeof item.code === 'string' ? item.code : null,
+            kind: kindValue,
+            calculatorKey:
+              typeof (item as any).calculator_key === 'string'
+                ? (item as any).calculator_key
+                : typeof (item as any).calculatorKey === 'string'
+                  ? (item as any).calculatorKey
+                  : null,
+            rate: Number.isFinite(rateRaw) ? rateRaw : null,
+            amountNet: Number.isFinite(amountNet) ? amountNet : null,
+            amountGross: Number.isFinite(amountGross) ? amountGross : null,
+            currencyCode: currency,
+            position:
+              typeof item.position === 'number'
+                ? item.position
+                : typeof (item as any).position === 'string'
+                  ? Number((item as any).position)
+                  : 0,
+            customFields: null,
+            customFieldSetId:
+              typeof (item as any).custom_field_set_id === 'string'
+                ? (item as any).custom_field_set_id
+                : typeof (item as any).customFieldSetId === 'string'
+                  ? (item as any).customFieldSetId
+                  : null,
+          }
+        })
+        .filter((entry): entry is AdjustmentRowData => Boolean(entry))
+      const ordered = [...mapped].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      setAdjustmentRows(ordered)
+    } catch (err) {
+      console.error('sales.documents.adjustments.totals.load', err)
+    }
+  }, [kind, parseNumber, record?.currencyCode, record?.id])
+
+  React.useEffect(() => {
+    void loadAdjustmentsForTotals()
+  }, [loadAdjustmentsForTotals])
+
   const statusDictionaryMap = React.useMemo(
     () =>
       createDictionaryMap(
@@ -2450,6 +2535,17 @@ export default function SalesDocumentDetailPage({
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
   const contactRecordId = customerSnapshot?.contact?.id ?? customerSnapshot?.customer?.id ?? record?.customerEntityId ?? null
+  const resolveAdjustmentLabel = React.useCallback(
+    (row: AdjustmentRowData) => {
+      const base = (row.label ?? '').trim()
+      const fallback = t(`sales.documents.adjustments.kindLabels.${row.kind}`, row.kind)
+      const label = base.length ? base : fallback
+      const hasRate = Number.isFinite(row.rate) && row.rate !== null
+      const suffix = hasRate ? ` (${row.rate}%)` : ''
+      return `${label}${suffix}`
+    },
+    [t]
+  )
   const totalsItems = React.useMemo(() => {
     if (!record) return []
     const items: { key: string; label: string; amount: number | null | undefined; emphasize?: boolean }[] = [
@@ -2492,6 +2588,15 @@ export default function SalesDocumentDetailPage({
           amount: record.surchargeTotalAmount ?? null,
         }
       )
+    }
+    if (adjustmentRows.length) {
+      adjustmentRows.forEach((adj) => {
+        items.push({
+          key: `adjustment-${adj.id}`,
+          label: resolveAdjustmentLabel(adj),
+          amount: adj.amountGross ?? adj.amountNet ?? null,
+        })
+      })
     }
     items.push(
       {
@@ -2543,6 +2648,8 @@ export default function SalesDocumentDetailPage({
     record?.subtotalGrossAmount,
     record?.subtotalNetAmount,
     record?.taxTotalAmount,
+    adjustmentRows,
+    resolveAdjustmentLabel,
     t,
   ])
   const guardAllows = (list: string[] | null | undefined, status: string | null | undefined) => {
@@ -3640,6 +3747,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          onRowsChange={setAdjustmentRows}
         />
       )
     }

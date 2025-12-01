@@ -1604,25 +1604,64 @@ async function replaceQuoteAdjustments(
   calculation: SalesDocumentCalculationResult,
   adjustmentInputs: QuoteAdjustmentCreateInput[] | null
 ): Promise<void> {
-  await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id })
+  const existing = await em.find(SalesQuoteAdjustment, { quote }, { orderBy: { position: 'asc' } })
+  const existingMap = new Map<string, SalesQuoteAdjustment>()
+  existing.forEach((adj) => existingMap.set(adj.id, adj))
+  const seen = new Set<string>()
   const adjustmentDrafts = calculation.adjustments
-  adjustmentDrafts.forEach((draft, index) => {
-    const source = adjustmentInputs ? adjustmentInputs[index] ?? null : null
-    const entityInput = convertAdjustmentResultToEntityInput(
-      draft,
-      source,
-      quote,
-      index
-    )
-    const adjustmentEntity = em.create(SalesQuoteAdjustment, {
-      id: draft.id ?? undefined,
-      quote,
-      ...entityInput,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    adjustmentEntity.quoteLine = null
-    em.persist(adjustmentEntity)
+  for (let index = 0; index < adjustmentDrafts.length; index += 1) {
+    const draft = adjustmentDrafts[index]
+    const sourceById = adjustmentInputs?.find((adj) => (adj as any).id === draft.id) ?? null
+    const source = sourceById ?? (adjustmentInputs ? adjustmentInputs[index] ?? null : null)
+    const entityInput = convertAdjustmentResultToEntityInput(draft, source, quote, index)
+    const adjustmentId =
+      (draft as any).id ??
+      (source as any)?.id ??
+      randomUUID()
+    const existingEntity = existingMap.get(adjustmentId)
+    const entity =
+      existingEntity ??
+      em.create(SalesQuoteAdjustment, {
+        id: adjustmentId,
+        quote,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        createdAt: new Date(),
+      })
+    entity.scope = entityInput.scope
+    entity.kind = entityInput.kind
+    entity.code = entityInput.code ?? null
+    entity.label = entityInput.label ?? null
+    entity.calculatorKey = entityInput.calculatorKey ?? null
+    entity.promotionId = entityInput.promotionId ?? null
+    entity.rate = entityInput.rate ?? '0'
+    entity.amountNet = entityInput.amountNet ?? '0'
+    entity.amountGross = entityInput.amountGross ?? entityInput.amountNet ?? '0'
+    entity.currencyCode = entityInput.currencyCode ?? quote.currencyCode
+    entity.metadata = entityInput.metadata ?? null
+    entity.position = entityInput.position ?? index
+    entity.updatedAt = new Date()
+    entity.quoteLine = null
+    seen.add(adjustmentId)
+    if (source?.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_quote_adjustment,
+        recordId: adjustmentId,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        values:
+          source.customFields && typeof source.customFields === 'object'
+            ? (source.customFields as Record<string, unknown>)
+            : {},
+      })
+    }
+    em.persist(entity)
+  }
+
+  existing.forEach((adj) => {
+    if (!seen.has(adj.id)) {
+      em.remove(adj)
+    }
   })
 }
 
@@ -1681,25 +1720,64 @@ async function replaceOrderAdjustments(
   calculation: SalesDocumentCalculationResult,
   adjustmentInputs: OrderAdjustmentCreateInput[] | null
 ): Promise<void> {
-  await em.nativeDelete(SalesOrderAdjustment, { order: order.id })
+  const existing = await em.find(SalesOrderAdjustment, { order }, { orderBy: { position: 'asc' } })
+  const existingMap = new Map<string, SalesOrderAdjustment>()
+  existing.forEach((adj) => existingMap.set(adj.id, adj))
+  const seen = new Set<string>()
   const adjustmentDrafts = calculation.adjustments
-  adjustmentDrafts.forEach((draft, index) => {
-    const source = adjustmentInputs ? adjustmentInputs[index] ?? null : null
-    const entityInput = convertAdjustmentResultToEntityInput(
-      draft,
-      source,
-      order,
-      index
-    )
-    const adjustmentEntity = em.create(SalesOrderAdjustment, {
-      id: draft.id ?? undefined,
-      order,
-      ...entityInput,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    adjustmentEntity.orderLine = null
-    em.persist(adjustmentEntity)
+  for (let index = 0; index < adjustmentDrafts.length; index += 1) {
+    const draft = adjustmentDrafts[index]
+    const sourceById = adjustmentInputs?.find((adj) => (adj as any).id === draft.id) ?? null
+    const source = sourceById ?? (adjustmentInputs ? adjustmentInputs[index] ?? null : null)
+    const entityInput = convertAdjustmentResultToEntityInput(draft, source, order, index)
+    const adjustmentId =
+      (draft as any).id ??
+      (source as any)?.id ??
+      randomUUID()
+    const existingEntity = existingMap.get(adjustmentId)
+    const entity =
+      existingEntity ??
+      em.create(SalesOrderAdjustment, {
+        id: adjustmentId,
+        order,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        createdAt: new Date(),
+      })
+    entity.scope = entityInput.scope
+    entity.kind = entityInput.kind
+    entity.code = entityInput.code ?? null
+    entity.label = entityInput.label ?? null
+    entity.calculatorKey = entityInput.calculatorKey ?? null
+    entity.promotionId = entityInput.promotionId ?? null
+    entity.rate = entityInput.rate ?? '0'
+    entity.amountNet = entityInput.amountNet ?? '0'
+    entity.amountGross = entityInput.amountGross ?? entityInput.amountNet ?? '0'
+    entity.currencyCode = entityInput.currencyCode ?? order.currencyCode
+    entity.metadata = entityInput.metadata ?? null
+    entity.position = entityInput.position ?? index
+    entity.updatedAt = new Date()
+    entity.orderLine = null
+    seen.add(adjustmentId)
+    if (source?.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_order_adjustment,
+        recordId: adjustmentId,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        values:
+          source.customFields && typeof source.customFields === 'object'
+            ? (source.customFields as Record<string, unknown>)
+            : {},
+      })
+    }
+    em.persist(entity)
+  }
+
+  existing.forEach((adj) => {
+    if (!seen.has(adj.id)) {
+      em.remove(adj)
+    }
   })
 }
 
@@ -2493,7 +2571,90 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
     const quote = await em.findOne(SalesQuote, { id: parsed.id, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    const shouldRecalculateTotals =
+      parsed.shippingMethodId !== undefined ||
+      parsed.shippingMethodSnapshot !== undefined ||
+      parsed.shippingMethodCode !== undefined ||
+      parsed.paymentMethodId !== undefined ||
+      parsed.paymentMethodSnapshot !== undefined ||
+      parsed.paymentMethodCode !== undefined ||
+      parsed.currencyCode !== undefined
     await applyDocumentUpdate({ kind: 'quote', entity: quote, input: parsed, em })
+    if (shouldRecalculateTotals) {
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesQuoteLine, { quote }, { orderBy: { lineNumber: 'asc' } }),
+        em.find(SalesQuoteAdjustment, { quote }, { orderBy: { position: 'asc' } }),
+      ])
+      const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot)
+      const calcLines = lineSnapshots.map((line, index) =>
+        createLineSnapshotFromInput(
+          {
+            ...line,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            quoteId: quote.id,
+            lineNumber: line.lineNumber ?? index + 1,
+            statusEntryId: (line as any).statusEntryId ?? null,
+            catalogSnapshot: (line as any).catalogSnapshot ?? null,
+            promotionSnapshot: (line as any).promotionSnapshot ?? null,
+          },
+          line.lineNumber ?? index + 1
+        )
+      )
+      const adjustmentDrafts = adjustments.map(mapQuoteAdjustmentToDraft)
+      const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+      const calculationContext = buildCalculationContext({
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        currencyCode: quote.currencyCode,
+        shippingSnapshot: quote.shippingMethodSnapshot,
+        paymentSnapshot: quote.paymentMethodSnapshot,
+        shippingMethodId: quote.shippingMethodId ?? null,
+        paymentMethodId: quote.paymentMethodId ?? null,
+        shippingMethodCode: quote.shippingMethodCode ?? null,
+        paymentMethodCode: quote.paymentMethodCode ?? null,
+      })
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: 'quote',
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+      })
+      const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        quoteId: quote.id,
+        scope: adj.scope ?? 'order',
+        kind: adj.kind ?? 'custom',
+        code: adj.code ?? undefined,
+        label: adj.label ?? undefined,
+        calculatorKey: adj.calculatorKey ?? undefined,
+        promotionId: adj.promotionId ?? undefined,
+        rate: adj.rate ?? undefined,
+        amountNet: adj.amountNet ?? undefined,
+        amountGross: adj.amountGross ?? undefined,
+        currencyCode: adj.currencyCode ?? quote.currencyCode,
+        metadata: adj.metadata ?? undefined,
+        position: adj.position ?? index,
+      }))
+      await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs)
+      applyQuoteTotals(quote, calculation.totals, calculation.lines.length)
+      let eventBus: EventBus | null = null
+      try {
+        eventBus = ctx.container.resolve('eventBus') as EventBus
+      } catch {
+        eventBus = null
+      }
+      await emitTotalsCalculated(eventBus, {
+        documentKind: 'quote',
+        documentId: quote.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        customerId: quote.customerEntityId ?? null,
+        totals: calculation.totals,
+        lineCount: calculation.lines.length,
+      })
+    }
     quote.updatedAt = new Date()
     await em.flush()
     const resourceKind = deriveResourceFromCommandId(updateQuoteCommand.id) ?? 'sales.quote'
@@ -2559,7 +2720,90 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
     const order = await em.findOne(SalesOrder, { id: parsed.id, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    const shouldRecalculateTotals =
+      parsed.shippingMethodId !== undefined ||
+      parsed.shippingMethodSnapshot !== undefined ||
+      parsed.shippingMethodCode !== undefined ||
+      parsed.paymentMethodId !== undefined ||
+      parsed.paymentMethodSnapshot !== undefined ||
+      parsed.paymentMethodCode !== undefined ||
+      parsed.currencyCode !== undefined
     await applyDocumentUpdate({ kind: 'order', entity: order, input: parsed, em })
+    if (shouldRecalculateTotals) {
+      const [existingLines, adjustments] = await Promise.all([
+        em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: 'asc' } }),
+        em.find(SalesOrderAdjustment, { order }, { orderBy: { position: 'asc' } }),
+      ])
+      const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot)
+      const calcLines = lineSnapshots.map((line, index) =>
+        createLineSnapshotFromInput(
+          {
+            ...line,
+            organizationId: order.organizationId,
+            tenantId: order.tenantId,
+            orderId: order.id,
+            lineNumber: line.lineNumber ?? index + 1,
+            statusEntryId: (line as any).statusEntryId ?? null,
+            catalogSnapshot: (line as any).catalogSnapshot ?? null,
+            promotionSnapshot: (line as any).promotionSnapshot ?? null,
+          },
+          line.lineNumber ?? index + 1
+        )
+      )
+      const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft)
+      const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
+      const calculationContext = buildCalculationContext({
+        tenantId: order.tenantId,
+        organizationId: order.organizationId,
+        currencyCode: order.currencyCode,
+        shippingSnapshot: order.shippingMethodSnapshot,
+        paymentSnapshot: order.paymentMethodSnapshot,
+        shippingMethodId: order.shippingMethodId ?? null,
+        paymentMethodId: order.paymentMethodId ?? null,
+        shippingMethodCode: order.shippingMethodCode ?? null,
+        paymentMethodCode: order.paymentMethodCode ?? null,
+      })
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: 'order',
+        lines: calcLines,
+        adjustments: adjustmentDrafts,
+        context: calculationContext,
+      })
+      const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        orderId: order.id,
+        scope: adj.scope ?? 'order',
+        kind: adj.kind ?? 'custom',
+        code: adj.code ?? undefined,
+        label: adj.label ?? undefined,
+        calculatorKey: adj.calculatorKey ?? undefined,
+        promotionId: adj.promotionId ?? undefined,
+        rate: adj.rate ?? undefined,
+        amountNet: adj.amountNet ?? undefined,
+        amountGross: adj.amountGross ?? undefined,
+        currencyCode: adj.currencyCode ?? order.currencyCode,
+        metadata: adj.metadata ?? undefined,
+        position: adj.position ?? index,
+      }))
+      await replaceOrderAdjustments(em, order, calculation, adjustmentInputs)
+      applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      let eventBus: EventBus | null = null
+      try {
+        eventBus = ctx.container.resolve('eventBus') as EventBus
+      } catch {
+        eventBus = null
+      }
+      await emitTotalsCalculated(eventBus, {
+        documentKind: 'order',
+        documentId: order.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        customerId: order.customerEntityId ?? null,
+        totals: calculation.totals,
+        lineCount: calculation.lines.length,
+      })
+    }
     order.updatedAt = new Date()
     await em.flush()
     const resourceKind = deriveResourceFromCommandId(updateOrderCommand.id) ?? 'sales.order'
@@ -3633,6 +3877,10 @@ const orderAdjustmentUpsertCommand: CommandHandler<
                 amountGross: parsed.amountGross ?? adj.amountGross ?? null,
                 currencyCode: parsed.currencyCode ?? adj.currencyCode ?? order.currencyCode,
                 metadata,
+                customFields:
+                  parsed.customFields !== undefined
+                    ? parsed.customFields
+                    : (adj as any).customFields ?? null,
                 position: parsed.position ?? adj.position ?? adjustmentDrafts.length,
               }
             : adj
@@ -3652,6 +3900,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
             amountGross: parsed.amountGross ?? null,
             currencyCode: parsed.currencyCode ?? order.currencyCode,
             metadata,
+            customFields: parsed.customFields ?? null,
             position: parsed.position ?? adjustmentDrafts.length,
           },
         ]
@@ -3706,6 +3955,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       amountGross: adj.amountGross ?? undefined,
       currencyCode: adj.currencyCode ?? order.currencyCode,
       metadata: adj.metadata ?? undefined,
+      customFields: (adj as any).customFields ?? undefined,
       position: adj.position ?? index,
     }))
     await replaceOrderAdjustments(em, order, calculation, adjustmentInputs)
@@ -3952,6 +4202,10 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
                 amountGross: parsed.amountGross ?? adj.amountGross ?? null,
                 currencyCode: parsed.currencyCode ?? adj.currencyCode ?? quote.currencyCode,
                 metadata,
+                customFields:
+                  parsed.customFields !== undefined
+                    ? parsed.customFields
+                    : (adj as any).customFields ?? null,
                 position: parsed.position ?? adj.position ?? adjustmentDrafts.length,
               }
             : adj
@@ -3971,6 +4225,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
             amountGross: parsed.amountGross ?? null,
             currencyCode: parsed.currencyCode ?? quote.currencyCode,
             metadata,
+            customFields: parsed.customFields ?? null,
             position: parsed.position ?? adjustmentDrafts.length,
           },
         ]
@@ -4025,6 +4280,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
       amountGross: adj.amountGross ?? undefined,
       currencyCode: adj.currencyCode ?? quote.currencyCode,
       metadata: adj.metadata ?? undefined,
+      customFields: (adj as any).customFields ?? undefined,
       position: adj.position ?? index,
     }))
     await replaceQuoteAdjustments(em, quote, calculation, adjustmentInputs)

@@ -102,29 +102,6 @@ export function SalesDocumentAdjustmentsSection({
       }, {}),
     [kindOptions]
   )
-  const kindSelectLabels = React.useMemo(
-    () => ({
-      placeholder: t('sales.documents.adjustments.kindSelect.placeholder', 'Select adjustment kind…'),
-      addLabel: t('sales.config.adjustmentKinds.actions.add', 'Add adjustment kind'),
-      addPrompt: t('sales.config.adjustmentKinds.dialog.createDescription', 'Define a reusable adjustment kind shown in document adjustment dialogs.'),
-      dialogTitle: t('sales.config.adjustmentKinds.dialog.createTitle', 'Create adjustment kind'),
-      valueLabel: t('sales.config.adjustmentKinds.form.codeLabel', 'Code'),
-      valuePlaceholder: t('sales.config.adjustmentKinds.form.codePlaceholder', 'e.g. discount'),
-      labelLabel: t('sales.config.adjustmentKinds.form.labelLabel', 'Label'),
-      labelPlaceholder: t('sales.config.adjustmentKinds.form.labelPlaceholder', 'e.g. Discount'),
-      emptyError: t('sales.config.adjustmentKinds.errors.required', 'Code is required.'),
-      cancelLabel: t('ui.actions.cancel', 'Cancel'),
-      saveLabel: t('ui.actions.save', 'Save'),
-      saveShortcutHint: t('ui.actions.saveShortcut', 'Cmd/Ctrl + Enter'),
-      successCreateLabel: t('sales.config.adjustmentKinds.messages.created', 'Adjustment kind created.'),
-      errorLoad: t('sales.config.adjustmentKinds.errors.load', 'Failed to load adjustment kinds.'),
-      errorSave: t('sales.config.adjustmentKinds.errors.save', 'Failed to save adjustment kind.'),
-      loadingLabel: t('sales.config.adjustmentKinds.loading', 'Loading adjustment kinds…'),
-      manageTitle: t('sales.config.adjustmentKinds.title', 'Adjustment kinds'),
-    }),
-    [t]
-  )
-
   const loadKindOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '100' })
@@ -239,8 +216,9 @@ export function SalesDocumentAdjustmentsSection({
           }
         })
         .filter((entry): entry is AdjustmentRow => Boolean(entry))
-      setRows(mapped)
-      if (onRowsChange) onRowsChange(mapped)
+      const ordered = [...mapped].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      setRows(ordered)
+      if (onRowsChange) onRowsChange(ordered)
     } catch (err) {
       console.error('sales.document.adjustments.load', err)
       setError(t('sales.documents.adjustments.errorLoad', 'Failed to load adjustments.'))
@@ -262,45 +240,19 @@ export function SalesDocumentAdjustmentsSection({
     [kindOptionMap, t]
   )
 
-  const resolveDefaultKind = React.useCallback((): SalesAdjustmentKind => {
-    if (kindOptions.length) return kindOptions[0]?.value as SalesAdjustmentKind
-    if (fallbackKindOptions.length) return fallbackKindOptions[0]?.value as SalesAdjustmentKind
-    return 'custom'
-  }, [fallbackKindOptions, kindOptions])
-
-  const resetForm = React.useCallback(() => {
-    setInitialValues(defaultFormState(currencyCode, resolveDefaultKind()))
-    setFormResetKey((prev) => prev + 1)
-    setEditingId(null)
-  }, [currencyCode, resolveDefaultKind])
-
   const handleOpenCreate = React.useCallback(() => {
-    resetForm()
+    setActiveAdjustment(null)
     setDialogOpen(true)
-  }, [resetForm])
+  }, [])
 
-  const handleEdit = React.useCallback(
-    (row: AdjustmentRow) => {
-      setEditingId(row.id)
-      setFormResetKey((prev) => prev + 1)
-      setInitialValues({
-        label: row.label ?? '',
-        code: row.code ?? '',
-        kind: row.kind,
-        calculatorKey: row.calculatorKey ?? '',
-        rate: row.rate ?? '',
-        amountNet: row.amountNet ?? '',
-        amountGross: row.amountGross ?? '',
-        currencyCode: row.currencyCode ?? currencyCode ?? null,
-        position: row.position ?? '',
-      })
-      setDialogOpen(true)
-    },
-    [currencyCode]
-  )
+  const handleEdit = React.useCallback((row: AdjustmentRow) => {
+    setActiveAdjustment(row)
+    setDialogOpen(true)
+  }, [])
 
   const handleCloseDialog = React.useCallback(() => {
     setDialogOpen(false)
+    setActiveAdjustment(null)
   }, [])
 
   React.useEffect(() => {
@@ -318,22 +270,7 @@ export function SalesDocumentAdjustmentsSection({
   }, [handleOpenCreate, onActionChange, rows.length, t])
 
   const handleFormSubmit = React.useCallback(
-    async (values: Record<string, unknown>) => {
-      const resolvedCurrency = (values.currencyCode as string | null | undefined) ?? currencyCode ?? null
-      const amountNet = normalizeNumber(values.amountNet, NaN)
-      const amountGross = normalizeNumber(values.amountGross, NaN)
-      if (!resolvedCurrency || resolvedCurrency.trim().length !== 3) {
-        throw createCrudFormError(
-          t('sales.documents.adjustments.errorCurrency', 'Currency is required.'),
-          { currencyCode: t('sales.documents.adjustments.errorCurrency', 'Currency is required.') }
-        )
-      }
-      if (!Number.isFinite(amountNet) && !Number.isFinite(amountGross)) {
-        throw createCrudFormError(
-          t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.'),
-          { amountNet: t('sales.documents.adjustments.errorAmount', 'Provide at least one amount.') }
-        )
-      }
+    async (values: AdjustmentSubmitPayload) => {
       if (!resolvedOrganizationId || !resolvedTenantId) {
         throw createCrudFormError(
           t('sales.documents.adjustments.errorScope', 'Organization and tenant are required.')
@@ -344,33 +281,24 @@ export function SalesDocumentAdjustmentsSection({
         organizationId: resolvedOrganizationId,
         tenantId: resolvedTenantId,
         scope: 'order',
-        kind:
-          typeof values.kind === 'string' && values.kind.trim().length
-            ? (values.kind as SalesAdjustmentKind)
-            : 'custom',
-        code:
-          typeof values.code === 'string' && values.code.trim().length ? values.code.trim() : undefined,
-        label:
-          typeof values.label === 'string' && values.label.trim().length ? values.label.trim() : undefined,
-        calculatorKey:
-          typeof values.calculatorKey === 'string' && values.calculatorKey.trim().length
-            ? values.calculatorKey.trim()
-            : undefined,
-        rate: Number.isFinite(normalizeNumber(values.rate, NaN)) ? normalizeNumber(values.rate, NaN) : undefined,
-        amountNet: Number.isFinite(amountNet) ? amountNet : undefined,
-        amountGross: Number.isFinite(amountGross) ? amountGross : undefined,
-        currencyCode: resolvedCurrency.toUpperCase(),
-        position: Number.isFinite(normalizeNumber(values.position, NaN))
-          ? normalizeNumber(values.position, NaN)
-          : undefined,
+        kind: values.kind ?? 'custom',
+        code: values.code ?? undefined,
+        label: values.label ?? undefined,
+        calculatorKey: values.calculatorKey ?? undefined,
+        rate: Number.isFinite(values.rate) ? values.rate : undefined,
+        amountNet: Number.isFinite(values.amountNet) ? values.amountNet : undefined,
+        amountGross: Number.isFinite(values.amountGross) ? values.amountGross : undefined,
+        currencyCode: (values.currencyCode ?? currencyCode ?? '').toUpperCase(),
+        position: Number.isFinite(values.position) ? values.position : undefined,
+        customFields: values.customFields ?? undefined,
       }
 
-      const action = editingId ? updateCrud : createCrud
+      const action = values.id ? updateCrud : createCrud
       const result = await action(
         crudResourcePath,
-        editingId ? { id: editingId, ...payload } : payload,
+        values.id ? { id: values.id, ...payload } : payload,
         {
-          successMessage: editingId
+          successMessage: values.id
             ? t('sales.documents.adjustments.updated', 'Adjustment updated.')
             : t('sales.documents.adjustments.created', 'Adjustment added.'),
           errorMessage: t('sales.documents.adjustments.errorSave', 'Failed to save adjustment.'),
@@ -379,13 +307,13 @@ export function SalesDocumentAdjustmentsSection({
       if (result.ok) {
         await loadAdjustments()
         setDialogOpen(false)
+        setActiveAdjustment(null)
       }
     },
     [
       currencyCode,
       documentId,
       documentKey,
-      editingId,
       loadAdjustments,
       crudResourcePath,
       resolvedOrganizationId,
@@ -509,112 +437,28 @@ export function SalesDocumentAdjustmentsSection({
         />
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleCloseDialog(); }}>
-        <DialogContent
-          className="w-[calc(100%-1.5rem)] max-h-[90vh] overflow-y-auto sm:max-w-lg"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              handleCloseDialog()
-              return
-            }
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault()
-              const form = dialogContentRef.current?.querySelector('form')
-              form?.requestSubmit()
-            }
-          }}
-          ref={dialogContentRef}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {editingId
-                ? t('sales.documents.adjustments.editTitle', 'Edit adjustment')
-                : t('sales.documents.adjustments.addTitle', 'Add adjustment')}
-            </DialogTitle>
-          </DialogHeader>
-          <CrudForm
-            key={formResetKey}
-            embedded
-            fields={[
-              {
-                id: 'label',
-                label: t('sales.documents.adjustments.label', 'Label'),
-                type: 'text',
-                placeholder: t('sales.documents.adjustments.labelPlaceholder', 'e.g. Shipping fee'),
-              },
-              {
-                id: 'code',
-                label: t('sales.documents.adjustments.code', 'Code'),
-                type: 'text',
-                placeholder: t('sales.documents.adjustments.codePlaceholder', 'PROMO10'),
-              },
-              {
-                id: 'kind',
-                label: t('sales.documents.adjustments.kindLabel', 'Kind'),
-                type: 'custom',
-                component: ({ value, setValue }) => (
-                  <DictionaryEntrySelect
-                    value={typeof value === 'string' ? value : undefined}
-                    onChange={(next) => setValue(next ?? 'custom')}
-                    fetchOptions={loadKindOptions}
-                    labels={kindSelectLabels}
-                    allowInlineCreate={false}
-                    manageHref="/backend/config/sales#adjustment-kinds"
-                    selectClassName="w-full"
-                    showLabelInput={false}
-                  />
-                ),
-              },
-              {
-                id: 'calculatorKey',
-                label: t('sales.documents.adjustments.calculatorKey', 'Calculator key'),
-                type: 'text',
-                placeholder: 'optional',
-              },
-              {
-                id: 'rate',
-                label: t('sales.documents.adjustments.rate', 'Rate'),
-                type: 'number',
-                placeholder: '0.00',
-              },
-              {
-                id: 'position',
-                label: t('sales.documents.adjustments.position', 'Position'),
-                type: 'number',
-                placeholder: '0',
-              },
-              {
-                id: 'amountNet',
-                label: t('sales.documents.adjustments.amountNet', 'Net amount'),
-                type: 'number',
-                placeholder: '0.00',
-              },
-              {
-                id: 'amountGross',
-                label: t('sales.documents.adjustments.amountGross', 'Gross amount'),
-                type: 'number',
-                placeholder: '0.00',
-              },
-              {
-                id: 'currencyCode',
-                label: t('sales.documents.adjustments.currency', 'Currency'),
-                type: 'text',
-                placeholder: t('sales.documents.adjustments.currencyPlaceholder', 'e.g. USD'),
-                transform: (val) => (typeof val === 'string' ? val.toUpperCase() : val),
-              },
-            ]}
-            initialValues={initialValues}
-            submitLabel={
-              editingId
-                ? t('sales.documents.adjustments.updated', 'Adjustment updated.')
-                : t('sales.documents.adjustments.created', 'Adjustment added.')
-            }
-            onSubmit={handleFormSubmit}
-            loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
-          />
-        </DialogContent>
-      </Dialog>
+      <AdjustmentDialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            handleCloseDialog()
+          } else {
+            setDialogOpen(true)
+          }
+        }}
+        kind={kind}
+        currencyCode={currencyCode ?? null}
+        kindOptions={kindOptions.length ? kindOptions : fallbackKindOptions}
+        loadKindOptions={loadKindOptions}
+        labels={{
+          addTitle: t('sales.documents.adjustments.addTitle', 'Add adjustment'),
+          editTitle: t('sales.documents.adjustments.editTitle', 'Edit adjustment'),
+          submitCreate: t('sales.documents.adjustments.submitCreate', 'Add adjustment'),
+          submitUpdate: t('sales.documents.adjustments.submitUpdate', 'Save changes'),
+        }}
+        initialAdjustment={activeAdjustment}
+        onSubmit={handleFormSubmit}
+      />
     </div>
   )
 }

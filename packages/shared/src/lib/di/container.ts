@@ -36,3 +36,4 @@ export async function createRequestContainer(): Promise<AppContainer> {
   } catch {}
   return container
 }
+import 'server-only'

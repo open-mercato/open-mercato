@@ -3,73 +3,17 @@
 import * as React from 'react'
 import { Plus, Pencil, Trash2, Truck } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { createCrudFormError, mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { cn } from '@open-mercato/shared/lib/utils'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
-import { Switch } from '@open-mercato/ui/primitives/switch'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
-
-const RequiredMark = () => <span className="ml-1 text-destructive">*</span>
-
-type ShipmentItem = {
-  id: string
-  orderLineId: string
-  orderLineName: string | null
-  orderLineNumber: number | null
-  quantity: number
-  metadata: Record<string, unknown> | null
-}
-
-type ShipmentRow = {
-  id: string
-  shipmentNumber: string | null
-  shippingMethodId: string | null
-  shippingMethodCode: string | null
-  status: string | null
-  statusEntryId: string | null
-  carrierName: string | null
-  trackingNumbers: string[]
-  shippedAt: string | null
-  deliveredAt: string | null
-  notes: string | null
-  metadata: Record<string, unknown> | null
-  items: ShipmentItem[]
-  createdAt: string | null
-}
-
-type OrderLine = {
-  id: string
-  title: string
-  lineNumber: number | null
-  quantity: number
-}
-
-type ShipmentFormValues = {
-  shipmentNumber: string
-  shippingMethodId: string | null
-  carrierName: string
-  trackingNumbers: string
-  shippedAt: string
-  deliveredAt: string
-  notes: string
-  postComment: boolean
-  items: Record<string, string>
-  shippingMethodLabel?: string
-}
+import { ShipmentDialog } from './ShipmentDialog'
+import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
@@ -81,28 +25,6 @@ type SalesShipmentsSectionProps = {
   onAddComment?: (body: string) => Promise<void>
 }
 
-const defaultFormState = (lines: OrderLine[]): ShipmentFormValues => ({
-  shipmentNumber: '',
-  shippingMethodId: null,
-  carrierName: '',
-  trackingNumbers: '',
-  shippedAt: '',
-  deliveredAt: '',
-  notes: '',
-  postComment: true,
-  items: lines.reduce<Record<string, string>>((acc, line) => {
-    acc[line.id] = ''
-    return acc
-  }, {}),
-  shippingMethodLabel: '',
-})
-
-const parseTrackingNumbers = (value: string): string[] =>
-  value
-    .split(/[\n,]/g)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-
 function formatDisplayDate(value: string | null | undefined): string | null {
   if (!value) return null
   const date = new Date(value)
@@ -112,6 +34,7 @@ function formatDisplayDate(value: string | null | undefined): string | null {
 
 export function SalesShipmentsSection({
   orderId,
+  currencyCode,
   shippingAddressSnapshot,
   onActionChange,
   onAddComment,
@@ -120,20 +43,9 @@ export function SalesShipmentsSection({
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const [shipments, setShipments] = React.useState<ShipmentRow[]>([])
   const [lines, setLines] = React.useState<OrderLine[]>([])
-  const [shippingMethodOptions, setShippingMethodOptions] = React.useState<Array<LookupSelectItem & { option: { id: string; name: string; code: string | null } }>>([])
-  const [shippingMethodLoading, setShippingMethodLoading] = React.useState(false)
-  const [shippingMethodOption, setShippingMethodOption] = React.useState<{ id: string; name: string; code: string | null } | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [editingId, setEditingId] = React.useState<string | null>(null)
-  const [initialValues, setInitialValues] = React.useState<ShipmentFormValues>(() => defaultFormState([]))
-  const [form, setForm] = React.useState<ShipmentFormValues>(() => defaultFormState([]))
-  const [formErrors, setFormErrors] = React.useState<Record<string, string | undefined>>({})
-  const [submitError, setSubmitError] = React.useState<string | null>(null)
-  const [saving, setSaving] = React.useState(false)
-  const [formResetKey, setFormResetKey] = React.useState(0)
-  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
+  const [dialogState, setDialogState] = React.useState<{ mode: 'create' | 'edit'; shipment: ShipmentRow | null } | null>(null)
 
   const lineMap = React.useMemo(() => new Map(lines.map((line) => [line.id, line])), [lines])
 
@@ -262,6 +174,12 @@ export function SalesShipmentsSection({
             Array.isArray((item as any).tracking_numbers) && (item as any).tracking_numbers.length
               ? ((item as any).tracking_numbers as string[])
               : []
+          const rawCustomValues =
+            (item as any).customValues && typeof (item as any).customValues === 'object'
+              ? ((item as any).customValues as Record<string, unknown>)
+              : (item as any).custom_values && typeof (item as any).custom_values === 'object'
+                ? ((item as any).custom_values as Record<string, unknown>)
+                : null
           return {
             id,
             shipmentNumber:
@@ -320,6 +238,7 @@ export function SalesShipmentsSection({
                   ? (item as any).notesText
                   : null,
             metadata: (item as Record<string, unknown> | null | undefined)?.metadata ?? null,
+            customValues: rawCustomValues && Object.keys(rawCustomValues).length ? rawCustomValues : null,
             items: shipmentItems,
             createdAt:
               typeof (item as any).created_at === 'string'
@@ -339,73 +258,14 @@ export function SalesShipmentsSection({
     }
   }, [orderId, t])
 
-  const loadShippingMethods = React.useCallback(
-    async (search?: string): Promise<LookupSelectItem[]> => {
-      setShippingMethodLoading(true)
-      try {
-        const params = new URLSearchParams({ page: '1', pageSize: '25' })
-        if (search && search.trim().length) params.set('search', search.trim())
-        const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-          `/api/sales/shipping-methods?${params.toString()}`,
-          undefined,
-          { fallback: { items: [] } }
-        )
-        const items = Array.isArray(response.result?.items) ? response.result?.items : []
-        const options = items
-          .map((item) => {
-            const id = typeof item.id === 'string' ? item.id : null
-            if (!id) return null
-            const name = typeof item.name === 'string' ? item.name : id
-            const code = typeof (item as any).code === 'string' ? (item as any).code : null
-            return {
-              id,
-              title: name,
-              subtitle: code ?? undefined,
-              option: { id, name, code },
-            } as LookupSelectItem & { option: { id: string; name: string; code: string | null } }
-          })
-          .filter((entry): entry is LookupSelectItem & { option: { id: string; name: string; code: string | null } } => Boolean(entry))
-        setShippingMethodOptions(options)
-        return options
-      } catch (err) {
-        console.error('sales.shipments.shipping-methods.load', err)
-        return []
-      } finally {
-        setShippingMethodLoading(false)
-      }
-    },
-    []
-  )
-
   React.useEffect(() => {
     void loadLines()
     void loadShipments()
-    void loadShippingMethods()
-  }, [loadLines, loadShipments, loadShippingMethods])
-
-  React.useEffect(() => {
-    const next = defaultFormState(lines)
-    setInitialValues(next)
-    setForm(next)
-    setFormErrors({})
-    setSubmitError(null)
-  }, [lines])
-
-  const resetForm = React.useCallback(() => {
-    const next = defaultFormState(lines)
-    setInitialValues(next)
-    setForm(next)
-    setFormResetKey((prev) => prev + 1)
-    setEditingId(null)
-    setShippingMethodOption(null)
-    setFormErrors({})
-    setSubmitError(null)
-  }, [lines])
+  }, [loadLines, loadShipments])
 
   const handleOpenCreate = React.useCallback(() => {
-    resetForm()
-    setDialogOpen(true)
-  }, [resetForm])
+    setDialogState({ mode: 'create', shipment: null })
+  }, [])
 
   React.useEffect(() => {
     if (!onActionChange) return
@@ -421,178 +281,9 @@ export function SalesShipmentsSection({
     return () => onActionChange(null)
   }, [handleOpenCreate, onActionChange, shipments.length, t])
 
-  const handleEdit = React.useCallback(
-    (shipment: ShipmentRow) => {
-      const nextForm = defaultFormState(lines)
-      nextForm.shipmentNumber = shipment.shipmentNumber ?? ''
-      nextForm.carrierName = shipment.carrierName ?? ''
-      nextForm.trackingNumbers = shipment.trackingNumbers.join('\n')
-      nextForm.shippedAt = shipment.shippedAt ? shipment.shippedAt.slice(0, 10) : ''
-      nextForm.deliveredAt = shipment.deliveredAt ? shipment.deliveredAt.slice(0, 10) : ''
-      nextForm.notes = shipment.notes ?? ''
-      nextForm.shippingMethodId = shipment.shippingMethodId ?? null
-      setShippingMethodOption(
-        shipment.shippingMethodId
-          ? {
-              id: shipment.shippingMethodId,
-              name: shipment.shippingMethodCode ?? shipment.shippingMethodId,
-              code: shipment.shippingMethodCode ?? null,
-            }
-          : null
-      )
-      nextForm.items = lines.reduce<Record<string, string>>((acc, line) => {
-        const found = shipment.items.find((item) => item.orderLineId === line.id)
-        acc[line.id] = found ? found.quantity.toString() : ''
-        return acc
-      }, {})
-      setForm(nextForm)
-      setEditingId(shipment.id)
-      setInitialValues(nextForm)
-      setFormResetKey((prev) => prev + 1)
-      setDialogOpen(true)
-    },
-    [lines]
-  )
-
-  const closeDialog = React.useCallback(() => {
-    setDialogOpen(false)
-    resetForm()
-  }, [resetForm])
-
-  const normalizeItems = React.useCallback(
-    (excludeShipmentId?: string | null) => {
-      setFormErrors({})
-      const entries = Object.entries(form.items)
-        .map(([lineId, value]) => ({ lineId, quantity: Number(value) }))
-        .filter((entry) => Number.isFinite(entry.quantity) && entry.quantity > 0)
-      if (!entries.length) {
-        setSubmitError(t('sales.documents.shipments.errorItems', 'Ship at least one line item.'))
-        throw new Error('validation_failed')
-      }
-        const errors: Record<string, string> = {}
-      if (!form.shippingMethodId) {
-        errors.shippingMethodId = t('sales.documents.shipments.errorShippingMethod', 'Select a shipping method.')
-      }
-      entries.forEach((entry) => {
-        const available = computeAvailable(entry.lineId, excludeShipmentId)
-        if (entry.quantity > available + 1e-6) {
-          errors[entry.lineId] = t('sales.documents.shipments.errorQuantity', 'Quantity exceeds remaining available.')
-        }
-      })
-      if (Object.keys(errors).length) {
-        setFormErrors(errors)
-        throw new Error('validation_failed')
-      }
-      return entries
-    },
-    [computeAvailable, form.items, t]
-  )
-
-  const handleSubmit = React.useCallback(
-    async (event?: React.FormEvent) => {
-      event?.preventDefault()
-      if (saving) return
-      setSaving(true)
-      setSubmitError(null)
-      try {
-        const items = normalizeItems(editingId)
-        const payload: Record<string, unknown> = {
-          orderId,
-          organizationId,
-          tenantId,
-          shipmentNumber: form.shipmentNumber?.trim() || undefined,
-          shippingMethodId: form.shippingMethodId ?? undefined,
-          carrierName: form.carrierName?.trim() || undefined,
-          trackingNumbers: parseTrackingNumbers(form.trackingNumbers ?? ''),
-          shippedAt: form.shippedAt ? new Date(form.shippedAt) : undefined,
-          deliveredAt: form.deliveredAt ? new Date(form.deliveredAt) : undefined,
-          notes: form.notes?.trim() || undefined,
-          items: items.map((item) => ({
-            orderLineId: item.lineId,
-            quantity: item.quantity,
-          })),
-        }
-        if (shippingAddressSnapshot) {
-          payload.shipmentAddressSnapshot = shippingAddressSnapshot
-        }
-        const action = editingId ? updateCrud : createCrud
-        const result = await action(
-          'sales/shipments',
-          editingId ? { id: editingId, ...payload } : payload,
-          {
-            errorMessage: t('sales.documents.shipments.errorSave', 'Failed to save shipment.'),
-          }
-        )
-        if (result.ok) {
-          await loadShipments()
-          if (form.postComment && onAddComment) {
-            const summary = items
-              .map((item) => {
-                const line = lineMap.get(item.lineId)
-                return `${item.quantity}× ${line?.title ?? item.lineId}`
-              })
-              .join(', ')
-            const label =
-              form.shipmentNumber?.trim().length
-                ? `#${form.shipmentNumber.trim()}`
-                : editingId
-                  ? `#${editingId.slice(0, 6)}`
-                  : ''
-            const note = t(
-              'sales.documents.shipments.comment',
-              'Shipment {{number}} updated: {{summary}}',
-              { number: label || String((result.result as any)?.id ?? ''), summary }
-            )
-            try {
-              await onAddComment(note)
-            } catch (err) {
-              console.warn('sales.shipments.comment', err)
-            }
-          }
-          closeDialog()
-        }
-      } catch (err) {
-        if (err instanceof Error && err.message === 'validation_failed') {
-          setSubmitError(t('sales.documents.shipments.errorQuantity', 'Quantity exceeds remaining available.'))
-        } else {
-          console.error('sales.shipments.save', err)
-          const mapped = mapCrudServerErrorToFormErrors(err)
-          if (mapped.fieldErrors) {
-            setFormErrors((prev) => ({ ...prev, ...mapped.fieldErrors }))
-          }
-          setSubmitError(
-            mapped.message ??
-              t('sales.documents.shipments.errorSave', 'Failed to save shipment.')
-          )
-        }
-      } finally {
-        setSaving(false)
-      }
-    },
-    [
-      closeDialog,
-      computeAvailable,
-      editingId,
-      form.carrierName,
-      form.deliveredAt,
-      form.items,
-      form.notes,
-      form.postComment,
-      form.shipmentNumber,
-      form.shippedAt,
-      form.trackingNumbers,
-      lineMap,
-      loadShipments,
-      normalizeItems,
-      onAddComment,
-      orderId,
-      organizationId,
-      saving,
-      shippingAddressSnapshot,
-      t,
-      tenantId,
-    ]
-  )
+  const handleEdit = React.useCallback((shipment: ShipmentRow) => {
+    setDialogState({ mode: 'edit', shipment })
+  }, [])
 
   const handleDelete = React.useCallback(
     async (shipment: ShipmentRow) => {
@@ -755,231 +446,24 @@ export function SalesShipmentsSection({
         </div>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => (!open ? closeDialog() : undefined)}>
-        <DialogContent
-          className="max-w-2xl"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              closeDialog()
-            }
-            if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault()
-              void handleSubmit()
-            }
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-              event.preventDefault()
-              void handleSubmit()
-            }
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {editingId
-                ? t('sales.documents.shipments.editTitle', 'Edit shipment')
-                : t('sales.documents.shipments.addTitle', 'Add shipment')}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="shipment-number">
-                    {t('sales.documents.shipments.number', 'Shipment number')}
-                    <RequiredMark />
-                  </Label>
-                  <Input
-                    id="shipment-number"
-                    value={form.shipmentNumber}
-                    onChange={(event) => setForm((prev) => ({ ...prev, shipmentNumber: event.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="shipment-carrier">
-                    {t('sales.documents.shipments.carrier', 'Carrier')}
-                  </Label>
-                  <Input
-                    id="shipment-carrier"
-                    value={form.carrierName}
-                    onChange={(event) => setForm((prev) => ({ ...prev, carrierName: event.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="shipment-method">
-                    {t('sales.documents.shipments.shippingMethod', 'Shipping method')}
-                    <RequiredMark />
-                  </Label>
-                  <LookupSelect
-                    value={form.shippingMethodId}
-                    placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
-                    fetchOptions={loadShippingMethods}
-                    options={shippingMethodOptions}
-                    loading={shippingMethodLoading}
-                    onChange={(next) => {
-                      const option = shippingMethodOptions.find((entry) => entry.id === next)?.option ?? null
-                      setForm((prev) => ({
-                        ...prev,
-                        shippingMethodId: option?.id ?? null,
-                        shippingMethodLabel: option?.name ?? '',
-                      }))
-                      setShippingMethodOption(option)
-                      setFormErrors((prev) => ({ ...prev, shippingMethodId: undefined }))
-                    }}
-                    defaultOpen
-                  />
-                  {formErrors.shippingMethodId ? (
-                    <p className="text-xs text-destructive">{formErrors.shippingMethodId}</p>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="rounded-lg border p-3 space-y-3">
-                <p className="text-sm font-medium">{t('sales.documents.shipments.trackingGroup', 'Tracking information')}</p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="shipment-shipped">
-                      {t('sales.documents.shipments.shippedAt', 'Shipped date')}
-                    </Label>
-                    <Input
-                      id="shipment-shipped"
-                      type="date"
-                      value={form.shippedAt}
-                      onChange={(event) => setForm((prev) => ({ ...prev, shippedAt: event.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="shipment-delivered">
-                      {t('sales.documents.shipments.deliveredAt', 'Delivered date')}
-                    </Label>
-                    <Input
-                      id="shipment-delivered"
-                      type="date"
-                      value={form.deliveredAt}
-                      onChange={(event) => setForm((prev) => ({ ...prev, deliveredAt: event.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="shipment-tracking">
-                    {t('sales.documents.shipments.trackingNumbers', 'Tracking numbers')}
-                  </Label>
-                  <Textarea
-                    id="shipment-tracking"
-                    rows={2}
-                    placeholder={t('sales.documents.shipments.trackingPlaceholder', 'One per line or comma separated')}
-                    value={form.trackingNumbers}
-                    onChange={(event) => setForm((prev) => ({ ...prev, trackingNumbers: event.target.value }))}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="shipment-notes">
-                  {t('sales.documents.shipments.notes', 'Notes')}
-                </Label>
-                <Textarea
-                  id="shipment-notes"
-                  rows={3}
-                  value={form.notes}
-                  onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm font-medium">
-                {t('sales.documents.shipments.items', 'Items to ship')}
-                <RequiredMark />
-              </p>
-              {lines.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  {t('sales.documents.shipments.noLines', 'No order lines available.')}
-                </p>
-              ) : (
-                <div className="space-y-2 rounded-lg border p-3">
-                  {lines.map((line) => {
-                    const available = computeAvailable(line.id, editingId)
-                    const value = form.items[line.id] ?? ''
-                    const errorMessage = formErrors[line.id]
-                    const disabled = available <= 0 && !value
-                    return (
-                      <div
-                        key={line.id}
-                        className={cn(
-                          'grid gap-2 md:grid-cols-[1fr,140px]',
-                          disabled ? 'opacity-60' : null
-                        )}
-                      >
-                        <div>
-                          <p className="text-sm font-medium">
-                            {line.lineNumber ? `#${line.lineNumber} · ` : null}
-                            {line.title}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {t('sales.documents.shipments.available', '{{count}} available', {
-                              count: available,
-                            })}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={value}
-                            disabled={disabled}
-                            onChange={(event) => {
-                              const next = event.target.value
-                              setForm((prev) => ({
-                                ...prev,
-                                items: { ...prev.items, [line.id]: next },
-                              }))
-                              setFormErrors((prev) => ({ ...prev, [line.id]: undefined }))
-                            }}
-                          />
-                          {errorMessage ? (
-                            <p className="text-xs text-destructive">{errorMessage}</p>
-                          ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Switch
-                id="shipment-comment"
-                checked={form.postComment}
-                onCheckedChange={(checked) =>
-                  setForm((prev) => ({ ...prev, postComment: Boolean(checked) }))
-                }
-              />
-              <Label htmlFor="shipment-comment" className="cursor-pointer">
-                {t('sales.documents.shipments.addComment', 'Add note to comments')}
-              </Label>
-            </div>
-
-            {submitError ? <ErrorMessage label={submitError} /> : null}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={closeDialog}>
-              {t('sales.documents.shipments.cancel', 'Cancel')}
-            </Button>
-            <Button
-              onClick={(event) => void handleSubmit(event)}
-              disabled={saving || lines.length === 0}
-              title={t('sales.documents.shipments.saveShortcut', 'Save (⌘/Ctrl+S)')}
-            >
-              {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {editingId
-                ? t('sales.documents.shipments.save', 'Save changes')
-                : t('sales.documents.shipments.create', 'Create shipment')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShipmentDialog
+        open={dialogState !== null}
+        mode={dialogState?.mode ?? 'create'}
+        shipment={dialogState?.shipment ?? null}
+        lines={lines}
+        orderId={orderId}
+        currencyCode={currencyCode}
+        organizationId={organizationId}
+        tenantId={tenantId}
+        computeAvailable={computeAvailable}
+        shippingAddressSnapshot={shippingAddressSnapshot}
+        onClose={() => setDialogState(null)}
+        onSaved={async () => {
+          await loadShipments()
+          setDialogState(null)
+        }}
+        onAddComment={onAddComment}
+      />
     </div>
   )
 }

@@ -345,6 +345,7 @@ export const orderAdjustmentCreateSchema = scoped.extend({
   amountGross: decimal().optional(),
   currencyCode: currencyCode.optional(),
   metadata,
+  customFields: z.record(z.string(), z.unknown()).optional(),
   position: z.coerce.number().int().min(0).optional(),
 })
 
@@ -368,6 +369,7 @@ export const quoteAdjustmentCreateSchema = scoped.extend({
   amountGross: decimal().optional(),
   currencyCode: currencyCode.optional(),
   metadata,
+  customFields: z.record(z.string(), z.unknown()).optional(),
   position: z.coerce.number().int().min(0).optional(),
 })
 

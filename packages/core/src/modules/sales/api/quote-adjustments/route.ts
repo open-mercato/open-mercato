@@ -8,6 +8,7 @@ import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkRespons
 import { withScopedPayload } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_quote_adjustment'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -71,10 +72,31 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
       position: F.position,
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.quoteId) filters.quote_id = { $eq: query.quoteId }
+      try {
+        const em = ctx.container.resolve('em')
+        const cfFilters = await buildCustomFieldFiltersFromQuery({
+          entityId: E.sales.sales_quote_adjustment,
+          query,
+          em,
+          tenantId: ctx.auth?.tenantId ?? null,
+        })
+        Object.assign(filters, cfFilters)
+      } catch {
+        // ignore custom field filters when unavailable
+      }
       return filters
+    },
+    transformItem: (item: any) => {
+      if (!item) return item
+      const normalized = { ...item }
+      const cfEntries = extractAllCustomFieldEntries(item)
+      for (const key of Object.keys(normalized)) {
+        if (key.startsWith('cf:')) delete normalized[key]
+      }
+      return { ...normalized, ...cfEntries }
     },
   },
   actions: {

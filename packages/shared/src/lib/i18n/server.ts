@@ -44,3 +44,4 @@ export async function resolveTranslations() {
   const translate = createFallbackTranslator(dict)
   return { locale, dict, t, translate }
 }
+import 'server-only'
