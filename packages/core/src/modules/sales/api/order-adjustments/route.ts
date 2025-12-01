@@ -126,7 +126,16 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = deleteSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = deleteSchema.parse(
+          withScopedPayload(
+            {
+              ...((raw as any)?.body ?? {}),
+              ...((raw as any)?.query ?? {}),
+            },
+            ctx,
+            translate
+          )
+        )
         if (!payload.id || !payload.orderId) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
         }

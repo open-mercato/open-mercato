@@ -20,6 +20,7 @@ import {
   SalesOrder,
   SalesOrderLine,
   SalesOrderAdjustment,
+  SalesShipmentItem,
   SalesChannel,
   SalesShippingMethod,
   SalesDeliveryWindow,
@@ -3412,16 +3413,29 @@ const orderLineDeleteCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(input, ctx) {
+    const { translate } = await resolveTranslations()
     const parsed = orderLineDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
-    if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
+    if (!order) throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    const shipmentCount = await em.count(SalesShipmentItem, {
+      orderLine: parsed.id,
+      shipment: { deletedAt: null },
+    })
+    if (shipmentCount > 0) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          'sales.documents.items.errorDeleteShipped',
+          'Cannot delete a line that has shipped items.'
+        ),
+      })
+    }
     const existingLines = await em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: 'asc' } })
     const adjustments = await em.find(SalesOrderAdjustment, { order }, { orderBy: { position: 'asc' } })
     const filtered = existingLines.filter((line) => line.id !== parsed.id)
     if (filtered.length === existingLines.length) {
-      throw new CrudHttpError(404, { error: 'Order line not found' })
+      throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),

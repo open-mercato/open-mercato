@@ -3,8 +3,10 @@
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Pencil, Trash2 } from 'lucide-react'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { useT } from '@/lib/i18n/context'
@@ -179,10 +181,33 @@ export function SalesDocumentItemsSection({
     setDialogOpen(true)
   }, [])
 
+  const resolveVariantInfo = React.useCallback((record: SalesLineRecord) => {
+    const meta = (record.metadata as Record<string, unknown> | null | undefined) ?? null
+    const snapshot = (record.catalogSnapshot as Record<string, unknown> | null | undefined) ?? null
+    const variantSnapshot =
+      snapshot && typeof (snapshot as any).variant === 'object' && (snapshot as any).variant
+        ? ((snapshot as any).variant as Record<string, unknown>)
+        : null
+    const variantTitle =
+      meta && typeof (meta as any).variantTitle === 'string'
+        ? (meta as any).variantTitle
+        : variantSnapshot && typeof (variantSnapshot as any).name === 'string'
+          ? (variantSnapshot as any).name
+          : null
+    const variantSku =
+      meta && typeof (meta as any).variantSku === 'string'
+        ? (meta as any).variantSku
+        : variantSnapshot && typeof (variantSnapshot as any).sku === 'string'
+          ? (variantSnapshot as any).sku
+          : null
+
+    return { variantTitle, variantSku }
+  }, [])
+
   const handleDelete = React.useCallback(
     async (line: SalesLineRecord) => {
       try {
-        await deleteCrud(resourcePath, {
+        const result = await deleteCrud(resourcePath, {
           body: {
             id: line.id,
             [documentKey]: documentId,
@@ -191,10 +216,16 @@ export function SalesDocumentItemsSection({
           },
           errorMessage: t('sales.documents.items.errorDelete', 'Failed to delete line.'),
         })
-        await loadItems()
-        emitSalesDocumentTotalsRefresh({ documentId, kind })
+        if (result.ok) {
+          flash(t('sales.documents.items.deleted', 'Line removed.'), 'success')
+          await loadItems()
+          emitSalesDocumentTotalsRefresh({ documentId, kind })
+        }
       } catch (err) {
         console.error('sales.document.items.delete', err)
+        const normalized = normalizeCrudServerError(err)
+        const fallback = t('sales.documents.items.errorDelete', 'Failed to delete line.')
+        flash(normalized.message || fallback, 'error')
       }
     },
     [documentId, documentKey, kind, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
@@ -258,79 +289,94 @@ export function SalesDocumentItemsSection({
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
-                <tr
-                  key={item.id}
-                  className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
-                  onClick={() => handleEdit(item)}
-                >
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-3">
-                      {renderImage(item)}
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{item.name ?? t('sales.documents.items.untitled', 'Untitled')}</div>
-                        {item.metadata && typeof (item.metadata as any).productSku === 'string' ? (
-                          <div className="text-xs text-muted-foreground">{(item.metadata as any).productSku}</div>
-                        ) : null}
+              {items.map((item) => {
+                const meta = (item.metadata as Record<string, unknown> | null | undefined) ?? null
+                const { variantTitle, variantSku } = resolveVariantInfo(item)
+                const productSku = meta && typeof (meta as any).productSku === 'string' ? (meta as any).productSku : null
+                const variantLabel = variantTitle ?? variantSku
+                const variantSuffix = variantSku && variantLabel && variantSku !== variantLabel ? ` • ${variantSku}` : ''
+                const showProductSku = productSku && productSku !== variantSku ? productSku : null
+
+                return (
+                  <tr
+                    key={item.id}
+                    className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
+                    onClick={() => handleEdit(item)}
+                  >
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        {renderImage(item)}
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{item.name ?? t('sales.documents.items.untitled', 'Untitled')}</div>
+                          {variantLabel ? (
+                            <div className="text-xs text-muted-foreground truncate">
+                              {variantLabel}
+                              {variantSuffix}
+                            </div>
+                          ) : null}
+                          {showProductSku ? (
+                            <div className="text-xs text-muted-foreground truncate">{showProductSku}</div>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3">{item.quantity}</td>
-                  <td className="px-3 py-3">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-mono text-sm">
-                        {formatMoney(item.unitPriceGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
-                        <span className="text-xs text-muted-foreground">
-                          {t('sales.documents.items.table.gross', 'gross')}
+                    </td>
+                    <td className="px-3 py-3">{item.quantity}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-mono text-sm">
+                          {formatMoney(item.unitPriceGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
+                          <span className="text-xs text-muted-foreground">
+                            {t('sales.documents.items.table.gross', 'gross')}
+                          </span>
                         </span>
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {formatMoney(item.unitPriceNet, item.currencyCode ?? currencyCode ?? undefined)}{' '}
-                        {t('sales.documents.items.table.net', 'net')}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 font-semibold">
-                    <div className="flex flex-col gap-0.5">
-                      <span>
-                        {formatMoney(item.totalGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
-                        <span className="text-xs font-normal text-muted-foreground">
-                          {t('sales.documents.items.table.gross', 'gross')}
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {formatMoney(item.unitPriceNet, item.currencyCode ?? currencyCode ?? undefined)}{' '}
+                          {t('sales.documents.items.table.net', 'net')}
                         </span>
-                      </span>
-                      <span className="text-xs font-medium text-muted-foreground">
-                        {formatMoney(item.totalNet, item.currencyCode ?? currencyCode ?? undefined)} {t('sales.documents.items.table.net', 'net')}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex items-center gap-2 justify-end">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleEdit(item)
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 text-destructive"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void handleDelete(item)
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 font-semibold">
+                      <div className="flex flex-col gap-0.5">
+                        <span>
+                          {formatMoney(item.totalGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {t('sales.documents.items.table.gross', 'gross')}
+                          </span>
+                        </span>
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {formatMoney(item.totalNet, item.currencyCode ?? currencyCode ?? undefined)} {t('sales.documents.items.table.net', 'net')}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-2 justify-end">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            handleEdit(item)
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void handleDelete(item)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

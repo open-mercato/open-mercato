@@ -3079,6 +3079,7 @@ export default function SalesDocumentDetailPage({
         if (savedId && savedSnapshot) {
           ensureShippingMethodOption(savedId, savedSnapshot)
         }
+        void refreshDocumentTotals()
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
         const message =
@@ -3092,6 +3093,7 @@ export default function SalesDocumentDetailPage({
     [
       ensureShippingMethodOption,
       record,
+      refreshDocumentTotals,
       shippingMethodOptions,
       shippingMethodOptionsRef,
       t,
@@ -3134,6 +3136,7 @@ export default function SalesDocumentDetailPage({
         if (savedId && savedSnapshot) {
           ensurePaymentMethodOption(savedId, savedSnapshot)
         }
+        void refreshDocumentTotals()
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
         const message =
@@ -3149,6 +3152,7 @@ export default function SalesDocumentDetailPage({
       paymentMethodOptions,
       paymentMethodOptionsRef,
       record,
+      refreshDocumentTotals,
       t,
       updateDocument,
     ]

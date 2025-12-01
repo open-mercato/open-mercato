@@ -131,7 +131,11 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = deleteSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const merged = {
+          ...(raw?.body ?? {}),
+          ...(raw?.query ?? {}),
+        }
+        const payload = deleteSchema.parse(withScopedPayload(merged, ctx, translate))
         if (!payload.id || !payload.orderId) {
           throw new CrudHttpError(400, {
             error: translate('sales.shipments.not_found', 'Shipment not found'),

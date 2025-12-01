@@ -1,13 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { Truck } from 'lucide-react'
+import { MapPin, Truck } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -21,6 +20,7 @@ import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales
 import { useT } from '@/lib/i18n/context'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
+import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 
 type ShippingMethodOption = {
   id: string
@@ -48,6 +48,16 @@ type ShipmentDialogProps = {
   onSaved: () => Promise<void>
   onAddComment?: (body: string) => Promise<void>
 }
+
+type ShipmentAddressOption = {
+  id: string
+  label: string
+  summary: string
+  snapshot: Record<string, unknown>
+}
+
+const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
+const ADDRESS_FORMAT: AddressFormatStrategy = 'line_first'
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.filter((entry) => entry !== undefined)
@@ -79,6 +89,125 @@ const normalizePrice = (value: unknown): number | null => {
 
 const roundAmount = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
 
+const readStringField = (input: Record<string, unknown>, keys: string[]): string | null => {
+  for (const key of keys) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim().length) return value.trim()
+  }
+  return null
+}
+
+const normalizeAddressSnapshot = (
+  input?: Record<string, unknown> | null,
+): Record<string, unknown> | null => {
+  if (!input || typeof input !== 'object') return null
+  const normalized: Record<string, unknown> = {}
+  const assignString = (target: string, ...sourceKeys: string[]) => {
+    const value = readStringField(input as Record<string, unknown>, sourceKeys)
+    if (value) normalized[target] = value
+  }
+  const assignOther = (target: string, value: unknown) => {
+    if (typeof value === 'boolean') {
+      normalized[target] = value
+    } else if (typeof value === 'number' && Number.isFinite(value)) {
+      normalized[target] = value
+    }
+  }
+
+  const id =
+    readStringField(input as Record<string, unknown>, ['customerAddressId', 'customer_address_id']) ??
+    readStringField(input as Record<string, unknown>, ['id'])
+  if (id) normalized.id = id
+  const documentAddressId = readStringField(input as Record<string, unknown>, ['documentAddressId', 'document_address_id'])
+  if (documentAddressId && documentAddressId !== id) normalized.documentAddressId = documentAddressId
+
+  assignString('name', 'name')
+  assignString('purpose', 'purpose')
+  assignString('companyName', 'companyName', 'company_name')
+  assignString('addressLine1', 'addressLine1', 'address_line1')
+  assignString('addressLine2', 'addressLine2', 'address_line2')
+  assignString('buildingNumber', 'buildingNumber', 'building_number')
+  assignString('flatNumber', 'flatNumber', 'flat_number')
+  assignString('city', 'city')
+  assignString('region', 'region')
+  assignString('postalCode', 'postalCode', 'postal_code')
+  assignString('country', 'country')
+  assignOther('latitude', (input as any).latitude ?? null)
+  assignOther('longitude', (input as any).longitude ?? null)
+  assignOther('isPrimary', (input as any).isPrimary ?? (input as any).is_primary ?? false)
+
+  return Object.keys(normalized).length ? normalized : null
+}
+
+const mapSnapshotToAddressValue = (snapshot: Record<string, unknown>): AddressValue => ({
+  addressLine1: readStringField(snapshot, ['addressLine1']),
+  addressLine2: readStringField(snapshot, ['addressLine2']),
+  buildingNumber: readStringField(snapshot, ['buildingNumber']),
+  flatNumber: readStringField(snapshot, ['flatNumber']),
+  city: readStringField(snapshot, ['city']),
+  region: readStringField(snapshot, ['region']),
+  postalCode: readStringField(snapshot, ['postalCode']),
+  country: readStringField(snapshot, ['country']),
+  companyName: readStringField(snapshot, ['companyName']),
+})
+
+const snapshotKey = (snapshot?: Record<string, unknown> | null): string | null => {
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const normalized: Record<string, unknown> = {}
+  Object.keys(snapshot)
+    .sort()
+    .forEach((key) => {
+      normalized[key] = snapshot[key]
+  })
+  return JSON.stringify(normalized)
+}
+
+const fallbackAddressId = (id?: string): string => id ?? 'address'
+
+const buildAddressOption = (
+  snapshot?: Record<string, unknown> | null,
+  opts?: { id?: string; label?: string },
+): ShipmentAddressOption | null => {
+  const normalized = normalizeAddressSnapshot(snapshot)
+  if (!normalized) return null
+  const value = mapSnapshotToAddressValue(normalized)
+  const summary = formatAddressString(value, ADDRESS_FORMAT)
+  const label =
+    (opts?.label ?? normalized.name ?? normalized.purpose ?? summary ?? normalized.companyName) ??
+    fallbackAddressId(opts?.id)
+  const id =
+    opts?.id ??
+    (typeof normalized.documentAddressId === 'string' && normalized.documentAddressId) ||
+      (typeof normalized.id === 'string' && normalized.id) ||
+      fallbackAddressId(opts?.id)
+  return {
+    id,
+    label: label || id,
+    summary: summary || label || id,
+    snapshot: normalized,
+  }
+}
+
+const dedupeAddressOptions = (options: ShipmentAddressOption[]): ShipmentAddressOption[] => {
+  const seen = new Set<string>()
+  return options.reduce<ShipmentAddressOption[]>((acc, option) => {
+    const key = snapshotKey(option.snapshot) ?? option.id
+    if (seen.has(key)) return acc
+    seen.add(key)
+    acc.push(option)
+    return acc
+  }, [])
+}
+
+const extractShipmentAddressSnapshot = (
+  metadata?: Record<string, unknown> | null,
+): Record<string, unknown> | null => {
+  if (!metadata || typeof metadata !== 'object') return null
+  const raw = (metadata as any)[ADDRESS_SNAPSHOT_KEY]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  return normalizeAddressSnapshot(raw as Record<string, unknown>)
+}
+
 export function ShipmentDialog({
   open,
   mode,
@@ -98,6 +227,9 @@ export function ShipmentDialog({
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [shippingMethods, setShippingMethods] = React.useState<ShippingMethodOption[]>([])
   const [shippingMethodLoading, setShippingMethodLoading] = React.useState(false)
+  const [addressOptions, setAddressOptions] = React.useState<ShipmentAddressOption[]>([])
+  const [addressLoading, setAddressLoading] = React.useState(false)
+  const [addressError, setAddressError] = React.useState<string | null>(null)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const itemErrorSetterRef = React.useRef<((errors: Record<string, string>) => void) | null>(null)
 
@@ -110,11 +242,21 @@ export function ShipmentDialog({
     [lines],
   )
 
+  const shipmentAddressSnapshot = React.useMemo(
+    () => extractShipmentAddressSnapshot(shipment?.metadata),
+    [shipment?.metadata],
+  )
+
   const initialValues = React.useMemo(
     () => ({
       shipmentNumber: shipment?.shipmentNumber ?? '',
       carrierName: shipment?.carrierName ?? '',
       shippingMethodId: shipment?.shippingMethodId ?? '',
+      shipmentAddressId: shipmentAddressSnapshot
+        ? 'shipment-address'
+        : shippingAddressSnapshot
+          ? 'shipping-address'
+          : '',
       shippedAt: shipment?.shippedAt ? shipment.shippedAt.slice(0, 10) : '',
       deliveredAt: shipment?.deliveredAt ? shipment.deliveredAt.slice(0, 10) : '',
       trackingNumbers: shipment?.trackingNumbers?.join('\n') ?? '',
@@ -128,8 +270,42 @@ export function ShipmentDialog({
       }, baseItems),
       ...prefixCustomFieldValues(shipment?.customValues ?? null),
     }),
-    [baseItems, lines, mode, shipment?.carrierName, shipment?.customValues, shipment?.deliveredAt, shipment?.items, shipment?.notes, shipment?.shipmentNumber, shipment?.shippedAt, shipment?.shippingMethodId, shipment?.trackingNumbers],
+    [baseItems, lines, mode, shipment?.carrierName, shipment?.customValues, shipment?.deliveredAt, shipment?.items, shipment?.metadata, shipment?.notes, shipment?.shipmentNumber, shipment?.shippedAt, shipment?.shippingMethodId, shipment?.trackingNumbers, shippingAddressSnapshot, shipmentAddressSnapshot],
   )
+
+  const shippingAddressOption = React.useMemo(
+    () =>
+      buildAddressOption(shippingAddressSnapshot ?? null, {
+        id: 'shipping-address',
+        label: t('sales.documents.shipments.shippingAddressLabel', 'Shipping address'),
+      }),
+    [shippingAddressSnapshot, t],
+  )
+
+  const shipmentAddressOption = React.useMemo(
+    () =>
+      buildAddressOption(shipmentAddressSnapshot ?? null, {
+        id: 'shipment-address',
+        label: t('sales.documents.shipments.shipmentAddressLabel', 'Shipment address'),
+      }),
+    [shipmentAddressSnapshot, t],
+  )
+
+  const baseAddressOptions = React.useMemo(
+    () =>
+      dedupeAddressOptions(
+        [shippingAddressOption, shipmentAddressOption].filter(
+          (entry): entry is ShipmentAddressOption => Boolean(entry),
+        ),
+      ),
+    [shipmentAddressOption, shippingAddressOption],
+  )
+
+  const addressOptionsMap = React.useMemo(() => {
+    const map = new Map<string, ShipmentAddressOption>()
+    addressOptions.forEach((option) => map.set(option.id, option))
+    return map
+  }, [addressOptions])
 
   const registerItemErrors = React.useCallback((updater: (errors: Record<string, string>) => void) => {
     itemErrorSetterRef.current = updater
@@ -149,6 +325,75 @@ export function ShipmentDialog({
     },
     [],
   )
+
+  const mapDocumentAddressOption = React.useCallback(
+    (item: Record<string, unknown>): ShipmentAddressOption | null => {
+      const snapshot = normalizeAddressSnapshot({
+        documentAddressId: readStringField(item, ['id']),
+        customerAddressId: readStringField(item, ['customer_address_id', 'customerAddressId']),
+        name: readStringField(item, ['name']),
+        purpose: readStringField(item, ['purpose']),
+        companyName: readStringField(item, ['company_name', 'companyName']),
+        addressLine1: readStringField(item, ['address_line1', 'addressLine1']),
+        addressLine2: readStringField(item, ['address_line2', 'addressLine2']),
+        buildingNumber: readStringField(item, ['building_number', 'buildingNumber']),
+        flatNumber: readStringField(item, ['flat_number', 'flatNumber']),
+        city: readStringField(item, ['city']),
+        region: readStringField(item, ['region']),
+        postalCode: readStringField(item, ['postal_code', 'postalCode']),
+        country: readStringField(item, ['country']),
+      })
+      if (!snapshot) return null
+      const label =
+        snapshot.name ??
+        snapshot.purpose ??
+        t('sales.documents.shipments.addressFallback', 'Document address')
+      const id =
+        readStringField(item, ['id']) ??
+        readStringField(item, ['customer_address_id', 'customerAddressId']) ??
+        undefined
+      return buildAddressOption(snapshot, { id, label })
+    },
+    [t],
+  )
+
+  const mergeAddressOptions = React.useCallback(
+    (options: ShipmentAddressOption[]) =>
+      setAddressOptions((prev) => dedupeAddressOptions([...prev, ...options])),
+    [],
+  )
+
+  const loadAddressOptions = React.useCallback(async () => {
+    setAddressLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: '1',
+        pageSize: '100',
+        documentId: orderId,
+        documentKind: 'order',
+      })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/document-addresses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((item) => mapDocumentAddressOption(item))
+        .filter((entry): entry is ShipmentAddressOption => Boolean(entry))
+      mergeAddressOptions(mapped)
+      setAddressError(null)
+      return mapped
+    } catch (err) {
+      console.error('sales.shipments.addresses.load', err)
+      setAddressError(
+        t('sales.documents.shipments.addressLoadError', 'Failed to load addresses.'),
+      )
+      return []
+    } finally {
+      setAddressLoading(false)
+    }
+  }, [mapDocumentAddressOption, mergeAddressOptions, orderId, t])
 
   const buildPriceSubtitle = React.useCallback(
     (option: ShippingMethodOption): string | undefined => {
@@ -276,7 +521,19 @@ export function ShipmentDialog({
     if (!shippingMethods.length) {
       void loadShippingMethods()
     }
-  }, [loadShippingMethods, open, shippingMethods.length])
+    setAddressOptions(baseAddressOptions)
+    setAddressError(null)
+    if (!addressOptions.length) {
+      void loadAddressOptions()
+    }
+  }, [
+    addressOptions.length,
+    baseAddressOptions,
+    loadAddressOptions,
+    loadShippingMethods,
+    open,
+    shippingMethods.length,
+  ])
 
   React.useEffect(() => {
     if (shipment?.shippingMethodId) {
@@ -290,6 +547,39 @@ export function ShipmentDialog({
       )
     }
   }, [currencyCode, ensureShippingMethodOption, mapShippingMethod, shipment?.shippingMethodCode, shipment?.shippingMethodId])
+
+  React.useEffect(() => {
+    if (!open) return
+    mergeAddressOptions(baseAddressOptions)
+  }, [baseAddressOptions, mergeAddressOptions, open])
+
+  const fetchAddressItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      if (!addressOptions.length && !addressLoading) {
+        await loadAddressOptions()
+      }
+      const needle = query?.trim().toLowerCase() ?? ''
+      return addressOptions
+        .filter((option) => {
+          if (!needle) return true
+          return (
+            option.label.toLowerCase().includes(needle) ||
+            option.summary.toLowerCase().includes(needle)
+          )
+        })
+        .map((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.summary,
+          icon: (
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+              <MapPin className="h-4 w-4" />
+            </div>
+          ),
+        }))
+    },
+    [addressLoading, addressOptions, loadAddressOptions],
+  )
 
   const validateItems = React.useCallback(
     (itemsValue: unknown) => {
@@ -344,6 +634,22 @@ export function ShipmentDialog({
         )
       }
       const items = validateItems(values.items)
+      const shipmentAddressId =
+        typeof values.shipmentAddressId === 'string' ? values.shipmentAddressId : ''
+      const addressOption = shipmentAddressId
+        ? addressOptionsMap.get(shipmentAddressId) ?? null
+        : null
+      const fallbackAddress = addressOptions.length === 1 ? addressOptions[0] : null
+      const addressSnapshot = addressOption?.snapshot ?? fallbackAddress?.snapshot ?? null
+      if (!addressSnapshot) {
+        const message = addressOptions.length
+          ? t('sales.documents.shipments.errorAddress', 'Select an address to ship to.')
+          : t(
+              'sales.documents.shipments.addressMissing',
+              'Add an address to this document before creating a shipment.',
+            )
+        throw createCrudFormError(message, { shipmentAddressId: message })
+      }
       const payload: Record<string, unknown> = {
         orderId,
         organizationId: organizationId ?? undefined,
@@ -374,9 +680,7 @@ export function ShipmentDialog({
           quantity: item.quantity,
         })),
       }
-      if (shippingAddressSnapshot) {
-        payload.shipmentAddressSnapshot = shippingAddressSnapshot
-      }
+      payload.shipmentAddressSnapshot = addressSnapshot
       const customFields = collectCustomFieldValues(values, { transform: normalizeCustomFieldSubmitValue })
       if (Object.keys(customFields).length) {
         payload.customFields = customFields
@@ -526,7 +830,8 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
-      shippingAddressSnapshot,
+      addressOptions,
+      addressOptionsMap,
       shippingMethods,
       t,
       tenantId,
@@ -678,6 +983,45 @@ export function ShipmentDialog({
         },
       },
       {
+        id: 'shipmentAddressId',
+        label: t('sales.documents.shipments.address', 'Ship to'),
+        type: 'custom',
+        required: true,
+        component: ({ value, setValue }) => {
+          const currentValue = typeof value === 'string' ? value : ''
+          React.useEffect(() => {
+            if (!currentValue && addressOptions.length) {
+              setValue(addressOptions[0].id)
+            }
+          }, [addressOptions, currentValue, setValue])
+          const disabled = addressLoading || !addressOptions.length
+          return (
+            <div className="space-y-2">
+              <LookupSelect
+                value={currentValue || null}
+                onChange={(next) => setValue(next ?? '')}
+                fetchItems={fetchAddressItems}
+                placeholder={t('sales.documents.shipments.addressPlaceholder', 'Select address')}
+                searchPlaceholder={t('sales.documents.shipments.addressSearch', 'Search address')}
+                minQuery={0}
+                disabled={disabled}
+                loading={addressLoading}
+                defaultOpen
+              />
+              {!addressLoading && !addressOptions.length ? (
+                <p className="text-xs text-destructive">
+                  {t(
+                    'sales.documents.shipments.addressMissing',
+                    'Add an address to this document before creating a shipment.',
+                  )}
+                </p>
+              ) : null}
+              {addressError ? <p className="text-xs text-destructive">{addressError}</p> : null}
+            </div>
+          )
+        },
+      },
+      {
         id: 'shippedAt',
         label: t('sales.documents.shipments.shippedAt', 'Shipped date'),
         type: 'date',
@@ -765,7 +1109,18 @@ export function ShipmentDialog({
         ),
       },
     ]
-  }, [computeAvailable, fetchShippingMethodItems, lines, registerItemErrors, shipment?.id, t])
+  }, [
+    addressError,
+    addressLoading,
+    addressOptions,
+    computeAvailable,
+    fetchAddressItems,
+    fetchShippingMethodItems,
+    lines,
+    registerItemErrors,
+    shipment?.id,
+    t,
+  ])
 
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
@@ -773,7 +1128,7 @@ export function ShipmentDialog({
         id: 'shipmentDetails',
         title: t('sales.documents.shipments.addTitle', 'Add shipment'),
         column: 1,
-        fields: ['shipmentNumber', 'carrierName', 'shippingMethodId'],
+        fields: ['shipmentNumber', 'carrierName', 'shippingMethodId', 'shipmentAddressId'],
       },
       {
         id: 'tracking',
@@ -827,7 +1182,7 @@ export function ShipmentDialog({
           onSubmit={handleSubmit}
           loadingMessage={t('sales.documents.shipments.loading', 'Loading shipments…')}
           customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
-          isLoading={shippingMethodLoading}
+          isLoading={shippingMethodLoading || addressLoading}
         />
       </DialogContent>
     </Dialog>
