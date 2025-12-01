@@ -115,8 +115,8 @@ function buildPriceScopeReason(item: Record<string, unknown>, t: (k: string, f: 
   if (item.customer_id || item.customerId) add(t('sales.documents.items.priceScope.customer', 'Customer'))
   if (item.user_group_id || item.userGroupId) add(t('sales.documents.items.priceScope.userGroup', 'User group'))
   if (item.user_id || item.userId) add(t('sales.documents.items.priceScope.user', 'User'))
-  const minQty = normalizeNumber((item as any).min_quantity, null as any)
-  const maxQty = normalizeNumber((item as any).max_quantity, null as any)
+  const minQty = normalizeNumber((item as any).min_quantity, Number.NaN)
+  const maxQty = normalizeNumber((item as any).max_quantity, Number.NaN)
   if (Number.isFinite(minQty) || Number.isFinite(maxQty)) {
     add(
       t(

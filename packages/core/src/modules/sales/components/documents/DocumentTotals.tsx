@@ -47,7 +47,7 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
   }, [emphasizedRows, items, paidItem])
   const visibleItems = expanded ? items : collapsedItems
   const uniqueItemCount = React.useMemo(() => new Set(items.map((item) => item.key)).size, [items])
-  const hiddenCount = uniqueItemCount - visibleItems.length
+  const hiddenCount = Math.max(0, uniqueItemCount - visibleItems.length)
 
   return (
     <div className={cn('space-y-3', className)}>

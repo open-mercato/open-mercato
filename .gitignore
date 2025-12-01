@@ -51,6 +51,7 @@ next-env.d.ts
 # /**/migrations/*
 # Generated module files
 /src/generated/
+/src/generated/*
 /generated/
 packages/*/generated/
 # package build outputs
@@ -74,5 +75,4 @@ tmp/
 
 public/uploads/*
 storage/attachments/*
-packages/client/src/generated/openapi.types.ts
 packages/client/src/generated/openapi.types.ts

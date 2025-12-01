@@ -358,6 +358,15 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       em.persist(shipmentItem)
     })
     em.persist(shipment)
+    if (input.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_shipment,
+        recordId: shipment.id,
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        values: normalizeCustomFieldsInput(input.customFields),
+      })
+    }
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
@@ -484,6 +493,16 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
           metadata: item.metadata ? cloneJson(item.metadata) : null,
         })
         em.persist(shipmentItem)
+      })
+    }
+
+    if (input.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_shipment,
+        recordId: shipment.id,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+        values: normalizeCustomFieldsInput(input.customFields),
       })
     }
 

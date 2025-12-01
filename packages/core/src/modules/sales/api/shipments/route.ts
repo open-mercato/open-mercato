@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../../data/entities'
 import { shipmentCreateSchema, shipmentUpdateSchema } from '../../data/validators'
@@ -83,6 +84,7 @@ const crud = makeCrudRoute({
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: { entityIds: [E.sales.sales_shipment] },
     sortFieldMap: {
       createdAt: F.created_at,
       updatedAt: F.updated_at,
@@ -100,7 +102,12 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return shipmentCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        return shipmentCreateSchema.parse({
+          ...base,
+          ...(Object.keys(custom).length ? { customFields: custom } : {}),
+        })
       },
       response: ({ result }) => ({ id: result?.shipmentId ?? null }),
       status: 201,
@@ -110,7 +117,12 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return shipmentUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        return shipmentUpdateSchema.parse({
+          ...base,
+          ...(Object.keys(custom).length ? { customFields: custom } : {}),
+        })
       },
       response: () => ({ ok: true }),
     },
@@ -266,10 +278,10 @@ const shipmentSchema = z
     id: z.string().uuid(),
     order_id: z.string().uuid(),
     shipment_number: z.string().nullable().optional(),
-  shipping_method_id: z.string().uuid().nullable().optional(),
-  shipping_method_code: z.string().nullable().optional(),
-  status_entry_id: z.string().uuid().nullable().optional(),
-  status: z.string().nullable().optional(),
+    shipping_method_id: z.string().uuid().nullable().optional(),
+    shipping_method_code: z.string().nullable().optional(),
+    status_entry_id: z.string().uuid().nullable().optional(),
+    status: z.string().nullable().optional(),
     carrier_name: z.string().nullable().optional(),
     tracking_numbers: z.array(z.string()).nullable().optional(),
     shipped_at: z.string().nullable().optional(),
@@ -281,6 +293,10 @@ const shipmentSchema = z
     currency_code: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    custom_values: z.record(z.string(), z.unknown()).nullable().optional(),
+    customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+    custom_fields: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
+    customFields: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
     items: z.array(shipmentItemSchema).optional(),

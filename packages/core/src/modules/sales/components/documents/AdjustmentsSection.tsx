@@ -5,49 +5,23 @@
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import {
-  DictionaryEntrySelect,
-  type DictionaryOption,
-} from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
+import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
+import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload } from './AdjustmentDialog'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 
-type AdjustmentRow = {
-  id: string
-  label: string | null
-  code: string | null
-  kind: SalesAdjustmentKind
-  calculatorKey: string | null
-  rate: number | null
-  amountNet: number | null
-  amountGross: number | null
-  currencyCode: string | null
-  position: number
-}
-
-type AdjustmentFormState = {
-  label: string
-  code: string
-  kind: SalesAdjustmentKind
-  calculatorKey: string
-  rate: string
-  amountNet: string
-  amountGross: string
-  currencyCode: string | null
-  position: string
-}
+type AdjustmentRow = AdjustmentRowData
 
 type SalesDocumentAdjustmentsSectionProps = {
   documentId: string
@@ -56,6 +30,7 @@ type SalesDocumentAdjustmentsSectionProps = {
   organizationId?: string | null
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
+  onRowsChange?: (rows: AdjustmentRow[]) => void
 }
 
 const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
@@ -65,18 +40,6 @@ const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
   'surcharge',
   'custom',
 ]
-
-const defaultFormState = (currencyCode?: string | null, kindValue: SalesAdjustmentKind = 'custom'): AdjustmentFormState => ({
-  label: '',
-  code: '',
-  kind: kindValue,
-  calculatorKey: '',
-  rate: '',
-  amountNet: '',
-  amountGross: '',
-  currencyCode: currencyCode ?? null,
-  position: '',
-})
 
 function normalizeNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -109,11 +72,8 @@ export function SalesDocumentAdjustmentsSection({
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [editingId, setEditingId] = React.useState<string | null>(null)
-  const [formResetKey, setFormResetKey] = React.useState(0)
-  const [initialValues, setInitialValues] = React.useState<AdjustmentFormState>(() => defaultFormState(currencyCode))
+  const [activeAdjustment, setActiveAdjustment] = React.useState<AdjustmentRow | null>(null)
   const [kindOptions, setKindOptions] = React.useState<DictionaryOption[]>([])
-  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
   const apiResourcePath = React.useMemo(
     () => (kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'),
@@ -246,6 +206,13 @@ export function SalesDocumentAdjustmentsSection({
               : typeof (item as any).currencyCode === 'string'
                 ? (item as any).currencyCode
                 : currencyCode ?? null
+          const customFields = extractAllCustomFieldEntries(item as Record<string, unknown>)
+          const customFieldSetId =
+            typeof (item as any).custom_field_set_id === 'string'
+              ? (item as any).custom_field_set_id
+              : typeof (item as any).customFieldSetId === 'string'
+                ? (item as any).customFieldSetId
+                : null
           return {
             id,
             label: typeof item.label === 'string' ? item.label : null,
@@ -267,17 +234,20 @@ export function SalesDocumentAdjustmentsSection({
                 : typeof (item as any).position === 'string'
                   ? Number((item as any).position)
                   : 0,
+            customFields: Object.keys(customFields).length ? customFields : null,
+            customFieldSetId,
           }
         })
         .filter((entry): entry is AdjustmentRow => Boolean(entry))
       setRows(mapped)
+      if (onRowsChange) onRowsChange(mapped)
     } catch (err) {
       console.error('sales.document.adjustments.load', err)
       setError(t('sales.documents.adjustments.errorLoad', 'Failed to load adjustments.'))
     } finally {
       setLoading(false)
     }
-  }, [apiResourcePath, currencyCode, documentId, documentKey, t])
+  }, [apiResourcePath, currencyCode, documentId, documentKey, onRowsChange, t])
 
   React.useEffect(() => {
     void loadAdjustments()

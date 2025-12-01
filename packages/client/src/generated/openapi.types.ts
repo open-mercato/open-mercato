@@ -17488,6 +17488,10 @@ export interface components {
             carrier_name?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCarrierName"];
             created_at: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
             currency_code?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
+            custom_fields?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields"];
+            custom_values?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues"];
+            customFields?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields1"];
+            customValues?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues1"];
             declared_value_gross?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueGross"];
             declared_value_net?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueNet"];
             delivered_at?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeliveredAt"];
@@ -17516,6 +17520,28 @@ export interface components {
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1"];
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0: null;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1: string;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields1: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf01"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf11"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items"][];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf01: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items1: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf11: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items1"][];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues1: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf01"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf11"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf1: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf01: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf11: {
+            [key: string]: unknown;
+        };
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueGross: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueGrossAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueGrossAnyOf1"];
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueGrossAnyOf0: null;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeclaredValueGrossAnyOf1: number;
