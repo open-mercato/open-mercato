@@ -35,6 +35,31 @@ const EXAMPLE_SHIPPING_METHODS: ExampleShippingSeed[] = [
     baseRateNet: '9.90',
     baseRateGross: '9.90',
     currencyCode: 'USD',
+    providerSettings: {
+      applyBaseRate: true,
+      rates: [
+        {
+          id: 'ground-small',
+          name: 'Domestic (0-5kg)',
+          metric: 'weight',
+          min: 0,
+          max: 5,
+          amountNet: 9.9,
+          amountGross: 9.9,
+          currencyCode: 'USD',
+        },
+        {
+          id: 'ground-heavy',
+          name: 'Heavy parcels (5-20kg)',
+          metric: 'weight',
+          min: 5,
+          max: 20,
+          amountNet: 14.9,
+          amountGross: 14.9,
+          currencyCode: 'USD',
+        },
+      ],
+    },
   },
   {
     code: 'express-air',
@@ -47,6 +72,31 @@ const EXAMPLE_SHIPPING_METHODS: ExampleShippingSeed[] = [
     baseRateNet: '19.90',
     baseRateGross: '19.90',
     currencyCode: 'USD',
+    providerSettings: {
+      applyBaseRate: false,
+      rates: [
+        {
+          id: 'express-light',
+          name: 'Express 0-2kg',
+          metric: 'weight',
+          min: 0,
+          max: 2,
+          amountNet: 24.9,
+          amountGross: 24.9,
+          currencyCode: 'USD',
+        },
+        {
+          id: 'express-standard',
+          name: 'Express 2-10kg',
+          metric: 'weight',
+          min: 2,
+          max: 10,
+          amountNet: 39.9,
+          amountGross: 39.9,
+          currencyCode: 'USD',
+        },
+      ],
+    },
   },
 ] as const
 
@@ -69,8 +119,8 @@ const EXAMPLE_PAYMENT_METHODS: ExamplePaymentSeed[] = [
     providerSettings: {
       publishableKey: 'pk_test_example',
       secretKey: 'sk_test_example',
-      applicationFeePercent: 0,
-      applicationFeeFlat: 0,
+      applicationFeePercent: 2.9,
+      applicationFeeFlat: 0.3,
       captureMethod: 'automatic',
     },
   },
@@ -80,12 +130,22 @@ const EXAMPLE_PAYMENT_METHODS: ExamplePaymentSeed[] = [
     description: 'Pay by wire transfer.',
     providerKey: 'wire-transfer',
     terms: 'Due within 7 days of invoice.',
+    providerSettings: {
+      instructions: 'Please wire funds to ACME Corp, IBAN XX00 0000 0000 0000 0000 0000.',
+      accountNumber: 'ACME-IBAN-0001',
+      dueDays: 7,
+    },
   },
   {
     code: 'cod',
     name: 'Cash on Delivery',
     description: 'Pay courier on delivery.',
     providerKey: 'cash-on-delivery',
+    providerSettings: {
+      feeFlat: 4,
+      feePercent: 1.5,
+      maxOrderTotal: 500,
+    },
   },
 ] as const
 

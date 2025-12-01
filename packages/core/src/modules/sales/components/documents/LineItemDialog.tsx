@@ -1,0 +1,870 @@
+"use client"
+
+import * as React from 'react'
+import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { DollarSign } from 'lucide-react'
+import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { useT } from '@/lib/i18n/context'
+import { formatMoney, normalizeNumber } from './lineItemUtils'
+import type { SalesLineRecord } from './lineItemTypes'
+
+type ProductOption = {
+  id: string
+  title: string
+  sku: string | null
+  thumbnailUrl: string | null
+}
+
+type VariantOption = {
+  id: string
+  title: string
+  sku: string | null
+  thumbnailUrl: string | null
+}
+
+type PriceOption = {
+  id: string
+  amountNet: number | null
+  amountGross: number | null
+  currencyCode: string | null
+  displayMode: 'including-tax' | 'excluding-tax' | null
+  taxRate: number | null
+  label: string
+  priceKindId?: string | null
+  priceKindTitle?: string | null
+  priceKindCode?: string | null
+  scopeReason?: string | null
+  scopeTags?: string[]
+}
+
+type LineFormState = {
+  productId: string | null
+  variantId: string | null
+  quantity: string
+  priceId: string | null
+  priceMode: 'net' | 'gross'
+  unitPrice: string
+  taxRate: number | null
+  name: string
+  currencyCode: string | null
+  catalogSnapshot?: Record<string, unknown> | null
+  customFieldSetId?: string | null
+}
+
+type SalesLineDialogProps = {
+  open: boolean
+  kind: 'order' | 'quote'
+  documentId: string
+  currencyCode: string | null | undefined
+  organizationId: string | null
+  tenantId: string | null
+  initialLine?: SalesLineRecord | null
+  onOpenChange: (open: boolean) => void
+  onSaved?: () => Promise<void> | void
+}
+
+const defaultForm = (currencyCode?: string | null): LineFormState => ({
+  productId: null,
+  variantId: null,
+  quantity: '1',
+  priceId: null,
+  priceMode: 'gross',
+  unitPrice: '',
+  taxRate: null,
+  name: '',
+  currencyCode: currencyCode ?? null,
+  catalogSnapshot: null,
+  customFieldSetId: null,
+})
+
+const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.filter((entry) => entry !== undefined)
+  }
+  if (value === undefined) return null
+  return value
+}
+
+function prefixCustomFieldValues(input: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!input || typeof input !== 'object') return {}
+  return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
+    const normalized = key.startsWith('cf_') ? key : `cf_${key}`
+    acc[normalized] = value
+    return acc
+  }, {})
+}
+
+function buildPriceScopeReason(item: Record<string, unknown>, t: (k: string, f: string) => string): {
+  reason: string | null
+  tags: string[]
+} {
+  const tags: string[] = []
+  const add = (key: string) => tags.push(key)
+  if (item.channel_id || item.channelId) add(t('sales.documents.items.priceScope.channel', 'Channel'))
+  if (item.offer_id || item.offerId) add(t('sales.documents.items.priceScope.offer', 'Offer'))
+  if (item.variant_id || item.variantId) add(t('sales.documents.items.priceScope.variant', 'Variant'))
+  if (item.customer_group_id || item.customerGroupId) add(t('sales.documents.items.priceScope.customerGroup', 'Customer group'))
+  if (item.customer_id || item.customerId) add(t('sales.documents.items.priceScope.customer', 'Customer'))
+  if (item.user_group_id || item.userGroupId) add(t('sales.documents.items.priceScope.userGroup', 'User group'))
+  if (item.user_id || item.userId) add(t('sales.documents.items.priceScope.user', 'User'))
+  const minQty = normalizeNumber((item as any).min_quantity, null as any)
+  const maxQty = normalizeNumber((item as any).max_quantity, null as any)
+  if (Number.isFinite(minQty) || Number.isFinite(maxQty)) {
+    add(
+      t(
+        'sales.documents.items.priceScope.quantity',
+        'Quantity',
+      ),
+    )
+  }
+  if ((item as any).starts_at || (item as any).ends_at) {
+    add(t('sales.documents.items.priceScope.schedule', 'Scheduled'))
+  }
+  if (tags.length === 0) return { reason: null, tags }
+  return { reason: tags.join(' • '), tags }
+}
+
+function buildPlaceholder(label?: string | null) {
+  return (
+    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-[10px] uppercase text-muted-foreground">
+      {(label ?? '').slice(0, 2) || '•'}
+    </div>
+  )
+}
+
+export function LineItemDialog({
+  open,
+  kind,
+  documentId,
+  currencyCode,
+  organizationId,
+  tenantId,
+  initialLine,
+  onOpenChange,
+  onSaved,
+}: SalesLineDialogProps) {
+  const t = useT()
+  const [initialValues, setInitialValues] = React.useState<LineFormState>(() => defaultForm(currencyCode))
+  const [productOption, setProductOption] = React.useState<ProductOption | null>(null)
+  const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
+  const [priceOptions, setPriceOptions] = React.useState<PriceOption[]>([])
+  const [priceLoading, setPriceLoading] = React.useState(false)
+  const [formResetKey, setFormResetKey] = React.useState(0)
+  const [editingId, setEditingId] = React.useState<string | null>(null)
+  const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
+  const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
+  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
+
+  const resourcePath = React.useMemo(
+    () => (kind === 'order' ? 'sales/order-lines' : 'sales/quote-lines'),
+    [kind],
+  )
+  const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
+  const customFieldEntityId = kind === 'order' ? E.sales.sales_order_line : E.sales.sales_quote_line
+
+  const resetForm = React.useCallback(
+    (next?: Partial<LineFormState>) => {
+      setInitialValues({ ...defaultForm(currencyCode), ...next })
+      setProductOption(null)
+      setVariantOption(null)
+      setPriceOptions([])
+      setEditingId(null)
+      setFormResetKey((prev) => prev + 1)
+    },
+    [currencyCode],
+  )
+
+  const closeDialog = React.useCallback(() => {
+    onOpenChange(false)
+    resetForm()
+  }, [onOpenChange, resetForm])
+
+  const loadProductOptions = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const params = new URLSearchParams({ pageSize: '8' })
+      if (query && query.trim().length) params.set('search', query.trim())
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/catalog/products?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result?.items ?? [] : []
+      const needle = query?.trim().toLowerCase() ?? ''
+      return items
+        .map((item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          if (!id) return null
+          const title =
+            typeof item.title === 'string'
+              ? item.title
+              : typeof (item as any).name === 'string'
+                ? (item as any).name
+                : id
+          const sku = typeof (item as any).sku === 'string' ? (item as any).sku : null
+          const thumbnail =
+            typeof (item as any).default_media_url === 'string'
+              ? (item as any).default_media_url
+              : typeof (item as any).defaultMediaUrl === 'string'
+                ? (item as any).defaultMediaUrl
+                : null
+          const matches =
+            !needle ||
+            title.toLowerCase().includes(needle) ||
+            (sku ? sku.toLowerCase().includes(needle) : false)
+          if (!matches) return null
+          return {
+            id,
+            title,
+            subtitle: sku ?? undefined,
+            icon: thumbnail
+              ? <img src={thumbnail} alt={title} className="h-8 w-8 rounded object-cover" />
+              : buildPlaceholder(title),
+            option: { id, title, sku, thumbnailUrl: thumbnail } satisfies ProductOption,
+          } as LookupSelectItem & { option: ProductOption }
+        })
+        .filter((entry): entry is LookupSelectItem & { option: ProductOption } => Boolean(entry))
+        .map((entry) => {
+          productOptionsRef.current.set(entry.option.id, entry.option)
+          return entry
+        })
+    },
+    [],
+  )
+
+  const loadVariantOptions = React.useCallback(
+    async (productId: string, fallbackThumbnail?: string | null): Promise<LookupSelectItem[]> => {
+      if (!productId) return []
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/catalog/variants?productId=${encodeURIComponent(productId)}&pageSize=50`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      return items
+        .map((item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          if (!id) return null
+          const title = typeof item.name === 'string' ? item.name : id
+          const sku = typeof (item as any).sku === 'string' ? (item as any).sku : null
+          const thumbnail =
+            typeof (item as any).default_media_url === 'string'
+              ? (item as any).default_media_url
+              : typeof (item as any).thumbnailUrl === 'string'
+                ? (item as any).thumbnailUrl
+                : fallbackThumbnail ?? null
+          return {
+            id,
+            title,
+            subtitle: sku ?? undefined,
+            icon: thumbnail
+              ? <img src={thumbnail} alt={title} className="h-8 w-8 rounded object-cover" />
+              : buildPlaceholder(title),
+            option: { id, title, sku, thumbnailUrl: thumbnail } satisfies VariantOption,
+          } as LookupSelectItem & { option: VariantOption }
+        })
+        .filter((entry): entry is LookupSelectItem & { option: VariantOption } => Boolean(entry))
+        .map((entry) => {
+          variantOptionsRef.current.set(entry.option.id, entry.option)
+          return entry
+        })
+    },
+    [],
+  )
+
+  const loadPrices = React.useCallback(
+    async (productId: string | null, variantId: string | null) => {
+      if (!productId) {
+        setPriceOptions([])
+        return []
+      }
+      setPriceLoading(true)
+      try {
+        const params = new URLSearchParams({ productId, pageSize: '20' })
+        if (variantId) params.set('variantId', variantId)
+        const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/catalog/prices?${params.toString()}`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        const items = Array.isArray(response.result?.items) ? response.result.items : []
+        const mapped: PriceOption[] = items
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            if (!id) return null
+            const amountNet = normalizeNumber((item as any).unit_price_net, null as any)
+            const amountGross = normalizeNumber((item as any).unit_price_gross, null as any)
+            const currency =
+              typeof (item as any).currency_code === 'string'
+                ? (item as any).currency_code
+                : typeof (item as any).currencyCode === 'string'
+                  ? (item as any).currencyCode
+                  : null
+            const displayMode =
+              (item as any).display_mode === 'including-tax' || (item as any).display_mode === 'excluding-tax'
+                ? (item as any).display_mode
+                : (item as any).displayMode === 'including-tax' || (item as any).displayMode === 'excluding-tax'
+                  ? (item as any).displayMode
+                  : null
+            const taxRate = normalizeNumber((item as any).tax_rate, null as any)
+            const priceKindId =
+              typeof (item as any).price_kind_id === 'string'
+                ? (item as any).price_kind_id
+                : typeof (item as any).priceKindId === 'string'
+                  ? (item as any).priceKindId
+                  : null
+            const priceKindTitle =
+              typeof (item as any).price_kind_title === 'string'
+                ? (item as any).price_kind_title
+                : typeof (item as any).priceKindTitle === 'string'
+                  ? (item as any).priceKindTitle
+                  : typeof (item as any).price_kind === 'object' &&
+                      item &&
+                      typeof (item as any).price_kind?.title === 'string'
+                    ? (item as any).price_kind.title
+                    : null
+            const priceKindCode =
+              typeof (item as any).price_kind_code === 'string'
+                ? (item as any).price_kind_code
+                : typeof (item as any).priceKindCode === 'string'
+                  ? (item as any).priceKindCode
+                  : typeof (item as any).price_kind === 'object' &&
+                      item &&
+                      typeof (item as any).price_kind?.code === 'string'
+                    ? (item as any).price_kind.code
+                    : null
+            const labelParts = [
+              displayMode === 'including-tax' && amountGross !== null && currency
+                ? formatMoney(amountGross, currency)
+                : null,
+              displayMode === 'excluding-tax' && amountNet !== null && currency
+                ? formatMoney(amountNet, currency)
+                : null,
+              displayMode
+                ? displayMode === 'including-tax'
+                  ? t('sales.documents.items.priceGross', 'Gross')
+                  : t('sales.documents.items.priceNet', 'Net')
+                : null,
+              priceKindTitle ?? priceKindCode ?? null,
+            ].filter(Boolean)
+            const { reason, tags } = buildPriceScopeReason(item, (key, fallback) => t(key, fallback))
+            const label =
+              labelParts.length > 0
+                ? labelParts.join(' • ')
+                : amountGross !== null && currency
+                  ? formatMoney(amountGross, currency)
+                  : amountNet !== null && currency
+                    ? formatMoney(amountNet, currency)
+                    : id
+            return {
+              id,
+              amountNet: amountNet ?? null,
+              amountGross: amountGross ?? null,
+              currencyCode: currency,
+              displayMode: displayMode as PriceOption['displayMode'],
+              taxRate: Number.isFinite(taxRate) ? taxRate : null,
+              label,
+              priceKindId,
+              priceKindTitle: priceKindTitle ?? null,
+              priceKindCode: priceKindCode ?? null,
+              scopeReason: reason,
+              scopeTags: tags,
+            } as PriceOption
+          })
+          .filter((entry): entry is PriceOption => Boolean(entry))
+        setPriceOptions(mapped)
+        return mapped
+      } catch (err) {
+        console.error('sales.document.items.loadPrices', err)
+        return []
+      } finally {
+        setPriceLoading(false)
+      }
+    },
+    [t],
+  )
+
+  const handleFormSubmit = React.useCallback(
+    async (values: LineFormState & Record<string, unknown>) => {
+      if (!values.productId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorProductRequired', 'Select a product to continue.'),
+          { productId: t('sales.documents.items.errorProductRequired', 'Select a product to continue.') },
+        )
+      }
+      if (!values.variantId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.'),
+          { variantId: t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.') },
+        )
+      }
+      const quantity = Math.max(normalizeNumber(values.quantity, NaN), 0)
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.'),
+          { quantity: t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.') },
+        )
+      }
+      const unitPriceValue = normalizeNumber(values.unitPrice, NaN)
+      if (!Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.'),
+          { unitPrice: t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.') },
+        )
+      }
+      const selectedPrice = values.priceId
+        ? priceOptions.find((price) => price.id === values.priceId) ?? null
+        : null
+      const resolvedCurrency =
+        values.currencyCode ??
+        selectedPrice?.currencyCode ??
+        currencyCode ??
+        priceOptions.find((price) => price.currencyCode)?.currencyCode ??
+        null
+      if (!resolvedCurrency) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorCurrency', 'Currency is required.'),
+          { priceId: t('sales.documents.items.errorCurrency', 'Currency is required.') },
+        )
+      }
+      if (!organizationId || !tenantId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorScope', 'Organization and tenant are required.'),
+        )
+      }
+
+      const resolvedName =
+        (values.name ?? '').trim() || variantOption?.title || productOption?.title || undefined
+      const resolvedPriceMode = values.priceMode === 'net' ? 'net' : 'gross'
+      const catalogSnapshot =
+        typeof values.catalogSnapshot === 'object' && values.catalogSnapshot ? values.catalogSnapshot : null
+      const metadata = {
+        ...(catalogSnapshot ?? {}),
+        ...(values.priceId ? { priceId: values.priceId } : {}),
+        ...(resolvedPriceMode ? { priceMode: resolvedPriceMode } : {}),
+        ...(productOption
+          ? {
+              productTitle: productOption.title,
+              productSku: productOption.sku ?? null,
+              productThumbnail: productOption.thumbnailUrl ?? null,
+            }
+          : {}),
+        ...(variantOption
+          ? {
+              variantTitle: variantOption.title,
+              variantSku: variantOption.sku ?? null,
+              variantThumbnail: variantOption.thumbnailUrl ?? productOption?.thumbnailUrl ?? null,
+            }
+          : {}),
+      }
+
+      const payload: Record<string, unknown> = {
+        [documentKey]: documentId,
+        organizationId,
+        tenantId,
+        productId: values.productId,
+        productVariantId: values.variantId,
+        quantity,
+        currencyCode: resolvedCurrency,
+        priceId: values.priceId ?? undefined,
+        priceMode: resolvedPriceMode,
+        taxRate: values.taxRate ?? undefined,
+        catalogSnapshot,
+        metadata,
+        customFieldSetId: values.customFieldSetId ?? undefined,
+      }
+      const customFields = collectCustomFieldValues(values, {
+        transform: (value) => normalizeCustomFieldSubmitValue(value),
+      })
+      if (Object.keys(customFields).length) {
+        payload.customFields = normalizeCustomFieldValues(customFields)
+      }
+      if (resolvedName) payload.name = resolvedName
+      if (resolvedPriceMode === 'gross') {
+        payload.unitPriceGross = unitPriceValue
+      } else {
+        payload.unitPriceNet = unitPriceValue
+      }
+
+      const action = editingId ? updateCrud : createCrud
+      const result = await action(
+        resourcePath,
+        editingId ? { id: editingId, ...payload } : payload,
+        {
+          errorMessage: t('sales.documents.items.errorSave', 'Failed to save line.'),
+        },
+      )
+      if (result.ok) {
+        if (onSaved) await onSaved()
+        closeDialog()
+      }
+    },
+    [
+      currencyCode,
+      documentId,
+      documentKey,
+      editingId,
+      organizationId,
+      priceOptions,
+      productOption,
+      resourcePath,
+      t,
+      tenantId,
+      variantOption,
+      onSaved,
+      closeDialog,
+    ],
+  )
+
+  const fields = React.useMemo<CrudField[]>(() => {
+    return [
+      {
+        id: 'productId',
+        label: t('sales.documents.items.product', 'Product'),
+        type: 'custom',
+        required: true,
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => (
+          <LookupSelect
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => {
+              const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
+              setProductOption(selectedOption)
+              setVariantOption(null)
+              setPriceOptions([])
+              setValue(next ?? null)
+              setFormValue?.('variantId', null)
+              setFormValue?.('priceId', null)
+              setFormValue?.('unitPrice', '')
+              setFormValue?.('priceMode', 'gross')
+              setFormValue?.('taxRate', null)
+              const existingName = typeof values?.name === 'string' ? values.name : ''
+              if (!existingName.trim() && selectedOption?.title) {
+                setFormValue?.('name', selectedOption.title)
+              }
+              setFormValue?.(
+                'catalogSnapshot',
+                next
+                  ? {
+                      product: {
+                        id: next,
+                        title: selectedOption?.title ?? null,
+                        sku: selectedOption?.sku ?? null,
+                        thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                      },
+                    }
+                  : null,
+              )
+              if (next) {
+                void loadPrices(next, null)
+              }
+            }}
+            fetchItems={loadProductOptions}
+            minQuery={1}
+            searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
+            selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
+          />
+        ),
+      },
+      {
+        id: 'variantId',
+        label: t('sales.documents.items.variant', 'Variant'),
+        type: 'custom',
+        required: true,
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const productId = typeof values?.productId === 'string' ? values.productId : null
+          return (
+            <LookupSelect
+              key={productId ?? 'no-product'}
+              value={typeof value === 'string' ? value : null}
+              onChange={(next) => {
+                const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
+                setVariantOption(selectedOption)
+                setValue(next ?? null)
+                const existingName = typeof values?.name === 'string' ? values.name : ''
+                if (!existingName.trim()) {
+                  setFormValue?.('name', selectedOption?.title ?? productOption?.title ?? existingName)
+                }
+                const prevSnapshot =
+                  typeof values?.catalogSnapshot === 'object' && values.catalogSnapshot
+                    ? (values.catalogSnapshot as Record<string, unknown>)
+                    : null
+                if (next) {
+                  setFormValue?.('catalogSnapshot', {
+                    ...(prevSnapshot ?? {}),
+                    variant: {
+                      id: next,
+                      title: selectedOption?.title ?? null,
+                      sku: selectedOption?.sku ?? null,
+                      thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                    },
+                  })
+                } else if (prevSnapshot) {
+                  const snapshot = { ...prevSnapshot }
+                  if ('variant' in snapshot) delete (snapshot as any).variant
+                  setFormValue?.('catalogSnapshot', Object.keys(snapshot).length ? snapshot : null)
+                } else {
+                  setFormValue?.('catalogSnapshot', null)
+                }
+                if (productId) {
+                  void loadPrices(productId, next)
+                }
+              }}
+              fetchItems={async (query) => {
+                if (!productId) return []
+                const productThumb = productId ? productOptionsRef.current.get(productId)?.thumbnailUrl : null
+                const options = await loadVariantOptions(productId, productThumb)
+                const needle = query?.trim().toLowerCase() ?? ''
+                return needle.length
+                  ? options.filter((option) => option.title.toLowerCase().includes(needle))
+                  : options
+              }}
+              searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
+              minQuery={0}
+              disabled={!productId}
+            />
+          )
+        },
+      },
+      {
+        id: 'priceId',
+        label: t('sales.documents.items.price', 'Price'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const productId = typeof values?.productId === 'string' ? values.productId : null
+          const variantId = typeof values?.variantId === 'string' ? values.variantId : null
+          return (
+            <LookupSelect
+              key={productId ? `${productId}-${variantId ?? 'no-variant'}` : 'price'}
+              value={typeof value === 'string' ? value : null}
+              onChange={(next) => {
+                setValue(next ?? null)
+                const selected = next ? priceOptions.find((entry) => entry.id === next) ?? null : null
+                if (selected) {
+                  const mode = selected.displayMode === 'excluding-tax' ? 'net' : 'gross'
+                  const amount =
+                    mode === 'net'
+                      ? selected.amountNet ?? selected.amountGross ?? 0
+                      : selected.amountGross ?? selected.amountNet ?? 0
+                  setFormValue?.('priceMode', mode)
+                  setFormValue?.('unitPrice', amount.toString())
+                  setFormValue?.('taxRate', selected.taxRate ?? null)
+                  setFormValue?.(
+                    'currencyCode',
+                    selected.currencyCode ?? values?.currencyCode ?? currencyCode ?? null,
+                  )
+                } else {
+                  setFormValue?.('taxRate', null)
+                }
+              }}
+              fetchItems={async (query) => {
+                const prices = await loadPrices(productId, variantId)
+                const needle = query?.trim().toLowerCase() ?? ''
+                return prices
+                  .filter((price) => {
+                    if (!needle.length) return true
+                    const haystack = [
+                      price.label,
+                      price.priceKindTitle,
+                      price.priceKindCode,
+                      price.currencyCode,
+                      ...(price.scopeTags ?? []),
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+                      .toLowerCase()
+                    return haystack.includes(needle)
+                  })
+                  .map<LookupSelectItem>((price) => ({
+                    id: price.id,
+                    title: price.label,
+                    subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
+                    description: price.scopeReason ?? undefined,
+                    rightLabel: price.currencyCode ?? undefined,
+                    icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
+                  }))
+              }}
+              minQuery={0}
+              loading={priceLoading}
+              searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
+              disabled={!productId}
+            />
+          )
+        },
+      },
+      {
+        id: 'unitPrice',
+        label: t('sales.documents.items.unitPrice', 'Unit price'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const mode = values?.priceMode === 'net' ? 'net' : 'gross'
+          return (
+            <div className="flex gap-2">
+              <Input
+                value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder="0.00"
+              />
+              <select
+                className="w-32 rounded border px-2 text-sm"
+                value={mode}
+                onChange={(event) => {
+                  const nextMode = event.target.value === 'net' ? 'net' : 'gross'
+                  setFormValue?.('priceMode', nextMode)
+                }}
+              >
+                <option value="gross">{t('sales.documents.items.priceGross', 'Gross')}</option>
+                <option value="net">{t('sales.documents.items.priceNet', 'Net')}</option>
+              </select>
+            </div>
+          )
+        },
+      },
+      {
+        id: 'quantity',
+        label: t('sales.documents.items.quantity', 'Quantity'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue }) => (
+          <Input
+            value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="1"
+          />
+        ),
+      },
+      {
+        id: 'name',
+        label: t('sales.documents.items.name', 'Name'),
+        type: 'text',
+        placeholder: t('sales.documents.items.namePlaceholder', 'Optional line name'),
+        layout: 'full',
+      },
+    ]
+  }, [currencyCode, loadPrices, loadProductOptions, loadVariantOptions, priceLoading, priceOptions, productOption, t])
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    return [
+      { id: 'line-core', fields },
+      {
+        id: 'line-custom',
+        column: 2,
+        title: t('entities.customFields.title', 'Custom fields'),
+        kind: 'customFields',
+      },
+    ]
+  }, [fields, t])
+
+  React.useEffect(() => {
+    if (!open) return
+    if (!initialLine) {
+      resetForm()
+      return
+    }
+    setEditingId(initialLine.id)
+    const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode)
+    nextForm.productId = initialLine.productId
+    nextForm.variantId = initialLine.productVariantId
+    nextForm.quantity = initialLine.quantity.toString()
+    nextForm.unitPrice = initialLine.unitPriceGross.toString()
+    nextForm.priceMode = 'gross'
+    nextForm.taxRate = Number.isFinite(initialLine.taxRate) ? initialLine.taxRate : null
+    nextForm.name = initialLine.name ?? ''
+    nextForm.catalogSnapshot = initialLine.catalogSnapshot ?? null
+    nextForm.customFieldSetId = initialLine.customFieldSetId ?? null
+    const meta = initialLine.metadata ?? {}
+    if (typeof meta === 'object' && meta) {
+      const mode = (meta as any).priceMode
+      if (mode === 'net' || mode === 'gross') {
+        nextForm.priceMode = mode
+        nextForm.unitPrice =
+          mode === 'net' ? initialLine.unitPriceNet.toString() : initialLine.unitPriceGross.toString()
+      }
+      nextForm.priceId =
+        typeof (meta as any).priceId === 'string' ? ((meta as any).priceId as string) : null
+      const productTitle = typeof (meta as any).productTitle === 'string' ? (meta as any).productTitle : initialLine.name
+      const productSku = typeof (meta as any).productSku === 'string' ? (meta as any).productSku : null
+      const productThumbnail =
+        typeof (meta as any).productThumbnail === 'string' ? (meta as any).productThumbnail : null
+      if (productTitle && initialLine.productId) {
+        const option = { id: initialLine.productId, title: productTitle, sku: productSku, thumbnailUrl: productThumbnail }
+        productOptionsRef.current.set(initialLine.productId, option)
+        setProductOption(option)
+      }
+      const variantTitle = typeof (meta as any).variantTitle === 'string' ? (meta as any).variantTitle : null
+      const variantSku = typeof (meta as any).variantSku === 'string' ? (meta as any).variantSku : null
+      const variantThumb =
+        typeof (meta as any).variantThumbnail === 'string' ? (meta as any).variantThumbnail : productThumbnail
+      if (variantTitle && initialLine.productVariantId) {
+        const option = {
+          id: initialLine.productVariantId,
+          title: variantTitle,
+          sku: variantSku,
+          thumbnailUrl: variantThumb ?? null,
+        }
+        variantOptionsRef.current.set(initialLine.productVariantId, option)
+        setVariantOption(option)
+      }
+    }
+    const customValues = prefixCustomFieldValues(normalizeCustomFieldResponse(initialLine.customFields) ?? {})
+    setInitialValues({ ...nextForm, ...customValues })
+    setFormResetKey((prev) => prev + 1)
+    if (initialLine.productId) {
+      void loadPrices(initialLine.productId, initialLine.productVariantId)
+    } else {
+      setPriceOptions([])
+    }
+  }, [currencyCode, initialLine, loadPrices, open, resetForm])
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
+      <DialogContent
+        className="sm:max-w-2xl"
+        ref={dialogContentRef}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            dialogContentRef.current?.querySelector('form')?.requestSubmit()
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            closeDialog()
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>
+            {editingId
+              ? t('sales.documents.items.editTitle', 'Edit line')
+              : t('sales.documents.items.addTitle', 'Add line')}
+          </DialogTitle>
+        </DialogHeader>
+        <CrudForm<LineFormState>
+          key={formResetKey}
+          embedded
+          fields={fields}
+          groups={groups}
+          entityId={customFieldEntityId}
+          initialValues={initialValues}
+          submitLabel={
+            editingId
+              ? t('sales.documents.items.save', 'Save changes')
+              : t('sales.documents.items.addLine', 'Add item')
+          }
+          onSubmit={handleFormSubmit}
+          loadingMessage={t('sales.documents.items.loading', 'Loading items…')}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -15945,6 +15945,12 @@ export interface components {
             captured_at?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCapturedAt"];
             created_at: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
             currency_code: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
+            custom_field_set_id?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetId"];
+            custom_fields?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields"];
+            custom_values?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues"];
+            customFields?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields1"];
+            customFieldSetId?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetId1"];
+            customValues?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues1"];
             id: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
             metadata?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
             order_id?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderId"];
@@ -15967,6 +15973,36 @@ export interface components {
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCapturedAtAnyOf1: string;
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: string;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf0"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFields1: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf01"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf11"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf0: null;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items"][];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf01: null;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items1: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf11: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldsAnyOf1Items1"][];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetId: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf0"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf1"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetId1: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf01"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf11"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf1: string;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf01: null;
+        /** Format: uuid */
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomFieldSetIdAnyOf11: string;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf0"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf1"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValues1: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf01"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf11"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf0: null;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf1: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf01: null;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCustomValuesAnyOf11: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1"];
@@ -16025,6 +16061,7 @@ export interface components {
             capturedAmount?: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCapturedAmount"];
             capturedAt?: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCapturedAt"];
             currencyCode: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId"];
             metadata?: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
             orderId?: components["schemas"]["DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
@@ -16055,6 +16092,9 @@ export interface components {
         DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCapturedAt: string;
         /** Format: regex */
         DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId: string;
         DocPathsSalesPaymentsPostRequestBodyContentApplicationJsonSchemaPropertiesMetadata: {
@@ -16112,6 +16152,7 @@ export interface components {
             capturedAmount?: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCapturedAmount"];
             capturedAt?: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCapturedAt"];
             currencyCode?: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId"];
             id: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             metadata?: components["schemas"]["DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesMetadata"];
@@ -16143,6 +16184,9 @@ export interface components {
         DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCapturedAt: string;
         /** Format: regex */
         DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesPaymentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId: string;
         /** Format: uuid */

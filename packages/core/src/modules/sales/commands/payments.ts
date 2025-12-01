@@ -4,6 +4,9 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   SalesInvoice,
   SalesOrder,
@@ -53,6 +56,8 @@ type PaymentSnapshot = {
   receivedAt: string | null
   capturedAt: string | null
   metadata: Record<string, unknown> | null
+  customFields?: Record<string, unknown> | null
+  customFieldSetId?: string | null
   allocations: PaymentAllocationSnapshot[]
 }
 
@@ -69,6 +74,9 @@ const toNumber = (value: unknown): number => {
   }
   return 0
 }
+
+const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
+  input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
 
 async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<PaymentSnapshot | null> {
   const payment = await em.findOne(
@@ -91,6 +99,16 @@ async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<Payme
     currencyCode: allocation.currencyCode,
     metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
   }))
+  const customFieldValues = await loadCustomFieldValues({
+    em,
+    entityId: E.sales.sales_payment,
+    recordIds: [payment.id],
+    tenantIdByRecord: { [payment.id]: payment.tenantId ?? null },
+    organizationIdByRecord: { [payment.id]: payment.organizationId ?? null },
+  })
+  const customFields = customFieldValues[payment.id]
+  const normalizedCustomFields =
+    customFields && Object.keys(customFields).length ? customFields : null
   return {
     id: payment.id,
     orderId: typeof payment.order === 'string' ? payment.order : payment.order?.id ?? null,
@@ -110,6 +128,8 @@ async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<Payme
     receivedAt: payment.receivedAt ? payment.receivedAt.toISOString() : null,
     capturedAt: payment.capturedAt ? payment.capturedAt.toISOString() : null,
     metadata: payment.metadata ? cloneJson(payment.metadata) : null,
+    customFields: normalizedCustomFields,
+    customFieldSetId: (payment as any).customFieldSetId ?? (payment as any).custom_field_set_id ?? null,
     allocations,
   }
 }
@@ -141,7 +161,22 @@ async function restorePaymentSnapshot(em: EntityManager, snapshot: PaymentSnapsh
   entity.receivedAt = snapshot.receivedAt ? new Date(snapshot.receivedAt) : null
   entity.capturedAt = snapshot.capturedAt ? new Date(snapshot.capturedAt) : null
   entity.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
+  entity.customFieldSetId =
+    (snapshot as any).customFieldSetId ?? (snapshot as any).custom_field_set_id ?? null
   entity.updatedAt = new Date()
+
+  if ((snapshot as any).customFields !== undefined) {
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_payment,
+      recordId: entity.id,
+      organizationId: entity.organizationId,
+      tenantId: entity.tenantId,
+      values:
+        snapshot.customFields && typeof snapshot.customFields === 'object'
+          ? (snapshot.customFields as Record<string, unknown>)
+          : {},
+    })
+  }
 
   const existingAllocations = await em.find(SalesPaymentAllocation, { payment: entity })
   existingAllocations.forEach((allocation) => em.remove(allocation))
@@ -280,6 +315,15 @@ const createPaymentCommand: CommandHandler<
       em.persist(entity)
     })
     em.persist(payment)
+    if (input.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_payment,
+        recordId: payment.id,
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        values: normalizeCustomFieldsInput(input.customFields),
+      })
+    }
     await em.flush()
     const totals = await recomputeOrderPaymentTotals(em, order)
     await em.flush()
@@ -406,6 +450,15 @@ const updatePaymentCommand: CommandHandler<
     }
     if (input.customFieldSetId !== undefined) {
       payment.customFieldSetId = input.customFieldSetId ?? null
+    }
+    if (input.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_payment,
+        recordId: payment.id,
+        organizationId: payment.organizationId,
+        tenantId: payment.tenantId,
+        values: normalizeCustomFieldsInput(input.customFields),
+      })
     }
     if (input.allocations !== undefined) {
       const existingAllocations = await em.find(SalesPaymentAllocation, { payment })

@@ -744,6 +744,11 @@ type ShippingMethodOption = {
   serviceLevel?: string | null
   estimatedTransitDays?: number | null
   currencyCode?: string | null
+  baseRateNet?: string | null
+  baseRateGross?: string | null
+  providerKey?: string | null
+  providerSettings?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
 }
 
 type PaymentMethodOption = {
@@ -753,6 +758,8 @@ type PaymentMethodOption = {
   description?: string | null
   providerKey?: string | null
   terms?: string | null
+  providerSettings?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
 }
 
 type StatusOption = {
@@ -2003,6 +2010,14 @@ export default function SalesDocumentDetailPage({
               const name = typeof item?.name === 'string' ? item.name : null
               const code = typeof item?.code === 'string' ? item.code : null
               if (!id || !name || !code) return null
+              const metadata =
+                item && typeof item?.metadata === 'object' && item.metadata ? (item.metadata as Record<string, unknown>) : null
+              const providerSettings =
+                item && typeof (item as any)?.providerSettings === 'object' && (item as any).providerSettings
+                  ? ((item as any).providerSettings as Record<string, unknown>)
+                  : metadata && typeof metadata.providerSettings === 'object'
+                    ? (metadata.providerSettings as Record<string, unknown>)
+                    : null
               return {
                 id,
                 name,
@@ -2015,6 +2030,21 @@ export default function SalesDocumentDetailPage({
                     ? (item as any).estimatedTransitDays
                     : null,
                 currencyCode: typeof item?.currencyCode === 'string' ? item.currencyCode : null,
+                baseRateNet:
+                  typeof (item as any)?.baseRateNet === 'string'
+                    ? (item as any).baseRateNet
+                    : typeof (item as any)?.baseRateNet === 'number'
+                      ? (item as any).baseRateNet.toString()
+                      : null,
+                baseRateGross:
+                  typeof (item as any)?.baseRateGross === 'string'
+                    ? (item as any).baseRateGross
+                    : typeof (item as any)?.baseRateGross === 'number'
+                      ? (item as any).baseRateGross.toString()
+                      : null,
+                providerKey: typeof (item as any)?.providerKey === 'string' ? (item as any).providerKey : null,
+                providerSettings,
+                metadata,
               }
             })
             .filter((entry): entry is ShippingMethodOption => !!entry)
@@ -2055,6 +2085,14 @@ export default function SalesDocumentDetailPage({
               const name = typeof item?.name === 'string' ? item.name : null
               const code = typeof item?.code === 'string' ? item.code : null
               if (!id || !name || !code) return null
+              const metadata =
+                item && typeof item?.metadata === 'object' && item.metadata ? (item.metadata as Record<string, unknown>) : null
+              const providerSettings =
+                item && typeof (item as any)?.providerSettings === 'object' && (item as any).providerSettings
+                  ? ((item as any).providerSettings as Record<string, unknown>)
+                  : metadata && typeof metadata.providerSettings === 'object'
+                    ? (metadata.providerSettings as Record<string, unknown>)
+                    : null
               return {
                 id,
                 name,
@@ -2062,6 +2100,8 @@ export default function SalesDocumentDetailPage({
                 description: typeof item?.description === 'string' ? item.description : null,
                 providerKey: typeof (item as any)?.providerKey === 'string' ? (item as any).providerKey : null,
                 terms: typeof (item as any)?.terms === 'string' ? (item as any).terms : null,
+                providerSettings,
+                metadata,
               }
             })
             .filter((entry): entry is PaymentMethodOption => !!entry)
@@ -2601,38 +2641,6 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
-  const shippingSnapshotFromOption = React.useCallback(
-    (option: ShippingMethodOption | null | undefined) =>
-      option
-        ? {
-            id: option.id,
-            code: option.code,
-            name: option.name,
-            description: option.description ?? null,
-            carrierCode: option.carrierCode ?? null,
-            serviceLevel: option.serviceLevel ?? null,
-            estimatedTransitDays: option.estimatedTransitDays ?? null,
-            currencyCode: option.currencyCode ?? null,
-          }
-        : null,
-    []
-  )
-
-  const paymentSnapshotFromOption = React.useCallback(
-    (option: PaymentMethodOption | null | undefined) =>
-      option
-        ? {
-            id: option.id,
-            code: option.code,
-            name: option.name,
-            description: option.description ?? null,
-            providerKey: option.providerKey ?? null,
-            terms: option.terms ?? null,
-          }
-        : null,
-    []
-  )
-
   const updateDocument = React.useCallback(
     async (patch: Record<string, unknown>) => {
       if (!record) {
@@ -2906,24 +2914,22 @@ export default function SalesDocumentDetailPage({
 
   const handleUpdateShippingMethod = React.useCallback(
     async (nextId: string | null) => {
-      if (!record || kind !== 'order') return
+      if (!record) return
       const option =
         nextId
           ? shippingMethodOptionsRef.current.get(nextId) ??
             shippingMethodOptions.find((entry) => entry.id === nextId) ??
             null
           : null
-      const snapshot = shippingSnapshotFromOption(option ?? null)
       try {
         const call = await updateDocument({
           shippingMethodId: nextId,
           shippingMethodCode: option?.code ?? null,
-          shippingMethodSnapshot: snapshot,
         })
         const savedId =
           typeof call.result?.shippingMethodId === 'string' ? call.result.shippingMethodId : nextId ?? null
         const savedSnapshot =
-          (call.result?.shippingMethodSnapshot as Record<string, unknown> | null | undefined) ?? snapshot ?? null
+          (call.result?.shippingMethodSnapshot as Record<string, unknown> | null | undefined) ?? null
         const savedCode =
           typeof call.result?.shippingMethodCode === 'string'
             ? call.result.shippingMethodCode
@@ -2953,11 +2959,9 @@ export default function SalesDocumentDetailPage({
     },
     [
       ensureShippingMethodOption,
-      kind,
       record,
       shippingMethodOptions,
       shippingMethodOptionsRef,
-      shippingSnapshotFromOption,
       t,
       updateDocument,
     ]
@@ -2965,24 +2969,22 @@ export default function SalesDocumentDetailPage({
 
   const handleUpdatePaymentMethod = React.useCallback(
     async (nextId: string | null) => {
-      if (!record || kind !== 'order') return
+      if (!record) return
       const option =
         nextId
           ? paymentMethodOptionsRef.current.get(nextId) ??
             paymentMethodOptions.find((entry) => entry.id === nextId) ??
             null
           : null
-      const snapshot = paymentSnapshotFromOption(option ?? null)
       try {
         const call = await updateDocument({
           paymentMethodId: nextId,
           paymentMethodCode: option?.code ?? null,
-          paymentMethodSnapshot: snapshot,
         })
         const savedId =
           typeof call.result?.paymentMethodId === 'string' ? call.result.paymentMethodId : nextId ?? null
         const savedSnapshot =
-          (call.result?.paymentMethodSnapshot as Record<string, unknown> | null | undefined) ?? snapshot ?? null
+          (call.result?.paymentMethodSnapshot as Record<string, unknown> | null | undefined) ?? null
         const savedCode =
           typeof call.result?.paymentMethodCode === 'string'
             ? call.result.paymentMethodCode
@@ -3012,10 +3014,8 @@ export default function SalesDocumentDetailPage({
     },
     [
       ensurePaymentMethodOption,
-      kind,
       paymentMethodOptions,
       paymentMethodOptionsRef,
-      paymentSnapshotFromOption,
       record,
       t,
       updateDocument,
@@ -3219,81 +3219,80 @@ export default function SalesDocumentDetailPage({
   }, [kind, record, router, t])
 
   const detailFields = React.useMemo(() => {
-    const fields: DetailFieldConfig[] = []
-    if (kind === 'order') {
-      fields.push(
-        {
-          key: 'shippingMethod',
-          kind: 'custom',
-          label: '',
-          emptyLabel: '',
-          render: () => (
-            <MethodInlineEditor
-              label={t('sales.documents.detail.shippingMethod.label', 'Shipping method')}
-              value={record?.shippingMethodId ?? null}
-              snapshot={(record?.shippingMethodSnapshot ?? null) as Record<string, unknown> | null}
-              emptyLabel={t('sales.documents.detail.empty', 'Not set')}
-              options={shippingMethodOptions}
-              loading={shippingMethodLoading}
-              onLoadOptions={loadShippingMethods}
-              onSave={handleUpdateShippingMethod}
-              saveLabel={saveShortcutLabel}
-              placeholder={t('sales.documents.detail.shippingMethod.placeholder', 'Select shipping method')}
-              loadingLabel={t('sales.documents.detail.shippingMethod.loading', 'Loading shipping methods…')}
-              emptyResultsLabel={t('sales.documents.detail.shippingMethod.empty', 'No shipping methods found.')}
-              selectedHint={(id) =>
-                t('sales.documents.detail.shippingMethod.selected', 'Selected shipping method: {{id}}', { id })
-              }
-              icon={<Truck className="h-5 w-5 text-muted-foreground" />}
-            />
-          ),
-        },
-        {
-          key: 'paymentMethod',
-          kind: 'custom',
-          label: '',
-          emptyLabel: '',
-          render: () => (
-            <MethodInlineEditor
-              label={t('sales.documents.detail.paymentMethod.label', 'Payment method')}
-              value={record?.paymentMethodId ?? null}
-              snapshot={(record?.paymentMethodSnapshot ?? null) as Record<string, unknown> | null}
-              emptyLabel={t('sales.documents.detail.empty', 'Not set')}
-              options={paymentMethodOptions}
-              loading={paymentMethodLoading}
-              onLoadOptions={loadPaymentMethods}
-              onSave={handleUpdatePaymentMethod}
-              saveLabel={saveShortcutLabel}
-              placeholder={t('sales.documents.detail.paymentMethod.placeholder', 'Select payment method')}
-              loadingLabel={t('sales.documents.detail.paymentMethod.loading', 'Loading payment methods…')}
-              emptyResultsLabel={t('sales.documents.detail.paymentMethod.empty', 'No payment methods found.')}
-              selectedHint={(id) =>
-                t('sales.documents.detail.paymentMethod.selected', 'Selected payment method: {{id}}', { id })
-              }
-              icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
-            />
-          ),
-        },
-        {
-          key: 'expectedDeliveryAt',
-          kind: 'text',
-          label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
-          emptyLabel: t('sales.documents.detail.empty', 'Not set'),
-          placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
-          value: record?.expectedDeliveryAt
-            ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
-            : null,
-          onSave: handleUpdateExpectedDeliveryAt,
-          inputType: 'date',
-          renderDisplay: (params) => {
-            const { value, emptyLabel } = params
-            if (value && value.length) {
-              return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
+    const fields: DetailFieldConfig[] = [
+      {
+        key: 'shippingMethod',
+        kind: 'custom',
+        label: '',
+        emptyLabel: '',
+        render: () => (
+          <MethodInlineEditor
+            label={t('sales.documents.detail.shippingMethod.label', 'Shipping method')}
+            value={record?.shippingMethodId ?? null}
+            snapshot={(record?.shippingMethodSnapshot ?? null) as Record<string, unknown> | null}
+            emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+            options={shippingMethodOptions}
+            loading={shippingMethodLoading}
+            onLoadOptions={loadShippingMethods}
+            onSave={handleUpdateShippingMethod}
+            saveLabel={saveShortcutLabel}
+            placeholder={t('sales.documents.detail.shippingMethod.placeholder', 'Select shipping method')}
+            loadingLabel={t('sales.documents.detail.shippingMethod.loading', 'Loading shipping methods…')}
+            emptyResultsLabel={t('sales.documents.detail.shippingMethod.empty', 'No shipping methods found.')}
+            selectedHint={(id) =>
+              t('sales.documents.detail.shippingMethod.selected', 'Selected shipping method: {{id}}', { id })
             }
-            return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-          },
-        }
-      )
+            icon={<Truck className="h-5 w-5 text-muted-foreground" />}
+          />
+        ),
+      },
+      {
+        key: 'paymentMethod',
+        kind: 'custom',
+        label: '',
+        emptyLabel: '',
+        render: () => (
+          <MethodInlineEditor
+            label={t('sales.documents.detail.paymentMethod.label', 'Payment method')}
+            value={record?.paymentMethodId ?? null}
+            snapshot={(record?.paymentMethodSnapshot ?? null) as Record<string, unknown> | null}
+            emptyLabel={t('sales.documents.detail.empty', 'Not set')}
+            options={paymentMethodOptions}
+            loading={paymentMethodLoading}
+            onLoadOptions={loadPaymentMethods}
+            onSave={handleUpdatePaymentMethod}
+            saveLabel={saveShortcutLabel}
+            placeholder={t('sales.documents.detail.paymentMethod.placeholder', 'Select payment method')}
+            loadingLabel={t('sales.documents.detail.paymentMethod.loading', 'Loading payment methods…')}
+            emptyResultsLabel={t('sales.documents.detail.paymentMethod.empty', 'No payment methods found.')}
+            selectedHint={(id) =>
+              t('sales.documents.detail.paymentMethod.selected', 'Selected payment method: {{id}}', { id })
+            }
+            icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
+          />
+        ),
+      },
+    ]
+    if (kind === 'order') {
+      fields.push({
+        key: 'expectedDeliveryAt',
+        kind: 'text',
+        label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
+        emptyLabel: t('sales.documents.detail.empty', 'Not set'),
+        placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
+        value: record?.expectedDeliveryAt
+          ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
+          : null,
+        onSave: handleUpdateExpectedDeliveryAt,
+        inputType: 'date',
+        renderDisplay: (params) => {
+          const { value, emptyLabel } = params
+          if (value && value.length) {
+            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
+          }
+          return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+        },
+      })
     }
     fields.push(
       {

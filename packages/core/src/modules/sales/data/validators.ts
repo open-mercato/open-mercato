@@ -300,6 +300,7 @@ const lineSharedSchema = z.object({
   promotionSnapshot: z.record(z.string(), z.unknown()).optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const orderLineCreateSchema = scoped.extend({
@@ -662,6 +663,7 @@ export const paymentCreateSchema = scoped.extend({
   capturedAt: z.coerce.date().optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   allocations: z
     .array(
       z.object({

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesPayment, SalesPaymentMethod } from '../../data/entities'
 import { paymentCreateSchema, paymentUpdateSchema } from '../../data/validators'
@@ -66,9 +67,11 @@ const crud = makeCrudRoute({
       F.received_at,
       F.captured_at,
       F.metadata,
+      F.custom_field_set_id,
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: { entityIds: [E.sales.sales_payment] },
     sortFieldMap: {
       createdAt: F.created_at,
       updatedAt: F.updated_at,
@@ -88,7 +91,12 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return paymentCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        return paymentCreateSchema.parse({
+          ...base,
+          ...(Object.keys(custom).length ? { customFields: custom } : {}),
+        })
       },
       response: ({ result }) => ({
         id: result?.paymentId ?? null,
@@ -101,7 +109,12 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return paymentUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(scoped)
+        return paymentUpdateSchema.parse({
+          ...base,
+          ...(Object.keys(custom).length ? { customFields: custom } : {}),
+        })
       },
       response: ({ result }) => ({
         id: result?.paymentId ?? null,
@@ -178,6 +191,12 @@ const paymentSchema = z.object({
   refunded_amount: z.number().nullable().optional(),
   received_at: z.string().nullable().optional(),
   captured_at: z.string().nullable().optional(),
+  custom_field_set_id: z.string().uuid().nullable().optional(),
+  customFieldSetId: z.string().uuid().nullable().optional(),
+  custom_values: z.record(z.string(), z.unknown()).nullable().optional(),
+  customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+  custom_fields: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
+  customFields: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   created_at: z.string(),
   updated_at: z.string().nullable().optional(),
