@@ -624,7 +624,7 @@ export function ShipmentDialog({
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
       <DialogContent
         ref={dialogContentRef}
-        className="max-w-3xl"
+        className="sm:max-w-5xl"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault()
@@ -650,14 +650,8 @@ export function ShipmentDialog({
           submitLabel={t('sales.documents.shipments.saveShortcut', 'Save (⌘/Ctrl+Enter)')}
           onSubmit={handleSubmit}
           loadingMessage={t('sales.documents.shipments.loading', 'Loading shipments…')}
-          contentHeader={
-            shippingMethodLoading ? (
-              <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Spinner className="h-3.5 w-3.5 animate-spin" />
-                {t('sales.documents.detail.shippingMethod.loading', 'Loading shipping methods…')}
-              </p>
-            ) : null
-          }
+          customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
+          isLoading={shippingMethodLoading}
         />
       </DialogContent>
     </Dialog>

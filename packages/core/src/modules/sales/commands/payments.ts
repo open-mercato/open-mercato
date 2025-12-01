@@ -316,6 +316,9 @@ const createPaymentCommand: CommandHandler<
     })
     em.persist(payment)
     if (input.customFields !== undefined) {
+      if (!payment.id) {
+        await em.flush()
+      }
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_payment,
         recordId: payment.id,
@@ -452,6 +455,9 @@ const updatePaymentCommand: CommandHandler<
       payment.customFieldSetId = input.customFieldSetId ?? null
     }
     if (input.customFields !== undefined) {
+      if (!payment.id) {
+        await em.flush()
+      }
       await setRecordCustomFields(em, {
         entityId: E.sales.sales_payment,
         recordId: payment.id,
@@ -570,11 +576,35 @@ const deletePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, input.organizationId, input.tenantId)
     const order = payment.order as SalesOrder | null
+    const allocations = await em.find(SalesPaymentAllocation, { payment })
+    const allocationOrders = allocations
+      .map((allocation) =>
+        typeof allocation.order === 'string'
+          ? allocation.order
+          : allocation.order?.id ?? null
+      )
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    allocations.forEach((allocation) => em.remove(allocation))
+    await em.flush()
     em.remove(payment)
     await em.flush()
     let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
-    if (order) {
-      totals = await recomputeOrderPaymentTotals(em, order)
+    const orderIds = Array.from(
+      new Set(
+        [
+          order && typeof order === 'object' ? order.id : null,
+          ...allocationOrders,
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+      )
+    )
+    const primaryOrderId = order && typeof order === 'object' ? order.id : null
+    for (const orderId of orderIds) {
+      const target = typeof order === 'object' && order.id === orderId ? order : await em.findOne(SalesOrder, { id: orderId })
+      if (!target) continue
+      const recomputed = await recomputeOrderPaymentTotals(em, target)
+      if (!totals || (primaryOrderId && orderId === primaryOrderId)) {
+        totals = recomputed
+      }
       await em.flush()
     }
     return { paymentId: payment.id, orderTotals: totals }

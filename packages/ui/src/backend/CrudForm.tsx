@@ -124,6 +124,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
+  customFieldsLoadingMessage?: string
   cancelHref?: string
   successRedirect?: string
   deleteRedirect?: string
@@ -246,6 +247,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   fields,
   initialValues,
   submitLabel,
+  customFieldsLoadingMessage,
   cancelHref,
   successRedirect,
   deleteRedirect,
@@ -272,6 +274,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const t = useT()
   const resolvedSubmitLabel = submitLabel ?? t('ui.forms.actions.save')
   const resolvedLoadingMessage = loadingMessage ?? t('ui.forms.loading')
+  const resolvedCustomFieldsLoadingMessage = customFieldsLoadingMessage ?? resolvedLoadingMessage
   const cancelLabel = t('ui.forms.actions.cancel')
   const deleteLabel = t('ui.forms.actions.delete')
   const savingLabel = t('ui.forms.status.saving')
@@ -1325,7 +1328,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <div key={`${g.id}-loading`} className="rounded-lg border bg-card p-4">
                 <DataLoader
                   isLoading
-                  loadingMessage={resolvedLoadingMessage}
+                  loadingMessage={resolvedCustomFieldsLoadingMessage}
                   spinnerSize="md"
                   className="min-h-[1px]"
                 >

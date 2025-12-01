@@ -5,13 +5,14 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
+import type { SectionAction } from '@open-mercato/ui/backend/detail'
 
 type SalesDocumentItemsSectionProps = {
   documentId: string
@@ -19,6 +20,7 @@ type SalesDocumentItemsSectionProps = {
   currencyCode: string | null | undefined
   organizationId?: string | null
   tenantId?: string | null
+  onActionChange?: (action: SectionAction | null) => void
 }
 
 export function SalesDocumentItemsSection({
@@ -27,6 +29,7 @@ export function SalesDocumentItemsSection({
   currencyCode,
   organizationId: orgFromProps,
   tenantId: tenantFromProps,
+  onActionChange,
 }: SalesDocumentItemsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
@@ -59,6 +62,7 @@ export function SalesDocumentItemsSection({
           .map((item) => {
             const id = typeof item.id === 'string' ? item.id : null
             if (!id) return null
+            const taxRate = normalizeNumber((item as any).tax_rate ?? (item as any).taxRate, 0)
             const rawCustomFields = Object.entries(item as Record<string, unknown>).reduce<Record<string, unknown>>(
               (acc, [key, value]) => {
                 if (key.startsWith('cf_') || key.startsWith('cf:')) {
@@ -77,22 +81,55 @@ export function SalesDocumentItemsSection({
                     typeof (item.catalog_snapshot as any).name === 'string'
                   ? (item.catalog_snapshot as any).name
                   : null
+            const quantity = normalizeNumber(item.quantity, 0)
+            const unitPriceNetRaw = normalizeNumber((item as any).unit_price_net ?? (item as any).unitPriceNet, Number.NaN)
+            const unitPriceGrossRaw = normalizeNumber(
+              (item as any).unit_price_gross ?? (item as any).unitPriceGross,
+              Number.NaN,
+            )
+            const unitPriceNet = Number.isFinite(unitPriceNetRaw)
+              ? unitPriceNetRaw
+              : Number.isFinite(unitPriceGrossRaw)
+                ? unitPriceGrossRaw / (1 + taxRate / 100)
+                : 0
+            const unitPriceGross = Number.isFinite(unitPriceGrossRaw)
+              ? unitPriceGrossRaw
+              : Number.isFinite(unitPriceNetRaw)
+                ? unitPriceNetRaw * (1 + taxRate / 100)
+                : 0
+            const totalNetRaw = normalizeNumber(
+              (item as any).total_net_amount ?? (item as any).totalNetAmount,
+              Number.NaN,
+            )
+            const totalGrossRaw = normalizeNumber(
+              (item as any).total_gross_amount ?? (item as any).totalGrossAmount,
+              Number.NaN,
+            )
+            const totalNet = Number.isFinite(totalNetRaw) ? totalNetRaw : unitPriceNet * quantity
+            const totalGross = Number.isFinite(totalGrossRaw) ? totalGrossRaw : unitPriceGross * quantity
+            const priceModeRaw =
+              (item as any)?.metadata && typeof (item as any).metadata === 'object'
+                ? ((item as any).metadata as Record<string, unknown>).priceMode
+                : null
+            const priceMode = priceModeRaw === 'net' ? 'net' : 'gross'
             return {
               id,
               name,
               productId: typeof item.product_id === 'string' ? item.product_id : null,
               productVariantId: typeof item.product_variant_id === 'string' ? item.product_variant_id : null,
-              quantity: normalizeNumber(item.quantity, 0),
+              quantity,
               currencyCode:
                 typeof item.currency_code === 'string'
                   ? item.currency_code
                   : typeof currencyCode === 'string'
                     ? currencyCode
                     : null,
-              unitPriceNet: normalizeNumber(item.unit_price_net, 0),
-              unitPriceGross: normalizeNumber(item.unit_price_gross, 0),
-              taxRate: normalizeNumber(item.tax_rate, 0),
-              totalGross: normalizeNumber(item.total_gross_amount, 0),
+              unitPriceNet,
+              unitPriceGross,
+              taxRate,
+              totalNet,
+              totalGross,
+              priceMode,
               metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
               catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
               customFieldSetId:
@@ -125,6 +162,16 @@ export function SalesDocumentItemsSection({
     setLineForEdit(null)
     setDialogOpen(true)
   }, [])
+
+  React.useEffect(() => {
+    if (!onActionChange) return
+    onActionChange({
+      label: t('sales.documents.items.add', 'Add item'),
+      onClick: openCreate,
+      disabled: false,
+    })
+    return () => onActionChange(null)
+  }, [onActionChange, openCreate, t])
 
   const handleEdit = React.useCallback((line: SalesLineRecord) => {
     setLineForEdit(line)
@@ -175,24 +222,8 @@ export function SalesDocumentItemsSection({
     )
   }
 
-  const showHeader = !loading && !error && items.length > 0
-
   return (
     <div className="space-y-4">
-      {showHeader ? (
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium">{t('sales.documents.items.title', 'Items')}</p>
-            <p className="text-xs text-muted-foreground">
-              {t('sales.documents.items.subtitle', 'Add products and configure pricing for this document.')}
-            </p>
-          </div>
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            {t('sales.documents.items.add', 'Add item')}
-          </Button>
-        </div>
-      ) : null}
       {loading ? (
         <LoadingMessage
           label={t('sales.documents.items.loading', 'Loading items…')}
@@ -226,7 +257,11 @@ export function SalesDocumentItemsSection({
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.id} className="border-t">
+                <tr
+                  key={item.id}
+                  className="border-t hover:bg-muted/50 cursor-pointer transition-colors"
+                  onClick={() => handleEdit(item)}
+                >
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-3">
                       {renderImage(item)}
@@ -240,20 +275,54 @@ export function SalesDocumentItemsSection({
                   </td>
                   <td className="px-3 py-3">{item.quantity}</td>
                   <td className="px-3 py-3">
-                    {formatMoney(item.unitPriceGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
-                    <span className="text-xs text-muted-foreground">
-                      {t('sales.documents.items.table.gross', 'gross')}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-mono text-sm">
+                        {formatMoney(item.unitPriceGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
+                        <span className="text-xs text-muted-foreground">
+                          {t('sales.documents.items.table.gross', 'gross')}
+                        </span>
+                      </span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {formatMoney(item.unitPriceNet, item.currencyCode ?? currencyCode ?? undefined)}{' '}
+                        {t('sales.documents.items.table.net', 'net')}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-3 py-3 font-semibold">
-                    {formatMoney(item.totalGross, item.currencyCode ?? currencyCode ?? undefined)}
+                    <div className="flex flex-col gap-0.5">
+                      <span>
+                        {formatMoney(item.totalGross, item.currencyCode ?? currencyCode ?? undefined)}{' '}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {t('sales.documents.items.table.gross', 'gross')}
+                        </span>
+                      </span>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {formatMoney(item.totalNet, item.currencyCode ?? currencyCode ?? undefined)} {t('sales.documents.items.table.net', 'net')}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-2 justify-end">
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleEdit(item)}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleEdit(item)
+                        }}
+                      >
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => void handleDelete(item)}>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleDelete(item)
+                        }}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>

@@ -5,9 +5,11 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
@@ -104,6 +106,7 @@ export function SalesDocumentPaymentsSection({
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
   const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
+  const deleteActionLabel = t('sales.documents.payments.delete', 'Delete payment')
 
   const loadPayments = React.useCallback(async () => {
     setLoading(true)
@@ -180,6 +183,23 @@ export function SalesDocumentPaymentsSection({
     }
   }, [])
 
+  const openEditPayment = React.useCallback(
+    (record: PaymentRow) => {
+      setEditingPayment({
+        id: record.id,
+        amount: record.amount ?? '',
+        paymentMethodId: record.paymentMethodId ?? '',
+        paymentReference: record.paymentReference ?? '',
+        receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
+        currencyCode: record.currencyCode ?? currencyCode ?? null,
+        customValues: record.customValues ?? null,
+        customFieldSetId: record.customFieldSetId ?? null,
+      })
+      setDialogOpen(true)
+    },
+    [currencyCode]
+  )
+
   const handlePaymentSaved = React.useCallback(
     async (totals?: PaymentTotals | null) => {
       if (totals && onTotalsChange) {
@@ -189,6 +209,34 @@ export function SalesDocumentPaymentsSection({
       handleDialogChange(false)
     },
     [handleDialogChange, loadPayments, onTotalsChange]
+  )
+
+  const handleDelete = React.useCallback(
+    async (row: PaymentRow) => {
+      try {
+        const result = await deleteCrud<{ orderTotals?: PaymentTotals | null }>('sales/payments', {
+          body: {
+            id: row.id,
+            orderId,
+            organizationId: resolvedOrganizationId ?? undefined,
+            tenantId: resolvedTenantId ?? undefined,
+          },
+          errorMessage: t('sales.documents.payments.errorDelete', 'Failed to delete payment.'),
+        })
+        if (result.ok) {
+          const totals = result.result?.orderTotals ?? null
+          if (totals && onTotalsChange) {
+            onTotalsChange(totals)
+          }
+          flash(t('sales.documents.payments.deleted', 'Payment deleted.'), 'success')
+          await loadPayments()
+        }
+      } catch (err) {
+        console.error('sales.payments.delete', err)
+        flash(t('sales.documents.payments.errorDelete', 'Failed to delete payment.'), 'error')
+      }
+    },
+    [loadPayments, onTotalsChange, orderId, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   React.useEffect(() => {
@@ -245,25 +293,22 @@ export function SalesDocumentPaymentsSection({
         id: 'actions',
         header: '',
         cell: ({ row }) => {
-          const handleEdit = () => {
-            const record = row.original
-            setEditingPayment({
-              id: record.id,
-              amount: record.amount ?? '',
-              paymentMethodId: record.paymentMethodId ?? '',
-              paymentReference: record.paymentReference ?? '',
-              receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
-              currencyCode: record.currencyCode ?? currencyCode ?? null,
-              customValues: record.customValues ?? null,
-              customFieldSetId: record.customFieldSetId ?? null,
-            })
-            setDialogOpen(true)
-          }
-          return <RowActions items={[{ label: editActionLabel, onSelect: handleEdit }]} />
+          return (
+            <RowActions
+              items={[
+                { label: editActionLabel, onSelect: () => openEditPayment(row.original) },
+                {
+                  label: deleteActionLabel,
+                  destructive: true,
+                  onSelect: () => void handleDelete(row.original),
+                },
+              ]}
+            />
+          )
         },
       },
     ],
-    [currencyCode, editActionLabel, setDialogOpen, setEditingPayment, t]
+    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, openEditPayment, t]
   )
 
   if (loading) {
@@ -291,7 +336,7 @@ export function SalesDocumentPaymentsSection({
   return (
     <div className="space-y-4">
       {payments.length ? (
-        <DataTable<PaymentRow> columns={columns} data={payments} />
+        <DataTable<PaymentRow> columns={columns} data={payments} onRowClick={openEditPayment} />
       ) : (
         <TabEmptyState
           title={t('sales.documents.payments.emptyTitle', 'No payments yet.')}

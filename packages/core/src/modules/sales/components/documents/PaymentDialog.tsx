@@ -111,7 +111,7 @@ export function PaymentDialog({
     async (query?: string): Promise<PaymentMethodOption[]> => {
       setMethodsLoading(true)
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '200', isActive: 'true' })
+        const params = new URLSearchParams({ page: '1', pageSize: '100', isActive: 'true' })
         if (query && query.trim().length) params.set('search', query.trim())
         const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
           `/api/sales/payment-methods?${params.toString()}`,
@@ -333,6 +333,7 @@ export function PaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         ref={dialogContentRef}
+        className="sm:max-w-5xl"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault()
@@ -358,6 +359,7 @@ export function PaymentDialog({
           submitLabel={shortcutLabel}
           onSubmit={handleSubmit}
           loadingMessage={t('sales.documents.payments.loading', 'Loading payments…')}
+          customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
           contentHeader={
             methodsLoading ? (
               <p className="flex items-center gap-2 text-xs text-muted-foreground">

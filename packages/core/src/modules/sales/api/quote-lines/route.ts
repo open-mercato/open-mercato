@@ -119,7 +119,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return { body: payload }
       },
       response: ({ result }) => ({ id: result?.lineId ?? null, quoteId: result?.quoteId ?? null }),
       status: 201,
@@ -129,7 +130,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return { body: payload }
       },
       response: ({ result }) => ({ id: result?.lineId ?? null, quoteId: result?.quoteId ?? null }),
     },
@@ -142,7 +144,7 @@ const crud = makeCrudRoute({
         if (!payload.id || !payload.quoteId) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
         }
-        return payload
+        return { body: payload }
       },
       response: () => ({ ok: true }),
     },

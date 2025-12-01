@@ -138,6 +138,7 @@ const stripeProvider: PaymentProvider = {
 }
 
 const paymentProviders: PaymentProvider[] = [
+  stripeProvider,
   {
     key: 'wire-transfer',
     label: 'Wire transfer',

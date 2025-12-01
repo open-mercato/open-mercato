@@ -2440,7 +2440,7 @@ export default function SalesDocumentDetailPage({
   const loadAdjustmentsForTotals = React.useCallback(async () => {
     if (!record?.id) return
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200', [kind === 'order' ? 'orderId' : 'quoteId']: record.id })
+      const params = new URLSearchParams({ page: '1', pageSize: '100', [kind === 'order' ? 'orderId' : 'quoteId']: record.id })
       const resourcePath = kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `${resourcePath}?${params.toString()}`,
@@ -3715,6 +3715,7 @@ export default function SalesDocumentDetailPage({
           currencyCode={record.currencyCode ?? null}
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+          onActionChange={handleSectionActionChange}
         />
       )
     }

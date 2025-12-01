@@ -670,13 +670,17 @@ export function NotesSection<C = unknown>({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!notes.length) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: addActionLabel,
       onClick: focusComposer,
       disabled: isSubmitting || isLoading || !hasEntity,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting])
+  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return

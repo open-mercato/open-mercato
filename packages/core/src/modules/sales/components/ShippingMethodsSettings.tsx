@@ -513,7 +513,7 @@ export function ShippingMethodsSettings() {
     setLoading(true)
     try {
       const payload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-        '/api/sales/shipping-methods?pageSize=200',
+        '/api/sales/shipping-methods?pageSize=100',
         undefined,
         { errorMessage: translations.errors.load, fallback: { items: [] } },
       )

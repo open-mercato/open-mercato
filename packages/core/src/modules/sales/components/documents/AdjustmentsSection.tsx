@@ -14,7 +14,6 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
 import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload } from './AdjustmentDialog'
@@ -63,6 +62,7 @@ export function SalesDocumentAdjustmentsSection({
   organizationId: orgFromProps,
   tenantId: tenantFromProps,
   onActionChange,
+  onRowsChange,
 }: SalesDocumentAdjustmentsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
@@ -74,6 +74,7 @@ export function SalesDocumentAdjustmentsSection({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [activeAdjustment, setActiveAdjustment] = React.useState<AdjustmentRow | null>(null)
   const [kindOptions, setKindOptions] = React.useState<DictionaryOption[]>([])
+  const kindLoadingRef = React.useRef(false)
 
   const apiResourcePath = React.useMemo(
     () => (kind === 'order' ? '/api/sales/order-adjustments' : '/api/sales/quote-adjustments'),
@@ -103,6 +104,9 @@ export function SalesDocumentAdjustmentsSection({
     [kindOptions]
   )
   const loadKindOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
+    if (kindOptions.length) return kindOptions
+    if (kindLoadingRef.current) return kindOptions.length ? kindOptions : fallbackKindOptions
+    kindLoadingRef.current = true
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '100' })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
@@ -137,13 +141,29 @@ export function SalesDocumentAdjustmentsSection({
         a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
       )
       setKindOptions(options)
+      kindLoadingRef.current = false
       return options
     } catch (err) {
       console.error('sales.adjustment-kinds.fetch', err)
+      kindLoadingRef.current = false
       setKindOptions(fallbackKindOptions)
       return fallbackKindOptions
     }
-  }, [fallbackKindOptions])
+  }, [fallbackKindOptions, kindOptions])
+
+  const extractCustomFields = React.useCallback((item: Record<string, unknown>) => {
+    const entries: Record<string, unknown> = {}
+    Object.entries(item).forEach(([key, value]) => {
+      if (key.startsWith('cf_')) {
+        entries[key] = value
+      }
+      if (key.startsWith('cf:')) {
+        const stripped = key.slice(3)
+        if (stripped) entries[`cf_${stripped}`] = value
+      }
+    })
+    return entries
+  }, [])
 
   React.useEffect(() => {
     loadKindOptions().catch(() => {})
@@ -153,7 +173,7 @@ export function SalesDocumentAdjustmentsSection({
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200', [documentKey]: documentId })
+      const params = new URLSearchParams({ page: '1', pageSize: '100', [documentKey]: documentId })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `${apiResourcePath}?${params.toString()}`,
         undefined,
@@ -183,13 +203,17 @@ export function SalesDocumentAdjustmentsSection({
               : typeof (item as any).currencyCode === 'string'
                 ? (item as any).currencyCode
                 : currencyCode ?? null
-          const customFields = extractAllCustomFieldEntries(item as Record<string, unknown>)
+          const customFields = extractCustomFields(item as Record<string, unknown>)
           const customFieldSetId =
             typeof (item as any).custom_field_set_id === 'string'
               ? (item as any).custom_field_set_id
               : typeof (item as any).customFieldSetId === 'string'
                 ? (item as any).customFieldSetId
                 : null
+          const metadata =
+            typeof (item as any).metadata === 'object' && (item as any).metadata
+              ? ((item as any).metadata as Record<string, unknown>)
+              : null
           return {
             id,
             label: typeof item.label === 'string' ? item.label : null,
@@ -213,6 +237,7 @@ export function SalesDocumentAdjustmentsSection({
                   : 0,
             customFields: Object.keys(customFields).length ? customFields : null,
             customFieldSetId,
+            metadata,
           }
         })
         .filter((entry): entry is AdjustmentRow => Boolean(entry))
@@ -277,9 +302,9 @@ export function SalesDocumentAdjustmentsSection({
         )
       }
       const payload: Record<string, unknown> = {
-        [documentKey]: documentId,
-        organizationId: resolvedOrganizationId,
-        tenantId: resolvedTenantId,
+        [documentKey]: String(documentId),
+        organizationId: String(resolvedOrganizationId),
+        tenantId: String(resolvedTenantId),
         scope: 'order',
         kind: values.kind ?? 'custom',
         code: values.code ?? undefined,
@@ -291,6 +316,7 @@ export function SalesDocumentAdjustmentsSection({
         currencyCode: (values.currencyCode ?? currencyCode ?? '').toUpperCase(),
         position: Number.isFinite(values.position) ? values.position : undefined,
         customFields: values.customFields ?? undefined,
+        metadata: values.metadata ?? undefined,
       }
 
       const action = values.id ? updateCrud : createCrud
@@ -325,23 +351,22 @@ export function SalesDocumentAdjustmentsSection({
   const handleDelete = React.useCallback(
     async (row: AdjustmentRow) => {
       try {
-        const result = await deleteCrud(
-          crudResourcePath,
-          { id: row.id, [documentKey]: documentId },
-          {
-            successMessage: t('sales.documents.adjustments.deleted', 'Adjustment removed.'),
-            errorMessage: t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'),
-          }
-        )
-        if (result.ok) {
-          await loadAdjustments()
-        }
+        const result = await deleteCrud(crudResourcePath, {
+          body: {
+            id: row.id,
+            [documentKey]: documentId,
+            organizationId: resolvedOrganizationId ?? undefined,
+            tenantId: resolvedTenantId ?? undefined,
+          },
+          errorMessage: t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'),
+        })
+        if (result.ok) await loadAdjustments()
       } catch (err) {
         console.error('sales.document.adjustments.delete', err)
         flash(t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'), 'error')
       }
     },
-    [crudResourcePath, documentId, documentKey, loadAdjustments, t]
+    [crudResourcePath, documentId, documentKey, loadAdjustments, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   const columns = React.useMemo<ColumnDef<AdjustmentRow>[]>(

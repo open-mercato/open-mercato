@@ -8,7 +8,9 @@ export type SalesLineRecord = {
   unitPriceNet: number
   unitPriceGross: number
   taxRate: number
+  totalNet: number
   totalGross: number
+  priceMode: 'net' | 'gross'
   metadata: Record<string, unknown> | null
   catalogSnapshot: Record<string, unknown> | null
   customFieldSetId?: string | null

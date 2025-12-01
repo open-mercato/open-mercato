@@ -5,15 +5,26 @@
 import * as React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { DictionaryEntrySelect, type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useT } from '@/lib/i18n/context'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { Settings } from 'lucide-react'
+
+type TaxRateOption = {
+  id: string
+  name: string
+  code: string | null
+  rate: number | null
+  isDefault: boolean
+}
 
 type AdjustmentFormState = {
   id?: string
@@ -26,6 +37,8 @@ type AdjustmentFormState = {
   amountGross: string
   position: string
   customFieldSetId?: string | null
+  taxRateId?: string | null
+  taxRateValue?: number | null
 }
 
 export type AdjustmentRowData = {
@@ -41,6 +54,7 @@ export type AdjustmentRowData = {
   position: number
   customFields?: Record<string, unknown> | null
   customFieldSetId?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export type AdjustmentSubmitPayload = {
@@ -55,6 +69,7 @@ export type AdjustmentSubmitPayload = {
   position?: number | null
   currencyCode: string
   customFields?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
 }
 
 type AdjustmentDialogProps = {
@@ -100,6 +115,20 @@ function prefixCustomFieldValues(input: Record<string, unknown> | null | undefin
   }, {})
 }
 
+const formatTaxRateLabel = (rate: TaxRateOption): string => {
+  const extras: string[] = []
+  if (typeof rate.rate === 'number' && Number.isFinite(rate.rate)) {
+    extras.push(`${rate.rate}%`)
+  }
+  if (rate.code) {
+    extras.push(rate.code.toUpperCase())
+  }
+  if (!extras.length) return rate.name
+  return `${rate.name} • ${extras.join(' · ')}`
+}
+
+const roundAmount = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
+
 export function AdjustmentDialog({
   open,
   onOpenChange,
@@ -118,6 +147,10 @@ export function AdjustmentDialog({
     initialAdjustment?.rate && Number.isFinite(initialAdjustment.rate) ? 'rate' : 'amount'
   const [mode, setMode] = React.useState<'rate' | 'amount'>(initialMode)
   const [formResetKey, setFormResetKey] = React.useState(0)
+  const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
+  const taxRatesRef = React.useRef<TaxRateOption[]>([])
+  const taxRatesLoadedRef = React.useRef(false)
+  const lastAmountChangedRef = React.useRef<'net' | 'gross' | null>(null)
   const [initialValues, setInitialValues] = React.useState<AdjustmentFormState>(() => ({
     id: undefined,
     label: '',
@@ -129,31 +162,159 @@ export function AdjustmentDialog({
     amountGross: '',
     position: '',
     customFieldSetId: null,
+    taxRateId: null,
+    taxRateValue: null,
   }))
+
+  const taxRateMap = React.useMemo(
+    () =>
+      taxRates.reduce<Map<string, TaxRateOption>>((acc, rate) => {
+        acc.set(rate.id, rate)
+        return acc
+      }, new Map()),
+    [taxRates]
+  )
+
+  const resolveTaxRateValue = React.useCallback(
+    (values: Record<string, unknown>): number | null => {
+      const fallback = normalizeNumber((values as any)?.taxRateValue)
+      if (Number.isFinite(fallback)) return fallback
+      const rateId =
+        typeof (values as any)?.taxRateId === 'string' && (values as any)?.taxRateId.trim().length
+          ? (values as any)?.taxRateId.trim()
+          : null
+      if (rateId) {
+        const option = taxRateMap.get(rateId)
+        const parsed = normalizeNumber(option?.rate)
+        if (Number.isFinite(parsed)) return parsed
+      }
+      return null
+    },
+    [taxRateMap]
+  )
+
+  const loadTaxRates = React.useCallback(async (): Promise<TaxRateOption[]> => {
+    if (taxRatesLoadedRef.current && taxRatesRef.current.length) return taxRatesRef.current
+    try {
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        '/api/sales/tax-rates?pageSize=200',
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const parsed = items
+        .map<TaxRateOption | null>((item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          const name =
+            typeof item.name === 'string' && item.name.trim().length
+              ? item.name.trim()
+              : typeof item.code === 'string'
+                ? item.code
+                : null
+          if (!id || !name) return null
+          const rate = normalizeNumber((item as any).rate)
+          const code =
+            typeof (item as any).code === 'string' && (item as any).code.trim().length
+              ? (item as any).code.trim()
+              : null
+          const isDefault = Boolean((item as any).isDefault ?? (item as any).is_default)
+          return { id, name, code, rate: Number.isFinite(rate) ? rate : null, isDefault }
+        })
+        .filter((entry): entry is TaxRateOption => Boolean(entry))
+      taxRatesRef.current = parsed
+      taxRatesLoadedRef.current = true
+      setTaxRates(parsed)
+      return parsed
+    } catch (err) {
+      console.error('sales.tax-rates.fetch', err)
+      taxRatesRef.current = []
+      setTaxRates([])
+      taxRatesLoadedRef.current = true
+      return []
+    }
+  }, [])
+
+  const applyOppositeAmount = React.useCallback(
+    (
+      source: 'net' | 'gross',
+      rawValue: string,
+      values: Record<string, unknown>,
+      setFormValue?: (key: string, value: unknown) => void
+    ) => {
+      if (mode !== 'amount') return
+      if (!rawValue || rawValue.trim() === '') {
+        if (!setFormValue) return
+        setFormValue(source === 'net' ? 'amountGross' : 'amountNet', '')
+        return
+      }
+      const rateValue = resolveTaxRateValue(values)
+      if (!Number.isFinite(rateValue)) return
+      const numeric = normalizeNumber(rawValue)
+      if (!Number.isFinite(numeric)) return
+      if (!setFormValue) return
+      if (source === 'net') {
+        const gross = roundAmount(numeric * (1 + rateValue / 100))
+        setFormValue('amountGross', Number.isFinite(gross) ? gross.toFixed(2) : '')
+      } else {
+        const net = roundAmount(numeric / (1 + rateValue / 100))
+        setFormValue('amountNet', Number.isFinite(net) ? net.toFixed(2) : '')
+      }
+    },
+    [mode, resolveTaxRateValue]
+  )
 
   React.useEffect(() => {
     if (!open) return
-    const next: AdjustmentFormState = {
-      id: initialAdjustment?.id,
-      label: initialAdjustment?.label ?? '',
-      code: initialAdjustment?.code ?? '',
-      kind: initialAdjustment?.kind ?? (kindOptions[0]?.value as SalesAdjustmentKind) ?? 'custom',
-      calculatorKey: initialAdjustment?.calculatorKey ?? '',
-      rate: initialAdjustment?.rate ?? '',
-      amountNet: initialAdjustment?.amountNet ?? '',
-      amountGross: initialAdjustment?.amountGross ?? '',
-      position: initialAdjustment?.position ?? '',
-      customFieldSetId: initialAdjustment?.customFieldSetId ?? null,
+    let mounted = true
+    if (!kindOptions.length) {
+      void loadKindOptions()
     }
-    const customValues = prefixCustomFieldValues(
-      normalizeCustomFieldResponse(initialAdjustment?.customFields) ?? {}
-    )
-    setInitialValues({ ...next, ...customValues })
-    setMode(
-      initialAdjustment?.rate && Number.isFinite(initialAdjustment.rate) ? 'rate' : 'amount'
-    )
-    setFormResetKey((prev) => prev + 1)
-  }, [initialAdjustment, kindOptions, open])
+    const prepare = async () => {
+      const rates = await loadTaxRates()
+      if (!mounted) return
+      const metaTaxRateId =
+        typeof initialAdjustment?.metadata === 'object' &&
+        initialAdjustment?.metadata &&
+        typeof (initialAdjustment.metadata as any).taxRateId === 'string'
+          ? (initialAdjustment.metadata as any).taxRateId
+          : null
+      const metaTaxRateValue =
+        typeof initialAdjustment?.metadata === 'object' &&
+        initialAdjustment?.metadata &&
+        Number.isFinite(normalizeNumber((initialAdjustment.metadata as any).taxRate))
+          ? Number(normalizeNumber((initialAdjustment.metadata as any).taxRate))
+          : null
+      const defaultRate = rates.find((rate) => rate.isDefault) ?? null
+      const next: AdjustmentFormState = {
+        id: initialAdjustment?.id,
+        label: initialAdjustment?.label ?? '',
+        code: initialAdjustment?.code ?? '',
+        kind: initialAdjustment?.kind ?? (kindOptions[0]?.value as SalesAdjustmentKind) ?? 'custom',
+        calculatorKey: initialAdjustment?.calculatorKey ?? '',
+        rate: initialAdjustment?.rate ?? '',
+        amountNet: initialAdjustment?.amountNet ?? '',
+        amountGross: initialAdjustment?.amountGross ?? '',
+        position: initialAdjustment?.position ?? '',
+        customFieldSetId: initialAdjustment?.customFieldSetId ?? null,
+        taxRateId: metaTaxRateId ?? defaultRate?.id ?? null,
+        taxRateValue:
+          metaTaxRateValue ??
+          (Number.isFinite(defaultRate?.rate ?? null) ? (defaultRate?.rate as number) : null),
+      }
+      const customValues = prefixCustomFieldValues(
+        normalizeCustomFieldResponse(initialAdjustment?.customFields) ?? {}
+      )
+      setInitialValues({ ...next, ...customValues })
+      setMode(
+        initialAdjustment?.rate && Number.isFinite(initialAdjustment?.rate) ? 'rate' : 'amount'
+      )
+      setFormResetKey((prev) => prev + 1)
+    }
+    prepare().catch(() => {})
+    return () => {
+      mounted = false
+    }
+  }, [initialAdjustment, kindOptions, loadKindOptions, loadTaxRates, open])
 
   const fields = React.useMemo<CrudField<AdjustmentFormState>[]>(() => {
     const percentSuffix = (
@@ -272,19 +433,134 @@ export function AdjustmentDialog({
       {
         id: 'amountNet',
         label: t('sales.documents.adjustments.amountNet', 'Net amount'),
-        type: 'number',
+        type: 'custom',
         placeholder: '0.00',
         required: mode === 'amount',
         disabled: mode !== 'amount',
         layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => (
+          <Input
+            value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+            onChange={(event) => {
+              setValue(event.target.value)
+              lastAmountChangedRef.current = 'net'
+              applyOppositeAmount('net', event.target.value, values ?? {}, setFormValue)
+            }}
+            placeholder="0.00"
+            disabled={mode !== 'amount'}
+          />
+        ),
       },
       {
         id: 'amountGross',
         label: t('sales.documents.adjustments.amountGross', 'Gross amount'),
-        type: 'number',
+        type: 'custom',
         placeholder: '0.00',
         disabled: mode !== 'amount',
         layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => (
+          <Input
+            value={typeof value === 'string' ? value : value == null ? '' : String(value)}
+            onChange={(event) => {
+              setValue(event.target.value)
+              lastAmountChangedRef.current = 'gross'
+              applyOppositeAmount('gross', event.target.value, values ?? {}, setFormValue)
+            }}
+            placeholder="0.00"
+            disabled={mode !== 'amount'}
+          />
+        ),
+      },
+      {
+        id: 'taxRateId',
+        label: t('sales.documents.adjustments.taxRate', 'Tax class'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const resolvedValue =
+            typeof value === 'string' && value.trim().length
+              ? value
+              : null
+          const rateId =
+            resolvedValue ??
+            (() => {
+              const rateValue = normalizeNumber(
+                (values as any)?.taxRateValue ?? (values as any)?.taxRate
+              )
+              if (!Number.isFinite(rateValue)) return null
+              const match = taxRatesRef.current.find(
+                (rate) => Number.isFinite(rate.rate) && rate.rate === rateValue
+              )
+              return match?.id ?? null
+            })()
+          const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+            const nextId = event.target.value || null
+            const option = nextId ? taxRateMap.get(nextId) ?? null : null
+            setValue(nextId)
+            const normalizedRate = normalizeNumber(option?.rate)
+            setFormValue?.('taxRateValue', Number.isFinite(normalizedRate) ? normalizedRate : null)
+            const rateNumeric = Number.isFinite(normalizedRate) ? normalizedRate : null
+            if (rateNumeric === null) return
+            const lastChanged = lastAmountChangedRef.current
+            if (mode !== 'amount') return
+            if (lastChanged === 'gross') {
+              const gross = normalizeNumber((values as any)?.amountGross)
+              if (Number.isFinite(gross)) {
+                const net = roundAmount(gross / (1 + rateNumeric / 100))
+                setFormValue?.('amountNet', net.toFixed(2))
+              }
+              return
+            }
+            const net = normalizeNumber((values as any)?.amountNet)
+            if (Number.isFinite(net)) {
+              const gross = roundAmount(net * (1 + rateNumeric / 100))
+              setFormValue?.('amountGross', gross.toFixed(2))
+            }
+          }
+          return (
+            <div className="flex items-center gap-2">
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={rateId ?? ''}
+                onChange={handleChange}
+                disabled={!taxRates.length}
+              >
+                <option value="">
+                  {taxRates.length
+                    ? t('sales.documents.adjustments.taxRate.placeholder', 'No tax class selected')
+                    : t('sales.documents.adjustments.taxRate.empty', 'No tax classes available')}
+                </option>
+                {taxRates.map((rate) => (
+                  <option key={rate.id} value={rate.id}>
+                    {formatTaxRateLabel(rate)}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.open('/backend/config/sales?section=tax-rates', '_blank', 'noopener,noreferrer')
+                  }
+                }}
+                title={t('sales.documents.adjustments.taxRate.manage', 'Manage tax classes')}
+              >
+                <Settings className="h-4 w-4" />
+                <span className="sr-only">
+                  {t('sales.documents.adjustments.taxRate.manage', 'Manage tax classes')}
+                </span>
+              </Button>
+            </div>
+          )
+        },
+      },
+      {
+        id: 'taxRateValue',
+        label: '',
+        type: 'custom',
+        component: () => null,
       },
       {
         id: 'position',
@@ -303,7 +579,7 @@ export function AdjustmentDialog({
         ),
       },
     ]
-  }, [currencyCode, loadKindOptions, mode, t])
+  }, [applyOppositeAmount, currencyCode, loadKindOptions, mode, t, taxRates.length, taxRateMap])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     return [
@@ -333,11 +609,11 @@ export function AdjustmentDialog({
           { label: t('sales.documents.adjustments.labelRequired', 'Label is required.') }
         )
       }
-      const rateValue = normalizeNumber(values.rate)
+      const percentageRate = normalizeNumber(values.rate)
       const amountNet = normalizeNumber(values.amountNet)
       const amountGross = normalizeNumber(values.amountGross)
       if (mode === 'rate') {
-        if (!Number.isFinite(rateValue)) {
+        if (!Number.isFinite(percentageRate)) {
           throw createCrudFormError(
             t('sales.documents.adjustments.errorRate', 'Enter a percentage rate.'),
             { rate: t('sales.documents.adjustments.errorRate', 'Enter a percentage rate.') }
@@ -354,6 +630,19 @@ export function AdjustmentDialog({
       const customFields = collectCustomFieldValues(values, {
         transform: (value) => normalizeCustomFieldSubmitValue(value),
       })
+      const rateValue = resolveTaxRateValue(values)
+      const selectedRateId =
+        typeof values.taxRateId === 'string' && values.taxRateId.trim().length
+          ? values.taxRateId
+          : null
+      const metadata: Record<string, unknown> = {
+        ...(typeof initialAdjustment?.metadata === 'object' && initialAdjustment?.metadata
+          ? initialAdjustment.metadata
+          : {}),
+      }
+      if (selectedRateId) metadata.taxRateId = selectedRateId
+      if (Number.isFinite(rateValue)) metadata.taxRate = rateValue
+
       const payload: AdjustmentSubmitPayload = {
         id: typeof values.id === 'string' ? values.id : initialAdjustment?.id,
         label,
@@ -367,23 +656,24 @@ export function AdjustmentDialog({
           typeof values.calculatorKey === 'string' && values.calculatorKey.trim().length
             ? values.calculatorKey.trim()
             : null,
-        rate: mode === 'rate' && Number.isFinite(rateValue) ? rateValue : null,
+        rate: mode === 'rate' && Number.isFinite(percentageRate) ? percentageRate : null,
         amountNet: mode === 'amount' && Number.isFinite(amountNet) ? amountNet : null,
         amountGross: mode === 'amount' && Number.isFinite(amountGross) ? amountGross : null,
         position: Number.isFinite(normalizeNumber(values.position)) ? Number(normalizeNumber(values.position)) : null,
         currencyCode: resolvedCurrency,
         customFields: Object.keys(customFields).length ? normalizeCustomFieldValues(customFields) : null,
+        metadata: Object.keys(metadata).length ? metadata : null,
       }
       await onSubmit(payload)
       onOpenChange(false)
     },
-    [currencyCode, initialAdjustment?.id, mode, onOpenChange, onSubmit, t]
+    [currencyCode, initialAdjustment?.id, initialAdjustment?.metadata, mode, onOpenChange, onSubmit, resolveTaxRateValue, t]
   )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="w-[calc(100%-1.5rem)] max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+        className="sm:max-w-5xl"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.preventDefault()
@@ -411,6 +701,7 @@ export function AdjustmentDialog({
           submitLabel={initialAdjustment ? labels.submitUpdate : labels.submitCreate}
           onSubmit={handleSubmit}
           loadingMessage={t('sales.documents.adjustments.loading', 'Loading adjustments…')}
+          customFieldsLoadingMessage={t('ui.forms.loading', 'Loading data...')}
         />
       </DialogContent>
     </Dialog>

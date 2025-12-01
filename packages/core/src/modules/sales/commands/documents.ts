@@ -3204,6 +3204,7 @@ const orderLineUpsertCommand: CommandHandler<
 > = {
   id: 'sales.orders.lines.upsert',
   async prepare(input, ctx) {
+    console.log('PREPARE ORDER LINE UPSERT', input, ctx)
     const raw = (input?.body as Record<string, unknown> | undefined) ?? {}
     const orderId = typeof raw.orderId === 'string' ? raw.orderId : null
     if (!orderId) return {}

@@ -15,7 +15,7 @@ const rawBodySchema = z.object({}).passthrough()
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
+    pageSize: z.coerce.number().min(1).max(200).default(50),
     id: z.string().uuid().optional(),
     orderId: z.string().uuid().optional(),
     sortField: z.string().optional(),
@@ -118,8 +118,10 @@ const crud = makeCrudRoute({
       commandId: 'sales.orders.lines.upsert',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
+        console.log('CREATE order line raw input:', raw)
         const { translate } = await resolveTranslations()
-        return upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return { body: payload }
       },
       response: ({ result }) => ({ id: result?.lineId ?? null, orderId: result?.orderId ?? null }),
       status: 201,
@@ -129,7 +131,8 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return { body: payload }
       },
       response: ({ result }) => ({ id: result?.lineId ?? null, orderId: result?.orderId ?? null }),
     },
@@ -142,7 +145,7 @@ const crud = makeCrudRoute({
         if (!payload.id || !payload.orderId) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
         }
-        return payload
+        return { body: payload }
       },
       response: () => ({ ok: true }),
     },

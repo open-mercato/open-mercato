@@ -126,7 +126,14 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = deleteSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const body = raw && typeof raw === 'object' && raw.body && typeof (raw as Record<string, unknown>).body === 'object'
+          ? ((raw as { body: Record<string, unknown> }).body ?? {})
+          : {}
+        const query = raw && typeof raw === 'object' && raw.query && typeof (raw as Record<string, unknown>).query === 'object'
+          ? ((raw as { query: Record<string, unknown> }).query ?? {})
+          : {}
+        const merged = raw && typeof raw === 'object' ? { ...body, ...query } : raw ?? {}
+        const payload = deleteSchema.parse(withScopedPayload(merged, ctx, translate))
         if (!payload.id) {
           throw new CrudHttpError(400, {
             error: translate('sales.payments.not_found', 'Payment not found.'),

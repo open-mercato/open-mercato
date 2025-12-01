@@ -8,11 +8,13 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { DollarSign } from 'lucide-react'
+import { DollarSign, Settings } from 'lucide-react'
 import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { SalesLineRecord } from './lineItemTypes'
 
@@ -45,6 +47,14 @@ type PriceOption = {
   scopeTags?: string[]
 }
 
+type TaxRateOption = {
+  id: string
+  name: string
+  code: string | null
+  rate: number | null
+  isDefault: boolean
+}
+
 type LineFormState = {
   productId: string | null
   variantId: string | null
@@ -53,6 +63,7 @@ type LineFormState = {
   priceMode: 'net' | 'gross'
   unitPrice: string
   taxRate: number | null
+  taxRateId: string | null
   name: string
   currencyCode: string | null
   catalogSnapshot?: Record<string, unknown> | null
@@ -79,6 +90,7 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
   priceMode: 'gross',
   unitPrice: '',
   taxRate: null,
+  taxRateId: null,
   name: '',
   currencyCode: currencyCode ?? null,
   catalogSnapshot: null,
@@ -152,6 +164,9 @@ export function LineItemDialog({
   onSaved,
 }: SalesLineDialogProps) {
   const t = useT()
+  const scope = useOrganizationScopeDetail()
+  const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null
+  const resolvedTenantId = tenantId ?? scope.tenantId ?? null
   const [initialValues, setInitialValues] = React.useState<LineFormState>(() => defaultForm(currencyCode))
   const [productOption, setProductOption] = React.useState<ProductOption | null>(null)
   const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
@@ -159,8 +174,11 @@ export function LineItemDialog({
   const [priceLoading, setPriceLoading] = React.useState(false)
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [editingId, setEditingId] = React.useState<string | null>(null)
+  const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
+  const taxRatesRef = React.useRef<TaxRateOption[]>([])
+  const defaultTaxRateRef = React.useRef<TaxRateOption | null>(null)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
 
   const resourcePath = React.useMemo(
@@ -170,9 +188,38 @@ export function LineItemDialog({
   const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
   const customFieldEntityId = kind === 'order' ? E.sales.sales_order_line : E.sales.sales_quote_line
 
+  const taxRateMap = React.useMemo(
+    () =>
+      taxRates.reduce<Map<string, TaxRateOption>>((acc, rate) => {
+        acc.set(rate.id, rate)
+        return acc
+      }, new Map()),
+    [taxRates]
+  )
+
+  const findTaxRateIdByValue = React.useCallback(
+    (value: number | null | undefined): string | null => {
+      const numeric = normalizeNumber(value, Number.NaN)
+      if (!Number.isFinite(numeric)) return null
+      const match = taxRatesRef.current.find(
+        (rate) => Number.isFinite(rate.rate) && Math.abs((rate.rate as number) - numeric) < 0.0001
+      )
+      return match?.id ?? null
+    },
+    []
+  )
+
   const resetForm = React.useCallback(
     (next?: Partial<LineFormState>) => {
-      setInitialValues({ ...defaultForm(currencyCode), ...next })
+      const base = { ...defaultForm(currencyCode), ...next }
+      const defaultRate = defaultTaxRateRef.current
+      if (!base.taxRateId && defaultRate) {
+        base.taxRateId = defaultRate.id
+        base.taxRate = Number.isFinite(defaultRate.rate ?? null)
+          ? (defaultRate.rate as number)
+          : base.taxRate
+      }
+      setInitialValues(base)
       setProductOption(null)
       setVariantOption(null)
       setPriceOptions([])
@@ -186,6 +233,46 @@ export function LineItemDialog({
     onOpenChange(false)
     resetForm()
   }, [onOpenChange, resetForm])
+
+  const loadTaxRates = React.useCallback(async () => {
+    try {
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        '/api/sales/tax-rates?pageSize=200',
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const parsed = items
+        .map<TaxRateOption | null>((item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          const name =
+            typeof item.name === 'string' && item.name.trim().length
+              ? item.name.trim()
+              : typeof item.code === 'string'
+                ? item.code
+                : null
+          if (!id || !name) return null
+          const rate = normalizeNumber((item as any).rate)
+          const code =
+            typeof (item as any).code === 'string' && (item as any).code.trim().length
+              ? (item as any).code.trim()
+              : null
+          const isDefault = Boolean((item as any).isDefault ?? (item as any).is_default)
+          return { id, name, code, rate: Number.isFinite(rate) ? rate : null, isDefault }
+        })
+        .filter((entry): entry is TaxRateOption => Boolean(entry))
+      taxRatesRef.current = parsed
+      defaultTaxRateRef.current = parsed.find((rate) => rate.isDefault) ?? null
+      setTaxRates(parsed)
+      return parsed
+    } catch (err) {
+      console.error('sales.tax-rates.fetch', err)
+      taxRatesRef.current = []
+      defaultTaxRateRef.current = null
+      setTaxRates([])
+      return []
+    }
+  }, [])
 
   const loadProductOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
@@ -340,6 +427,10 @@ export function LineItemDialog({
                       typeof (item as any).price_kind?.code === 'string'
                     ? (item as any).price_kind.code
                     : null
+            const resolvedPriceKindTitle =
+              priceKindTitle ??
+              priceKindCode ??
+              (typeof (item as any).kind === 'string' ? (item as any).kind : null)
             const labelParts = [
               displayMode === 'including-tax' && amountGross !== null && currency
                 ? formatMoney(amountGross, currency)
@@ -352,7 +443,7 @@ export function LineItemDialog({
                   ? t('sales.documents.items.priceGross', 'Gross')
                   : t('sales.documents.items.priceNet', 'Net')
                 : null,
-              priceKindTitle ?? priceKindCode ?? null,
+              resolvedPriceKindTitle,
             ].filter(Boolean)
             const { reason, tags } = buildPriceScopeReason(item, (key, fallback) => t(key, fallback))
             const label =
@@ -372,7 +463,7 @@ export function LineItemDialog({
               taxRate: Number.isFinite(taxRate) ? taxRate : null,
               label,
               priceKindId,
-              priceKindTitle: priceKindTitle ?? null,
+              priceKindTitle: resolvedPriceKindTitle ?? null,
               priceKindCode: priceKindCode ?? null,
               scopeReason: reason,
               scopeTags: tags,
@@ -391,8 +482,25 @@ export function LineItemDialog({
     [t],
   )
 
+  React.useEffect(() => {
+    if (!open) return
+    loadTaxRates().catch(() => {})
+  }, [loadTaxRates, open])
+
   const handleFormSubmit = React.useCallback(
     async (values: LineFormState & Record<string, unknown>) => {
+      console.groupCollapsed('sales.line.submit.start')
+      console.log('raw values', values)
+      // Resolve required scope and ids
+      const resolvedDocumentId = typeof documentId === 'string' && documentId.trim().length ? documentId : null
+      const resolvedOrg = resolvedOrganizationId
+      const resolvedTenant = resolvedTenantId
+
+      if (!resolvedOrg || !resolvedTenant || !resolvedDocumentId) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorScope', 'Organization and tenant are required.'),
+        )
+      }
       if (!values.productId) {
         throw createCrudFormError(
           t('sales.documents.items.errorProductRequired', 'Select a product to continue.'),
@@ -405,28 +513,32 @@ export function LineItemDialog({
           { variantId: t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.') },
         )
       }
-      const quantity = Math.max(normalizeNumber(values.quantity, NaN), 0)
-      if (!Number.isFinite(quantity) || quantity <= 0) {
+
+      const qtyNumber = Number(values.quantity ?? values.quantity ?? 0)
+      console.log('quantity raw -> parsed', { raw: values.quantity, parsed: qtyNumber })
+      if (!Number.isFinite(qtyNumber) || qtyNumber <= 0) {
         throw createCrudFormError(
           t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.'),
           { quantity: t('sales.documents.items.errorQuantity', 'Quantity must be greater than 0.') },
         )
       }
-      const unitPriceValue = normalizeNumber(values.unitPrice, NaN)
-      if (!Number.isFinite(unitPriceValue) || unitPriceValue <= 0) {
+
+      const unitPriceNumber = Number(values.unitPrice ?? values.unitPrice ?? 0)
+      console.log('unit price raw -> parsed', { raw: values.unitPrice, parsed: unitPriceNumber })
+      if (!Number.isFinite(unitPriceNumber) || unitPriceNumber <= 0) {
         throw createCrudFormError(
           t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.'),
           { unitPrice: t('sales.documents.items.errorUnitPrice', 'Unit price must be greater than 0.') },
         )
       }
+
       const selectedPrice = values.priceId
         ? priceOptions.find((price) => price.id === values.priceId) ?? null
         : null
       const resolvedCurrency =
-        values.currencyCode ??
+        (values.currencyCode as string | null | undefined) ??
         selectedPrice?.currencyCode ??
         currencyCode ??
-        priceOptions.find((price) => price.currencyCode)?.currencyCode ??
         null
       if (!resolvedCurrency) {
         throw createCrudFormError(
@@ -434,21 +546,28 @@ export function LineItemDialog({
           { priceId: t('sales.documents.items.errorCurrency', 'Currency is required.') },
         )
       }
-      if (!organizationId || !tenantId) {
-        throw createCrudFormError(
-          t('sales.documents.items.errorScope', 'Organization and tenant are required.'),
-        )
-      }
 
       const resolvedName =
-        (values.name ?? '').trim() || variantOption?.title || productOption?.title || undefined
+        (values.name ?? '').toString().trim() ||
+        variantOption?.title ||
+        productOption?.title ||
+        undefined
       const resolvedPriceMode = values.priceMode === 'net' ? 'net' : 'gross'
       const catalogSnapshot =
         typeof values.catalogSnapshot === 'object' && values.catalogSnapshot ? values.catalogSnapshot : null
+      const selectedTaxRateId =
+        typeof values.taxRateId === 'string' && values.taxRateId.trim().length
+          ? values.taxRateId
+          : null
+      const resolvedTaxRate = Number.isFinite(values.taxRate)
+        ? (values.taxRate as number)
+        : normalizeNumber(values.taxRate)
+
       const metadata = {
         ...(catalogSnapshot ?? {}),
         ...(values.priceId ? { priceId: values.priceId } : {}),
-        ...(resolvedPriceMode ? { priceMode: resolvedPriceMode } : {}),
+        priceMode: resolvedPriceMode,
+        ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
         ...(productOption
           ? {
               productTitle: productOption.title,
@@ -466,20 +585,21 @@ export function LineItemDialog({
       }
 
       const payload: Record<string, unknown> = {
-        [documentKey]: documentId,
-        organizationId,
-        tenantId,
-        productId: values.productId,
-        productVariantId: values.variantId,
-        quantity,
-        currencyCode: resolvedCurrency,
-        priceId: values.priceId ?? undefined,
+        [documentKey]: String(resolvedDocumentId),
+        organizationId: String(resolvedOrg),
+        tenantId: String(resolvedTenant),
+        productId: values.productId ? String(values.productId) : null,
+        productVariantId: values.variantId ? String(values.variantId) : null,
+        quantity: qtyNumber,
+        currencyCode: String(resolvedCurrency),
+        priceId: values.priceId ? String(values.priceId) : undefined,
         priceMode: resolvedPriceMode,
-        taxRate: values.taxRate ?? undefined,
+        taxRate: Number.isFinite(resolvedTaxRate) ? resolvedTaxRate : undefined,
         catalogSnapshot,
         metadata,
         customFieldSetId: values.customFieldSetId ?? undefined,
       }
+
       const customFields = collectCustomFieldValues(values, {
         transform: (value) => normalizeCustomFieldSubmitValue(value),
       })
@@ -488,22 +608,33 @@ export function LineItemDialog({
       }
       if (resolvedName) payload.name = resolvedName
       if (resolvedPriceMode === 'gross') {
-        payload.unitPriceGross = unitPriceValue
+        payload.unitPriceGross = unitPriceNumber
       } else {
-        payload.unitPriceNet = unitPriceValue
+        payload.unitPriceNet = unitPriceNumber
       }
 
-      const action = editingId ? updateCrud : createCrud
-      const result = await action(
-        resourcePath,
-        editingId ? { id: editingId, ...payload } : payload,
-        {
-          errorMessage: t('sales.documents.items.errorSave', 'Failed to save line.'),
-        },
-      )
-      if (result.ok) {
-        if (onSaved) await onSaved()
-        closeDialog()
+      console.debug('resolved scope', { resolvedDocumentId, resolvedOrg, resolvedTenant, resolvedCurrency })
+      console.debug('parsed numbers', { qtyNumber, unitPriceNumber })
+      console.log('sales.line.submit.payload', payload)
+      console.log('sales.line.submit.payload.json', JSON.stringify(payload))
+      console.groupEnd()
+
+      try {
+        const action = editingId ? updateCrud : createCrud
+        const result = await action(
+          resourcePath,
+          editingId ? { id: editingId, ...payload } : payload,
+          {
+            errorMessage: t('sales.documents.items.errorSave', 'Failed to save line.'),
+          },
+        )
+        if (result.ok) {
+          if (onSaved) await onSaved()
+          closeDialog()
+        }
+      } catch (err) {
+        console.error('sales.line.submit.error', err)
+        throw err
       }
     },
     [
@@ -511,15 +642,15 @@ export function LineItemDialog({
       documentId,
       documentKey,
       editingId,
-      organizationId,
       priceOptions,
       productOption,
       resourcePath,
       t,
-      tenantId,
       variantOption,
       onSaved,
       closeDialog,
+      resolvedOrganizationId,
+      resolvedTenantId,
     ],
   )
 
@@ -658,12 +789,15 @@ export function LineItemDialog({
                   setFormValue?.('priceMode', mode)
                   setFormValue?.('unitPrice', amount.toString())
                   setFormValue?.('taxRate', selected.taxRate ?? null)
+                  const matchedRateId = findTaxRateIdByValue(selected.taxRate)
+                  setFormValue?.('taxRateId', matchedRateId)
                   setFormValue?.(
                     'currencyCode',
                     selected.currencyCode ?? values?.currencyCode ?? currencyCode ?? null,
                   )
                 } else {
                   setFormValue?.('taxRate', null)
+                  setFormValue?.('taxRateId', null)
                 }
               }}
               fetchItems={async (query) => {
@@ -688,7 +822,12 @@ export function LineItemDialog({
                     id: price.id,
                     title: price.label,
                     subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
-                    description: price.scopeReason ?? undefined,
+                    description: [
+                      price.priceKindTitle ?? price.priceKindCode ?? null,
+                      price.scopeReason ?? null,
+                    ]
+                      .filter(Boolean)
+                      .join(' • ') || undefined,
                     rightLabel: price.currencyCode ?? undefined,
                     icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
                   }))
@@ -731,6 +870,61 @@ export function LineItemDialog({
         },
       },
       {
+        id: 'taxRateId',
+        label: t('sales.documents.items.taxRate', 'Tax class'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue, setFormValue, values }) => {
+          const resolvedValue =
+            typeof value === 'string' && value.trim().length
+              ? value
+              : findTaxRateIdByValue((values as any)?.taxRate)
+          const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+            const nextId = event.target.value || null
+            const option = nextId ? taxRateMap.get(nextId) ?? null : null
+            setValue(nextId)
+            const rate = normalizeNumber(option?.rate)
+            setFormValue?.('taxRate', Number.isFinite(rate) ? rate : null)
+          }
+          return (
+            <div className="flex items-center gap-2">
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={resolvedValue ?? ''}
+                onChange={handleChange}
+                disabled={!taxRates.length}
+              >
+                <option value="">
+                  {taxRates.length
+                    ? t('sales.documents.items.taxRate.none', 'No tax class selected')
+                    : t('sales.documents.items.taxRate.empty', 'No tax classes available')}
+                </option>
+                {taxRates.map((rate) => (
+                  <option key={rate.id} value={rate.id}>
+                    {rate.name}
+                    {rate.code ? ` • ${rate.code.toUpperCase()}` : ''}
+                    {Number.isFinite(rate.rate) ? ` • ${rate.rate}%` : ''}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    window.open('/backend/config/sales?section=tax-rates', '_blank', 'noopener,noreferrer')
+                  }
+                }}
+                title={t('catalog.products.create.taxRates.manage', 'Manage tax classes')}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
+          )
+        },
+      },
+      {
         id: 'quantity',
         label: t('sales.documents.items.quantity', 'Quantity'),
         type: 'custom',
@@ -751,7 +945,19 @@ export function LineItemDialog({
         layout: 'full',
       },
     ]
-  }, [currencyCode, loadPrices, loadProductOptions, loadVariantOptions, priceLoading, priceOptions, productOption, t])
+  }, [
+    currencyCode,
+    findTaxRateIdByValue,
+    loadPrices,
+    loadProductOptions,
+    loadVariantOptions,
+    priceLoading,
+    priceOptions,
+    productOption,
+    t,
+    taxRateMap,
+    taxRates.length,
+  ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     return [
@@ -776,13 +982,31 @@ export function LineItemDialog({
     nextForm.productId = initialLine.productId
     nextForm.variantId = initialLine.productVariantId
     nextForm.quantity = initialLine.quantity.toString()
-    nextForm.unitPrice = initialLine.unitPriceGross.toString()
-    nextForm.priceMode = 'gross'
+    const meta = initialLine.metadata ?? {}
+    const metaMode = (meta as any)?.priceMode
+    const resolvedPriceMode =
+      metaMode === 'net' || metaMode === 'gross' ? metaMode : initialLine.priceMode ?? 'gross'
+    nextForm.unitPrice =
+      resolvedPriceMode === 'net' ? initialLine.unitPriceNet.toString() : initialLine.unitPriceGross.toString()
+    nextForm.priceMode = resolvedPriceMode
     nextForm.taxRate = Number.isFinite(initialLine.taxRate) ? initialLine.taxRate : null
     nextForm.name = initialLine.name ?? ''
     nextForm.catalogSnapshot = initialLine.catalogSnapshot ?? null
     nextForm.customFieldSetId = initialLine.customFieldSetId ?? null
-    const meta = initialLine.metadata ?? {}
+    const metaTaxRateId =
+      typeof (meta as any).taxRateId === 'string' ? ((meta as any).taxRateId as string) : null
+    const fallbackTaxRateId = findTaxRateIdByValue(nextForm.taxRate)
+    nextForm.taxRateId =
+      metaTaxRateId ??
+      fallbackTaxRateId ??
+      (defaultTaxRateRef.current ? defaultTaxRateRef.current.id : null)
+    if (!Number.isFinite(nextForm.taxRate) && nextForm.taxRateId) {
+      const matched = taxRatesRef.current.find((rate) => rate.id === nextForm.taxRateId)
+      const numericRate = normalizeNumber(matched?.rate)
+      if (Number.isFinite(numericRate)) {
+        nextForm.taxRate = numericRate
+      }
+    }
     if (typeof meta === 'object' && meta) {
       const mode = (meta as any).priceMode
       if (mode === 'net' || mode === 'gross') {
@@ -824,12 +1048,12 @@ export function LineItemDialog({
     } else {
       setPriceOptions([])
     }
-  }, [currencyCode, initialLine, loadPrices, open, resetForm])
+  }, [currencyCode, findTaxRateIdByValue, initialLine, loadPrices, open, resetForm])
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
       <DialogContent
-        className="sm:max-w-2xl"
+        className="sm:max-w-5xl"
         ref={dialogContentRef}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {

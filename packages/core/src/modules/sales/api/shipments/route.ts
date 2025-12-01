@@ -21,7 +21,7 @@ const rawBodySchema = z.object({}).passthrough()
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
+    pageSize: z.coerce.number().min(1).max(200).default(50),
     orderId: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
