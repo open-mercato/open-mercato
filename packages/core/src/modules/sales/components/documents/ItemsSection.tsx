@@ -59,7 +59,16 @@ export function SalesDocumentItemsSection({
           .map((item) => {
             const id = typeof item.id === 'string' ? item.id : null
             if (!id) return null
-            const customFields = normalizeCustomFieldResponse(item as Record<string, unknown>) ?? null
+            const rawCustomFields = Object.entries(item as Record<string, unknown>).reduce<Record<string, unknown>>(
+              (acc, [key, value]) => {
+                if (key.startsWith('cf_') || key.startsWith('cf:')) {
+                  acc[key] = value
+                }
+                return acc
+              },
+              {},
+            )
+            const customFields = normalizeCustomFieldResponse(rawCustomFields) ?? null
             const name =
               typeof item.name === 'string'
                 ? item.name

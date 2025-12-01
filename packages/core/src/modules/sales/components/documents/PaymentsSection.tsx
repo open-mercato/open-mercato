@@ -4,19 +4,13 @@ import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
-import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { CreditCard } from 'lucide-react'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
 
 type PaymentRow = {
   id: string
@@ -28,18 +22,8 @@ type PaymentRow = {
   currencyCode: string | null
   receivedAt: string | null
   createdAt: string | null
-}
-
-type PaymentTotals = {
-  paidTotalAmount?: number | null
-  refundedTotalAmount?: number | null
-  outstandingAmount?: number | null
-}
-
-type PaymentMethodOption = {
-  id: string
-  name: string
-  code: string
+  customValues?: Record<string, unknown> | null
+  customFieldSetId?: string | null
 }
 
 type SalesDocumentPaymentsSectionProps = {
@@ -69,6 +53,37 @@ function formatMoney(value: number, currency: string | null | undefined): string
   }
 }
 
+function toCustomValues(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const entries = raw as Record<string, unknown>
+  return Object.keys(entries).length ? entries : null
+}
+
+function extractCustomValues(item: Record<string, unknown>): Record<string, unknown> | null {
+  const direct = toCustomValues((item as any).customValues ?? (item as any).custom_values)
+  if (direct) return direct
+  const list =
+    Array.isArray((item as any).customFields) && (item as any).customFields.length
+      ? ((item as any).customFields as Array<Record<string, unknown>>)
+      : Array.isArray((item as any).custom_fields) && (item as any).custom_fields.length
+        ? ((item as any).custom_fields as Array<Record<string, unknown>>)
+        : null
+  if (!list) return null
+  const mapped: Record<string, unknown> = {}
+  list.forEach((entry) => {
+    const key =
+      typeof entry?.key === 'string'
+        ? entry.key
+        : typeof (entry as any)?.id === 'string'
+          ? (entry as any).id
+          : null
+    if (!key) return
+    const value = (entry as any)?.value
+    mapped[key] = value
+  })
+  return Object.keys(mapped).length ? mapped : null
+}
+
 export function SalesDocumentPaymentsSection({
   orderId,
   currencyCode,
@@ -82,54 +97,13 @@ export function SalesDocumentPaymentsSection({
   const resolvedOrganizationId = orgFromProps ?? organizationId ?? null
   const resolvedTenantId = tenantFromProps ?? tenantId ?? null
   const [payments, setPayments] = React.useState<PaymentRow[]>([])
-  const [paymentMethods, setPaymentMethods] = React.useState<PaymentMethodOption[]>([])
   const [loading, setLoading] = React.useState(false)
-  const [methodsLoading, setMethodsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [formResetKey, setFormResetKey] = React.useState(0)
-  const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
-  const [editingId, setEditingId] = React.useState<string | null>(null)
-  const [initialValues, setInitialValues] = React.useState<Record<string, unknown>>({
-    amount: '',
-    paymentMethodId: '',
-    paymentReference: '',
-    receivedAt: '',
-  })
+  const [editingPayment, setEditingPayment] = React.useState<PaymentFormData | null>(null)
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
   const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
-  const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
-
-  const loadPaymentMethods = React.useCallback(async () => {
-    setMethodsLoading(true)
-    try {
-      const params = new URLSearchParams({ page: '1', pageSize: '100' })
-      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/sales/payment-methods?${params.toString()}`,
-        undefined,
-        { fallback: { items: [] } }
-      )
-      if (response.ok && Array.isArray(response.result?.items)) {
-        const options = response.result.items
-          .map((item) => {
-            const id = typeof item.id === 'string' ? item.id : null
-            if (!id) return null
-            const name = typeof item.name === 'string' ? item.name : null
-            const code = typeof item.code === 'string' ? item.code : null
-            return { id, name: name ?? code ?? id, code: code ?? id }
-          })
-          .filter((entry): entry is PaymentMethodOption => !!entry)
-        setPaymentMethods(options)
-      } else {
-        setPaymentMethods([])
-      }
-    } catch (err) {
-      console.error('sales.payments.methods.load', err)
-    } finally {
-      setMethodsLoading(false)
-    }
-  }, [])
 
   const loadPayments = React.useCallback(async () => {
     setLoading(true)
@@ -143,29 +117,40 @@ export function SalesDocumentPaymentsSection({
       )
       if (response.ok && Array.isArray(response.result?.items)) {
         const mapped: PaymentRow[] = response.result.items
-          .map((item) => ({
-            id: typeof item.id === 'string' ? item.id : null,
-            paymentReference:
-              typeof item.payment_reference === 'string' ? item.payment_reference : null,
-            paymentMethodId:
-              typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
-            paymentMethodName:
-              typeof item.payment_method_name === 'string'
-                ? item.payment_method_name
-                : typeof item.payment_method_code === 'string'
-                  ? item.payment_method_code
-                  : null,
-            status: typeof item.status === 'string' ? item.status : null,
-            amount: normalizeNumber(item.amount),
-            currencyCode:
-              typeof item.currency_code === 'string'
-                ? item.currency_code
-                : typeof currencyCode === 'string'
-                  ? currencyCode
-                  : null,
-            receivedAt: typeof item.received_at === 'string' ? item.received_at : null,
-            createdAt: typeof item.created_at === 'string' ? item.created_at : null,
-          }))
+          .map((item) => {
+            const customValues =
+              item && typeof item === 'object' ? extractCustomValues(item as Record<string, unknown>) : null
+            return {
+              id: typeof item.id === 'string' ? item.id : null,
+              paymentReference:
+                typeof item.payment_reference === 'string' ? item.payment_reference : null,
+              paymentMethodId:
+                typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
+              paymentMethodName:
+                typeof item.payment_method_name === 'string'
+                  ? item.payment_method_name
+                  : typeof item.payment_method_code === 'string'
+                    ? item.payment_method_code
+                    : null,
+              status: typeof item.status === 'string' ? item.status : null,
+              amount: normalizeNumber(item.amount),
+              currencyCode:
+                typeof item.currency_code === 'string'
+                  ? item.currency_code
+                  : typeof currencyCode === 'string'
+                    ? currencyCode
+                    : null,
+              receivedAt: typeof item.received_at === 'string' ? item.received_at : null,
+              createdAt: typeof item.created_at === 'string' ? item.created_at : null,
+              customValues,
+              customFieldSetId:
+                typeof (item as any)?.custom_field_set_id === 'string'
+                  ? (item as any).custom_field_set_id
+                  : typeof (item as any)?.customFieldSetId === 'string'
+                    ? (item as any).customFieldSetId
+                    : null,
+            }
+          })
           .filter((entry): entry is PaymentRow => !!entry.id)
         setPayments(mapped)
       } else {
@@ -183,25 +168,28 @@ export function SalesDocumentPaymentsSection({
     void loadPayments()
   }, [loadPayments])
 
-  React.useEffect(() => {
-    void loadPaymentMethods()
-  }, [loadPaymentMethods])
-
-  const resetForm = React.useCallback(() => {
-    setFormResetKey((prev) => prev + 1)
-    setEditingId(null)
-    setInitialValues({
-      amount: '',
-      paymentMethodId: '',
-      paymentReference: '',
-      receivedAt: '',
-    })
+  const openCreate = React.useCallback(() => {
+    setEditingPayment(null)
+    setDialogOpen(true)
   }, [])
 
-  const openDialog = React.useCallback(() => {
-    resetForm()
-    setDialogOpen(true)
-  }, [resetForm])
+  const handleDialogChange = React.useCallback((nextOpen: boolean) => {
+    setDialogOpen(nextOpen)
+    if (!nextOpen) {
+      setEditingPayment(null)
+    }
+  }, [])
+
+  const handlePaymentSaved = React.useCallback(
+    async (totals?: PaymentTotals | null) => {
+      if (totals && onTotalsChange) {
+        onTotalsChange(totals)
+      }
+      await loadPayments()
+      handleDialogChange(false)
+    },
+    [handleDialogChange, loadPayments, onTotalsChange]
+  )
 
   React.useEffect(() => {
     if (!onActionChange) return
@@ -211,157 +199,11 @@ export function SalesDocumentPaymentsSection({
     }
     onActionChange({
       label: addActionLabel,
-      onClick: openDialog,
+      onClick: openCreate,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, onActionChange, openDialog, payments.length])
-
-  const currencyLabel = React.useMemo(() => {
-    const code = currencyCode ? currencyCode.toUpperCase() : ''
-    if (!code) return t('sales.documents.detail.empty', 'Not set')
-    return code
-  }, [currencyCode, t])
-
-  const fields = React.useMemo<CrudField[]>(
-    () => [
-      {
-        id: 'amount',
-        label: t('sales.documents.payments.amount', 'Amount'),
-        type: 'number',
-        placeholder: '0.00',
-        required: true,
-      },
-      {
-        id: 'paymentMethodId',
-        label: t('sales.documents.payments.method', 'Method'),
-        type: 'custom',
-        component: ({ value, setValue }) => {
-          const currentValue = typeof value === 'string' && value.length ? value : null
-          const fetchItems = async (query?: string): Promise<LookupSelectItem[]> => {
-            if (!paymentMethods.length) {
-              await loadPaymentMethods()
-            }
-            const term = query?.trim().toLowerCase() ?? ''
-            return paymentMethods
-              .filter(
-                (option) =>
-                  !term.length ||
-                  option.name.toLowerCase().includes(term) ||
-                  option.code.toLowerCase().includes(term)
-              )
-              .map<LookupSelectItem>((option) => ({
-                id: option.id,
-                title: option.name,
-                subtitle: option.code,
-                icon: <CreditCard className="h-4 w-4 text-muted-foreground" />,
-              }))
-          }
-          return (
-            <LookupSelect
-              value={currentValue}
-              onChange={(next) => setValue(next ?? '')}
-              fetchItems={fetchItems}
-              searchPlaceholder={t('sales.documents.payments.methodPlaceholder', 'Search payment method')}
-              emptyLabel={t('sales.documents.payments.methodsEmpty', 'No payment methods')}
-              loadingLabel={t('sales.documents.payments.loadingMethods', 'Loading payment methods…')}
-              selectedHintLabel={(id) =>
-                t('sales.documents.payments.methodSelected', 'Selected method: {{id}}', { id })
-              }
-              minQuery={0}
-            />
-          )
-        },
-      },
-      {
-        id: 'paymentReference',
-        label: t('sales.documents.payments.reference', 'Reference'),
-        type: 'text',
-        placeholder: t('sales.documents.payments.referencePlaceholder', 'External reference or note'),
-      },
-      {
-        id: 'receivedAt',
-        label: t('sales.documents.payments.receivedAt', 'Received at'),
-        type: 'date',
-      },
-      {
-        id: 'currencyDisplay',
-        label: t('sales.documents.payments.currency', 'Currency'),
-        type: 'custom',
-        component: () => <p className="text-sm text-muted-foreground">{currencyLabel}</p>,
-      },
-    ],
-    [currencyLabel, loadPaymentMethods, paymentMethods, t]
-  )
-
-  const handleFormSubmit = React.useCallback(
-    async (values: Record<string, unknown>) => {
-      const resolvedCurrency = currencyCode ? currencyCode.toUpperCase() : ''
-      const amountValue = normalizeNumber(values.amount)
-      if (!resolvedCurrency.trim()) {
-        throw createCrudFormError(t('sales.documents.payments.currencyRequired', 'Currency is required.'))
-      }
-      if (amountValue <= 0) {
-        throw createCrudFormError(t('sales.documents.payments.amountRequired', 'Enter a positive amount.'), {
-          amount: t('sales.documents.payments.amountRequired', 'Enter a positive amount.'),
-        })
-      }
-      const payload: Record<string, unknown> = {
-        orderId,
-        amount: amountValue,
-        currencyCode: resolvedCurrency,
-        paymentReference:
-          typeof values.paymentReference === 'string' && values.paymentReference.trim().length
-            ? values.paymentReference.trim()
-            : undefined,
-        paymentMethodId:
-          typeof values.paymentMethodId === 'string' && values.paymentMethodId.trim().length
-            ? values.paymentMethodId
-            : undefined,
-        organizationId: resolvedOrganizationId ?? undefined,
-        tenantId: resolvedTenantId ?? undefined,
-      }
-      if (typeof values.receivedAt === 'string' && values.receivedAt.trim().length) {
-        payload.receivedAt = new Date(values.receivedAt)
-      }
-      const action = editingId ? updateCrud : createCrud
-      const result = await action(
-        'sales/payments',
-        editingId ? { id: editingId, ...payload } : payload,
-        {
-          errorMessage: t('sales.documents.payments.errorSave', 'Failed to save payment.'),
-        }
-      )
-      if (result.ok) {
-        const totals = (result.result as any)?.orderTotals as PaymentTotals | undefined
-        if (totals && onTotalsChange) {
-          onTotalsChange(totals)
-        }
-        await loadPayments()
-        setDialogOpen(false)
-        resetForm()
-      }
-    },
-    [
-      currencyCode,
-      editingId,
-      loadPayments,
-      onTotalsChange,
-      orderId,
-      resetForm,
-      resolvedOrganizationId,
-      resolvedTenantId,
-      t,
-    ]
-  )
-
-  const handleShortcutSubmit = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-      event.preventDefault()
-      const form = dialogContentRef.current?.querySelector('form')
-      form?.requestSubmit()
-    }
-  }, [])
+  }, [addActionLabel, onActionChange, openCreate, payments.length])
 
   const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
     () => [
@@ -405,12 +247,15 @@ export function SalesDocumentPaymentsSection({
         cell: ({ row }) => {
           const handleEdit = () => {
             const record = row.original
-            setEditingId(record.id)
-            setInitialValues({
+            setEditingPayment({
+              id: record.id,
               amount: record.amount ?? '',
               paymentMethodId: record.paymentMethodId ?? '',
               paymentReference: record.paymentReference ?? '',
               receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
+              currencyCode: record.currencyCode ?? currencyCode ?? null,
+              customValues: record.customValues ?? null,
+              customFieldSetId: record.customFieldSetId ?? null,
             })
             setDialogOpen(true)
           }
@@ -418,7 +263,7 @@ export function SalesDocumentPaymentsSection({
         },
       },
     ],
-    [currencyCode, editActionLabel, t]
+    [currencyCode, editActionLabel, setDialogOpen, setEditingPayment, t]
   )
 
   if (loading) {
@@ -455,43 +300,21 @@ export function SalesDocumentPaymentsSection({
             'Track received payments to keep outstanding balances up to date.'
           )}
           actionLabel={addActionLabel}
-          onAction={() => openDialog()}
+          onAction={() => openCreate()}
         />
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent
-          ref={dialogContentRef}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              setDialogOpen(false)
-            }
-            handleShortcutSubmit(event)
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{editingId ? editActionLabel : addActionLabel}</DialogTitle>
-          </DialogHeader>
-          <CrudForm
-            key={formResetKey}
-            embedded
-            fields={fields}
-            initialValues={initialValues}
-            submitLabel={`${editingId ? editActionLabel : addActionLabel} · ${shortcutLabel}`}
-            onSubmit={handleFormSubmit}
-            loadingMessage={t('sales.documents.payments.loading', 'Loading payments…')}
-            contentHeader={
-              methodsLoading ? (
-                <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Spinner className="h-3.5 w-3.5 animate-spin" />
-                  {t('sales.documents.payments.loadingMethods', 'Loading payment methods…')}
-                </p>
-              ) : null
-            }
-          />
-        </DialogContent>
-      </Dialog>
+      <PaymentDialog
+        open={dialogOpen}
+        onOpenChange={handleDialogChange}
+        mode={editingPayment ? 'edit' : 'create'}
+        payment={editingPayment}
+        currencyCode={editingPayment?.currencyCode ?? currencyCode}
+        orderId={orderId}
+        organizationId={resolvedOrganizationId}
+        tenantId={resolvedTenantId}
+        onSaved={handlePaymentSaved}
+      />
     </div>
   )
 }

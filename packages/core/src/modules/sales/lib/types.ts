@@ -28,6 +28,8 @@ export type SalesLineSnapshot = {
   configuration?: Record<string, unknown> | null
   promotionCode?: string | null
   metadata?: Record<string, unknown> | null
+  customFieldSetId?: string | null
+  customFields?: Record<string, unknown> | null
 }
 
 export type SalesAdjustmentDraft = {

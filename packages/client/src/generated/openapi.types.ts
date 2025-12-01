@@ -14593,9 +14593,11 @@ export interface components {
         DocPathsSalesOrderLinesGetParameters1Schema: number;
         /** Format: uuid */
         DocPathsSalesOrderLinesGetParameters2Schema: string;
+        /** Format: uuid */
         DocPathsSalesOrderLinesGetParameters3Schema: string;
+        DocPathsSalesOrderLinesGetParameters4Schema: string;
         /** @enum {string} */
-        DocPathsSalesOrderLinesGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesOrderLinesGetParameters5Schema: "asc" | "desc";
         DocPathsSalesOrderLinesGetResponses200ContentApplicationJsonSchema: {
             items: components["schemas"]["DocPathsSalesOrderLinesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
             page: components["schemas"]["DocPathsSalesOrderLinesGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
@@ -14717,6 +14719,7 @@ export interface components {
             comment?: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesComment"];
             configuration?: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesConfiguration"];
             currencyCode: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId"];
             description?: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             discountAmount?: components["schemas"]["DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesDiscountAmount"];
@@ -14755,6 +14758,9 @@ export interface components {
         };
         /** Format: regex */
         DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId: string;
         DocPathsSalesOrderLinesPostRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
@@ -14816,6 +14822,7 @@ export interface components {
             comment?: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesComment"];
             configuration?: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesConfiguration"];
             currencyCode: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId"];
             description?: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             discountAmount?: components["schemas"]["DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesDiscountAmount"];
@@ -14854,6 +14861,9 @@ export interface components {
         };
         /** Format: regex */
         DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId: string;
         DocPathsSalesOrderLinesPutRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
@@ -15436,6 +15446,7 @@ export interface components {
             comment?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesComment"];
             configuration?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesConfiguration"];
             currencyCode: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesCustomFieldSetId"];
             description?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesDescription"];
             discountAmount?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesDiscountAmount"];
@@ -15466,6 +15477,9 @@ export interface components {
         };
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesComment: string;
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesConfiguration: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesCustomFields: {
             [key: string]: unknown;
         };
         /** Format: uuid */
@@ -16468,9 +16482,11 @@ export interface components {
         DocPathsSalesQuoteLinesGetParameters1Schema: number;
         /** Format: uuid */
         DocPathsSalesQuoteLinesGetParameters2Schema: string;
+        /** Format: uuid */
         DocPathsSalesQuoteLinesGetParameters3Schema: string;
+        DocPathsSalesQuoteLinesGetParameters4Schema: string;
         /** @enum {string} */
-        DocPathsSalesQuoteLinesGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesQuoteLinesGetParameters5Schema: "asc" | "desc";
         DocPathsSalesQuoteLinesGetResponses200ContentApplicationJsonSchema: {
             items: components["schemas"]["DocPathsSalesQuoteLinesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
             page: components["schemas"]["DocPathsSalesQuoteLinesGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
@@ -16592,6 +16608,7 @@ export interface components {
             comment?: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesComment"];
             configuration?: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesConfiguration"];
             currencyCode: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId"];
             description?: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             discountAmount?: components["schemas"]["DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesDiscountAmount"];
@@ -16630,6 +16647,9 @@ export interface components {
         };
         /** Format: regex */
         DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId: string;
         DocPathsSalesQuoteLinesPostRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
@@ -16691,6 +16711,7 @@ export interface components {
             comment?: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesComment"];
             configuration?: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesConfiguration"];
             currencyCode: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId"];
             description?: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
             discountAmount?: components["schemas"]["DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesDiscountAmount"];
@@ -16729,6 +16750,9 @@ export interface components {
         };
         /** Format: regex */
         DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFieldSetId: string;
         DocPathsSalesQuoteLinesPutRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
@@ -17137,6 +17161,7 @@ export interface components {
             comment?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesComment"];
             configuration?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesConfiguration"];
             currencyCode: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesCustomFields"];
             customFieldSetId?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesCustomFieldSetId"];
             description?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesDescription"];
             discountAmount?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesDiscountAmount"];
@@ -17167,6 +17192,9 @@ export interface components {
         };
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesComment: string;
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesConfiguration: {
+            [key: string]: unknown;
+        };
+        DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesLinesItemsPropertiesCustomFields: {
             [key: string]: unknown;
         };
         /** Format: uuid */
@@ -17572,6 +17600,7 @@ export interface components {
         DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchema: {
             carrierName?: components["schemas"]["DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCarrierName"];
             currencyCode?: components["schemas"]["DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             declaredValueGross?: components["schemas"]["DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueGross"];
             declaredValueNet?: components["schemas"]["DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueNet"];
             deliveredAt?: components["schemas"]["DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesDeliveredAt"];
@@ -17593,6 +17622,9 @@ export interface components {
         DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCarrierName: string;
         /** Format: regex */
         DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueGross: number;
         DocPathsSalesShipmentsPostRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueNet: number;
         /** Format: date-time */
@@ -17637,6 +17669,7 @@ export interface components {
         DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchema: {
             carrierName?: components["schemas"]["DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCarrierName"];
             currencyCode?: components["schemas"]["DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             declaredValueGross?: components["schemas"]["DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueGross"];
             declaredValueNet?: components["schemas"]["DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueNet"];
             deliveredAt?: components["schemas"]["DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesDeliveredAt"];
@@ -17659,6 +17692,9 @@ export interface components {
         DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCarrierName: string;
         /** Format: regex */
         DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueGross: number;
         DocPathsSalesShipmentsPutRequestBodyContentApplicationJsonSchemaPropertiesDeclaredValueNet: number;
         /** Format: date-time */
@@ -33223,15 +33259,17 @@ export interface operations {
         parameters: {
             query?: {
                 /** @example 00000000-0000-4000-8000-000000000000 */
-                orderId?: components["schemas"]["DocPathsSalesOrderLinesGetParameters2Schema"];
+                id?: components["schemas"]["DocPathsSalesOrderLinesGetParameters2Schema"];
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                orderId?: components["schemas"]["DocPathsSalesOrderLinesGetParameters3Schema"];
                 /** @example 1 */
                 page?: components["schemas"]["DocPathsSalesOrderLinesGetParameters0Schema"];
                 /** @example 1 */
                 pageSize?: components["schemas"]["DocPathsSalesOrderLinesGetParameters1Schema"];
                 /** @example asc */
-                sortDir?: components["schemas"]["DocPathsSalesOrderLinesGetParameters4Schema"];
+                sortDir?: components["schemas"]["DocPathsSalesOrderLinesGetParameters5Schema"];
                 /** @example string */
-                sortField?: components["schemas"]["DocPathsSalesOrderLinesGetParameters3Schema"];
+                sortField?: components["schemas"]["DocPathsSalesOrderLinesGetParameters4Schema"];
             };
             header?: never;
             path?: never;
@@ -34644,16 +34682,18 @@ export interface operations {
     sales_get_sales_quote_lines: {
         parameters: {
             query?: {
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                id?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters2Schema"];
                 /** @example 1 */
                 page?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters0Schema"];
                 /** @example 1 */
                 pageSize?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters1Schema"];
                 /** @example 00000000-0000-4000-8000-000000000000 */
-                quoteId?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters2Schema"];
+                quoteId?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters3Schema"];
                 /** @example asc */
-                sortDir?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters4Schema"];
+                sortDir?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters5Schema"];
                 /** @example string */
-                sortField?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters3Schema"];
+                sortField?: components["schemas"]["DocPathsSalesQuoteLinesGetParameters4Schema"];
             };
             header?: never;
             path?: never;

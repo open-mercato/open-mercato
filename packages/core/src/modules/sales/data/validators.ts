@@ -545,6 +545,7 @@ export const shipmentCreateSchema = scoped.extend({
   notes: z.string().trim().max(4000).optional(),
   metadata,
   shipmentAddressSnapshot: jsonRecord.optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   items: z
     .array(
       z.object({

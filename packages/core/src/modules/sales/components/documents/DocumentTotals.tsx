@@ -23,12 +23,31 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
   const emphasizedRows = items.filter((item) => item.emphasize)
   const heading = title ?? null
   const [expanded, setExpanded] = React.useState(false)
+  const paidItem = React.useMemo(() => {
+    const entry = items.find((item) => item.key === 'paidTotalAmount')
+    if (!entry) return null
+    const numeric =
+      typeof entry.amount === 'number'
+        ? entry.amount
+        : typeof entry.amount === 'string'
+          ? Number(entry.amount)
+          : null
+    if (numeric === null || Number.isNaN(numeric) || numeric <= 0) return null
+    return entry
+  }, [items])
   const collapsedItems = React.useMemo(() => {
-    if (emphasizedRows.length) return emphasizedRows
-    return items.slice(0, 3)
-  }, [emphasizedRows, items])
+    const base = emphasizedRows.length ? [...emphasizedRows] : items.slice(0, 3)
+    const augmented = paidItem && !base.some((item) => item.key === paidItem.key) ? [...base, paidItem] : base
+    const seen = new Set<string>()
+    return augmented.filter((item) => {
+      if (seen.has(item.key)) return false
+      seen.add(item.key)
+      return true
+    })
+  }, [emphasizedRows, items, paidItem])
   const visibleItems = expanded ? items : collapsedItems
-  const hiddenCount = items.length - visibleItems.length
+  const uniqueItemCount = React.useMemo(() => new Set(items.map((item) => item.key)).size, [items])
+  const hiddenCount = uniqueItemCount - visibleItems.length
 
   return (
     <div className={cn('space-y-3', className)}>

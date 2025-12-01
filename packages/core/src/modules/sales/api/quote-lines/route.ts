@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { SalesQuoteLine } from '../../data/entities'
 import { quoteLineCreateSchema } from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
@@ -15,6 +16,7 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
     quoteId: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -83,10 +85,32 @@ const crud = makeCrudRoute({
       updatedAt: F.updated_at,
       lineNumber: F.line_number,
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      if (query.id) filters.id = { $eq: query.id }
       if (query.quoteId) filters.quote_id = { $eq: query.quoteId }
+      try {
+        const em = ctx.container.resolve('em')
+        const cfFilters = await buildCustomFieldFiltersFromQuery({
+          entityId: E.sales.sales_quote_line,
+          query,
+          em,
+          tenantId: ctx.auth?.tenantId ?? null,
+        })
+        Object.assign(filters, cfFilters)
+      } catch {
+        // ignore
+      }
       return filters
+    },
+    transformItem: (item: any) => {
+      if (!item) return item
+      const normalized = { ...item }
+      const cfEntries = extractAllCustomFieldEntries(item)
+      for (const key of Object.keys(normalized)) {
+        if (key.startsWith('cf:')) delete normalized[key]
+      }
+      return { ...normalized, ...cfEntries }
     },
   },
   actions: {

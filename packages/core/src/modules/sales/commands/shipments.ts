@@ -4,6 +4,9 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem } from '../data/entities'
 import {
   shipmentCreateSchema,
@@ -49,6 +52,7 @@ type ShipmentSnapshot = {
   currencyCode: string | null
   notesText: string | null
   metadata: Record<string, unknown> | null
+  customFields?: Record<string, unknown> | null
   items: ShipmentItemSnapshot[]
 }
 
@@ -83,6 +87,9 @@ const parseTrackingNumbers = (input: unknown): string[] | null => {
   return null
 }
 
+const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
+  input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+
 async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {
   const shipment = await em.findOne(
     SalesShipment,
@@ -96,6 +103,14 @@ async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<Ship
     quantity: toNumber(item.quantity),
     metadata: item.metadata ? cloneJson(item.metadata) : null,
   }))
+  const customFieldValues = await loadCustomFieldValues({
+    em,
+    entityId: E.sales.sales_shipment,
+    recordIds: [shipment.id],
+    tenantIdByRecord: { [shipment.id]: shipment.tenantId ?? null },
+    organizationIdByRecord: { [shipment.id]: shipment.organizationId ?? null },
+  })
+  const customFields = customFieldValues[shipment.id]
   return {
     id: shipment.id,
     orderId: typeof shipment.order === 'string' ? shipment.order : shipment.order.id,
@@ -122,6 +137,7 @@ async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<Ship
     currencyCode: shipment.currencyCode ?? null,
     notesText: shipment.notesText ?? null,
     metadata: shipment.metadata ? cloneJson(shipment.metadata) : null,
+    customFields: customFields && Object.keys(customFields).length ? customFields : null,
     items,
   }
 }
@@ -172,6 +188,15 @@ async function restoreShipmentSnapshot(em: EntityManager, snapshot: ShipmentSnap
     })
     em.persist(shipmentItem)
   })
+  if ((snapshot as any).customFields !== undefined) {
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_shipment,
+      recordId: entity.id,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+      values: normalizeCustomFieldsInput((snapshot as any).customFields),
+    })
+  }
   em.persist(entity)
 }
 

@@ -790,6 +790,17 @@
           "priceSearch": "Seleccionar precio",
           "priceGross": "Bruto",
           "priceNet": "Neto",
+          "priceScope": {
+            "channel": "Canal",
+            "offer": "Oferta",
+            "variant": "Variante",
+            "customerGroup": "Grupo de clientes",
+            "customer": "Cliente",
+            "userGroup": "Grupo de usuarios",
+            "user": "Usuario",
+            "quantity": "Cantidad",
+            "schedule": "Programado"
+          },
           "unitPrice": "Precio unitario",
           "quantity": "Cantidad",
           "name": "Nombre",

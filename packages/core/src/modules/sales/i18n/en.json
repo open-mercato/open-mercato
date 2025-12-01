@@ -836,6 +836,17 @@
           "priceSearch": "Select price",
           "priceGross": "Gross",
           "priceNet": "Net",
+          "priceScope": {
+            "channel": "Channel",
+            "offer": "Offer",
+            "variant": "Variant",
+            "customerGroup": "Customer group",
+            "customer": "Customer",
+            "userGroup": "User group",
+            "user": "User",
+            "quantity": "Quantity",
+            "schedule": "Scheduled"
+          },
           "unitPrice": "Unit price",
           "quantity": "Quantity",
           "name": "Name",

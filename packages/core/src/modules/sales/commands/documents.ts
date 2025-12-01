@@ -11,6 +11,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   SalesQuote,
@@ -1206,6 +1207,7 @@ function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     metadata: line.metadata ? cloneJson(line.metadata) : null,
+    customFieldSetId: line.customFieldSetId ?? null,
   }
 }
 
@@ -1233,6 +1235,7 @@ function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     metadata: line.metadata ? cloneJson(line.metadata) : null,
+    customFieldSetId: line.customFieldSetId ?? null,
   }
 }
 
@@ -1314,6 +1317,11 @@ function createLineSnapshotFromInput(
     configuration: line.configuration ? cloneJson(line.configuration) : null,
     promotionCode: line.promotionCode ?? null,
     metadata: line.metadata ? cloneJson(line.metadata) : null,
+    customFieldSetId: 'customFieldSetId' in line ? (line as any).customFieldSetId ?? null : null,
+    customFields:
+      'customFields' in line && line.customFields
+        ? cloneJson((line as any).customFields)
+        : null,
   }
 }
 
@@ -1459,6 +1467,20 @@ async function applyOrderLineResults(params: {
       status: statusValue,
     })
     em.persist(lineEntity)
+    const rawCustomFields = (sourceLine as any).customFields
+    if (rawCustomFields !== undefined && rawCustomFields !== null) {
+      const customValues =
+        rawCustomFields && typeof rawCustomFields === 'object'
+          ? (rawCustomFields as Record<string, unknown>)
+          : {}
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_order_line,
+        recordId: lineEntity.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        values: normalizeCustomFieldValues(customValues),
+      })
+    }
     persisted.add(lineEntity.id)
   }
   for (const [id, line] of existingMap.entries()) {
@@ -1508,6 +1530,20 @@ async function applyQuoteLineResults(params: {
       status: statusValue,
     })
     em.persist(lineEntity)
+    const rawCustomFields = (sourceLine as any).customFields
+    if (rawCustomFields !== undefined && rawCustomFields !== null) {
+      const customValues =
+        rawCustomFields && typeof rawCustomFields === 'object'
+          ? (rawCustomFields as Record<string, unknown>)
+          : {}
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_quote_line,
+        recordId: lineEntity.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        values: normalizeCustomFieldValues(customValues),
+      })
+    }
     persisted.add(lineEntity.id)
   }
   for (const [id, line] of existingMap.entries()) {
@@ -1545,6 +1581,20 @@ async function replaceQuoteLines(
       updatedAt: new Date(),
     })
     em.persist(lineEntity)
+    const rawCustomFields = (sourceLine as any).customFields
+    if (rawCustomFields !== undefined && rawCustomFields !== null) {
+      const customValues =
+        rawCustomFields && typeof rawCustomFields === 'object'
+          ? (rawCustomFields as Record<string, unknown>)
+          : {}
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_quote_line,
+        recordId: lineEntity.id,
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+        values: normalizeCustomFieldValues(customValues),
+      })
+    }
   }
 }
 
@@ -1608,6 +1658,20 @@ async function replaceOrderLines(
       updatedAt: new Date(),
     })
     em.persist(lineEntity)
+    const rawCustomFields = (sourceLine as any).customFields
+    if (rawCustomFields !== undefined && rawCustomFields !== null) {
+      const customValues =
+        rawCustomFields && typeof rawCustomFields === 'object'
+          ? (rawCustomFields as Record<string, unknown>)
+          : {}
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_order_line,
+        recordId: lineEntity.id,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        values: normalizeCustomFieldValues(customValues),
+      })
+    }
   }
 }
 
@@ -2980,6 +3044,11 @@ const orderLineUpsertCommand: CommandHandler<
       configuration: parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode: parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
       metadata,
+      customFieldSetId: parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
+      customFields:
+        parsed.customFields && typeof parsed.customFields === 'object'
+          ? cloneJson(parsed.customFields)
+          : (existingSnapshot as any)?.customFields ?? null,
     }
     ;(updatedSnapshot as any).statusEntryId = statusEntryId
     ;(updatedSnapshot as any).catalogSnapshot =
@@ -3286,6 +3355,11 @@ const quoteLineUpsertCommand: CommandHandler<
       configuration: parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode: parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
       metadata,
+      customFieldSetId: parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
+      customFields:
+        parsed.customFields && typeof parsed.customFields === 'object'
+          ? cloneJson(parsed.customFields)
+          : (existingSnapshot as any)?.customFields ?? null,
     }
     ;(updatedSnapshot as any).statusEntryId = statusEntryId
     ;(updatedSnapshot as any).catalogSnapshot =

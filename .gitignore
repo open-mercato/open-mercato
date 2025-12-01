@@ -75,3 +75,4 @@ tmp/
 public/uploads/*
 storage/attachments/*
 packages/client/src/generated/openapi.types.ts
+packages/client/src/generated/openapi.types.ts
