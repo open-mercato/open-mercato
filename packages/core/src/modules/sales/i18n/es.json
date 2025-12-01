@@ -594,7 +594,14 @@
           "refresh": "Refresh",
           "emptyOrders": "No orders yet.",
           "emptyQuotes": "No quotes yet.",
-          "open": "Open"
+          "open": "Open",
+          "deleteOrder": "Eliminar pedido",
+          "deleteQuote": "Eliminar cotización",
+          "deleteOrderConfirm": "¿Eliminar este pedido? Se eliminarán envíos, pagos, direcciones, comentarios y artículos.",
+          "deleteQuoteConfirm": "¿Eliminar esta cotización? Se eliminarán direcciones, comentarios y artículos.",
+          "deleteError": "No se pudo eliminar el documento.",
+          "orderDeleted": "Pedido eliminado.",
+          "quoteDeleted": "Cotización eliminada."
         }
       },
       "create": {
@@ -818,15 +825,18 @@
           "addLine": "Agregar artículo",
           "save": "Guardar cambios",
           "untitled": "Sin título",
-          "table": {
-            "product": "Producto",
-            "quantity": "Cant.",
-            "unit": "Precio unitario",
-            "total": "Total",
-            "actions": "Acciones",
-          "gross": "bruto"
-        }
-      },
+      "table": {
+        "product": "Producto",
+        "status": "Estado",
+        "quantity": "Cant.",
+        "shipped": "{{shipped}} / {{total}} enviados",
+        "unit": "Precio unitario",
+        "total": "Total",
+        "actions": "Acciones",
+        "gross": "bruto",
+        "statusEmpty": "Sin estado"
+          }
+        },
         "status": {
           "changeDocument": "Change order/quote status",
           "changeLine": "Change order/quote item status",

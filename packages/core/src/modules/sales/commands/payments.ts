@@ -32,7 +32,7 @@ import {
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 
-type PaymentAllocationSnapshot = {
+export type PaymentAllocationSnapshot = {
   id: string
   orderId: string | null
   invoiceId: string | null
@@ -41,7 +41,7 @@ type PaymentAllocationSnapshot = {
   metadata: Record<string, unknown> | null
 }
 
-type PaymentSnapshot = {
+export type PaymentSnapshot = {
   id: string
   orderId: string | null
   organizationId: string
@@ -79,7 +79,7 @@ const toNumber = (value: unknown): number => {
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
 
-async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<PaymentSnapshot | null> {
+export async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<PaymentSnapshot | null> {
   const payment = await em.findOne(
     SalesPayment,
     { id },
@@ -135,7 +135,7 @@ async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<Payme
   }
 }
 
-async function restorePaymentSnapshot(em: EntityManager, snapshot: PaymentSnapshot): Promise<void> {
+export async function restorePaymentSnapshot(em: EntityManager, snapshot: PaymentSnapshot): Promise<void> {
   const orderRef = snapshot.orderId ? em.getReference(SalesOrder, snapshot.orderId) : null
   const methodRef = snapshot.paymentMethodId
     ? em.getReference(SalesPaymentMethod, snapshot.paymentMethodId)

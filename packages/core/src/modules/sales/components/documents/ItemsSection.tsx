@@ -9,6 +9,12 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Pencil, Trash2 } from 'lucide-react'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import {
+  DictionaryValue,
+  type DictionaryMap,
+  createDictionaryMap,
+  normalizeDictionaryEntries,
+} from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
@@ -43,12 +49,29 @@ export function SalesDocumentItemsSection({
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [lineForEdit, setLineForEdit] = React.useState<SalesLineRecord | null>(null)
+  const [lineStatusMap, setLineStatusMap] = React.useState<DictionaryMap>({})
+  const [shippedTotals, setShippedTotals] = React.useState<Map<string, number>>(new Map())
 
   const resourcePath = React.useMemo(
     () => (kind === 'order' ? 'sales/order-lines' : 'sales/quote-lines'),
     [kind],
   )
   const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
+  const loadLineStatuses = React.useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '200' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-line-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const entries = normalizeDictionaryEntries(response.result?.items ?? [])
+      setLineStatusMap(createDictionaryMap(entries))
+    } catch (err) {
+      console.error('sales.document.line-statuses.load', err)
+      setLineStatusMap({})
+    }
+  }, [])
 
   const loadItems = React.useCallback(async () => {
     setLoading(true)
@@ -120,6 +143,13 @@ export function SalesDocumentItemsSection({
               : typeof (item as any).customFieldSetId === 'string'
                 ? (item as any).customFieldSetId
                 : null
+          const statusEntryId =
+            typeof (item as any).status_entry_id === 'string'
+              ? (item as any).status_entry_id
+              : typeof (item as any).statusEntryId === 'string'
+                ? (item as any).statusEntryId
+                : null
+          const status = typeof item.status === 'string' ? item.status : null
           const record: SalesLineRecord = {
             id,
             name,
@@ -142,6 +172,8 @@ export function SalesDocumentItemsSection({
             catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
             customFieldSetId,
             customFields,
+            status,
+            statusEntryId,
           }
           return [record]
         })
@@ -157,9 +189,59 @@ export function SalesDocumentItemsSection({
     }
   }, [currencyCode, documentId, documentKey, resourcePath, t])
 
+  const loadShippedTotals = React.useCallback(async () => {
+    if (kind !== 'order') {
+      setShippedTotals(new Map())
+      return
+    }
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '200', orderId: documentId })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/shipments?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (response.ok && Array.isArray(response.result?.items)) {
+        const totals = new Map<string, number>()
+        response.result.items.forEach((shipment) => {
+          const entries = Array.isArray((shipment as any).items)
+            ? ((shipment as any).items as Array<Record<string, unknown>>)
+            : []
+          entries.forEach((entry) => {
+            const lineId =
+              typeof (entry as any).orderLineId === 'string'
+                ? (entry as any).orderLineId
+                : typeof (entry as any).order_line_id === 'string'
+                  ? (entry as any).order_line_id
+                  : null
+            if (!lineId) return
+            const quantity = normalizeNumber((entry as any).quantity, 0)
+            if (!Number.isFinite(quantity) || quantity <= 0) return
+            const current = totals.get(lineId) ?? 0
+            totals.set(lineId, current + quantity)
+          })
+        })
+        setShippedTotals(totals)
+      } else {
+        setShippedTotals(new Map())
+      }
+    } catch (err) {
+      console.error('sales.document.shipments.load', err)
+      setShippedTotals(new Map())
+    }
+  }, [documentId, kind])
+
+  React.useEffect(() => {
+    void loadLineStatuses()
+  }, [loadLineStatuses])
+
   React.useEffect(() => {
     void loadItems()
   }, [loadItems])
+
+  React.useEffect(() => {
+    void loadShippedTotals()
+  }, [loadShippedTotals])
 
   const openCreate = React.useCallback(() => {
     setLineForEdit(null)
@@ -239,6 +321,27 @@ export function SalesDocumentItemsSection({
     [documentId, documentKey, kind, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
   )
 
+  const renderStatus = React.useCallback(
+    (line: SalesLineRecord) => {
+      const value = line.status ?? null
+      if (!value) {
+        return <span className="text-xs text-muted-foreground">{t('sales.documents.items.table.statusEmpty', 'No status')}</span>
+      }
+      return (
+        <DictionaryValue
+          value={value}
+          map={lineStatusMap}
+          fallback={<span className="text-xs font-medium">{value}</span>}
+          className="text-xs font-medium"
+          iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded bg-muted text-muted-foreground"
+          iconClassName="h-3.5 w-3.5"
+          colorClassName="h-4 w-4 rounded-full border border-border/70"
+        />
+      )
+    },
+    [lineStatusMap, t],
+  )
+
   const renderImage = (record: SalesLineRecord) => {
     const meta = (record.metadata as Record<string, unknown> | null | undefined) ?? {}
     const snapshot = (record.catalogSnapshot as Record<string, unknown> | null | undefined) ?? {}
@@ -290,6 +393,7 @@ export function SalesDocumentItemsSection({
             <thead className="bg-muted">
               <tr className="text-left">
                 <th className="px-3 py-2 font-medium">{t('sales.documents.items.table.product', 'Product')}</th>
+                <th className="px-3 py-2 font-medium">{t('sales.documents.items.table.status', 'Status')}</th>
                 <th className="px-3 py-2 font-medium">{t('sales.documents.items.table.quantity', 'Qty')}</th>
                 <th className="px-3 py-2 font-medium">{t('sales.documents.items.table.unit', 'Unit price')}</th>
                 <th className="px-3 py-2 font-medium">{t('sales.documents.items.table.total', 'Total')}</th>
@@ -304,6 +408,7 @@ export function SalesDocumentItemsSection({
                 const variantLabel = variantTitle ?? variantSku
                 const variantSuffix = variantSku && variantLabel && variantSku !== variantLabel ? ` • ${variantSku}` : ''
                 const showProductSku = productSku && productSku !== variantSku ? productSku : null
+                const shippedQuantity = Math.max(0, shippedTotals.get(item.id) ?? 0)
 
                 return (
                   <tr
@@ -328,7 +433,22 @@ export function SalesDocumentItemsSection({
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3">{item.quantity}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center">{renderStatus(item)}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">{item.quantity}</span>
+                        {shippedQuantity > 0 ? (
+                          <span className="text-xs text-muted-foreground">
+                            {t('sales.documents.items.table.shipped', '{{shipped}} / {{total}} shipped', {
+                              shipped: shippedQuantity,
+                              total: item.quantity,
+                            })}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-col gap-0.5">
                         <span className="font-mono text-sm">

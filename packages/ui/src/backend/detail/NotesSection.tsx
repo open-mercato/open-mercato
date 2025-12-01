@@ -6,6 +6,7 @@ import type { PluggableList } from 'unified'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
+import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
 import { TabEmptyState } from './TabEmptyState'
 
@@ -1243,7 +1244,7 @@ export function NotesSection<C = unknown>({
         ) : null}
       </div>
 
-      {loadError ? <p className="mt-3 text-xs text-red-600">{loadError}</p> : null}
+      {loadError ? <ErrorMessage label={loadError} className="mt-3" /> : null}
 
       <div className="space-y-3">
         {isLoading ? (

@@ -10,7 +10,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { buildCrudExportUrl } from '@open-mercato/ui/backend/utils/crud'
+import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -494,6 +494,40 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     setReloadToken((token) => token + 1)
   }, [])
 
+  const handleDelete = React.useCallback(
+    async (row: SalesDocumentRow) => {
+      const confirmMessage =
+        kind === 'order'
+          ? t(
+              'sales.documents.list.table.deleteOrderConfirm',
+              'Delete this sales order? Related shipments, payments, addresses, and items will be removed.'
+            )
+          : t(
+              'sales.documents.list.table.deleteQuoteConfirm',
+              'Delete this sales quote? Related addresses, comments, and items will be removed.'
+            )
+      if (typeof window !== 'undefined' && !window.confirm(confirmMessage)) return
+      try {
+        const result = await deleteCrud(`sales/${resource}`, row.id, {
+          errorMessage: t('sales.documents.list.table.deleteError', 'Failed to delete document.'),
+        })
+        if (result.ok) {
+          flash(
+            kind === 'order'
+              ? t('sales.documents.list.table.orderDeleted', 'Sales order deleted.')
+              : t('sales.documents.list.table.quoteDeleted', 'Sales quote deleted.'),
+            'success'
+          )
+          handleRefresh()
+        }
+      } catch (err) {
+        console.error('sales.documents.delete', err)
+        flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
+      }
+    },
+    [handleRefresh, kind, resource, t]
+  )
+
   const handleRowClick = React.useCallback((row: SalesDocumentRow) => {
     router.push(`/backend/sales/${resource}/${row.id}?kind=${kind}`)
   }, [kind, resource, router])
@@ -636,6 +670,13 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
                 {
                   label: t('sales.documents.list.table.open', 'Open'),
                   href: `/backend/sales/${resource}/${row.id}?kind=${kind}`,
+                },
+                {
+                  label:
+                    kind === 'order'
+                      ? t('sales.documents.list.table.deleteOrder', 'Delete order')
+                      : t('sales.documents.list.table.deleteQuote', 'Delete quote'),
+                  onSelect: () => handleDelete(row),
                 },
               ]}
             />

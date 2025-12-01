@@ -628,7 +628,14 @@
           "refresh": "Refresh",
           "emptyOrders": "No orders yet.",
           "emptyQuotes": "No quotes yet.",
-          "open": "Open"
+          "open": "Open",
+          "deleteOrder": "Usuń zamówienie",
+          "deleteQuote": "Usuń ofertę",
+          "deleteOrderConfirm": "Usunąć to zamówienie? Zostaną usunięte wysyłki, płatności, adresy, komentarze i pozycje.",
+          "deleteQuoteConfirm": "Usunąć tę ofertę? Zostaną usunięte adresy, komentarze i pozycje.",
+          "deleteError": "Nie udało się usunąć dokumentu.",
+          "orderDeleted": "Zamówienie usunięte.",
+          "quoteDeleted": "Oferta usunięta."
         }
       },
       "errors": {
@@ -823,7 +830,18 @@
           "errorUnitPrice": "Cena jednostkowa musi być większa niż 0.",
           "taxRate": "Klasa podatkowa",
           "taxRate.none": "Brak wybranej klasy podatkowej",
-          "taxRate.empty": "Brak dostępnych klas podatkowych"
+          "taxRate.empty": "Brak dostępnych klas podatkowych",
+      "table": {
+        "product": "Produkt",
+        "status": "Status",
+        "quantity": "Ilość",
+        "shipped": "{{shipped}} / {{total}} wysłano",
+        "unit": "Cena jednostkowa",
+        "total": "Suma",
+        "actions": "Akcje",
+        "gross": "brutto",
+        "statusEmpty": "Brak statusu"
+          }
         },
         "status": {
           "changeDocument": "Change order/quote status",

@@ -593,7 +593,14 @@
           "refresh": "Refresh",
           "emptyOrders": "No orders yet.",
           "emptyQuotes": "No quotes yet.",
-          "open": "Open"
+          "open": "Open",
+          "deleteOrder": "Bestellung löschen",
+          "deleteQuote": "Angebot löschen",
+          "deleteOrderConfirm": "Diesen Auftrag löschen? Sendungen, Zahlungen, Adressen, Kommentare und Positionen werden entfernt.",
+          "deleteQuoteConfirm": "Dieses Angebot löschen? Adressen, Kommentare und Positionen werden entfernt.",
+          "deleteError": "Dokument konnte nicht gelöscht werden.",
+          "orderDeleted": "Auftrag gelöscht.",
+          "quoteDeleted": "Angebot gelöscht."
         }
       },
       "create": {
@@ -775,7 +782,18 @@
           "errorUnitPrice": "Der Stückpreis muss größer als 0 sein.",
           "taxRate": "Steuerklasse",
           "taxRate.none": "Keine Steuerklasse ausgewählt",
-          "taxRate.empty": "Keine Steuerklassen verfügbar"
+          "taxRate.empty": "Keine Steuerklassen verfügbar",
+      "table": {
+        "product": "Produkt",
+        "status": "Status",
+        "quantity": "Menge",
+        "shipped": "{{shipped}} / {{total}} versandt",
+        "unit": "Stückpreis",
+        "total": "Gesamt",
+        "actions": "Aktionen",
+        "gross": "brutto",
+        "statusEmpty": "Kein Status"
+          }
         },
         "status": {
           "changeDocument": "Change order/quote status",

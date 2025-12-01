@@ -15,4 +15,6 @@ export type SalesLineRecord = {
   catalogSnapshot: Record<string, unknown> | null
   customFieldSetId?: string | null
   customFields?: Record<string, unknown> | null
+  status?: string | null
+  statusEntryId?: string | null
 }

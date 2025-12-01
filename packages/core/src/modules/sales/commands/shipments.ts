@@ -26,14 +26,14 @@ import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
-type ShipmentItemSnapshot = {
+export type ShipmentItemSnapshot = {
   id: string
   orderLineId: string
   quantity: number
   metadata: Record<string, unknown> | null
 }
 
-type ShipmentSnapshot = {
+export type ShipmentSnapshot = {
   id: string
   orderId: string
   organizationId: string
@@ -123,7 +123,7 @@ const logShipmentDeleteScopeRejection = (
   console.warn(`[sales.shipments.delete] ${reason}`, payload)
 }
 
-async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {
+export async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {
   const shipment = await em.findOne(
     SalesShipment,
     { id },
@@ -175,7 +175,7 @@ async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<Ship
   }
 }
 
-async function restoreShipmentSnapshot(em: EntityManager, snapshot: ShipmentSnapshot): Promise<void> {
+export async function restoreShipmentSnapshot(em: EntityManager, snapshot: ShipmentSnapshot): Promise<void> {
   const order = await em.findOne(SalesOrder, { id: snapshot.orderId })
   if (!order) return
   const existing = await em.findOne(SalesShipment, { id: snapshot.id })
@@ -231,6 +231,13 @@ async function restoreShipmentSnapshot(em: EntityManager, snapshot: ShipmentSnap
     })
   }
   em.persist(entity)
+}
+
+async function deleteShipmentWithItems(em: EntityManager, shipment: SalesShipment): Promise<void> {
+  const items = await em.find(SalesShipmentItem, { shipment })
+  items.forEach((item) => em.remove(item))
+  em.remove(shipment)
+  await em.flush()
 }
 
 async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder): Promise<void> {
@@ -466,14 +473,12 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(SalesShipment, { id: after.id })
+    const existing = await em.findOne(SalesShipment, { id: after.id }, { populate: ['order'] })
     if (existing) {
       const order = existing.order as SalesOrder | null
-      em.remove(existing)
+      await deleteShipmentWithItems(em, existing)
       if (order) {
-        await em.flush()
         await recomputeFulfilledQuantities(em, order)
-      } else {
         await em.flush()
       }
       return
@@ -748,8 +753,7 @@ const deleteShipmentCommand: CommandHandler<
     if (order.id !== payload.orderId) {
       throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
     }
-    em.remove(shipment)
-    await em.flush()
+    await deleteShipmentWithItems(em, shipment)
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
     return { shipmentId: shipment.id }

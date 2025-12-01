@@ -633,7 +633,14 @@
           "refresh": "Refresh",
           "emptyOrders": "No orders yet.",
           "emptyQuotes": "No quotes yet.",
-          "open": "Open"
+          "open": "Open",
+          "deleteOrder": "Delete order",
+          "deleteQuote": "Delete quote",
+          "deleteOrderConfirm": "Delete this sales order? Shipments, payments, addresses, comments, and items will be removed.",
+          "deleteQuoteConfirm": "Delete this sales quote? Addresses, comments, and items will be removed.",
+          "deleteError": "Failed to delete document.",
+          "orderDeleted": "Sales order deleted.",
+          "quoteDeleted": "Sales quote deleted."
         }
       },
       "create": {
@@ -864,13 +871,16 @@
           "addLine": "Add item",
           "save": "Save changes",
           "untitled": "Untitled",
-          "table": {
-            "product": "Product",
-            "quantity": "Qty",
-            "unit": "Unit price",
-            "total": "Total",
-            "actions": "Actions",
-            "gross": "gross"
+      "table": {
+        "product": "Product",
+        "status": "Status",
+        "quantity": "Qty",
+        "shipped": "{{shipped}} / {{total}} shipped",
+        "unit": "Unit price",
+        "total": "Total",
+        "actions": "Actions",
+        "gross": "gross",
+        "statusEmpty": "No status"
           }
         },
         "status": {

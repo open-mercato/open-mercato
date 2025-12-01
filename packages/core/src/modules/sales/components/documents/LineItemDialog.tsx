@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DollarSign, Settings } from 'lucide-react'
 import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { DictionaryValue } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
@@ -59,6 +60,14 @@ type TaxRateOption = {
   isDefault: boolean
 }
 
+type StatusOption = {
+  id: string
+  value: string
+  label: string
+  color: string | null
+  icon: string | null
+}
+
 type LineFormState = {
   productId: string | null
   variantId: string | null
@@ -72,6 +81,7 @@ type LineFormState = {
   currencyCode: string | null
   catalogSnapshot?: Record<string, unknown> | null
   customFieldSetId?: string | null
+  statusEntryId?: string | null
 }
 
 type SalesLineDialogProps = {
@@ -99,6 +109,7 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
   currencyCode: currencyCode ?? null,
   catalogSnapshot: null,
   customFieldSetId: null,
+  statusEntryId: null,
 })
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -179,6 +190,24 @@ export function LineItemDialog({
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
+  const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
+  const [lineStatusLoading, setLineStatusLoading] = React.useState(false)
+  const lineStatusMap = React.useMemo(
+    () =>
+      lineStatuses.reduce<Record<string, { value: string; label: string; color?: string | null; icon?: string | null }>>(
+        (acc, entry) => {
+          acc[entry.value] = {
+            value: entry.value,
+            label: entry.label,
+            color: entry.color,
+            icon: entry.icon ?? null,
+          }
+          return acc
+        },
+        {}
+      ),
+    [lineStatuses],
+  )
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
   const taxRatesRef = React.useRef<TaxRateOption[]>([])
@@ -562,10 +591,48 @@ export function LineItemDialog({
     [t],
   )
 
+  const loadLineStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setLineStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '200' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-line-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          const icon =
+            typeof entry.icon === 'string' && entry.icon.trim().length ? entry.icon : null
+          return { id, value, label, color, icon }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setLineStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.lines.statuses.load', err)
+      setLineStatuses([])
+      return []
+    } finally {
+      setLineStatusLoading(false)
+    }
+  }, [])
+
   React.useEffect(() => {
     if (!open) return
     loadTaxRates().catch(() => {})
-  }, [loadTaxRates, open])
+    loadLineStatuses().catch(() => {})
+  }, [loadLineStatuses, loadTaxRates, open])
 
   const handleFormSubmit = React.useCallback(
     async (values: LineFormState & Record<string, unknown>) => {

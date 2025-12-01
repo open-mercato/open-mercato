@@ -3546,14 +3546,32 @@ export default function SalesDocumentDetailPage({
     []
   )
 
-  const tabButtons: Array<{ id: typeof activeTab; label: string }> = [
-    { id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') },
-    { id: 'addresses', label: t('sales.documents.detail.tabs.addresses', 'Addresses') },
-    { id: 'items', label: t('sales.documents.detail.tabs.items', 'Items') },
-    { id: 'shipments', label: t('sales.documents.detail.tabs.shipments', 'Shipments') },
-    { id: 'payments', label: t('sales.documents.detail.tabs.payments', 'Payments') },
-    { id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') },
-  ]
+  const tabButtons = React.useMemo<Array<{ id: typeof activeTab; label: string }>>(
+    () => {
+      const tabs: Array<{ id: typeof activeTab; label: string }> = [
+        { id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') },
+        { id: 'addresses', label: t('sales.documents.detail.tabs.addresses', 'Addresses') },
+        { id: 'items', label: t('sales.documents.detail.tabs.items', 'Items') },
+      ]
+      if (kind === 'order') {
+        tabs.push(
+          { id: 'shipments', label: t('sales.documents.detail.tabs.shipments', 'Shipments') },
+          { id: 'payments', label: t('sales.documents.detail.tabs.payments', 'Payments') },
+        )
+      }
+      tabs.push({ id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') })
+      return tabs
+    },
+    [kind, t],
+  )
+
+  React.useEffect(() => {
+    if (tabButtons.some((tab) => tab.id === activeTab)) return
+    const fallbackTab = tabButtons[0]?.id ?? 'comments'
+    if (activeTab !== fallbackTab) {
+      setActiveTab(fallbackTab)
+    }
+  }, [activeTab, tabButtons])
 
   const notesViewerLabel = React.useMemo(() => t('customers.people.detail.notes.you', 'You'), [t])
 

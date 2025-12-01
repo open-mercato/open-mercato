@@ -20,7 +20,12 @@ import {
   SalesOrder,
   SalesOrderLine,
   SalesOrderAdjustment,
+  SalesShipment,
   SalesShipmentItem,
+  SalesPayment,
+  SalesPaymentAllocation,
+  SalesDocumentAddress,
+  SalesNote,
   SalesChannel,
   SalesShippingMethod,
   SalesDeliveryWindow,
@@ -56,6 +61,16 @@ import {
   extractUndoPayload,
   toNumericString,
 } from './shared'
+import {
+  loadShipmentSnapshot,
+  restoreShipmentSnapshot,
+  type ShipmentSnapshot,
+} from './shipments'
+import {
+  loadPaymentSnapshot,
+  restorePaymentSnapshot,
+  type PaymentSnapshot,
+} from './payments'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { TaxCalculationService } from '../services/taxCalculationService'
 import type { PaymentMethodContext, ShippingMethodContext } from '../lib/providers'
@@ -68,6 +83,51 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import { loadSalesSettings } from './settings'
+
+type DocumentAddressSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  documentId: string
+  documentKind: 'order' | 'quote'
+  customerAddressId: string | null
+  name: string | null
+  purpose: string | null
+  companyName: string | null
+  addressLine1: string
+  addressLine2: string | null
+  city: string | null
+  region: string | null
+  postalCode: string | null
+  country: string | null
+  buildingNumber: string | null
+  flatNumber: string | null
+  latitude: number | null
+  longitude: number | null
+}
+
+type NoteSnapshot = {
+  id: string
+  organizationId: string
+  tenantId: string
+  contextType: 'order' | 'quote'
+  contextId: string
+  orderId: string | null
+  quoteId: string | null
+  body: string
+  authorUserId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+}
+
+type TagAssignmentSnapshot = {
+  id: string
+  tagId: string
+  organizationId: string
+  tenantId: string
+  documentId: string
+  documentKind: 'order' | 'quote'
+}
 
 type QuoteGraphSnapshot = {
   quote: {
@@ -112,6 +172,9 @@ type QuoteGraphSnapshot = {
   }
   lines: QuoteLineSnapshot[]
   adjustments: QuoteAdjustmentSnapshot[]
+  addresses: DocumentAddressSnapshot[]
+  notes: NoteSnapshot[]
+  tags: TagAssignmentSnapshot[]
 }
 
 type QuoteLineSnapshot = {
@@ -219,6 +282,11 @@ type OrderGraphSnapshot = {
   }
   lines: OrderLineSnapshot[]
   adjustments: OrderAdjustmentSnapshot[]
+  addresses: DocumentAddressSnapshot[]
+  notes: NoteSnapshot[]
+  tags: TagAssignmentSnapshot[]
+  shipments: ShipmentSnapshot[]
+  payments: PaymentSnapshot[]
 }
 
 type OrderLineSnapshot = {
@@ -832,6 +900,62 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
   if (!quote) return null
   const lines = await em.find(SalesQuoteLine, { quote: quote }, { orderBy: { lineNumber: 'asc' } })
   const adjustments = await em.find(SalesQuoteAdjustment, { quote: quote }, { orderBy: { position: 'asc' } })
+  const [addresses, notes, tags] = await Promise.all([
+    em.find(SalesDocumentAddress, { documentId: id, documentKind: 'quote' }),
+    em.find(SalesNote, { contextType: 'quote', contextId: id }),
+    em.find(SalesDocumentTagAssignment, { documentId: id, documentKind: 'quote' }, { populate: ['tag'] }),
+  ])
+  const addressSnapshots: DocumentAddressSnapshot[] = addresses.map((entry) => ({
+    id: entry.id,
+    organizationId: entry.organizationId,
+    tenantId: entry.tenantId,
+    documentId: entry.documentId,
+    documentKind: 'quote',
+    customerAddressId: entry.customerAddressId ?? null,
+    name: entry.name ?? null,
+    purpose: entry.purpose ?? null,
+    companyName: entry.companyName ?? null,
+    addressLine1: entry.addressLine1,
+    addressLine2: entry.addressLine2 ?? null,
+    city: entry.city ?? null,
+    region: entry.region ?? null,
+    postalCode: entry.postalCode ?? null,
+    country: entry.country ?? null,
+    buildingNumber: entry.buildingNumber ?? null,
+    flatNumber: entry.flatNumber ?? null,
+    latitude: entry.latitude ?? null,
+    longitude: entry.longitude ?? null,
+  }))
+  const noteSnapshots: NoteSnapshot[] = notes.map((entry) => ({
+    id: entry.id,
+    organizationId: entry.organizationId,
+    tenantId: entry.tenantId,
+    contextType: entry.contextType as 'order' | 'quote',
+    contextId: entry.contextId,
+    orderId: entry.order ? (typeof entry.order === 'string' ? entry.order : entry.order.id) : null,
+    quoteId: entry.quote ? (typeof entry.quote === 'string' ? entry.quote : entry.quote.id) : null,
+    body: entry.body,
+    authorUserId: entry.authorUserId ?? null,
+    appearanceIcon: entry.appearanceIcon ?? null,
+    appearanceColor: entry.appearanceColor ?? null,
+  }))
+  const tagSnapshots: TagAssignmentSnapshot[] = tags
+    .map((assignment) => {
+      const tagId =
+        typeof assignment.tag === 'string'
+          ? assignment.tag
+          : assignment.tag?.id ?? (assignment as any)?.tag_id ?? null
+      if (!tagId) return null
+      return {
+        id: assignment.id,
+        tagId,
+        organizationId: assignment.organizationId,
+        tenantId: assignment.tenantId,
+        documentId: assignment.documentId,
+        documentKind: 'quote',
+      }
+    })
+    .filter((entry): entry is TagAssignmentSnapshot => !!entry)
 
   return {
     quote: {
@@ -919,6 +1043,9 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       position: adj.position,
       quoteLineId: typeof adj.quoteLine === 'string' ? adj.quoteLine : adj.quoteLine?.id ?? null,
     })),
+    addresses: addressSnapshots,
+    notes: noteSnapshots,
+    tags: tagSnapshots,
   }
 }
 
@@ -927,6 +1054,70 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
   if (!order) return null
   const lines = await em.find(SalesOrderLine, { order: order }, { orderBy: { lineNumber: 'asc' } })
   const adjustments = await em.find(SalesOrderAdjustment, { order: order }, { orderBy: { position: 'asc' } })
+  const [addresses, notes, tags, shipments, payments] = await Promise.all([
+    em.find(SalesDocumentAddress, { documentId: id, documentKind: 'order' }),
+    em.find(SalesNote, { contextType: 'order', contextId: id }),
+    em.find(SalesDocumentTagAssignment, { documentId: id, documentKind: 'order' }, { populate: ['tag'] }),
+    em.find(SalesShipment, { order: order }),
+    em.find(SalesPayment, { order: order }),
+  ])
+  const shipmentSnapshots = (
+    await Promise.all(shipments.map((entry) => loadShipmentSnapshot(em, entry.id)))
+  ).filter((entry): entry is ShipmentSnapshot => !!entry)
+  const paymentSnapshots = (
+    await Promise.all(payments.map((entry) => loadPaymentSnapshot(em, entry.id)))
+  ).filter((entry): entry is PaymentSnapshot => !!entry)
+  const addressSnapshots: DocumentAddressSnapshot[] = addresses.map((entry) => ({
+    id: entry.id,
+    organizationId: entry.organizationId,
+    tenantId: entry.tenantId,
+    documentId: entry.documentId,
+    documentKind: 'order',
+    customerAddressId: entry.customerAddressId ?? null,
+    name: entry.name ?? null,
+    purpose: entry.purpose ?? null,
+    companyName: entry.companyName ?? null,
+    addressLine1: entry.addressLine1,
+    addressLine2: entry.addressLine2 ?? null,
+    city: entry.city ?? null,
+    region: entry.region ?? null,
+    postalCode: entry.postalCode ?? null,
+    country: entry.country ?? null,
+    buildingNumber: entry.buildingNumber ?? null,
+    flatNumber: entry.flatNumber ?? null,
+    latitude: entry.latitude ?? null,
+    longitude: entry.longitude ?? null,
+  }))
+  const noteSnapshots: NoteSnapshot[] = notes.map((entry) => ({
+    id: entry.id,
+    organizationId: entry.organizationId,
+    tenantId: entry.tenantId,
+    contextType: entry.contextType as 'order' | 'quote',
+    contextId: entry.contextId,
+    orderId: entry.order ? (typeof entry.order === 'string' ? entry.order : entry.order.id) : null,
+    quoteId: entry.quote ? (typeof entry.quote === 'string' ? entry.quote : entry.quote.id) : null,
+    body: entry.body,
+    authorUserId: entry.authorUserId ?? null,
+    appearanceIcon: entry.appearanceIcon ?? null,
+    appearanceColor: entry.appearanceColor ?? null,
+  }))
+  const tagSnapshots: TagAssignmentSnapshot[] = tags
+    .map((assignment) => {
+      const tagId =
+        typeof assignment.tag === 'string'
+          ? assignment.tag
+          : assignment.tag?.id ?? (assignment as any)?.tag_id ?? null
+      if (!tagId) return null
+      return {
+        id: assignment.id,
+        tagId,
+        organizationId: assignment.organizationId,
+        tenantId: assignment.tenantId,
+        documentId: assignment.documentId,
+        documentKind: 'order',
+      }
+    })
+    .filter((entry): entry is TagAssignmentSnapshot => !!entry)
 
   return {
     order: {
@@ -1033,6 +1224,11 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       position: adj.position,
       orderLineId: typeof adj.orderLine === 'string' ? adj.orderLine : adj.orderLine?.id ?? null,
     })),
+    addresses: addressSnapshots,
+    notes: noteSnapshots,
+    tags: tagSnapshots,
+    shipments: shipmentSnapshots,
+    payments: paymentSnapshots,
   }
 }
 
@@ -2040,6 +2236,12 @@ async function restoreQuoteGraph(
     em.persist(quote)
   }
   applyQuoteSnapshot(quote, snapshot.quote)
+  const addressSnapshots = Array.isArray(snapshot.addresses) ? snapshot.addresses : []
+  const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : []
+  const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : []
+  await em.nativeDelete(SalesDocumentAddress, { documentId: quote.id, documentKind: 'quote' })
+  await em.nativeDelete(SalesNote, { contextType: 'quote', contextId: quote.id })
+  await em.nativeDelete(SalesDocumentTagAssignment, { documentId: quote.id, documentKind: 'quote' })
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
   await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id })
 
@@ -2104,6 +2306,69 @@ async function restoreQuoteGraph(
     })
     adjustmentEntity.quoteLine = null
     em.persist(adjustmentEntity)
+  })
+
+  addressSnapshots.forEach((entry) => {
+    const entity = em.create(SalesDocumentAddress, {
+      id: entry.id,
+      organizationId: entry.organizationId,
+      tenantId: entry.tenantId,
+      documentId: quote.id,
+      documentKind: 'quote',
+      customerAddressId: entry.customerAddressId ?? null,
+      name: entry.name ?? null,
+      purpose: entry.purpose ?? null,
+      companyName: entry.companyName ?? null,
+      addressLine1: entry.addressLine1,
+      addressLine2: entry.addressLine2 ?? null,
+      city: entry.city ?? null,
+      region: entry.region ?? null,
+      postalCode: entry.postalCode ?? null,
+      country: entry.country ?? null,
+      buildingNumber: entry.buildingNumber ?? null,
+      flatNumber: entry.flatNumber ?? null,
+      latitude: entry.latitude ?? null,
+      longitude: entry.longitude ?? null,
+      quote,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entity)
+  })
+
+  noteSnapshots.forEach((entry) => {
+    const entity = em.create(SalesNote, {
+      id: entry.id,
+      organizationId: entry.organizationId,
+      tenantId: entry.tenantId,
+      contextType: 'quote',
+      contextId: quote.id,
+      order: null,
+      quote,
+      body: entry.body,
+      authorUserId: entry.authorUserId ?? null,
+      appearanceIcon: entry.appearanceIcon ?? null,
+      appearanceColor: entry.appearanceColor ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entity)
+  })
+
+  tagSnapshots.forEach((entry) => {
+    const tag = em.getReference(SalesDocumentTag, entry.tagId)
+    const assignment = em.create(SalesDocumentTagAssignment, {
+      id: entry.id,
+      organizationId: entry.organizationId,
+      tenantId: entry.tenantId,
+      documentId: quote.id,
+      documentKind: 'quote',
+      tag,
+      quote,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(assignment)
   })
 
   return quote
@@ -2185,8 +2450,24 @@ async function restoreOrderGraph(
     em.persist(order)
   }
   applyOrderSnapshot(order, snapshot.order)
-  await em.nativeDelete(SalesOrderLine, { order: order.id })
+  const addressSnapshots = Array.isArray(snapshot.addresses) ? snapshot.addresses : []
+  const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : []
+  const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : []
+  const shipmentSnapshots = Array.isArray(snapshot.shipments) ? snapshot.shipments : []
+  const paymentSnapshots = Array.isArray(snapshot.payments) ? snapshot.payments : []
+  const existingShipments = await em.find(SalesShipment, { order: order.id })
+  const shipmentIds = existingShipments.map((entry) => entry.id)
+  if (shipmentIds.length) {
+    await em.nativeDelete(SalesShipmentItem, { shipment: { $in: shipmentIds } })
+    await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } })
+  }
+  await em.nativeDelete(SalesPaymentAllocation, { order: order.id })
+  await em.nativeDelete(SalesPayment, { order: order.id })
+  await em.nativeDelete(SalesDocumentAddress, { documentId: order.id, documentKind: 'order' })
+  await em.nativeDelete(SalesNote, { contextType: 'order', contextId: order.id })
+  await em.nativeDelete(SalesDocumentTagAssignment, { documentId: order.id, documentKind: 'order' })
   await em.nativeDelete(SalesOrderAdjustment, { order: order.id })
+  await em.nativeDelete(SalesOrderLine, { order: order.id })
 
   snapshot.lines.forEach((line) => {
     const lineEntity = em.create(SalesOrderLine, {
@@ -2254,6 +2535,77 @@ async function restoreOrderGraph(
     adjustmentEntity.orderLine = null
     em.persist(adjustmentEntity)
   })
+
+  addressSnapshots.forEach((entry) => {
+    const entity = em.create(SalesDocumentAddress, {
+      id: entry.id,
+      organizationId: entry.organizationId,
+      tenantId: entry.tenantId,
+      documentId: order.id,
+      documentKind: 'order',
+      customerAddressId: entry.customerAddressId ?? null,
+      name: entry.name ?? null,
+      purpose: entry.purpose ?? null,
+      companyName: entry.companyName ?? null,
+      addressLine1: entry.addressLine1,
+      addressLine2: entry.addressLine2 ?? null,
+      city: entry.city ?? null,
+      region: entry.region ?? null,
+      postalCode: entry.postalCode ?? null,
+      country: entry.country ?? null,
+      buildingNumber: entry.buildingNumber ?? null,
+      flatNumber: entry.flatNumber ?? null,
+      latitude: entry.latitude ?? null,
+      longitude: entry.longitude ?? null,
+      order,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entity)
+  })
+
+  noteSnapshots.forEach((entry) => {
+    const entity = em.create(SalesNote, {
+      id: entry.id,
+      organizationId: entry.organizationId,
+      tenantId: entry.tenantId,
+      contextType: 'order',
+      contextId: order.id,
+      order,
+      quote: null,
+      body: entry.body,
+      authorUserId: entry.authorUserId ?? null,
+      appearanceIcon: entry.appearanceIcon ?? null,
+      appearanceColor: entry.appearanceColor ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(entity)
+  })
+
+  tagSnapshots.forEach((entry) => {
+    const tag = em.getReference(SalesDocumentTag, entry.tagId)
+    const assignment = em.create(SalesDocumentTagAssignment, {
+      id: entry.id,
+      organizationId: entry.organizationId,
+      tenantId: entry.tenantId,
+      documentId: order.id,
+      documentKind: 'order',
+      tag,
+      order,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(assignment)
+  })
+
+  for (const shipment of shipmentSnapshots) {
+    await restoreShipmentSnapshot(em, shipment)
+  }
+
+  for (const payment of paymentSnapshots) {
+    await restorePaymentSnapshot(em, payment)
+  }
 
   return order
 }
@@ -2519,6 +2871,8 @@ const deleteQuoteCommand: CommandHandler<
     const quote = await em.findOne(SalesQuote, { id })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    await em.nativeDelete(SalesDocumentAddress, { documentId: quote.id, documentKind: 'quote' })
+    await em.nativeDelete(SalesNote, { contextType: 'quote', contextId: quote.id })
     await em.nativeDelete(SalesDocumentTagAssignment, { documentId: quote.id, documentKind: 'quote' })
     await em.nativeDelete(SalesQuoteAdjustment, { quote: quote.id })
     await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
@@ -3135,6 +3489,16 @@ const deleteOrderCommand: CommandHandler<
     const order = await em.findOne(SalesOrder, { id })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    const shipments = await em.find(SalesShipment, { order: order.id })
+    const shipmentIds = shipments.map((entry) => entry.id)
+    if (shipmentIds.length) {
+      await em.nativeDelete(SalesShipmentItem, { shipment: { $in: shipmentIds } })
+      await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } })
+    }
+    await em.nativeDelete(SalesPaymentAllocation, { order: order.id })
+    await em.nativeDelete(SalesPayment, { order: order.id })
+    await em.nativeDelete(SalesDocumentAddress, { documentId: order.id, documentKind: 'order' })
+    await em.nativeDelete(SalesNote, { contextType: 'order', contextId: order.id })
     await em.nativeDelete(SalesDocumentTagAssignment, { documentId: order.id, documentKind: 'order' })
     await em.nativeDelete(SalesOrderAdjustment, { order: order.id })
     await em.nativeDelete(SalesOrderLine, { order: order.id })
