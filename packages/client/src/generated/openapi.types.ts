@@ -6290,6 +6290,7 @@ export interface components {
             sku?: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesSku"];
             subtitle?: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesSubtitle"];
             tags?: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTags"];
+            tax_rate_id?: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTaxRateId"];
             title?: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitle"];
             updated_at: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
             weight_unit?: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesWeightUnit"];
@@ -6519,6 +6520,10 @@ export interface components {
         DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesSubtitleAnyOf1: string;
         DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTags: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTagsItems"][];
         DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTagsItems: string;
+        DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTaxRateId: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTaxRateIdAnyOf0"] | components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTaxRateIdAnyOf1"];
+        DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTaxRateIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTaxRateIdAnyOf1: string;
         DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitle: components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitleAnyOf0"] | components["schemas"]["DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitleAnyOf1"];
         DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitleAnyOf0: null;
         DocPathsCatalogProductsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitleAnyOf1: string;
@@ -6570,6 +6575,8 @@ export interface components {
             statusEntryId?: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesStatusEntryId"];
             subtitle?: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesSubtitle"];
             tags?: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTags"];
+            taxRate?: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRate"];
+            taxRateId?: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId"];
             tenantId: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
             title: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTitle"];
             weightUnit?: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesWeightUnit"];
@@ -6692,6 +6699,13 @@ export interface components {
         DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesSubtitle: string;
         DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTags: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTagsItems"][];
         DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTagsItems: string;
+        DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRate: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0"] | components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1"];
+        DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0: null;
+        DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1: number;
+        DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId: components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0"] | components["schemas"]["DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1"];
+        DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1: string;
         /** Format: uuid */
         DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsCatalogProductsPostRequestBodyContentApplicationJsonSchemaPropertiesTitle: string;
@@ -6739,6 +6753,8 @@ export interface components {
             statusEntryId?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesStatusEntryId"];
             subtitle?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesSubtitle"];
             tags?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTags"];
+            taxRate?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRate"];
+            taxRateId?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId"];
             tenantId?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
             title?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTitle"];
             weightUnit?: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesWeightUnit"];
@@ -6861,6 +6877,13 @@ export interface components {
         DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesSubtitle: string;
         DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTags: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTagsItems"][];
         DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTagsItems: string;
+        DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRate: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0"] | components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1"];
+        DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0: null;
+        DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1: number;
+        DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId: components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0"] | components["schemas"]["DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1"];
+        DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1: string;
         /** Format: uuid */
         DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsCatalogProductsPutRequestBodyContentApplicationJsonSchemaPropertiesTitle: string;
@@ -7055,6 +7078,8 @@ export interface components {
             productId: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesProductId"];
             sku?: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesSku"];
             statusEntryId?: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesStatusEntryId"];
+            taxRate?: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRate"];
+            taxRateId?: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId"];
             tenantId: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
             weightUnit?: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesWeightUnit"];
             weightValue?: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesWeightValue"];
@@ -7099,6 +7124,13 @@ export interface components {
         DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesSku: string;
         /** Format: uuid */
         DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesStatusEntryId: string;
+        DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRate: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0"] | components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1"];
+        DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0: null;
+        DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1: number;
+        DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId: components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0"] | components["schemas"]["DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1"];
+        DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1: string;
         /** Format: uuid */
         DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsCatalogVariantsPostRequestBodyContentApplicationJsonSchemaPropertiesWeightUnit: string;
@@ -7134,6 +7166,8 @@ export interface components {
             productId?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesProductId"];
             sku?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesSku"];
             statusEntryId?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesStatusEntryId"];
+            taxRate?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRate"];
+            taxRateId?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId"];
             tenantId?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
             weightUnit?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesWeightUnit"];
             weightValue?: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesWeightValue"];
@@ -7180,6 +7214,13 @@ export interface components {
         DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesSku: string;
         /** Format: uuid */
         DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesStatusEntryId: string;
+        DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRate: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0"] | components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1"];
+        DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf0: null;
+        DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateAnyOf1: number;
+        DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateId: components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0"] | components["schemas"]["DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1"];
+        DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTaxRateIdAnyOf1: string;
         /** Format: uuid */
         DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
         DocPathsCatalogVariantsPutRequestBodyContentApplicationJsonSchemaPropertiesWeightUnit: string;
@@ -22773,6 +22814,8 @@ export interface operations {
                 /**
                  * @example {
                  *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "taxRateId": null,
+                 *       "taxRate": null,
                  *       "defaultMediaId": null,
                  *       "defaultMediaUrl": null,
                  *       "weightValue": null,
@@ -22845,6 +22888,8 @@ export interface operations {
                  *       "organizationId": "00000000-0000-4000-8000-000000000000",
                  *       "tenantId": "00000000-0000-4000-8000-000000000000",
                  *       "title": "string",
+                 *       "taxRateId": null,
+                 *       "taxRate": null,
                  *       "productType": "simple",
                  *       "defaultMediaId": null,
                  *       "defaultMediaUrl": null,
@@ -23122,6 +23167,8 @@ export interface operations {
                  *       "id": "00000000-0000-4000-8000-000000000000",
                  *       "defaultMediaId": null,
                  *       "defaultMediaUrl": null,
+                 *       "taxRateId": null,
+                 *       "taxRate": null,
                  *       "customFieldsetCode": null
                  *     }
                  */
@@ -23190,6 +23237,8 @@ export interface operations {
                  *       "productId": "00000000-0000-4000-8000-000000000000",
                  *       "defaultMediaId": null,
                  *       "defaultMediaUrl": null,
+                 *       "taxRateId": null,
+                 *       "taxRate": null,
                  *       "customFieldsetCode": null
                  *     }
                  */

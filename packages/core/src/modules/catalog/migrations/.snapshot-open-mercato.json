@@ -393,6 +393,15 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "tax_rate_id": {
+          "name": "tax_rate_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "product_type": {
           "name": "product_type",
           "type": "text",

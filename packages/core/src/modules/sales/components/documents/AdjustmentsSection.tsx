@@ -13,7 +13,10 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import {
+  emitSalesDocumentTotalsRefresh,
+  subscribeSalesDocumentTotalsRefresh,
+} from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
@@ -256,6 +259,16 @@ export function SalesDocumentAdjustmentsSection({
   React.useEffect(() => {
     void loadAdjustments()
   }, [loadAdjustments])
+
+  React.useEffect(
+    () =>
+      subscribeSalesDocumentTotalsRefresh((detail) => {
+        if (detail.documentId !== documentId) return
+        if (detail.kind && detail.kind !== kind) return
+        void loadAdjustments()
+      }),
+    [documentId, kind, loadAdjustments],
+  )
 
   const resolveKindLabel = React.useCallback(
     (kindValue: SalesAdjustmentKind) => {

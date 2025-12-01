@@ -257,6 +257,7 @@ export default function CreateCatalogProductPage() {
               subtitle: formValues.subtitle?.trim() || undefined,
               description,
               handle,
+              taxRateId: formValues.taxRateId ?? null,
               isConfigurable: Boolean(formValues.hasVariants),
               defaultMediaId: defaultMediaId ?? undefined,
               defaultMediaUrl: defaultMediaUrl ?? undefined,

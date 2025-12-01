@@ -43,6 +43,8 @@ type ProductResponse = {
     metadata?: Record<string, unknown> | null
     custom_fieldset_code?: string | null
     customFieldsetCode?: string | null
+    tax_rate_id?: string | null
+    taxRateId?: string | null
   }>
 }
 
@@ -60,6 +62,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([])
   const [initialValues, setInitialValues] = React.useState<VariantFormValues | null>(null)
   const [productTitle, setProductTitle] = React.useState<string>('')
+  const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -133,6 +136,12 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         const record = Array.isArray(res.result?.items) ? res.result?.items?.[0] : undefined
         if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
         const metadata = (record.metadata ?? {}) as Record<string, unknown>
+        const taxRateId =
+          typeof (record as any).tax_rate_id === 'string'
+            ? (record as any).tax_rate_id
+            : typeof (record as any).taxRateId === 'string'
+              ? (record as any).taxRateId
+              : null
         const optionSchemaId =
           typeof (record as any).option_schema_id === 'string'
             ? (record as any).option_schema_id
@@ -155,6 +164,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         if (!cancelled) {
           setOptionDefinitions(normalizeOptionSchema(schemaSource))
           setProductTitle(typeof record.title === 'string' ? record.title : '')
+          setProductTaxRateId(taxRateId)
           const base = createVariantInitialValues()
           setInitialValues(base)
         }
@@ -336,6 +346,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               variantId,
               taxRates,
               taxRateId: values.taxRateId,
+              productTaxRateId,
             })
             flash(t('catalog.variants.form.createSuccess', 'Variant created.'), 'success')
             router.push(`/backend/catalog/products/${productId}/variants/${variantId}`)
@@ -381,6 +392,7 @@ async function syncVariantPrices({
   variantId,
   taxRates,
   taxRateId,
+  productTaxRateId,
 }: {
   priceKinds: PriceKindSummary[]
   priceDrafts: Record<string, VariantPriceDraft>
@@ -388,8 +400,14 @@ async function syncVariantPrices({
   variantId: string
   taxRates: TaxRateSummary[]
   taxRateId: string | null
+  productTaxRateId?: string | null
 }): Promise<void> {
   const selectedTaxRate = taxRates.find((rate) => rate.id === taxRateId) ?? null
+  const fallbackProductTaxRate =
+    !selectedTaxRate && productTaxRateId
+      ? taxRates.find((rate) => rate.id === productTaxRateId) ?? null
+      : null
+  const resolvedTaxRate = selectedTaxRate ?? fallbackProductTaxRate ?? null
   for (const kind of priceKinds) {
     const draft = priceDrafts?.[kind.id]
     const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
@@ -402,10 +420,10 @@ async function syncVariantPrices({
       priceKindId: kind.id,
       currencyCode: kind.currencyCode ?? undefined,
     }
-    if (selectedTaxRate?.id) {
-      payload.taxRateId = selectedTaxRate.id
-    } else if (typeof selectedTaxRate?.rate === 'number' && Number.isFinite(selectedTaxRate.rate)) {
-      payload.taxRate = selectedTaxRate.rate
+    if (resolvedTaxRate?.id) {
+      payload.taxRateId = resolvedTaxRate.id
+    } else if (typeof resolvedTaxRate?.rate === 'number' && Number.isFinite(resolvedTaxRate.rate)) {
+      payload.taxRate = resolvedTaxRate.rate
     }
     if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
     else payload.unitPriceNet = numeric

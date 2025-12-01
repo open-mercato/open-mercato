@@ -3372,6 +3372,7 @@ const orderLineUpsertCommand: CommandHandler<
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as OrderGraphSnapshot | undefined
     const after = snapshots.after as OrderGraphSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -3381,19 +3382,20 @@ const orderLineUpsertCommand: CommandHandler<
       resourceId: result.orderId,
       tenantId: after.order.tenantId,
       organizationId: after.order.organizationId,
+      snapshotBefore: before ?? null,
       snapshotAfter: after,
       payload: {
-        undo: { after } satisfies OrderUndoPayload,
+        undo: { before, after } satisfies OrderUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
-    const after = payload?.after
-    if (!after) return
+    const before = payload?.before
+    if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId)
-    await restoreOrderGraph(em, after)
+    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
+    await restoreOrderGraph(em, before)
     await em.flush()
   },
 }
@@ -3500,6 +3502,7 @@ const orderLineDeleteCommand: CommandHandler<
     return loadOrderSnapshot(em, result.orderId)
   },
   buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as OrderGraphSnapshot | undefined
     const after = snapshots.after as OrderGraphSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -3509,19 +3512,20 @@ const orderLineDeleteCommand: CommandHandler<
       resourceId: result.orderId,
       tenantId: after.order.tenantId,
       organizationId: after.order.organizationId,
+      snapshotBefore: before ?? null,
       snapshotAfter: after,
       payload: {
-        undo: { after } satisfies OrderUndoPayload,
+        undo: { before, after } satisfies OrderUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
-    const after = payload?.after
-    if (!after) return
+    const before = payload?.before
+    if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId)
-    await restoreOrderGraph(em, after)
+    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
+    await restoreOrderGraph(em, before)
     await em.flush()
   },
 }
@@ -3696,6 +3700,7 @@ const quoteLineUpsertCommand: CommandHandler<
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as QuoteGraphSnapshot | undefined
     const after = snapshots.after as QuoteGraphSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -3705,19 +3710,20 @@ const quoteLineUpsertCommand: CommandHandler<
       resourceId: result.quoteId,
       tenantId: after.quote.tenantId,
       organizationId: after.quote.organizationId,
+      snapshotBefore: before ?? null,
       snapshotAfter: after,
       payload: {
-        undo: { after } satisfies QuoteUndoPayload,
+        undo: { before, after } satisfies QuoteUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
-    const after = payload?.after
-    if (!after) return
+    const before = payload?.before
+    if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId)
-    await restoreQuoteGraph(em, after)
+    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
+    await restoreQuoteGraph(em, before)
     await em.flush()
   },
 }
@@ -3811,6 +3817,7 @@ const quoteLineDeleteCommand: CommandHandler<
     return loadQuoteSnapshot(em, result.quoteId)
   },
   buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as QuoteGraphSnapshot | undefined
     const after = snapshots.after as QuoteGraphSnapshot | undefined
     if (!after) return null
     const { translate } = await resolveTranslations()
@@ -3820,19 +3827,20 @@ const quoteLineDeleteCommand: CommandHandler<
       resourceId: result.quoteId,
       tenantId: after.quote.tenantId,
       organizationId: after.quote.organizationId,
+      snapshotBefore: before ?? null,
       snapshotAfter: after,
       payload: {
-        undo: { after } satisfies QuoteUndoPayload,
+        undo: { before, after } satisfies QuoteUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
-    const after = payload?.after
-    if (!after) return
+    const before = payload?.before
+    if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId)
-    await restoreQuoteGraph(em, after)
+    ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
+    await restoreQuoteGraph(em, before)
     await em.flush()
   },
 }

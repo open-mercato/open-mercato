@@ -45,7 +45,10 @@ import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/c
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
-import { subscribeSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
+import {
+  emitSalesDocumentTotalsRefresh,
+  subscribeSalesDocumentTotalsRefresh,
+} from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
@@ -3079,7 +3082,7 @@ export default function SalesDocumentDetailPage({
         if (savedId && savedSnapshot) {
           ensureShippingMethodOption(savedId, savedSnapshot)
         }
-        void refreshDocumentTotals()
+        emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
         const message =
@@ -3093,7 +3096,7 @@ export default function SalesDocumentDetailPage({
     [
       ensureShippingMethodOption,
       record,
-      refreshDocumentTotals,
+      kind,
       shippingMethodOptions,
       shippingMethodOptionsRef,
       t,
@@ -3136,7 +3139,7 @@ export default function SalesDocumentDetailPage({
         if (savedId && savedSnapshot) {
           ensurePaymentMethodOption(savedId, savedSnapshot)
         }
-        void refreshDocumentTotals()
+        emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
         const message =
@@ -3149,10 +3152,10 @@ export default function SalesDocumentDetailPage({
     },
     [
       ensurePaymentMethodOption,
+      kind,
       paymentMethodOptions,
       paymentMethodOptionsRef,
       record,
-      refreshDocumentTotals,
       t,
       updateDocument,
     ]

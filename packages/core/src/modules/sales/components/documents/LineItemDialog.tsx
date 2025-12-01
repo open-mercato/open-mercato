@@ -232,6 +232,17 @@ export function LineItemDialog({
     [findTaxRateIdByValue, taxRateMap]
   )
 
+  const hasTaxMetadata = React.useCallback(
+    (source?: { taxRateId?: string | null; taxRate?: number | null } | null) => {
+      if (!source) return false
+      const id = typeof source.taxRateId === 'string' ? source.taxRateId.trim() : ''
+      if (id.length) return true
+      const numericRate = normalizeNumber(source.taxRate, Number.NaN)
+      return Number.isFinite(numericRate)
+    },
+    []
+  )
+
   const resetForm = React.useCallback(
     (next?: Partial<LineFormState>) => {
       const base = { ...defaultForm(currencyCode), ...next }
@@ -803,9 +814,16 @@ export function LineItemDialog({
                 if (!existingName.trim()) {
                   setFormValue?.('name', selectedOption?.title ?? productOption?.title ?? existingName)
                 }
-                const taxSelection = resolveTaxSelection(selectedOption ?? productOption ?? null)
-                setFormValue?.('taxRate', taxSelection.taxRate ?? null)
-                setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
+                const taxSource = hasTaxMetadata(selectedOption)
+                  ? selectedOption
+                  : hasTaxMetadata(productOption)
+                    ? productOption
+                    : null
+                if (taxSource) {
+                  const taxSelection = resolveTaxSelection(taxSource)
+                  setFormValue?.('taxRate', taxSelection.taxRate ?? null)
+                  setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
+                }
                 const prevSnapshot =
                   typeof values?.catalogSnapshot === 'object' && values.catalogSnapshot
                     ? (values.catalogSnapshot as Record<string, unknown>)
@@ -1037,6 +1055,7 @@ export function LineItemDialog({
     taxRateMap,
     taxRates.length,
     resolveTaxSelection,
+    hasTaxMetadata,
   ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {

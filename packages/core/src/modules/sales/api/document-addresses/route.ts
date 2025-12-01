@@ -77,7 +77,28 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
-      if (query.documentId) filters.document_id = { $eq: query.documentId }
+      const documentFilters: Array<Record<string, any>> = []
+
+      if (query.documentId) {
+        documentFilters.push({ document_id: { $eq: query.documentId } })
+        if (query.documentKind === 'order') {
+          documentFilters.push({ order_id: { $eq: query.documentId } })
+        } else if (query.documentKind === 'quote') {
+          documentFilters.push({ quote_id: { $eq: query.documentId } })
+        } else {
+          documentFilters.push(
+            { order_id: { $eq: query.documentId } },
+            { quote_id: { $eq: query.documentId } }
+          )
+        }
+      }
+
+      if (documentFilters.length === 1) {
+        Object.assign(filters, documentFilters[0])
+      } else if (documentFilters.length > 1) {
+        filters.$or = documentFilters
+      }
+
       if (query.documentKind) filters.document_kind = { $eq: query.documentKind }
       return filters
     },

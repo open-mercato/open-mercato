@@ -29,6 +29,7 @@ import {
   CatalogProductTag,
   CatalogProductTagAssignment,
 } from '../data/entities'
+import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 import {
   productCreateSchema,
   productUpdateSchema,
@@ -62,6 +63,8 @@ type ProductSnapshot = {
   description: string | null
   sku: string | null
   handle: string | null
+  taxRateId: string | null
+  taxRate: string | null
   productType: CatalogProductType
   statusEntryId: string | null
   primaryCurrencyCode: string | null
@@ -175,6 +178,8 @@ const PRODUCT_CHANGE_KEYS = [
   'description',
   'sku',
   'handle',
+  'taxRateId',
+  'taxRate',
   'productType',
   'statusEntryId',
   'primaryCurrencyCode',
@@ -855,6 +860,7 @@ async function loadProductSnapshot(
     description: record.description ?? null,
     sku: record.sku ?? null,
     handle: record.handle ?? null,
+    taxRateId: record.taxRateId ?? null,
     productType: record.productType,
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
@@ -888,6 +894,7 @@ function applyProductSnapshot(
   record.description = snapshot.description ?? null
   record.sku = snapshot.sku ?? null
   record.handle = snapshot.handle ?? null
+  record.taxRateId = snapshot.taxRateId ?? null
   record.productType = snapshot.productType
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
@@ -938,6 +945,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       description: parsed.description ?? null,
       sku: parsed.sku ?? null,
       handle: parsed.handle ?? null,
+      taxRateId: parsed.taxRateId ?? null,
       productType: parsed.productType ?? 'simple',
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
@@ -1086,6 +1094,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
     if (parsed.handle !== undefined) record.handle = parsed.handle ?? null
+    if (parsed.taxRateId !== undefined) record.taxRateId = parsed.taxRateId ?? null
     if (parsed.productType !== undefined) record.productType = parsed.productType
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.primaryCurrencyCode !== undefined) {
@@ -1227,6 +1236,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         description: before.description ?? null,
         sku: before.sku ?? null,
         handle: before.handle ?? null,
+        taxRateId: before.taxRateId ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
@@ -1363,6 +1373,7 @@ const deleteProductCommand: CommandHandler<
         description: before.description ?? null,
         sku: before.sku ?? null,
         handle: before.handle ?? null,
+        taxRateId: before.taxRateId ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,

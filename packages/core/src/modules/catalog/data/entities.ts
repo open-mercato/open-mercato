@@ -97,6 +97,12 @@ export class CatalogProduct {
   @Property({ type: 'text', nullable: true })
   handle?: string | null
 
+  @Property({ name: 'tax_rate_id', type: 'uuid', nullable: true })
+  taxRateId?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
+
   @Property({ name: 'product_type', type: 'text', default: 'simple' })
   productType: CatalogProductType = 'simple'
 
@@ -443,6 +449,12 @@ export class CatalogProductVariant {
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'tax_rate_id', type: 'uuid', nullable: true })
+  taxRateId?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
 
   @Property({ name: 'option_values', type: 'jsonb', nullable: true })
   optionValues?: Record<string, string> | null

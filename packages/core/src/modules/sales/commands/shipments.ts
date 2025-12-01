@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+import { randomUUID } from 'crypto'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -323,7 +324,9 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         input.shipmentAddressSnapshot ?? order.shippingAddressSnapshot ?? null
       ) ?? null
 
+    const shipmentId = randomUUID()
     const shipment = em.create(SalesShipment, {
+      id: shipmentId,
       order,
       organizationId: input.organizationId,
       tenantId: input.tenantId,
