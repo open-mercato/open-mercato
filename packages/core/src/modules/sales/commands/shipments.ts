@@ -91,6 +91,38 @@ const parseTrackingNumbers = (input: unknown): string[] | null => {
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
 
+const resolveLogger = (ctx: any): { warn?: (meta: any, message?: string) => void } | null => {
+  const container = ctx?.container as any
+  if (!container) return null
+  const cradleLogger = container?.cradle?.logger ?? null
+  if (cradleLogger?.warn) return cradleLogger
+  const hasRegistration = typeof container.hasRegistration === 'function' ? container.hasRegistration.bind(container) : null
+  if (hasRegistration?.('logger')) {
+    const logger = container.resolve('logger')
+    if (logger?.warn) return logger
+  }
+  if (hasRegistration?.('coreLogger')) {
+    const logger = container.resolve('coreLogger')
+    if (logger?.warn) return logger
+  }
+  return null
+}
+
+const logShipmentDeleteScopeRejection = (
+  ctx: any,
+  reason: string,
+  meta: Record<string, unknown>
+): void => {
+  const logger = resolveLogger(ctx)
+  const payload = { ...meta, command: 'sales.shipments.delete' }
+  if (logger?.warn) {
+    logger.warn(payload, reason)
+    return
+  }
+  // eslint-disable-next-line no-console
+  console.warn(`[sales.shipments.delete] ${reason}`, payload)
+}
+
 async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {
   const shipment = await em.findOne(
     SalesShipment,
@@ -561,8 +593,27 @@ const deleteShipmentCommand: CommandHandler<
     const em = ctx.container.resolve('em') as EntityManager
     const snapshot = await loadShipmentSnapshot(em, parsed.id)
     if (snapshot) {
-      ensureTenantScope(ctx, snapshot.tenantId)
-      ensureOrganizationScope(ctx, snapshot.organizationId)
+      try {
+        ensureTenantScope(ctx, snapshot.tenantId)
+      } catch (error) {
+        logShipmentDeleteScopeRejection(ctx, 'Tenant mismatch while preparing shipment delete', {
+          shipmentId: snapshot.id,
+          snapshotTenantId: snapshot.tenantId,
+          authTenantId: ctx.auth?.tenantId ?? null,
+        })
+        throw error
+      }
+      try {
+        ensureOrganizationScope(ctx, snapshot.organizationId)
+      } catch (error) {
+        logShipmentDeleteScopeRejection(ctx, 'Organization mismatch while preparing shipment delete', {
+          shipmentId: snapshot.id,
+          snapshotOrganizationId: snapshot.organizationId,
+          selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+          authOrganizationId: ctx.auth?.orgId ?? null,
+        })
+        throw error
+      }
     }
     return snapshot ? { before: snapshot } : {}
   },
@@ -571,8 +622,27 @@ const deleteShipmentCommand: CommandHandler<
     const payload = shipmentUpdateSchema
       .pick({ id: true, orderId: true, organizationId: true, tenantId: true })
       .parse(rawInput ?? {})
-    ensureTenantScope(ctx, payload.tenantId)
-    ensureOrganizationScope(ctx, payload.organizationId)
+    try {
+      ensureTenantScope(ctx, payload.tenantId)
+    } catch (error) {
+      logShipmentDeleteScopeRejection(ctx, 'Tenant mismatch while executing shipment delete', {
+        shipmentId: payload.id,
+        payloadTenantId: payload.tenantId,
+        authTenantId: ctx.auth?.tenantId ?? null,
+      })
+      throw error
+    }
+    try {
+      ensureOrganizationScope(ctx, payload.organizationId)
+    } catch (error) {
+      logShipmentDeleteScopeRejection(ctx, 'Organization mismatch while executing shipment delete', {
+        shipmentId: payload.id,
+        payloadOrganizationId: payload.organizationId,
+        selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+        authOrganizationId: ctx.auth?.orgId ?? null,
+      })
+      throw error
+    }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const shipment = await em.findOne(
       SalesShipment,
@@ -582,7 +652,18 @@ const deleteShipmentCommand: CommandHandler<
     if (!shipment || !shipment.order) {
       throw new CrudHttpError(404, { error: translate('sales.shipments.not_found', 'Shipment not found') })
     }
-    ensureSameScope(shipment, payload.organizationId, payload.tenantId)
+    try {
+      ensureSameScope(shipment, payload.organizationId, payload.tenantId)
+    } catch (error) {
+      logShipmentDeleteScopeRejection(ctx, 'Shipment scope mismatch against payload', {
+        shipmentId: payload.id,
+        shipmentOrganizationId: shipment.organizationId,
+        shipmentTenantId: shipment.tenantId,
+        payloadOrganizationId: payload.organizationId,
+        payloadTenantId: payload.tenantId,
+      })
+      throw error
+    }
     const order = shipment.order as SalesOrder
     if (order.id !== payload.orderId) {
       throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })

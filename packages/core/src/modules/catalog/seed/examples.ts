@@ -19,6 +19,7 @@ import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/dat
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
 import { defineFields, cf } from '@/modules/dsl'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'
 import { storePartitionFile } from '@open-mercato/core/modules/attachments/lib/storage'
@@ -587,6 +588,30 @@ function formatMoney(value: number): string {
   return value.toFixed(2)
 }
 
+async function resolveDefaultTaxRate(
+  em: EntityManager,
+  scope: SeedScope
+): Promise<SalesTaxRate | null> {
+  const [rate] = await em.find(
+    SalesTaxRate,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    {
+      limit: 1,
+      orderBy: {
+        isDefault: 'DESC',
+        priority: 'ASC',
+        rate: 'DESC',
+        createdAt: 'ASC',
+      },
+    }
+  )
+  return rate ?? null
+}
+
 async function ensureFieldsetConfig(
   em: EntityManager,
   scope: SeedScope,
@@ -755,6 +780,9 @@ export async function seedCatalogExamples(
   const priceKinds = await loadPriceKinds(em, scope)
   const regularKind = priceKinds.get('regular')
   const saleKind = priceKinds.get('sale')
+  const defaultTaxRate = await resolveDefaultTaxRate(em, scope)
+  const defaultTaxRateId = defaultTaxRate?.id ?? null
+  const defaultTaxRateValue = defaultTaxRate?.rate ?? null
   if (!regularKind || !saleKind) {
     throw new Error('Missing catalog price kinds; run `mercato catalog seed-price-kinds` first.')
   }
@@ -782,6 +810,8 @@ export async function seedCatalogExamples(
       defaultUnit: productSeed.unit,
       customFieldsetCode: productSeed.customFieldsetCode,
       metadata: productSeed.metadata ?? null,
+      taxRateId: defaultTaxRateId,
+      taxRate: defaultTaxRateValue,
       isConfigurable: true,
       isActive: true,
       createdAt: new Date(),
@@ -859,6 +889,8 @@ export async function seedCatalogExamples(
         optionValues: variantSeed.optionValues ?? null,
         customFieldsetCode: productSeed.variantFieldsetCode,
         metadata: null,
+        taxRateId: defaultTaxRateId,
+        taxRate: defaultTaxRateValue,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -885,6 +917,7 @@ export async function seedCatalogExamples(
         currencyCode: 'USD',
         kind: regularKind.code,
         minQuantity: 1,
+        taxRate: defaultTaxRateValue,
         unitPriceGross: formatMoney(variantSeed.prices.regular),
         unitPriceNet: formatMoney(variantSeed.prices.regular),
         channelId: channel.id,
@@ -905,6 +938,7 @@ export async function seedCatalogExamples(
           currencyCode: 'USD',
           kind: saleKind.code,
           minQuantity: 1,
+          taxRate: defaultTaxRateValue,
           unitPriceGross: formatMoney(variantSeed.prices.sale),
           unitPriceNet: formatMoney(variantSeed.prices.sale),
           channelId: channel.id,

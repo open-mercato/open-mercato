@@ -196,6 +196,30 @@ const PRODUCT_CHANGE_KEYS = [
   'isActive',
 ] as const satisfies readonly string[]
 
+async function resolveScopedTaxRate(
+  em: EntityManager,
+  taxRateId: string | null | undefined,
+  taxRateInput: number | string | null | undefined,
+  organizationId: string,
+  tenantId: string
+): Promise<{ taxRateId: string | null; taxRate: string | null }> {
+  const normalizedRate =
+    taxRateInput === null || taxRateInput === undefined ? null : toNumericString(taxRateInput)
+  if (!taxRateId) {
+    return { taxRateId: null, taxRate: normalizedRate }
+  }
+  const record = await em.findOne(SalesTaxRate, {
+    id: taxRateId,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!record) {
+    throw new CrudHttpError(400, { error: 'Tax class not found' })
+  }
+  return { taxRateId, taxRate: record.rate ?? normalizedRate }
+}
+
 function slugifyCode(input: string): string {
   return input
     .toLowerCase()
@@ -861,6 +885,7 @@ async function loadProductSnapshot(
     sku: record.sku ?? null,
     handle: record.handle ?? null,
     taxRateId: record.taxRateId ?? null,
+    taxRate: record.taxRate ?? null,
     productType: record.productType,
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
@@ -895,6 +920,7 @@ function applyProductSnapshot(
   record.sku = snapshot.sku ?? null
   record.handle = snapshot.handle ?? null
   record.taxRateId = snapshot.taxRateId ?? null
+  record.taxRate = snapshot.taxRate ?? null
   record.productType = snapshot.productType
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
@@ -923,6 +949,13 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    const { taxRateId, taxRate } = await resolveScopedTaxRate(
+      em,
+      parsed.taxRateId ?? null,
+      parsed.taxRate,
+      parsed.organizationId,
+      parsed.tenantId
+    )
     const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
     const measurements = extractMeasurementsFromMetadata(sanitizedMetadata)
     const dimensions = normalizeDimensionsInput(parsed.dimensions) ?? measurements.dimensions
@@ -945,7 +978,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       description: parsed.description ?? null,
       sku: parsed.sku ?? null,
       handle: parsed.handle ?? null,
-      taxRateId: parsed.taxRateId ?? null,
+      taxRateId,
+      taxRate,
       productType: parsed.productType ?? 'simple',
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
@@ -1089,12 +1123,20 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     record.organizationId = organizationId
     record.tenantId = tenantId
 
+    const taxRateProvided = parsed.taxRateId !== undefined || parsed.taxRate !== undefined
+    const resolvedTaxRate = taxRateProvided
+      ? await resolveScopedTaxRate(em, parsed.taxRateId ?? null, parsed.taxRate, organizationId, tenantId)
+      : null
+
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.subtitle !== undefined) record.subtitle = parsed.subtitle ?? null
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
     if (parsed.handle !== undefined) record.handle = parsed.handle ?? null
-    if (parsed.taxRateId !== undefined) record.taxRateId = parsed.taxRateId ?? null
+    if (taxRateProvided) {
+      record.taxRateId = resolvedTaxRate?.taxRateId ?? null
+      record.taxRate = resolvedTaxRate?.taxRate ?? null
+    }
     if (parsed.productType !== undefined) record.productType = parsed.productType
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.primaryCurrencyCode !== undefined) {
@@ -1237,6 +1279,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         sku: before.sku ?? null,
         handle: before.handle ?? null,
         taxRateId: before.taxRateId ?? null,
+        taxRate: before.taxRate ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
@@ -1374,6 +1417,7 @@ const deleteProductCommand: CommandHandler<
         sku: before.sku ?? null,
         handle: before.handle ?? null,
         taxRateId: before.taxRateId ?? null,
+        taxRate: before.taxRate ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,

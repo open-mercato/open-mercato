@@ -58,6 +58,9 @@ type ShipmentAddressOption = {
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 const ADDRESS_FORMAT: AddressFormatStrategy = 'line_first'
+const SHIPPING_ADJUSTMENT_TOGGLE_ID = 'shipment-add-shipping-adjustment'
+const SHIPPING_ADJUSTMENT_LABEL_ID = 'shipment-add-shipping-adjustment-label'
+const SHIPPING_ADJUSTMENT_HELP_ID = 'shipment-add-shipping-adjustment-help'
 
 type NormalizedAddressSnapshot = {
   id?: string
@@ -868,6 +871,14 @@ export function ShipmentDialog({
   }, [])
 
   const fields = React.useMemo<CrudField[]>(() => {
+    const shippingAdjustmentLabel = t(
+      'sales.documents.shipments.addShippingAdjustment',
+      'Add shipping cost adjustment for this shipment',
+    )
+    const shippingAdjustmentHelp = t(
+      'sales.documents.shipments.addShippingAdjustmentHelp',
+      'Create a shipping adjustment using this carrier’s calculated cost.',
+    )
     const itemsField: CrudField = {
       id: 'items',
       label: t('sales.documents.shipments.items', 'Items to ship'),
@@ -1081,30 +1092,27 @@ export function ShipmentDialog({
       },
       {
         id: 'addShippingAdjustment',
-        label: t(
-          'sales.documents.shipments.addShippingAdjustment',
-          'Add shipping cost adjustment for this shipment',
-        ),
+        label: shippingAdjustmentLabel,
         type: 'custom',
         component: ({ value, setValue }) => (
           <div className="flex items-start gap-2">
             <Switch
-              id="shipment-add-shipping-adjustment"
+              id={SHIPPING_ADJUSTMENT_TOGGLE_ID}
               checked={Boolean(value)}
               onCheckedChange={(checked) => setValue(Boolean(checked))}
+              aria-labelledby={SHIPPING_ADJUSTMENT_LABEL_ID}
+              aria-describedby={SHIPPING_ADJUSTMENT_HELP_ID}
             />
             <div className="space-y-1">
-              <Label htmlFor="shipment-add-shipping-adjustment" className="cursor-pointer">
-                {t(
-                  'sales.documents.shipments.addShippingAdjustment',
-                  'Add shipping cost adjustment for this shipment',
-                )}
+              <Label
+                htmlFor={SHIPPING_ADJUSTMENT_TOGGLE_ID}
+                id={SHIPPING_ADJUSTMENT_LABEL_ID}
+                className="sr-only"
+              >
+                {shippingAdjustmentLabel}
               </Label>
-              <p className="text-xs text-muted-foreground">
-                {t(
-                  'sales.documents.shipments.addShippingAdjustmentHelp',
-                  'Create a shipping adjustment using this carrier’s calculated cost.',
-                )}
+              <p id={SHIPPING_ADJUSTMENT_HELP_ID} className="text-xs text-muted-foreground">
+                {shippingAdjustmentHelp}
               </p>
             </div>
           </div>

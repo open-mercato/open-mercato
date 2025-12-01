@@ -30,6 +30,7 @@ import {
   requireProduct,
   toNumericString,
 } from './shared'
+import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 
 type VariantSnapshot = {
   id: string
@@ -44,6 +45,8 @@ type VariantSnapshot = {
   isActive: boolean
   weightValue: string | null
   weightUnit: string | null
+  taxRateId: string | null
+  taxRate: string | null
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   optionValues: Record<string, string> | null
@@ -69,6 +72,8 @@ const VARIANT_CHANGE_KEYS = [
   'isActive',
   'weightValue',
   'weightUnit',
+  'taxRateId',
+  'taxRate',
   'dimensions',
   'optionValues',
   'customFieldsetCode',
@@ -103,6 +108,8 @@ async function loadVariantSnapshot(
     isActive: record.isActive,
     weightValue: record.weightValue ?? null,
     weightUnit: record.weightUnit ?? null,
+    taxRateId: record.taxRateId ?? null,
+    taxRate: record.taxRate ?? null,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     optionValues: record.optionValues ? cloneJson(record.optionValues) : null,
@@ -125,12 +132,42 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.isActive = snapshot.isActive
   record.weightValue = snapshot.weightValue ?? null
   record.weightUnit = snapshot.weightUnit ?? null
+  record.taxRateId = snapshot.taxRateId ?? null
+  record.taxRate = snapshot.taxRate ?? null
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.optionValues = snapshot.optionValues ? cloneJson(snapshot.optionValues) : null
   record.customFieldsetCode = snapshot.customFieldsetCode ?? null
   record.createdAt = new Date(snapshot.createdAt)
   record.updatedAt = new Date(snapshot.updatedAt)
+}
+
+async function resolveVariantTaxRate(
+  em: EntityManager,
+  product: CatalogProduct,
+  taxRateIdInput: string | null | undefined,
+  taxRateInput: number | string | null | undefined
+): Promise<{ taxRateId: string | null; taxRate: string | null }> {
+  const organizationId = product.organizationId
+  const tenantId = product.tenantId
+  const normalizedRate =
+    taxRateInput === null || taxRateInput === undefined ? null : toNumericString(taxRateInput)
+  if (taxRateIdInput === null) {
+    return { taxRateId: product.taxRateId ?? null, taxRate: product.taxRate ?? null }
+  }
+  if (!taxRateIdInput) {
+    return { taxRateId: product.taxRateId ?? null, taxRate: product.taxRate ?? normalizedRate }
+  }
+  const record = await em.findOne(SalesTaxRate, {
+    id: taxRateIdInput,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!record) {
+    throw new CrudHttpError(400, { error: 'Tax class not found' })
+  }
+  return { taxRateId: taxRateIdInput, taxRate: record.rate ?? normalizedRate }
 }
 
 type VariantPriceSnapshot = {
@@ -484,6 +521,12 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const product = await requireProduct(em, parsed.productId)
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
+    const { taxRateId, taxRate } = await resolveVariantTaxRate(
+      em,
+      product,
+      parsed.taxRateId ?? null,
+      parsed.taxRate
+    )
 
     const metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
     const resolvedOptionValues =
@@ -502,6 +545,8 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       isActive: parsed.isActive ?? true,
       weightValue: toNumericString(parsed.weightValue),
       weightUnit: parsed.weightUnit ?? null,
+      taxRateId,
+      taxRate,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
       metadata: metadataSplit.metadata,
       optionValues: resolvedOptionValues ? cloneJson(resolvedOptionValues) : null,
@@ -611,6 +656,14 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const product =
+      typeof record.product === 'string' ? await requireProduct(em, record.product) : record.product
+    if (!product) throw new CrudHttpError(400, { error: 'Variant product missing' })
+
+    const taxRateProvided = parsed.taxRateId !== undefined || parsed.taxRate !== undefined
+    const resolvedTaxRate = taxRateProvided
+      ? await resolveVariantTaxRate(em, product, parsed.taxRateId ?? null, parsed.taxRate)
+      : null
 
     if (parsed.name !== undefined) record.name = parsed.name ?? null
     if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
@@ -634,6 +687,10 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
     } else if (metadataSplit?.hadOptionValues) {
       record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
+    }
+    if (taxRateProvided) {
+      record.taxRateId = resolvedTaxRate?.taxRateId ?? null
+      record.taxRate = resolvedTaxRate?.taxRate ?? null
     }
     if (parsed.customFieldsetCode !== undefined) {
       record.customFieldsetCode = parsed.customFieldsetCode ?? null
