@@ -14467,6 +14467,7 @@ export interface components {
             calculatorKey?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
             code?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             currencyCode?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             id?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId"];
             kind?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
             label?: components["schemas"]["DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
@@ -14486,6 +14487,9 @@ export interface components {
         DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
         /** Format: regex */
         DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesOrderAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind: string;
@@ -14525,6 +14529,7 @@ export interface components {
             calculatorKey?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
             code?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             currencyCode?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             id?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             kind?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind"];
             label?: components["schemas"]["DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
@@ -14544,6 +14549,9 @@ export interface components {
         DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
         /** Format: regex */
         DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesOrderAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind: string;
@@ -15383,6 +15391,7 @@ export interface components {
             calculatorKey?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCalculatorKey"];
             code?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCode"];
             currencyCode?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCustomFields"];
             kind?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesKind"];
             label?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesLabel"];
             metadata?: components["schemas"]["DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerSnapshot"];
@@ -15396,6 +15405,9 @@ export interface components {
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesAmountNet: number;
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCalculatorKey: string;
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCode: string;
+        DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesKind: string;
         DocPathsSalesOrdersPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesLabel: string;
         /** Format: uuid */
@@ -16356,6 +16368,7 @@ export interface components {
             calculatorKey?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
             code?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             currencyCode?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             id?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId"];
             kind?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind"];
             label?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
@@ -16375,6 +16388,9 @@ export interface components {
         DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
         /** Format: regex */
         DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesQuoteAdjustmentsPostRequestBodyContentApplicationJsonSchemaPropertiesKind: string;
@@ -16414,6 +16430,7 @@ export interface components {
             calculatorKey?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCalculatorKey"];
             code?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode"];
             currencyCode?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields"];
             id?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
             kind?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind"];
             label?: components["schemas"]["DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
@@ -16433,6 +16450,9 @@ export interface components {
         DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCode: string;
         /** Format: regex */
         DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode: string;
+        DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         /** Format: uuid */
         DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
         DocPathsSalesQuoteAdjustmentsPutRequestBodyContentApplicationJsonSchemaPropertiesKind: string;
@@ -17109,6 +17129,7 @@ export interface components {
             calculatorKey?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCalculatorKey"];
             code?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCode"];
             currencyCode?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesCurrencyCode"];
+            customFields?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCustomFields"];
             kind?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesKind"];
             label?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesLabel"];
             metadata?: components["schemas"]["DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesCustomerSnapshot"];
@@ -17122,6 +17143,9 @@ export interface components {
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesAmountNet: number;
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCalculatorKey: string;
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCode: string;
+        DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesCustomFields: {
+            [key: string]: unknown;
+        };
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesKind: string;
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesLabel: string;
         DocPathsSalesQuotesPostRequestBodyContentApplicationJsonSchemaPropertiesAdjustmentsItemsPropertiesPosition: number;

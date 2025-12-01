@@ -36,4 +36,9 @@ export async function createRequestContainer(): Promise<AppContainer> {
   } catch {}
   return container
 }
-import 'server-only'
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('server-only')
+} catch {
+  // allow CLI/generator usage where Next server-only is not present
+}
