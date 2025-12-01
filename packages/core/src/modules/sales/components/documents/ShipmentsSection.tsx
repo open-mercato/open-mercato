@@ -22,6 +22,8 @@ type SalesShipmentsSectionProps = {
   orderId: string
   currencyCode?: string | null
   shippingAddressSnapshot?: Record<string, unknown> | null
+  organizationId?: string | null
+  tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onAddComment?: (body: string) => Promise<void>
 }
@@ -78,11 +80,15 @@ export function SalesShipmentsSection({
   orderId,
   currencyCode,
   shippingAddressSnapshot,
+  organizationId: organizationIdProp,
+  tenantId: tenantIdProp,
   onActionChange,
   onAddComment,
 }: SalesShipmentsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const resolvedOrganizationId = organizationIdProp ?? organizationId ?? null
+  const resolvedTenantId = tenantIdProp ?? tenantId ?? null
   const addShipmentLabel = React.useMemo(
     () => t('sales.documents.shipments.add', 'Add shipment'),
     [t]
@@ -343,8 +349,8 @@ export function SalesShipmentsSection({
           body: {
             id: shipment.id,
             orderId,
-            organizationId,
-            tenantId,
+            organizationId: resolvedOrganizationId,
+            tenantId: resolvedTenantId,
           },
           errorMessage: t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'),
         })
@@ -357,7 +363,7 @@ export function SalesShipmentsSection({
         flash(t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'), 'error')
       }
     },
-    [loadShipments, orderId, organizationId, t, tenantId]
+    [loadShipments, orderId, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   const renderItemList = (items: ShipmentItem[]) => (
@@ -502,8 +508,8 @@ export function SalesShipmentsSection({
         lines={lines}
         orderId={orderId}
         currencyCode={currencyCode}
-        organizationId={organizationId}
-        tenantId={tenantId}
+        organizationId={resolvedOrganizationId}
+        tenantId={resolvedTenantId}
         computeAvailable={computeAvailable}
         shippingAddressSnapshot={shippingAddressSnapshot}
         onClose={() => setDialogState(null)}

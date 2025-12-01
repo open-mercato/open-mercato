@@ -118,5 +118,9 @@ export type CalculateDocumentOptions = {
   lines: SalesLineSnapshot[]
   adjustments?: SalesAdjustmentDraft[]
   context: SalesCalculationContext
+  existingTotals?: {
+    paidTotalAmount?: number | null
+    refundedTotalAmount?: number | null
+  }
   eventBus?: EventBus | null
 }

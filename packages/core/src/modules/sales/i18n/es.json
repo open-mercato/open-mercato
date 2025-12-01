@@ -821,11 +821,15 @@
           "taxRate.empty": "No hay clases de impuestos disponibles",
           "name": "Nombre",
           "namePlaceholder": "Nombre opcional de la línea",
+          "status": "Estado",
+          "statusPlaceholder": "Seleccionar estado",
+          "statusLoading": "Cargando estados…",
+          "statusEmpty": "Sin estado",
           "cancel": "Cancelar",
           "addLine": "Agregar artículo",
           "save": "Guardar cambios",
           "untitled": "Sin título",
-      "table": {
+          "table": {
         "product": "Producto",
         "status": "Estado",
         "quantity": "Cant.",
@@ -1088,5 +1092,9 @@
   "sales.shipments.quantity_exceeded": "No se puede enviar más de la cantidad restante.",
   "sales.shipments.invalid_order": "El envío no pertenece a este pedido.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
-  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
+  "sales.orders.status_change.note": "Estado cambiado de {from} a {to} por {actor}.",
+  "sales.orders.status_change.actor_unknown": "Usuario desconocido",
+  "sales.orders.status_change.actor_api_key": "Clave API {name}",
+  "sales.orders.status_change.empty": "sin definir"
 }

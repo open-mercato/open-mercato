@@ -97,9 +97,7 @@ export function PaymentDialog({
   const [paymentMethods, setPaymentMethods] = React.useState<PaymentMethodOption[]>([])
   const [methodsLoading, setMethodsLoading] = React.useState(false)
   const [documentStatuses, setDocumentStatuses] = React.useState<StatusOption[]>([])
-  const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
   const [documentStatusLoading, setDocumentStatusLoading] = React.useState(false)
-  const [lineStatusLoading, setLineStatusLoading] = React.useState(false)
 
   const currencyLabel = React.useMemo(() => {
     const code = currencyCode ? currencyCode.toUpperCase() : ''
@@ -114,7 +112,6 @@ export function PaymentDialog({
       paymentReference: payment?.paymentReference ?? '',
       receivedAt: payment?.receivedAt ? payment.receivedAt.slice(0, 10) : '',
       documentStatusEntryId: '',
-      lineStatusEntryId: '',
       ...prefixCustomFieldValues(payment?.customValues ?? null),
     }),
     [
@@ -236,41 +233,6 @@ export function PaymentDialog({
     }
   }, [])
 
-  const loadLineStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
-    setLineStatusLoading(true)
-    try {
-      const params = new URLSearchParams({ page: '1', pageSize: '100' })
-      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/sales/order-line-statuses?${params.toString()}`,
-        undefined,
-        { fallback: { items: [] } },
-      )
-      const items = Array.isArray(response.result?.items) ? response.result.items : []
-      const mapped = items
-        .map((entry) => {
-          const id = typeof entry.id === 'string' ? entry.id : null
-          const value = typeof entry.value === 'string' ? entry.value : null
-          if (!id || !value) return null
-          const label =
-            typeof entry.label === 'string' && entry.label.trim().length
-              ? entry.label
-              : value
-          const color =
-            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
-          return { id, value, label, color }
-        })
-        .filter((entry): entry is StatusOption => Boolean(entry))
-      setLineStatuses(mapped)
-      return mapped
-    } catch (err) {
-      console.error('sales.payments.line-statuses.load', err)
-      setLineStatuses([])
-      return []
-    } finally {
-      setLineStatusLoading(false)
-    }
-  }, [])
-
   React.useEffect(() => {
     if (!open) return
     setFormResetKey((prev) => prev + 1)
@@ -281,15 +243,10 @@ export function PaymentDialog({
       if (!documentStatuses.length) {
         void loadDocumentStatuses()
       }
-      if (!lineStatuses.length) {
-        void loadLineStatuses()
-      }
     }
   }, [
     documentStatuses.length,
-    lineStatuses.length,
     loadDocumentStatuses,
-    loadLineStatuses,
     loadPaymentMethods,
     mode,
     open,
@@ -317,27 +274,6 @@ export function PaymentDialog({
         }))
     },
     [documentStatuses, loadDocumentStatuses, renderStatusIcon],
-  )
-
-  const fetchLineStatusItems = React.useCallback(
-    async (query?: string): Promise<LookupSelectItem[]> => {
-      const options = lineStatuses.length && !query ? lineStatuses : await loadLineStatuses()
-      const term = query?.trim().toLowerCase() ?? ''
-      return options
-        .filter(
-          (option) =>
-            !term.length ||
-            option.label.toLowerCase().includes(term) ||
-            option.value.toLowerCase().includes(term),
-        )
-        .map<LookupSelectItem>((option) => ({
-          id: option.id,
-          title: option.label,
-          subtitle: option.value,
-          icon: renderStatusIcon(option.color),
-        }))
-    },
-    [lineStatuses, loadLineStatuses, renderStatusIcon],
   )
 
   const fields = React.useMemo<CrudField[]>(
@@ -411,27 +347,6 @@ export function PaymentDialog({
                 )
               },
             },
-            {
-              id: 'lineStatusEntryId',
-              label: t('sales.documents.status.changeLine', 'Change order/quote item status'),
-              type: 'custom',
-              component: ({ value, setValue }) => {
-                const currentValue = typeof value === 'string' && value.length ? value : null
-                return (
-                  <LookupSelect
-                    value={currentValue}
-                    onChange={(next) => setValue(next ?? '')}
-                    fetchItems={fetchLineStatusItems}
-                    placeholder={t(
-                      'sales.documents.status.linePlaceholder',
-                      'Select item status',
-                    )}
-                    loading={lineStatusLoading}
-                    minQuery={0}
-                  />
-                )
-              },
-            },
           ] as CrudField[])
         : []),
       {
@@ -450,9 +365,7 @@ export function PaymentDialog({
       currencyLabel,
       documentStatusLoading,
       fetchDocumentStatusItems,
-      fetchLineStatusItems,
       fetchPaymentMethodItems,
-      lineStatusLoading,
       mode,
       t,
     ],
@@ -473,7 +386,7 @@ export function PaymentDialog({
           id: 'statusChanges',
           title: t('sales.documents.status.sectionTitle', 'Status changes'),
           column: 1,
-          fields: ['documentStatusEntryId', 'lineStatusEntryId'],
+          fields: ['documentStatusEntryId'],
         })
       }
       base.push({
@@ -515,21 +428,12 @@ export function PaymentDialog({
         organizationId: organizationId ?? undefined,
         tenantId: tenantId ?? undefined,
       }
-      if (mode === 'create') {
-        const documentStatusEntryId =
-          typeof values.documentStatusEntryId === 'string' && values.documentStatusEntryId.trim().length
-            ? values.documentStatusEntryId
-            : null
-        const lineStatusEntryId =
-          typeof values.lineStatusEntryId === 'string' && values.lineStatusEntryId.trim().length
-            ? values.lineStatusEntryId
-            : null
-        if (documentStatusEntryId) {
-          payload.documentStatusEntryId = documentStatusEntryId
-        }
-        if (lineStatusEntryId) {
-          payload.lineStatusEntryId = lineStatusEntryId
-        }
+      const documentStatusEntryId =
+        typeof values.documentStatusEntryId === 'string' && values.documentStatusEntryId.trim().length
+          ? values.documentStatusEntryId
+          : null
+      if (documentStatusEntryId) {
+        payload.documentStatusEntryId = documentStatusEntryId
       }
       if (typeof values.receivedAt === 'string' && values.receivedAt.trim().length) {
         payload.receivedAt = new Date(values.receivedAt)

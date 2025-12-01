@@ -831,16 +831,20 @@
           "taxRate": "Klasa podatkowa",
           "taxRate.none": "Brak wybranej klasy podatkowej",
           "taxRate.empty": "Brak dostępnych klas podatkowych",
-      "table": {
-        "product": "Produkt",
-        "status": "Status",
-        "quantity": "Ilość",
-        "shipped": "{{shipped}} / {{total}} wysłano",
-        "unit": "Cena jednostkowa",
-        "total": "Suma",
-        "actions": "Akcje",
-        "gross": "brutto",
-        "statusEmpty": "Brak statusu"
+          "status": "Status",
+          "statusPlaceholder": "Wybierz status",
+          "statusLoading": "Ładowanie statusów…",
+          "statusEmpty": "Brak statusu",
+          "table": {
+            "product": "Produkt",
+            "status": "Status",
+            "quantity": "Ilość",
+            "shipped": "{{shipped}} / {{total}} wysłano",
+            "unit": "Cena jednostkowa",
+            "total": "Suma",
+            "actions": "Akcje",
+            "gross": "brutto",
+            "statusEmpty": "Brak statusu"
           }
         },
         "status": {
@@ -1090,5 +1094,9 @@
   "sales.shipments.quantity_exceeded": "Nie można wysłać więcej niż pozostała ilość.",
   "sales.shipments.invalid_order": "Wysyłka nie należy do tego zamówienia.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
-  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
+  "sales.orders.status_change.note": "Status zmieniony z {from} na {to} przez {actor}.",
+  "sales.orders.status_change.actor_unknown": "Nieznany użytkownik",
+  "sales.orders.status_change.actor_api_key": "Klucz API {name}",
+  "sales.orders.status_change.empty": "brak"
 }

@@ -59,7 +59,7 @@ export function SalesDocumentItemsSection({
   const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
   const loadLineStatuses = React.useCallback(async () => {
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200' })
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/sales/order-line-statuses?${params.toString()}`,
         undefined,

@@ -2,6 +2,15 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    locale: 'en',
+    dict: {},
+    t: (key: string) => key,
+    translate: (key: string) => key,
+  }),
+}))
+
 function buildOrderSnapshot(overrides?: {
   order?: Record<string, unknown>
   lines?: Array<Record<string, unknown>>
@@ -158,4 +167,4 @@ describe('sales order line undo payloads', () => {
     expect(log.snapshotAfter).toEqual(after)
     expect(log.payload?.undo).toMatchObject({ before, after })
   })
-}
+})

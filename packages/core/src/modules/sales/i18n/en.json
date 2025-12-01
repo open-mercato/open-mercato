@@ -867,11 +867,15 @@
           "taxRate.empty": "No tax classes available",
           "name": "Name",
           "namePlaceholder": "Optional line name",
+          "status": "Status",
+          "statusPlaceholder": "Select status",
+          "statusLoading": "Loading statuses…",
+          "statusEmpty": "No status",
           "cancel": "Cancel",
           "addLine": "Add item",
           "save": "Save changes",
           "untitled": "Untitled",
-      "table": {
+          "table": {
         "product": "Product",
         "status": "Status",
         "quantity": "Qty",
@@ -1151,5 +1155,9 @@
   "sales.shipments.quantity_exceeded": "Cannot ship more than the remaining quantity.",
   "sales.shipments.invalid_order": "Shipment does not belong to this order.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
-  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
+  "sales.orders.status_change.note": "Status changed from {from} to {to} by {actor}.",
+  "sales.orders.status_change.actor_unknown": "Unknown user",
+  "sales.orders.status_change.actor_api_key": "API key {name}",
+  "sales.orders.status_change.empty": "unset"
 }

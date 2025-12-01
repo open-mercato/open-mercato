@@ -142,6 +142,31 @@ describe('calculateDocumentTotals', () => {
     expect(result.totals.shippingGrossAmount).toBeCloseTo(9.9, 4)
   })
 
+  it('preserves existing payment totals when recalculating order amounts', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 2,
+        currencyCode: 'USD',
+        unitPriceGross: 50,
+        taxRate: 0,
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+      existingTotals: { paidTotalAmount: 25, refundedTotalAmount: 5 },
+    })
+
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(100, 4)
+    expect(result.totals.paidTotalAmount).toBe(25)
+    expect(result.totals.refundedTotalAmount).toBe(5)
+    expect(result.totals.outstandingAmount).toBeCloseTo(80, 4)
+  })
+
   it('supports overriding payment-aware totals via calculators', async () => {
     const unregister = registerSalesTotalsCalculator(({ current, context }) => {
       const payments = (context.metadata as any)?.payments ?? {}

@@ -118,6 +118,7 @@ function buildBaseDocumentResult(params: {
   lines: SalesLineCalculationResult[]
   adjustments: SalesAdjustmentDraft[]
   currencyCode: string
+  existingTotals?: { paidTotalAmount?: number | null; refundedTotalAmount?: number | null }
 }): SalesDocumentCalculationResult {
   const { documentKind, lines, adjustments, currencyCode } = params
   const orderedAdjustments = [...(adjustments ?? [])].sort(
@@ -191,6 +192,9 @@ function buildBaseDocumentResult(params: {
 
   const grandTotalNet = round(subtotalNet)
   const grandTotalGross = round(subtotalGross)
+  const paidTotalAmount = Math.max(toNumber(params.existingTotals?.paidTotalAmount, 0), 0)
+  const refundedTotalAmount = Math.max(toNumber(params.existingTotals?.refundedTotalAmount, 0), 0)
+  const outstandingAmount = Math.max(grandTotalGross - paidTotalAmount + refundedTotalAmount, 0)
 
   return {
     kind: documentKind,
@@ -208,9 +212,9 @@ function buildBaseDocumentResult(params: {
       surchargeTotalAmount: round(surchargeTotal),
       grandTotalNetAmount: grandTotalNet,
       grandTotalGrossAmount: grandTotalGross,
-      paidTotalAmount: 0,
-      refundedTotalAmount: 0,
-      outstandingAmount: grandTotalGross,
+      paidTotalAmount,
+      refundedTotalAmount,
+      outstandingAmount,
     },
   }
 }
@@ -272,7 +276,7 @@ class SalesCalculationRegistry {
   }
 
   async calculateDocument(opts: CalculateDocumentOptions): Promise<SalesDocumentCalculationResult> {
-    const { documentKind, lines, adjustments = [], context, eventBus } = opts
+    const { documentKind, lines, adjustments = [], context, eventBus, existingTotals } = opts
     const resolvedLines: SalesLineCalculationResult[] = []
 
     for (const line of lines) {
@@ -285,6 +289,7 @@ class SalesCalculationRegistry {
       lines: resolvedLines,
       adjustments,
       currencyCode: context.currencyCode,
+      existingTotals,
     })
 
     if (eventBus) {

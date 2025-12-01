@@ -191,23 +191,7 @@ export function LineItemDialog({
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
   const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
-  const [lineStatusLoading, setLineStatusLoading] = React.useState(false)
-  const lineStatusMap = React.useMemo(
-    () =>
-      lineStatuses.reduce<Record<string, { value: string; label: string; color?: string | null; icon?: string | null }>>(
-        (acc, entry) => {
-          acc[entry.value] = {
-            value: entry.value,
-            label: entry.label,
-            color: entry.color,
-            icon: entry.icon ?? null,
-          }
-          return acc
-        },
-        {}
-      ),
-    [lineStatuses],
-  )
+  const [, setLineStatusLoading] = React.useState(false)
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
   const variantOptionsRef = React.useRef<Map<string, VariantOption>>(new Map())
   const taxRatesRef = React.useRef<TaxRateOption[]>([])
@@ -594,7 +578,7 @@ export function LineItemDialog({
   const loadLineStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
     setLineStatusLoading(true)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200' })
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
       const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
         `/api/sales/order-line-statuses?${params.toString()}`,
         undefined,
@@ -627,6 +611,49 @@ export function LineItemDialog({
       setLineStatusLoading(false)
     }
   }, [])
+
+  const fetchLineStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options =
+        lineStatuses.length && !query ? lineStatuses : await loadLineStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      const currentMap = options.reduce<Record<string, { value: string; label: string; color?: string | null; icon?: string | null }>>(
+        (acc, entry) => {
+          acc[entry.value] = {
+            value: entry.value,
+            label: entry.label,
+            color: entry.color,
+            icon: entry.icon ?? null,
+          }
+          return acc
+        },
+        {},
+      )
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term)
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.label !== option.value ? option.value : undefined,
+          icon: (
+            <DictionaryValue
+              value={option.value}
+              map={currentMap}
+              className="text-xs font-medium"
+              iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded bg-muted text-muted-foreground"
+              iconClassName="h-3.5 w-3.5"
+              colorClassName="h-3 w-3 rounded-full border border-border/70"
+            />
+          ),
+        }))
+    },
+    [lineStatuses, loadLineStatuses],
+  )
 
   React.useEffect(() => {
     if (!open) return
@@ -758,6 +785,10 @@ export function LineItemDialog({
         catalogSnapshot,
         metadata,
         customFieldSetId: values.customFieldSetId ?? undefined,
+        statusEntryId:
+          typeof values.statusEntryId === 'string' && values.statusEntryId.trim().length
+            ? values.statusEntryId
+            : null,
       }
 
       const customFields = collectCustomFieldValues(values, {
@@ -1101,6 +1132,23 @@ export function LineItemDialog({
         ),
       },
       {
+        id: 'statusEntryId',
+        label: t('sales.documents.items.status', 'Status'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue }) => (
+          <LookupSelect
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => setValue(next ?? null)}
+            placeholder={t('sales.documents.items.statusPlaceholder', 'Select status')}
+            emptyMessage={t('sales.documents.items.statusEmpty', 'No status')}
+            fetchItems={fetchLineStatusItems}
+            loadingLabel={t('sales.documents.items.statusLoading', 'Loading statuses…')}
+            minQuery={0}
+          />
+        ),
+      },
+      {
         id: 'name',
         label: t('sales.documents.items.name', 'Name'),
         type: 'text',
@@ -1114,6 +1162,7 @@ export function LineItemDialog({
     loadPrices,
     loadProductOptions,
     loadVariantOptions,
+    fetchLineStatusItems,
     priceLoading,
     priceOptions,
     productOption,
@@ -1159,6 +1208,7 @@ export function LineItemDialog({
     nextForm.name = initialLine.name ?? ''
     nextForm.catalogSnapshot = initialLine.catalogSnapshot ?? null
     nextForm.customFieldSetId = initialLine.customFieldSetId ?? null
+    nextForm.statusEntryId = initialLine.statusEntryId ?? null
     const metaTaxRateId =
       typeof (meta as any).taxRateId === 'string' ? ((meta as any).taxRateId as string) : null
     const fallbackTaxRateId = findTaxRateIdByValue(nextForm.taxRate)

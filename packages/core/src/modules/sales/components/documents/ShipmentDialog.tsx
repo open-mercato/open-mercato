@@ -884,25 +884,10 @@ export function ShipmentDialog({
       )
       if (result.ok) {
         const shipmentId = ((result.result as any)?.id as string | undefined) ?? shipment?.id ?? null
-        if (
-          mode === 'create' &&
-          Boolean(values.addShippingAdjustment) &&
-          (!organizationId || !tenantId)
-        ) {
-          flash(
-            t(
-              'sales.documents.shipments.shippingAdjustmentScope',
-              'Organization and tenant are required to add a shipping adjustment.',
-            ),
-            'warning',
-          )
-        }
         const shouldAddShippingAdjustment =
           mode === 'create' &&
           Boolean(values.addShippingAdjustment) &&
-          shipmentId &&
-          organizationId &&
-          tenantId
+          shipmentId
         if (shouldAddShippingAdjustment) {
           const method = shippingMethods.find((entry) => entry.id === shippingMethodId) ?? null
           const totalQuantity = items.reduce((acc, item) => acc + item.quantity, 0)
@@ -933,8 +918,8 @@ export function ShipmentDialog({
                 'sales/order-adjustments',
                 {
                   orderId,
-                  organizationId,
-                  tenantId,
+                  organizationId: organizationId ?? undefined,
+                  tenantId: tenantId ?? undefined,
                   scope: 'order',
                   kind: 'shipping',
                   label:

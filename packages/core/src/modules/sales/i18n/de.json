@@ -783,16 +783,20 @@
           "taxRate": "Steuerklasse",
           "taxRate.none": "Keine Steuerklasse ausgewählt",
           "taxRate.empty": "Keine Steuerklassen verfügbar",
-      "table": {
-        "product": "Produkt",
-        "status": "Status",
-        "quantity": "Menge",
-        "shipped": "{{shipped}} / {{total}} versandt",
-        "unit": "Stückpreis",
-        "total": "Gesamt",
-        "actions": "Aktionen",
-        "gross": "brutto",
-        "statusEmpty": "Kein Status"
+          "status": "Status",
+          "statusPlaceholder": "Status auswählen",
+          "statusLoading": "Status werden geladen…",
+          "statusEmpty": "Kein Status",
+          "table": {
+            "product": "Produkt",
+            "status": "Status",
+            "quantity": "Menge",
+            "shipped": "{{shipped}} / {{total}} versandt",
+            "unit": "Stückpreis",
+            "total": "Gesamt",
+            "actions": "Aktionen",
+            "gross": "brutto",
+            "statusEmpty": "Kein Status"
           }
         },
         "status": {
@@ -1042,5 +1046,9 @@
   "sales.shipments.quantity_exceeded": "Es kann nicht mehr als die verbleibende Menge versendet werden.",
   "sales.shipments.invalid_order": "Die Sendung gehört nicht zu dieser Bestellung.",
   "sales.orders.edit_customer_blocked": "Customer cannot be changed for the current status.",
-  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status."
+  "sales.orders.edit_addresses_blocked": "Addresses cannot be changed for the current status.",
+  "sales.orders.status_change.note": "Status geändert von {from} auf {to} durch {actor}.",
+  "sales.orders.status_change.actor_unknown": "Unbekannter Benutzer",
+  "sales.orders.status_change.actor_api_key": "API-Schlüssel {name}",
+  "sales.orders.status_change.empty": "nicht gesetzt"
 }

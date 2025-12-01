@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -615,6 +615,82 @@ async function resolveDocumentReferences(
     deliveryWindow: deliveryWindow ?? null,
     paymentMethod: paymentMethod ?? null,
   }
+}
+
+function normalizeStatusValue(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function resolveNoteAuthorFromAuth(auth: any): string | null {
+  if (!auth || auth.isApiKey) return null
+  const sub = typeof auth.sub === 'string' ? auth.sub.trim() : ''
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+  return uuidRegex.test(sub) ? sub : null
+}
+
+function resolveStatusChangeActor(auth: any, translate: any): string {
+  const unknownLabel = translate('sales.orders.status_change.actor_unknown', 'unknown user')
+  if (!auth) return unknownLabel
+  if (auth.isApiKey) {
+    const keyName = typeof auth.keyName === 'string' ? auth.keyName.trim() : ''
+    const keyId = typeof auth.keyId === 'string' ? auth.keyId.trim() : ''
+    const label = keyName || keyId || (typeof auth.sub === 'string' ? auth.sub : '')
+    return label
+      ? translate('sales.orders.status_change.actor_api_key', 'API key {name}', { name: label })
+      : unknownLabel
+  }
+  const email = typeof auth.email === 'string' ? auth.email.trim() : ''
+  if (email) return email
+  const sub = typeof auth.sub === 'string' ? auth.sub.trim() : ''
+  if (sub) return sub
+  return unknownLabel
+}
+
+function formatStatusLabel(status: string | null, translate: any): string {
+  if (status && status.trim().length) return status.trim()
+  return translate('sales.orders.status_change.empty', 'unset')
+}
+
+async function appendOrderStatusChangeNote({
+  em,
+  order,
+  previousStatus,
+  auth,
+}: {
+  em: EntityManager
+  order: SalesOrder
+  previousStatus: string | null
+  auth: any
+}): Promise<SalesNote | null> {
+  const nextStatus = normalizeStatusValue(order.status)
+  if (previousStatus === nextStatus) return null
+  const { translate } = await resolveTranslations()
+  const body = translate(
+    'sales.orders.status_change.note',
+    'Status changed from {from} to {to} by {actor}.',
+    {
+      from: formatStatusLabel(previousStatus, translate),
+      to: formatStatusLabel(nextStatus, translate),
+      actor: resolveStatusChangeActor(auth, translate),
+    }
+  )
+  const note = em.create(SalesNote, {
+    organizationId: order.organizationId,
+    tenantId: order.tenantId,
+    contextType: 'order',
+    contextId: order.id,
+    order,
+    authorUserId: resolveNoteAuthorFromAuth(auth),
+    appearanceIcon: null,
+    appearanceColor: null,
+    body,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  em.persist(note)
+  return note
 }
 
 async function applyDocumentUpdate({
@@ -2014,6 +2090,22 @@ function applyOrderTotals(
   order.lineItemCount = lineCount
 }
 
+function normalizePaymentTotal(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(value, 0)
+  if (typeof value === 'string' && value.trim().length) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0
+  }
+  return 0
+}
+
+function resolveExistingPaymentTotals(order: SalesOrder) {
+  return {
+    paidTotalAmount: normalizePaymentTotal(order.paidTotalAmount),
+    refundedTotalAmount: normalizePaymentTotal(order.refundedTotalAmount),
+  }
+}
+
 function ensureQuoteScope(ctx: Parameters<typeof ensureTenantScope>[0], organizationId: string, tenantId: string): void {
   ensureTenantScope(ctx, tenantId)
   ensureOrganizationScope(ctx, organizationId)
@@ -3075,6 +3167,8 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
     const order = await em.findOne(SalesOrder, { id: parsed.id, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
+    const previousStatus = normalizeStatusValue(order.status)
+    let statusChangeNote: SalesNote | null = null
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
       parsed.shippingMethodSnapshot !== undefined ||
@@ -3123,6 +3217,7 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
         lines: calcLines,
         adjustments: adjustmentDrafts,
         context: calculationContext,
+        existingTotals: resolveExistingPaymentTotals(order),
       })
       const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
         organizationId: order.organizationId,
@@ -3159,8 +3254,28 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
         lineCount: calculation.lines.length,
       })
     }
+    statusChangeNote = await appendOrderStatusChangeNote({
+      em,
+      order,
+      previousStatus,
+      auth: ctx.auth ?? null,
+    })
     order.updatedAt = new Date()
     await em.flush()
+    if (statusChangeNote) {
+      const dataEngine = ctx.container.resolve('dataEngine')
+      await emitCrudSideEffects({
+        dataEngine,
+        action: 'created',
+        entity: statusChangeNote,
+        identifiers: {
+          id: statusChangeNote.id,
+          organizationId: statusChangeNote.organizationId,
+          tenantId: statusChangeNote.tenantId,
+        },
+        indexer: { entityType: E.sales.sales_note },
+      })
+    }
     const resourceKind = deriveResourceFromCommandId(updateOrderCommand.id) ?? 'sales.order'
     await invalidateCrudCache(
       ctx.container,
@@ -3401,6 +3516,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       lines: lineSnapshots,
       adjustments: adjustmentDrafts,
       context: calculationContext,
+      existingTotals: resolveExistingPaymentTotals(order),
     })
 
     await replaceOrderLines(em, order, calculation, lineInputs)
@@ -3704,6 +3820,7 @@ const orderLineUpsertCommand: CommandHandler<
       lines: calcLines,
       adjustments: adjustmentDrafts,
       context: calculationContext,
+      existingTotals: resolveExistingPaymentTotals(order),
     })
     await applyOrderLineResults({
       em,
@@ -3834,6 +3951,7 @@ const orderLineDeleteCommand: CommandHandler<
       lines: calcLines,
       adjustments: adjustmentDrafts,
       context: calculationContext,
+      existingTotals: resolveExistingPaymentTotals(order),
     })
     await applyOrderLineResults({
       em,
@@ -4334,6 +4452,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       lines: calcLines,
       adjustments: nextAdjustments,
       context: calculationContext,
+      existingTotals: resolveExistingPaymentTotals(order),
     })
     const adjustmentInputs = nextAdjustments.map((adj, index) => ({
       organizationId: order.organizationId,
@@ -4470,6 +4589,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       lines: calcLines,
       adjustments: adjustmentDrafts,
       context: calculationContext,
+      existingTotals: resolveExistingPaymentTotals(order),
     })
     const adjustmentInputs = adjustmentDrafts.map((adj, index) => ({
       organizationId: order.organizationId,

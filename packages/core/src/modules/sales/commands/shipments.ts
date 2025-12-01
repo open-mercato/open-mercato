@@ -62,6 +62,32 @@ type ShipmentUndoPayload = {
   after?: ShipmentSnapshot | null
 }
 
+const buildShipmentCreateRedoInput = (snapshot: ShipmentSnapshot): ShipmentCreateInput => ({
+  orderId: snapshot.orderId,
+  organizationId: snapshot.organizationId,
+  tenantId: snapshot.tenantId,
+  shipmentNumber: snapshot.shipmentNumber ?? undefined,
+  shippingMethodId: snapshot.shippingMethodId ?? undefined,
+  statusEntryId: snapshot.statusEntryId ?? undefined,
+  carrierName: snapshot.carrierName ?? undefined,
+  trackingNumbers: snapshot.trackingNumbers ?? undefined,
+  shippedAt: snapshot.shippedAt ? new Date(snapshot.shippedAt) : undefined,
+  deliveredAt: snapshot.deliveredAt ? new Date(snapshot.deliveredAt) : undefined,
+  weightValue: snapshot.weightValue ?? undefined,
+  weightUnit: snapshot.weightUnit ?? undefined,
+  declaredValueNet: snapshot.declaredValueNet ?? undefined,
+  declaredValueGross: snapshot.declaredValueGross ?? undefined,
+  currencyCode: snapshot.currencyCode ?? undefined,
+  notes: snapshot.notesText ?? undefined,
+  metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : undefined,
+  customFields: snapshot.customFields ? cloneJson(snapshot.customFields) : undefined,
+  items: snapshot.items.map((item) => ({
+    orderLineId: item.orderLineId,
+    quantity: item.quantity,
+    metadata: item.metadata ? cloneJson(item.metadata) : undefined,
+  })),
+})
+
 const toNumber = (value: unknown): number => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim().length) {
@@ -206,6 +232,7 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   entity.notesText = snapshot.notesText ?? null
   entity.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   entity.updatedAt = new Date()
+  em.persist(entity)
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
   existingItems.forEach((item) => em.remove(item))
@@ -465,6 +492,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       snapshotAfter: after,
       payload: {
         undo: { after } satisfies ShipmentUndoPayload,
+        __redoInput: buildShipmentCreateRedoInput(after),
       },
     }
   },

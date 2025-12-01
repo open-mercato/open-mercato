@@ -3771,6 +3771,8 @@ export default function SalesDocumentDetailPage({
         <SalesShipmentsSection
           orderId={record.id}
           currencyCode={record.currencyCode ?? null}
+          organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
+          tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           shippingAddressSnapshot={shippingSnapshot ?? null}
           onActionChange={handleSectionActionChange}
           onAddComment={appendShipmentComment}

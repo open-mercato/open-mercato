@@ -280,6 +280,7 @@ const createPaymentCommand: CommandHandler<
       order.statusEntryId = input.documentStatusEntryId ?? null
       order.status = orderStatus
       order.updatedAt = new Date()
+      em.persist(order)
     }
     if (input.lineStatusEntryId !== undefined) {
       const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
@@ -294,6 +295,7 @@ const createPaymentCommand: CommandHandler<
         line.status = lineStatus
         line.updatedAt = new Date()
       })
+      orderLines.forEach((line) => em.persist(line))
     }
     const status = await resolveDictionaryEntryValue(em, input.statusEntryId ?? null)
     const payment = em.create(SalesPayment, {
@@ -385,14 +387,34 @@ const createPaymentCommand: CommandHandler<
     if (existing) {
       const orderRef =
         typeof existing.order === 'string' ? existing.order : existing.order?.id ?? null
+      const allocations = await em.find(SalesPaymentAllocation, { payment: existing })
+      const allocationOrders = allocations
+        .map((allocation) =>
+          typeof allocation.order === 'string'
+            ? allocation.order
+            : allocation.order?.id ?? null
+        )
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+
+      allocations.forEach((allocation) => em.remove(allocation))
+      await em.flush()
+
       em.remove(existing)
       await em.flush()
-      if (orderRef) {
-        const order = await em.findOne(SalesOrder, { id: orderRef })
-        if (order) {
-          await recomputeOrderPaymentTotals(em, order)
-          await em.flush()
-        }
+
+      const orderIds = Array.from(
+        new Set(
+          [
+            orderRef,
+            ...allocationOrders,
+          ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+        )
+      )
+      for (const id of orderIds) {
+        const order = await em.findOne(SalesOrder, { id })
+        if (!order) continue
+        await recomputeOrderPaymentTotals(em, order)
+        await em.flush()
       }
     }
   },
@@ -473,6 +495,7 @@ const updatePaymentCommand: CommandHandler<
       currentOrder.statusEntryId = input.documentStatusEntryId ?? null
       currentOrder.status = orderStatus
       currentOrder.updatedAt = new Date()
+      em.persist(currentOrder)
     }
     if (currentOrder && input.lineStatusEntryId !== undefined) {
       const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
@@ -487,6 +510,7 @@ const updatePaymentCommand: CommandHandler<
         line.status = lineStatus
         line.updatedAt = new Date()
       })
+      orderLines.forEach((line) => em.persist(line))
     }
     if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
     if (input.statusEntryId !== undefined) {
