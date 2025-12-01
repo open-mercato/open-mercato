@@ -5047,7 +5047,7 @@ export interface components {
             id: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
             isActive: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsActive"];
             name: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesName"];
-            parentId?: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesParentId"];
+            parentId: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesParentId"];
             pathLabel: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesPathLabel"];
         };
         DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAncestorIds: components["schemas"]["DocPathsCatalogCategoriesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAncestorIdsItems"][];
