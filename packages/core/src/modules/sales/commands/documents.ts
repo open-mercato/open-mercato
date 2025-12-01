@@ -3869,12 +3869,20 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     const adjustmentDrafts = existingAdjustments.map(mapOrderAdjustmentToDraft)
     const existingSnapshot = parsed.id ? adjustmentDrafts.find((adj) => adj.id === parsed.id) ?? null : null
     const adjustmentId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
-    const metadata =
+    let metadata =
       typeof parsed.metadata === 'object' && parsed.metadata
         ? cloneJson(parsed.metadata)
         : existingSnapshot?.metadata
           ? cloneJson(existingSnapshot.metadata)
           : null
+    const calculatorKey = parsed.calculatorKey ?? existingSnapshot?.calculatorKey ?? null
+    if (
+      parsed.id &&
+      calculatorKey &&
+      (calculatorKey.startsWith('shipping-provider:') || calculatorKey.startsWith('payment-provider:'))
+    ) {
+      metadata = { ...(metadata ?? {}), manualOverride: true }
+    }
     let nextAdjustments = parsed.id
       ? adjustmentDrafts.map((adj) =>
           adj.id === parsed.id
@@ -4194,12 +4202,20 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     const adjustmentDrafts = existingAdjustments.map(mapQuoteAdjustmentToDraft)
     const existingSnapshot = parsed.id ? adjustmentDrafts.find((adj) => adj.id === parsed.id) ?? null : null
     const adjustmentId = parsed.id ?? existingSnapshot?.id ?? randomUUID()
-    const metadata =
+    let metadata =
       typeof parsed.metadata === 'object' && parsed.metadata
         ? cloneJson(parsed.metadata)
         : existingSnapshot?.metadata
           ? cloneJson(existingSnapshot.metadata)
           : null
+    const calculatorKey = parsed.calculatorKey ?? existingSnapshot?.calculatorKey ?? null
+    if (
+      parsed.id &&
+      calculatorKey &&
+      (calculatorKey.startsWith('shipping-provider:') || calculatorKey.startsWith('payment-provider:'))
+    ) {
+      metadata = { ...(metadata ?? {}), manualOverride: true }
+    }
     let nextAdjustments = parsed.id
       ? adjustmentDrafts.map((adj) =>
           adj.id === parsed.id

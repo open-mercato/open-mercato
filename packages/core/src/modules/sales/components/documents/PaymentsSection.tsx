@@ -120,42 +120,40 @@ export function SalesDocumentPaymentsSection({
         { fallback: { items: [] } }
       )
       if (response.ok && Array.isArray(response.result?.items)) {
-        const mapped: PaymentRow[] = response.result.items
-          .map((item) => {
-            const customValues =
-              item && typeof item === 'object' ? extractCustomValues(item as Record<string, unknown>) : null
-            return {
-              id: typeof item.id === 'string' ? item.id : null,
-              paymentReference:
-                typeof item.payment_reference === 'string' ? item.payment_reference : null,
-              paymentMethodId:
-                typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
-              paymentMethodName:
-                typeof item.payment_method_name === 'string'
-                  ? item.payment_method_name
-                  : typeof item.payment_method_code === 'string'
-                    ? item.payment_method_code
-                    : null,
-              status: typeof item.status === 'string' ? item.status : null,
-              amount: normalizeNumber(item.amount),
-              currencyCode:
-                typeof item.currency_code === 'string'
-                  ? item.currency_code
-                  : typeof currencyCode === 'string'
-                    ? currencyCode
-                    : null,
-              receivedAt: typeof item.received_at === 'string' ? item.received_at : null,
-              createdAt: typeof item.created_at === 'string' ? item.created_at : null,
-              customValues,
-              customFieldSetId:
-                typeof (item as any)?.custom_field_set_id === 'string'
-                  ? (item as any).custom_field_set_id
-                  : typeof (item as any)?.customFieldSetId === 'string'
-                    ? (item as any).customFieldSetId
-                    : null,
-            }
-          })
-          .filter((entry): entry is PaymentRow => !!entry.id)
+        const mapped = response.result.items.flatMap<PaymentRow>((item) => {
+          if (typeof item.id !== 'string') return []
+          const customValues =
+            item && typeof item === 'object' ? extractCustomValues(item as Record<string, unknown>) : null
+          const record: PaymentRow = {
+            id: item.id,
+            paymentReference: typeof item.payment_reference === 'string' ? item.payment_reference : null,
+            paymentMethodId: typeof item.payment_method_id === 'string' ? item.payment_method_id : null,
+            paymentMethodName:
+              typeof item.payment_method_name === 'string'
+                ? item.payment_method_name
+                : typeof item.payment_method_code === 'string'
+                  ? item.payment_method_code
+                  : null,
+            status: typeof item.status === 'string' ? item.status : null,
+            amount: normalizeNumber(item.amount),
+            currencyCode:
+              typeof item.currency_code === 'string'
+                ? item.currency_code
+                : typeof currencyCode === 'string'
+                  ? currencyCode
+                  : null,
+            receivedAt: typeof item.received_at === 'string' ? item.received_at : null,
+            createdAt: typeof item.created_at === 'string' ? item.created_at : null,
+            customValues,
+            customFieldSetId:
+              typeof (item as any)?.custom_field_set_id === 'string'
+                ? (item as any).custom_field_set_id
+                : typeof (item as any)?.customFieldSetId === 'string'
+                  ? (item as any).customFieldSetId
+                  : null,
+          }
+          return [record]
+        })
         setPayments(mapped)
       } else {
         setPayments([])

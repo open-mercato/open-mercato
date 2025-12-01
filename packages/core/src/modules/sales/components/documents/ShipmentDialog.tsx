@@ -53,11 +53,31 @@ type ShipmentAddressOption = {
   id: string
   label: string
   summary: string
-  snapshot: Record<string, unknown>
+  snapshot: NormalizedAddressSnapshot
 }
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 const ADDRESS_FORMAT: AddressFormatStrategy = 'line_first'
+
+type NormalizedAddressSnapshot = {
+  id?: string
+  documentAddressId?: string
+  name?: string
+  purpose?: string
+  companyName?: string
+  addressLine1?: string
+  addressLine2?: string
+  buildingNumber?: string
+  flatNumber?: string
+  city?: string
+  region?: string
+  postalCode?: string
+  country?: string
+  latitude?: number
+  longitude?: number
+  isPrimary?: boolean
+  [key: string]: string | number | boolean | null | undefined
+}
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.filter((entry) => entry !== undefined)
@@ -99,9 +119,9 @@ const readStringField = (input: Record<string, unknown>, keys: string[]): string
 
 const normalizeAddressSnapshot = (
   input?: Record<string, unknown> | null,
-): Record<string, unknown> | null => {
+): NormalizedAddressSnapshot | null => {
   if (!input || typeof input !== 'object') return null
-  const normalized: Record<string, unknown> = {}
+  const normalized: NormalizedAddressSnapshot = {}
   const assignString = (target: string, ...sourceKeys: string[]) => {
     const value = readStringField(input as Record<string, unknown>, sourceKeys)
     if (value) normalized[target] = value
@@ -139,7 +159,7 @@ const normalizeAddressSnapshot = (
   return Object.keys(normalized).length ? normalized : null
 }
 
-const mapSnapshotToAddressValue = (snapshot: Record<string, unknown>): AddressValue => ({
+const mapSnapshotToAddressValue = (snapshot: NormalizedAddressSnapshot): AddressValue => ({
   addressLine1: readStringField(snapshot, ['addressLine1']),
   addressLine2: readStringField(snapshot, ['addressLine2']),
   buildingNumber: readStringField(snapshot, ['buildingNumber']),
@@ -151,7 +171,7 @@ const mapSnapshotToAddressValue = (snapshot: Record<string, unknown>): AddressVa
   companyName: readStringField(snapshot, ['companyName']),
 })
 
-const snapshotKey = (snapshot?: Record<string, unknown> | null): string | null => {
+const snapshotKey = (snapshot?: NormalizedAddressSnapshot | null): string | null => {
   if (!snapshot || typeof snapshot !== 'object') return null
   const normalized: Record<string, unknown> = {}
   Object.keys(snapshot)
@@ -165,21 +185,21 @@ const snapshotKey = (snapshot?: Record<string, unknown> | null): string | null =
 const fallbackAddressId = (id?: string): string => id ?? 'address'
 
 const buildAddressOption = (
-  snapshot?: Record<string, unknown> | null,
+  snapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null,
   opts?: { id?: string; label?: string },
 ): ShipmentAddressOption | null => {
   const normalized = normalizeAddressSnapshot(snapshot)
   if (!normalized) return null
   const value = mapSnapshotToAddressValue(normalized)
   const summary = formatAddressString(value, ADDRESS_FORMAT)
-  const label =
+  const label: string =
     (opts?.label ?? normalized.name ?? normalized.purpose ?? summary ?? normalized.companyName) ??
     fallbackAddressId(opts?.id)
-  const id =
-    opts?.id ??
+  const normalizedId =
     (typeof normalized.documentAddressId === 'string' && normalized.documentAddressId) ||
-      (typeof normalized.id === 'string' && normalized.id) ||
-      fallbackAddressId(opts?.id)
+    (typeof normalized.id === 'string' && normalized.id) ||
+    null
+  const id = opts?.id ?? normalizedId ?? fallbackAddressId(opts?.id)
   return {
     id,
     label: label || id,
@@ -201,7 +221,7 @@ const dedupeAddressOptions = (options: ShipmentAddressOption[]): ShipmentAddress
 
 const extractShipmentAddressSnapshot = (
   metadata?: Record<string, unknown> | null,
-): Record<string, unknown> | null => {
+): NormalizedAddressSnapshot | null => {
   if (!metadata || typeof metadata !== 'object') return null
   const raw = (metadata as any)[ADDRESS_SNAPSHOT_KEY]
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
@@ -231,7 +251,7 @@ export function ShipmentDialog({
   const [addressLoading, setAddressLoading] = React.useState(false)
   const [addressError, setAddressError] = React.useState<string | null>(null)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
-  const itemErrorSetterRef = React.useRef<((errors: Record<string, string>) => void) | null>(null)
+  const itemErrorSetterRef = React.useRef<((errors: Record<string, string | undefined>) => void) | null>(null)
 
   const baseItems = React.useMemo(
     () =>
@@ -307,7 +327,7 @@ export function ShipmentDialog({
     return map
   }, [addressOptions])
 
-  const registerItemErrors = React.useCallback((updater: (errors: Record<string, string>) => void) => {
+  const registerItemErrors = React.useCallback((updater: (errors: Record<string, string | undefined>) => void) => {
     itemErrorSetterRef.current = updater
   }, [])
 
@@ -854,7 +874,7 @@ export function ShipmentDialog({
       type: 'custom',
       component: ({ value, setValue, error }) => {
         const quantities = (value as Record<string, string | number> | null) ?? {}
-        const [lineErrors, setLineErrors] = React.useState<Record<string, string>>({})
+        const [lineErrors, setLineErrors] = React.useState<Record<string, string | undefined>>({})
 
         React.useEffect(() => {
           registerItemErrors(setLineErrors)

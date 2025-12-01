@@ -2,8 +2,7 @@
 
 import * as React from 'react'
 import dynamic from 'next/dynamic'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { PluggableList } from 'unified'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
@@ -78,6 +77,29 @@ const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
     />
   ),
 }) as unknown as React.ComponentType<UiMarkdownEditorProps>
+
+type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
+
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+
+const MarkdownPreviewComponent: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
 
 function generateTempId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -471,6 +493,18 @@ export function NotesSection<C = unknown>({
   disableMarkdown,
 }: NotesSectionProps<C>) {
   const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  React.useEffect(() => {
+    if (isTestEnv) return
+    let mounted = true
+    void loadMarkdownPlugins().then((plugins) => {
+      if (!mounted) return
+      setMarkdownPlugins(plugins)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const normalizedDealOptions = React.useMemo(() => {
     if (!Array.isArray(dealOptions)) return []
@@ -1148,7 +1182,7 @@ export function NotesSection<C = unknown>({
                     value={draftBody}
                     height={220}
                     onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                    previewOptions={{ remarkPlugins: [remarkGfm] }}
+                    previewOptions={{ remarkPlugins: markdownPlugins }}
                   />
                 </div>
               </div>
@@ -1315,7 +1349,7 @@ export function NotesSection<C = unknown>({
                             onChange={(value) =>
                               setContentEditor((prev) => ({ ...prev, value: typeof value === 'string' ? value : '' }))
                             }
-                            previewOptions={{ remarkPlugins: [remarkGfm] }}
+                            previewOptions={{ remarkPlugins: markdownPlugins }}
                           />
                         </div>
                       </div>
@@ -1371,18 +1405,18 @@ export function NotesSection<C = unknown>({
                   <div
                     role="button"
                     tabIndex={0}
-                    className="cursor-pointer text-sm"
-                    onClick={() => setContentEditor({ id: note.id, value: note.body })}
-                    onKeyDown={(event) => handleContentKeyDown(event, note)}
-                  >
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
-                    >
-                      {note.body}
-                    </ReactMarkdown>
-                  </div>
-                )}
+                className="cursor-pointer text-sm"
+                onClick={() => setContentEditor({ id: note.id, value: note.body })}
+                onKeyDown={(event) => handleContentKeyDown(event, note)}
+              >
+                <MarkdownPreviewComponent
+                  remarkPlugins={markdownPlugins}
+                  className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                >
+                  {note.body}
+                </MarkdownPreviewComponent>
+              </div>
+            )}
               </div>
             )
           })

@@ -2,8 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { Pencil, X } from 'lucide-react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,16 +20,38 @@ import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { cn } from '@open-mercato/shared/lib/utils'
 
-const MARKDOWN_PREVIEW_PLUGINS: PluggableList = [remarkGfm]
+type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
+
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+
+const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
+
 const MARKDOWN_FIELD_TYPES = new Set<CrudField['type']>(['text', 'textarea', 'richtext'])
 const MARKDOWN_CLASSNAME =
   'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
 
-function renderMarkdownValue(content: string) {
+function renderMarkdownValue(content: string, remarkPlugins: PluggableList) {
   return (
-    <ReactMarkdown remarkPlugins={MARKDOWN_PREVIEW_PLUGINS} className={MARKDOWN_CLASSNAME}>
+    <MarkdownPreview remarkPlugins={remarkPlugins} className={MARKDOWN_CLASSNAME}>
       {content}
-    </ReactMarkdown>
+    </MarkdownPreview>
   )
 }
 
@@ -78,6 +99,7 @@ function formatFieldValue(
   value: unknown,
   emptyLabel: string,
   dictionaryMap?: DictionaryMap,
+  remarkPlugins: PluggableList = [],
 ): React.ReactNode {
   if (dictionaryMap) {
     if (value === undefined || value === null || value === '') {
@@ -188,7 +210,7 @@ function formatFieldValue(
     if (!resolved.trim().length) {
       return <span className="text-muted-foreground">{emptyLabel}</span>
     }
-    return renderMarkdownValue(value)
+    return renderMarkdownValue(value, remarkPlugins)
   }
   if (!resolved.length) return <span className="text-muted-foreground">{emptyLabel}</span>
   return resolved
@@ -214,6 +236,18 @@ export function CustomDataSection({
   const [dictionaryMapsByField, setDictionaryMapsByField] = React.useState<Record<string, DictionaryMap>>({})
   const [editing, setEditing] = React.useState(false)
   const sectionRef = React.useRef<HTMLDivElement | null>(null)
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  React.useEffect(() => {
+    if (isTestEnv) return
+    let mounted = true
+    void loadMarkdownPlugins().then((plugins) => {
+      if (!mounted) return
+      setMarkdownPlugins(plugins)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
       const dedup = new Set<string>()
@@ -479,6 +513,7 @@ export function CustomDataSection({
                       values?.[field.id],
                       labels.emptyValue,
                       dictionaryMapsByField[field.id],
+                      markdownPlugins,
                     )}
                   </div>
                 </div>

@@ -145,6 +145,8 @@ const resolveModeFromAdjustment = (adjustment?: AdjustmentRowData | null): 'rate
   return 'amount'
 }
 
+const PROVIDER_CALCULATOR_PREFIXES = ['shipping-provider:', 'payment-provider:']
+
 export function AdjustmentDialog({
   open,
   onOpenChange,
@@ -653,8 +655,16 @@ export function AdjustmentDialog({
           ? initialAdjustment.metadata
           : {}),
       }
+      const isEditingProviderAdjustment =
+        typeof initialAdjustment?.calculatorKey === 'string' &&
+        PROVIDER_CALCULATOR_PREFIXES.some((prefix) =>
+          (initialAdjustment?.calculatorKey ?? '').startsWith(prefix)
+        )
       if (selectedRateId) metadata.taxRateId = selectedRateId
       if (Number.isFinite(rateValue)) metadata.taxRate = rateValue
+      if (isEditingProviderAdjustment) {
+        metadata.manualOverride = true
+      }
       metadata.calculationMode = mode
 
       const payload: AdjustmentSubmitPayload = {
@@ -681,7 +691,17 @@ export function AdjustmentDialog({
       await onSubmit(payload)
       onOpenChange(false)
     },
-    [currencyCode, initialAdjustment?.id, initialAdjustment?.metadata, mode, onOpenChange, onSubmit, resolveTaxRateValue, t]
+    [
+      currencyCode,
+      initialAdjustment?.calculatorKey,
+      initialAdjustment?.id,
+      initialAdjustment?.metadata,
+      mode,
+      onOpenChange,
+      onSubmit,
+      resolveTaxRateValue,
+      t,
+    ]
   )
 
   return (

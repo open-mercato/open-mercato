@@ -31,8 +31,20 @@ function isProviderAdjustment(adjustment: SalesAdjustmentDraft): boolean {
   return typeof key === 'string' && (key.startsWith(SHIPPING_PREFIX) || key.startsWith(PAYMENT_PREFIX))
 }
 
+function isManualOverride(adjustment: SalesAdjustmentDraft): boolean {
+  const metadata = adjustment.metadata
+  if (!metadata || typeof metadata !== 'object') return false
+  const manual =
+    (metadata as Record<string, unknown>).manualOverride ??
+    (metadata as Record<string, unknown>).manual_override
+  return manual === true
+}
+
 function withoutPrefix(adjustments: SalesAdjustmentDraft[], prefix: string) {
-  return adjustments.filter((adj) => !(adj.calculatorKey ?? '').startsWith(prefix))
+  return adjustments.filter((adj) => {
+    if (!(adj.calculatorKey ?? '').startsWith(prefix)) return true
+    return isManualOverride(adj)
+  })
 }
 
 function extractProviderSettings(
@@ -173,7 +185,9 @@ export function ensureProviderTotalsCalculator() {
     const shippingMethod = (metadata.shippingMethod ?? null) as ShippingMethodContext | null
     const paymentMethod = (metadata.paymentMethod ?? null) as PaymentMethodContext | null
 
-    let runningAdjustments = (current.adjustments ?? []).filter((adj) => !isProviderAdjustment(adj))
+    let runningAdjustments = (current.adjustments ?? []).filter(
+      (adj) => !isProviderAdjustment(adj) || isManualOverride(adj)
+    )
     let working = rebuildDocumentResult({
       documentKind,
       currencyCode: current.currencyCode,
@@ -185,46 +199,75 @@ export function ensureProviderTotalsCalculator() {
     if (shippingMethod?.providerKey) {
       const provider = getShippingProvider(shippingMethod.providerKey)
       if (provider?.calculate) {
-        const rawSettings = extractProviderSettings(shippingMethod)
-        const settings =
-          normalizeProviderSettings('shipping', provider.key, rawSettings) ?? rawSettings ?? {}
-        const metrics = computeMetrics(working.lines)
-        const result = await provider.calculate({
-          method: shippingMethod,
-          settings,
-          document: working,
-          lines: working.lines,
-          context,
-          metrics,
-        })
-        working = applyProviderResult(working, runningAdjustments, provider.key, `${SHIPPING_PREFIX}${provider.key}`, result, 'shipping')
-        runningAdjustments = working.adjustments
+        const calculatorKey = `${SHIPPING_PREFIX}${provider.key}`
+        const hasManualOverride = runningAdjustments.some(
+          (adj) => (adj.calculatorKey ?? '').startsWith(calculatorKey) && isManualOverride(adj)
+        )
+        if (hasManualOverride) {
+          // Respect user overrides: keep existing provider-tagged adjustments and skip regeneration.
+          working = rebuildDocumentResult({
+            documentKind,
+            currencyCode: working.currencyCode,
+            lines: working.lines,
+            adjustments: runningAdjustments,
+            metadata: working.metadata,
+          })
+        } else {
+          const rawSettings = extractProviderSettings(shippingMethod)
+          const settings =
+            normalizeProviderSettings('shipping', provider.key, rawSettings) ?? rawSettings ?? {}
+          const metrics = computeMetrics(working.lines)
+          const result = await provider.calculate({
+            method: shippingMethod,
+            settings,
+            document: working,
+            lines: working.lines,
+            context,
+            metrics,
+          })
+          working = applyProviderResult(working, runningAdjustments, provider.key, calculatorKey, result, 'shipping')
+          runningAdjustments = working.adjustments
+        }
       }
     }
 
     if (paymentMethod?.providerKey) {
       const provider = getPaymentProvider(paymentMethod.providerKey)
       if (provider?.calculate) {
-        runningAdjustments = withoutPrefix(runningAdjustments, PAYMENT_PREFIX)
-        const rawSettings = extractProviderSettings(paymentMethod)
-        const settings =
-          normalizeProviderSettings('payment', provider.key, rawSettings) ?? rawSettings ?? {}
-        const result = await provider.calculate({
-          method: paymentMethod,
-          settings,
-          document: working,
-          lines: working.lines,
-          context,
-        })
-        working = applyProviderResult(
-          working,
-          runningAdjustments,
-          provider.key,
-          `${PAYMENT_PREFIX}${provider.key}`,
-          result,
-          'surcharge'
+        const calculatorKey = `${PAYMENT_PREFIX}${provider.key}`
+        const hasManualOverride = runningAdjustments.some(
+          (adj) => (adj.calculatorKey ?? '').startsWith(calculatorKey) && isManualOverride(adj)
         )
-        runningAdjustments = working.adjustments
+        if (hasManualOverride) {
+          working = rebuildDocumentResult({
+            documentKind,
+            currencyCode: working.currencyCode,
+            lines: working.lines,
+            adjustments: runningAdjustments,
+            metadata: working.metadata,
+          })
+        } else {
+          runningAdjustments = withoutPrefix(runningAdjustments, PAYMENT_PREFIX)
+          const rawSettings = extractProviderSettings(paymentMethod)
+          const settings =
+            normalizeProviderSettings('payment', provider.key, rawSettings) ?? rawSettings ?? {}
+          const result = await provider.calculate({
+            method: paymentMethod,
+            settings,
+            document: working,
+            lines: working.lines,
+            context,
+          })
+          working = applyProviderResult(
+            working,
+            runningAdjustments,
+            provider.key,
+            calculatorKey,
+            result,
+            'surcharge'
+          )
+          runningAdjustments = working.adjustments
+        }
       }
     }
 

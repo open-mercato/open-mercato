@@ -3,8 +3,6 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { FileCode, Loader2, Mail, Pencil, Phone, X } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import type { PluggableList } from 'unified'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -375,6 +373,14 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
+type MarkdownPreviewProps = {
+  children: string
+  className?: string
+  remarkPlugins?: PluggableList
+}
+
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+
 function MarkdownEditorFallback() {
   const t = useT()
   return (
@@ -382,12 +388,40 @@ function MarkdownEditorFallback() {
   )
 }
 
-const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
-  ssr: false,
-  loading: () => <MarkdownEditorFallback />,
-}) as unknown as React.ComponentType<UiMarkdownEditorProps>
+const MarkdownEditorTestStub: React.ComponentType<UiMarkdownEditorProps> = ({ value, onChange }) => (
+  <Textarea
+    data-testid="markdown-editor"
+    rows={8}
+    value={value ?? ''}
+    onChange={(event) => onChange?.(event.target.value)}
+  />
+)
 
-const MARKDOWN_PREVIEW_PLUGINS: PluggableList = [remarkGfm]
+const MarkdownEditorComponent: React.ComponentType<UiMarkdownEditorProps> = isTestEnv
+  ? MarkdownEditorTestStub
+  : (dynamic(() => import('@uiw/react-md-editor'), {
+      ssr: false,
+      loading: () => <MarkdownEditorFallback />,
+    }) as unknown as React.ComponentType<UiMarkdownEditorProps>)
+
+const MarkdownPreviewComponent: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
 
 export function InlineMultilineEditor({
   label,
@@ -410,10 +444,22 @@ export function InlineMultilineEditor({
   const [isMarkdownEnabled, setIsMarkdownEnabled] = React.useState(true)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const markdownEditorRef = React.useRef<HTMLDivElement | null>(null)
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
   const fallbackError = React.useMemo(
     () => t('ui.detail.inline.error', 'Failed to save value.'),
     [t],
   )
+  React.useEffect(() => {
+    if (isTestEnv) return
+    let mounted = true
+    void loadMarkdownPlugins().then((plugins) => {
+      if (!mounted) return
+      setMarkdownPlugins(plugins)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -570,14 +616,14 @@ export function InlineMultilineEditor({
                   )}
                 >
                   <div data-color-mode="light" className="w-full">
-                    <UiMarkdownEditor
+                    <MarkdownEditorComponent
                       value={draft}
                       height={220}
                       onChange={(nextValue) => {
                         if (error) setError(null)
                         setDraft(typeof nextValue === 'string' ? nextValue : '')
                       }}
-                      previewOptions={{ remarkPlugins: MARKDOWN_PREVIEW_PLUGINS }}
+                      previewOptions={{ remarkPlugins: markdownPlugins }}
                     />
                   </div>
                 </div>
@@ -645,12 +691,12 @@ export function InlineMultilineEditor({
               {renderDisplay ? (
                 renderDisplay({ value, emptyLabel })
               ) : value && value.length ? (
-                <ReactMarkdown
-                  remarkPlugins={MARKDOWN_PREVIEW_PLUGINS}
+                <MarkdownPreviewComponent
+                  remarkPlugins={markdownPlugins}
                   className="prose prose-sm max-w-none text-foreground [&>*]:my-2 [&>*:last-child]:mb-0 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5"
                 >
                   {value}
-                </ReactMarkdown>
+                </MarkdownPreviewComponent>
               ) : (
                 <span className="text-muted-foreground">{emptyLabel}</span>
               )}

@@ -61,90 +61,90 @@ export function SalesDocumentItemsSection({
         { fallback: { items: [] } },
       )
       if (response.ok && Array.isArray(response.result?.items)) {
-        const mapped: SalesLineRecord[] = response.result.items
-          .map((item) => {
-            const id = typeof item.id === 'string' ? item.id : null
-            if (!id) return null
-            const taxRate = normalizeNumber((item as any).tax_rate ?? (item as any).taxRate, 0)
-            const rawCustomFields = Object.entries(item as Record<string, unknown>).reduce<Record<string, unknown>>(
-              (acc, [key, value]) => {
-                if (key.startsWith('cf_') || key.startsWith('cf:')) {
-                  acc[key] = value
-                }
-                return acc
-              },
-              {},
-            )
-            const customFields = normalizeCustomFieldResponse(rawCustomFields) ?? null
-            const name =
-              typeof item.name === 'string'
-                ? item.name
-                : typeof item.catalog_snapshot === 'object' &&
-                    item.catalog_snapshot &&
-                    typeof (item.catalog_snapshot as any).name === 'string'
-                  ? (item.catalog_snapshot as any).name
-                  : null
-            const quantity = normalizeNumber(item.quantity, 0)
-            const unitPriceNetRaw = normalizeNumber((item as any).unit_price_net ?? (item as any).unitPriceNet, Number.NaN)
-            const unitPriceGrossRaw = normalizeNumber(
-              (item as any).unit_price_gross ?? (item as any).unitPriceGross,
-              Number.NaN,
-            )
-            const unitPriceNet = Number.isFinite(unitPriceNetRaw)
-              ? unitPriceNetRaw
-              : Number.isFinite(unitPriceGrossRaw)
-                ? unitPriceGrossRaw / (1 + taxRate / 100)
-                : 0
-            const unitPriceGross = Number.isFinite(unitPriceGrossRaw)
-              ? unitPriceGrossRaw
-              : Number.isFinite(unitPriceNetRaw)
-                ? unitPriceNetRaw * (1 + taxRate / 100)
-                : 0
-            const totalNetRaw = normalizeNumber(
-              (item as any).total_net_amount ?? (item as any).totalNetAmount,
-              Number.NaN,
-            )
-            const totalGrossRaw = normalizeNumber(
-              (item as any).total_gross_amount ?? (item as any).totalGrossAmount,
-              Number.NaN,
-            )
-            const totalNet = Number.isFinite(totalNetRaw) ? totalNetRaw : unitPriceNet * quantity
-            const totalGross = Number.isFinite(totalGrossRaw) ? totalGrossRaw : unitPriceGross * quantity
-            const priceModeRaw =
-              (item as any)?.metadata && typeof (item as any).metadata === 'object'
-                ? ((item as any).metadata as Record<string, unknown>).priceMode
+        const mapped = response.result.items.flatMap<SalesLineRecord>((item) => {
+          const id = typeof item.id === 'string' ? item.id : null
+          if (!id) return []
+          const taxRate = normalizeNumber((item as any).tax_rate ?? (item as any).taxRate, 0)
+          const rawCustomFields = Object.entries(item as Record<string, unknown>).reduce<Record<string, unknown>>(
+            (acc, [key, value]) => {
+              if (key.startsWith('cf_') || key.startsWith('cf:')) {
+                acc[key] = value
+              }
+              return acc
+            },
+            {},
+          )
+          const customFields = normalizeCustomFieldResponse(rawCustomFields) ?? null
+          const name =
+            typeof item.name === 'string'
+              ? item.name
+              : typeof item.catalog_snapshot === 'object' &&
+                  item.catalog_snapshot &&
+                  typeof (item.catalog_snapshot as any).name === 'string'
+                ? (item.catalog_snapshot as any).name
                 : null
-            const priceMode = priceModeRaw === 'net' ? 'net' : 'gross'
-            return {
-              id,
-              name,
-              productId: typeof item.product_id === 'string' ? item.product_id : null,
-              productVariantId: typeof item.product_variant_id === 'string' ? item.product_variant_id : null,
-              quantity,
-              currencyCode:
-                typeof item.currency_code === 'string'
-                  ? item.currency_code
-                  : typeof currencyCode === 'string'
-                    ? currencyCode
-                    : null,
-              unitPriceNet,
-              unitPriceGross,
-              taxRate,
-              totalNet,
-              totalGross,
-              priceMode,
-              metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
-              catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
-              customFieldSetId:
-                typeof (item as any).custom_field_set_id === 'string'
-                  ? (item as any).custom_field_set_id
-                  : typeof (item as any).customFieldSetId === 'string'
-                    ? (item as any).customFieldSetId
-                    : null,
-              customFields,
-            }
-          })
-          .filter((entry): entry is SalesLineRecord => Boolean(entry))
+          const quantity = normalizeNumber(item.quantity, 0)
+          const unitPriceNetRaw = normalizeNumber((item as any).unit_price_net ?? (item as any).unitPriceNet, Number.NaN)
+          const unitPriceGrossRaw = normalizeNumber(
+            (item as any).unit_price_gross ?? (item as any).unitPriceGross,
+            Number.NaN,
+          )
+          const unitPriceNet = Number.isFinite(unitPriceNetRaw)
+            ? unitPriceNetRaw
+            : Number.isFinite(unitPriceGrossRaw)
+              ? unitPriceGrossRaw / (1 + taxRate / 100)
+              : 0
+          const unitPriceGross = Number.isFinite(unitPriceGrossRaw)
+            ? unitPriceGrossRaw
+            : Number.isFinite(unitPriceNetRaw)
+              ? unitPriceNetRaw * (1 + taxRate / 100)
+              : 0
+          const totalNetRaw = normalizeNumber(
+            (item as any).total_net_amount ?? (item as any).totalNetAmount,
+            Number.NaN,
+          )
+          const totalGrossRaw = normalizeNumber(
+            (item as any).total_gross_amount ?? (item as any).totalGrossAmount,
+            Number.NaN,
+          )
+          const totalNet = Number.isFinite(totalNetRaw) ? totalNetRaw : unitPriceNet * quantity
+          const totalGross = Number.isFinite(totalGrossRaw) ? totalGrossRaw : unitPriceGross * quantity
+          const priceModeRaw =
+            (item as any)?.metadata && typeof (item as any).metadata === 'object'
+              ? ((item as any).metadata as Record<string, unknown>).priceMode
+              : null
+          const priceMode = priceModeRaw === 'net' ? 'net' : 'gross'
+          const customFieldSetId =
+            typeof (item as any).custom_field_set_id === 'string'
+              ? (item as any).custom_field_set_id
+              : typeof (item as any).customFieldSetId === 'string'
+                ? (item as any).customFieldSetId
+                : null
+          const record: SalesLineRecord = {
+            id,
+            name,
+            productId: typeof item.product_id === 'string' ? item.product_id : null,
+            productVariantId: typeof item.product_variant_id === 'string' ? item.product_variant_id : null,
+            quantity,
+            currencyCode:
+              typeof item.currency_code === 'string'
+                ? item.currency_code
+                : typeof currencyCode === 'string'
+                  ? currencyCode
+                  : null,
+            unitPriceNet,
+            unitPriceGross,
+            taxRate,
+            totalNet,
+            totalGross,
+            priceMode,
+            metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
+            catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
+            customFieldSetId,
+            customFields,
+          }
+          return [record]
+        })
         setItems(mapped)
       } else {
         setItems([])
