@@ -429,30 +429,30 @@ export function SalesDocumentAdjustmentsSection({
         header: t('sales.documents.adjustments.position', 'Position'),
         cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.position}</span>,
       },
-      {
-        id: 'actions',
-        header: '',
-        cell: ({ row }) => (
-          <RowActions
-            items={[
-              {
-                label: t('ui.actions.edit', 'Edit'),
-                onSelect: () => handleEdit(row.original),
-              },
-              {
-                label: t('ui.actions.delete', 'Delete'),
-                destructive: true,
-                onSelect: () => handleDelete(row.original),
-              },
-            ]}
-          />
-        ),
-      },
     ],
-    [currencyCode, handleDelete, handleEdit, resolveKindLabel, t]
+    [currencyCode, resolveKindLabel, t]
   )
 
   const showLoadingState = loading && rows.length === 0
+
+  const renderRowActions = React.useCallback(
+    (row: AdjustmentRow) => (
+      <RowActions
+        items={[
+          {
+            label: t('ui.actions.edit', 'Edit'),
+            onSelect: () => handleEdit(row),
+          },
+          {
+            label: t('ui.actions.delete', 'Delete'),
+            destructive: true,
+            onSelect: () => handleDelete(row),
+          },
+        ]}
+      />
+    ),
+    [handleDelete, handleEdit, t]
+  )
 
   return (
     <div className="space-y-4">
@@ -470,6 +470,8 @@ export function SalesDocumentAdjustmentsSection({
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
+          onRowClick={handleEdit}
+          rowActions={renderRowActions}
           emptyState={
             <TabEmptyState
               title={t('sales.documents.empty.adjustments.title', 'No adjustments yet.')}

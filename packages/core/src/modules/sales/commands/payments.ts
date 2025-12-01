@@ -10,6 +10,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   SalesInvoice,
   SalesOrder,
+  SalesOrderLine,
   SalesPayment,
   SalesPaymentAllocation,
   SalesPaymentMethod,
@@ -269,6 +270,31 @@ const createPaymentCommand: CommandHandler<
       ensureSameScope(method, input.organizationId, input.tenantId)
       paymentMethod = method
     }
+    if (input.documentStatusEntryId !== undefined) {
+      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
+      if (input.documentStatusEntryId && !orderStatus) {
+        throw new CrudHttpError(400, {
+          error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
+        })
+      }
+      order.statusEntryId = input.documentStatusEntryId ?? null
+      order.status = orderStatus
+      order.updatedAt = new Date()
+    }
+    if (input.lineStatusEntryId !== undefined) {
+      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
+      if (input.lineStatusEntryId && !lineStatus) {
+        throw new CrudHttpError(400, {
+          error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
+        })
+      }
+      const orderLines = await em.find(SalesOrderLine, { order })
+      orderLines.forEach((line) => {
+        line.statusEntryId = input.lineStatusEntryId ?? null
+        line.status = lineStatus
+        line.updatedAt = new Date()
+      })
+    }
     const status = await resolveDictionaryEntryValue(em, input.statusEntryId ?? null)
     const payment = em.create(SalesPayment, {
       organizationId: input.organizationId,
@@ -432,6 +458,35 @@ const updatePaymentCommand: CommandHandler<
         ensureSameScope(method, input.organizationId, input.tenantId)
         payment.paymentMethod = method
       }
+    }
+    const currentOrder = payment.order as SalesOrder | null
+    if ((input.documentStatusEntryId !== undefined || input.lineStatusEntryId !== undefined) && !currentOrder) {
+      throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
+    }
+    if (currentOrder && input.documentStatusEntryId !== undefined) {
+      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
+      if (input.documentStatusEntryId && !orderStatus) {
+        throw new CrudHttpError(400, {
+          error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
+        })
+      }
+      currentOrder.statusEntryId = input.documentStatusEntryId ?? null
+      currentOrder.status = orderStatus
+      currentOrder.updatedAt = new Date()
+    }
+    if (currentOrder && input.lineStatusEntryId !== undefined) {
+      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
+      if (input.lineStatusEntryId && !lineStatus) {
+        throw new CrudHttpError(400, {
+          error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
+        })
+      }
+      const orderLines = await em.find(SalesOrderLine, { order: currentOrder })
+      orderLines.forEach((line) => {
+        line.statusEntryId = input.lineStatusEntryId ?? null
+        line.status = lineStatus
+        line.updatedAt = new Date()
+      })
     }
     if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
     if (input.statusEntryId !== undefined) {

@@ -37,6 +37,13 @@ type PaymentMethodOption = {
   code: string
 }
 
+type StatusOption = {
+  id: string
+  value: string
+  label: string
+  color: string | null
+}
+
 type PaymentDialogProps = {
   open: boolean
   mode: 'create' | 'edit'
@@ -89,6 +96,10 @@ export function PaymentDialog({
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [paymentMethods, setPaymentMethods] = React.useState<PaymentMethodOption[]>([])
   const [methodsLoading, setMethodsLoading] = React.useState(false)
+  const [documentStatuses, setDocumentStatuses] = React.useState<StatusOption[]>([])
+  const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
+  const [documentStatusLoading, setDocumentStatusLoading] = React.useState(false)
+  const [lineStatusLoading, setLineStatusLoading] = React.useState(false)
 
   const currencyLabel = React.useMemo(() => {
     const code = currencyCode ? currencyCode.toUpperCase() : ''
@@ -102,9 +113,17 @@ export function PaymentDialog({
       paymentMethodId: payment?.paymentMethodId ?? '',
       paymentReference: payment?.paymentReference ?? '',
       receivedAt: payment?.receivedAt ? payment.receivedAt.slice(0, 10) : '',
+      documentStatusEntryId: '',
+      lineStatusEntryId: '',
       ...prefixCustomFieldValues(payment?.customValues ?? null),
     }),
-    [payment?.amount, payment?.customValues, payment?.paymentMethodId, payment?.paymentReference, payment?.receivedAt]
+    [
+      payment?.amount,
+      payment?.customValues,
+      payment?.paymentMethodId,
+      payment?.paymentReference,
+      payment?.receivedAt,
+    ],
   )
 
   const loadPaymentMethods = React.useCallback(
@@ -147,14 +166,6 @@ export function PaymentDialog({
     []
   )
 
-  React.useEffect(() => {
-    if (!open) return
-    setFormResetKey((prev) => prev + 1)
-    if (!paymentMethods.length) {
-      void loadPaymentMethods()
-    }
-  }, [loadPaymentMethods, open, payment?.id, paymentMethods.length])
-
   const fetchPaymentMethodItems = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const options =
@@ -180,6 +191,154 @@ export function PaymentDialog({
   )
 
   const shortcutLabel = t('sales.documents.payments.saveShortcut', 'Save ⌘⏎ / Ctrl+Enter')
+  const renderStatusIcon = React.useCallback(
+    (color?: string | null) => (
+      <span
+        className="h-2.5 w-2.5 rounded-full border border-border/70"
+        style={color ? { backgroundColor: color, borderColor: color } : undefined}
+      />
+    ),
+    [],
+  )
+
+  const loadDocumentStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setDocumentStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          return { id, value, label, color }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setDocumentStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.payments.statuses.load', err)
+      setDocumentStatuses([])
+      return []
+    } finally {
+      setDocumentStatusLoading(false)
+    }
+  }, [])
+
+  const loadLineStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setLineStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-line-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          return { id, value, label, color }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setLineStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.payments.line-statuses.load', err)
+      setLineStatuses([])
+      return []
+    } finally {
+      setLineStatusLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (!open) return
+    setFormResetKey((prev) => prev + 1)
+    if (!paymentMethods.length) {
+      void loadPaymentMethods()
+    }
+    if (mode === 'create') {
+      if (!documentStatuses.length) {
+        void loadDocumentStatuses()
+      }
+      if (!lineStatuses.length) {
+        void loadLineStatuses()
+      }
+    }
+  }, [
+    documentStatuses.length,
+    lineStatuses.length,
+    loadDocumentStatuses,
+    loadLineStatuses,
+    loadPaymentMethods,
+    mode,
+    open,
+    payment?.id,
+    paymentMethods.length,
+  ])
+
+  const fetchDocumentStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options =
+        documentStatuses.length && !query ? documentStatuses : await loadDocumentStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term),
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.value,
+          icon: renderStatusIcon(option.color),
+        }))
+    },
+    [documentStatuses, loadDocumentStatuses, renderStatusIcon],
+  )
+
+  const fetchLineStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options = lineStatuses.length && !query ? lineStatuses : await loadLineStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term),
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.value,
+          icon: renderStatusIcon(option.color),
+        }))
+    },
+    [lineStatuses, loadLineStatuses, renderStatusIcon],
+  )
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -229,6 +388,52 @@ export function PaymentDialog({
           )
         },
       },
+      ...(mode === 'create'
+        ? ([
+            {
+              id: 'documentStatusEntryId',
+              label: t('sales.documents.status.changeDocument', 'Change order/quote status'),
+              type: 'custom',
+              component: ({ value, setValue }) => {
+                const currentValue = typeof value === 'string' && value.length ? value : null
+                return (
+                  <LookupSelect
+                    value={currentValue}
+                    onChange={(next) => setValue(next ?? '')}
+                    fetchItems={fetchDocumentStatusItems}
+                    placeholder={t(
+                      'sales.documents.status.documentPlaceholder',
+                      'Select new order/quote status',
+                    )}
+                    loading={documentStatusLoading}
+                    minQuery={0}
+                  />
+                )
+              },
+            },
+            {
+              id: 'lineStatusEntryId',
+              label: t('sales.documents.status.changeLine', 'Change order/quote item status'),
+              type: 'custom',
+              component: ({ value, setValue }) => {
+                const currentValue = typeof value === 'string' && value.length ? value : null
+                return (
+                  <LookupSelect
+                    value={currentValue}
+                    onChange={(next) => setValue(next ?? '')}
+                    fetchItems={fetchLineStatusItems}
+                    placeholder={t(
+                      'sales.documents.status.linePlaceholder',
+                      'Select item status',
+                    )}
+                    loading={lineStatusLoading}
+                    minQuery={0}
+                  />
+                )
+              },
+            },
+          ] as CrudField[])
+        : []),
       {
         id: 'paymentReference',
         label: t('sales.documents.payments.reference', 'Reference'),
@@ -241,25 +446,45 @@ export function PaymentDialog({
         type: 'date',
       },
     ],
-    [currencyLabel, fetchPaymentMethodItems, t]
+    [
+      currencyLabel,
+      documentStatusLoading,
+      fetchDocumentStatusItems,
+      fetchLineStatusItems,
+      fetchPaymentMethodItems,
+      lineStatusLoading,
+      mode,
+      t,
+    ],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(
-    () => [
-      {
-        id: 'paymentDetails',
-        title: t('sales.documents.payments.form.title', 'Payment details'),
-        column: 1,
-        fields: ['amount', 'paymentMethodId', 'paymentReference', 'receivedAt'],
-      },
-      {
+    () => {
+      const base: CrudFormGroup[] = [
+        {
+          id: 'paymentDetails',
+          title: t('sales.documents.payments.form.title', 'Payment details'),
+          column: 1,
+          fields: ['amount', 'paymentMethodId', 'paymentReference', 'receivedAt'],
+        },
+      ]
+      if (mode === 'create') {
+        base.push({
+          id: 'statusChanges',
+          title: t('sales.documents.status.sectionTitle', 'Status changes'),
+          column: 1,
+          fields: ['documentStatusEntryId', 'lineStatusEntryId'],
+        })
+      }
+      base.push({
         id: 'paymentCustomFields',
         title: t('entities.customFields.title', 'Custom fields'),
         column: 2,
         kind: 'customFields',
-      },
-    ],
-    [t]
+      })
+      return base
+    },
+    [mode, t],
   )
 
   const handleSubmit = React.useCallback(
@@ -290,6 +515,22 @@ export function PaymentDialog({
         organizationId: organizationId ?? undefined,
         tenantId: tenantId ?? undefined,
       }
+      if (mode === 'create') {
+        const documentStatusEntryId =
+          typeof values.documentStatusEntryId === 'string' && values.documentStatusEntryId.trim().length
+            ? values.documentStatusEntryId
+            : null
+        const lineStatusEntryId =
+          typeof values.lineStatusEntryId === 'string' && values.lineStatusEntryId.trim().length
+            ? values.lineStatusEntryId
+            : null
+        if (documentStatusEntryId) {
+          payload.documentStatusEntryId = documentStatusEntryId
+        }
+        if (lineStatusEntryId) {
+          payload.lineStatusEntryId = lineStatusEntryId
+        }
+      }
       if (typeof values.receivedAt === 'string' && values.receivedAt.trim().length) {
         payload.receivedAt = new Date(values.receivedAt)
       }
@@ -315,7 +556,7 @@ export function PaymentDialog({
         onOpenChange(false)
       }
     },
-    [currencyCode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
+    [currencyCode, mode, onOpenChange, onSaved, orderId, organizationId, payment?.id, t, tenantId]
   )
 
   const handleShortcutSubmit = React.useCallback(

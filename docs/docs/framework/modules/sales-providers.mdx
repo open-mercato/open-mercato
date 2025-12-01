@@ -48,11 +48,45 @@ registerPaymentProvider({
 
 Shipping providers follow the same shape via `registerShippingProvider` and can emit `shipping` adjustments.
 
+```ts
+// src/modules/your-module/index.ts
+import { registerShippingProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerShippingProvider({
+  key: 'priority-courier',
+  label: 'Priority courier',
+  description: 'Weight-based express shipping.',
+  settings: {
+    fields: [
+      { key: 'base', label: 'Base fee', type: 'number', required: true },
+      { key: 'perKg', label: 'Per-kg rate', type: 'number', required: true },
+    ],
+  },
+  async calculate({ metrics, settings, context, method }) {
+    const base = Number(settings.base ?? method.baseRateNet ?? 0)
+    const perKg = Number(settings.perKg ?? 0)
+    const amount = base + metrics.totalWeight * perKg
+    if (!amount) return { adjustments: [] }
+    return {
+      adjustments: [
+        {
+          amountNet: amount,
+          amountGross: amount,
+          currencyCode: context.currencyCode,
+          metadata: { applied: true, weight: metrics.totalWeight },
+        },
+      ],
+    }
+  },
+})
+```
+
 ## Runtime behaviour
 
 - Shipping/payment adjustments are injected via a totals calculator, so provider fees feed into `calculateDocumentTotals` for quotes and orders.
 - Provider settings from the admin UI are stored under `metadata.providerSettings` on the `sales_shipping_methods` and `sales_payment_methods` rows, and exposed in the CRUD APIs as `providerSettings`.
 - Existing provider-generated adjustments are replaced on recalculation (updates, line edits), avoiding double application.
+- When the event bus is available, provider adjustments fire `sales.shipping.adjustments.apply.before|after` and `sales.payment.adjustments.apply.before|after`, letting you mutate or override the calculated adjustments before they are merged into the document totals.
 
 ## Default providers
 

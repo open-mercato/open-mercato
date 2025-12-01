@@ -56,6 +56,13 @@ type ShipmentAddressOption = {
   snapshot: NormalizedAddressSnapshot
 }
 
+type StatusOption = {
+  id: string
+  value: string
+  label: string
+  color: string | null
+}
+
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 const ADDRESS_FORMAT: AddressFormatStrategy = 'line_first'
 const SHIPPING_ADJUSTMENT_TOGGLE_ID = 'shipment-add-shipping-adjustment'
@@ -253,6 +260,10 @@ export function ShipmentDialog({
   const [addressOptions, setAddressOptions] = React.useState<ShipmentAddressOption[]>([])
   const [addressLoading, setAddressLoading] = React.useState(false)
   const [addressError, setAddressError] = React.useState<string | null>(null)
+  const [documentStatuses, setDocumentStatuses] = React.useState<StatusOption[]>([])
+  const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
+  const [documentStatusLoading, setDocumentStatusLoading] = React.useState(false)
+  const [lineStatusLoading, setLineStatusLoading] = React.useState(false)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const itemErrorSetterRef = React.useRef<((errors: Record<string, string | undefined>) => void) | null>(null)
 
@@ -284,6 +295,8 @@ export function ShipmentDialog({
       deliveredAt: shipment?.deliveredAt ? shipment.deliveredAt.slice(0, 10) : '',
       trackingNumbers: shipment?.trackingNumbers?.join('\n') ?? '',
       notes: shipment?.notes ?? '',
+      documentStatusEntryId: '',
+      lineStatusEntryId: '',
       postComment: true,
       addShippingAdjustment: !shipment,
       items: lines.reduce<Record<string, string>>((acc, line) => {
@@ -538,6 +551,129 @@ export function ShipmentDialog({
     [buildPriceSubtitle, loadShippingMethods, shippingMethods],
   )
 
+  const renderStatusIcon = React.useCallback(
+    (color?: string | null) => (
+      <span
+        className="h-2.5 w-2.5 rounded-full border border-border/70"
+        style={color ? { backgroundColor: color, borderColor: color } : undefined}
+      />
+    ),
+    [],
+  )
+
+  const loadDocumentStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setDocumentStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          return { id, value, label, color }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setDocumentStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.shipments.statuses.load', err)
+      setDocumentStatuses([])
+      return []
+    } finally {
+      setDocumentStatusLoading(false)
+    }
+  }, [])
+
+  const loadLineStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setLineStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-line-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          return { id, value, label, color }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setLineStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.shipments.line-statuses.load', err)
+      setLineStatuses([])
+      return []
+    } finally {
+      setLineStatusLoading(false)
+    }
+  }, [])
+
+  const fetchDocumentStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options =
+        documentStatuses.length && !query ? documentStatuses : await loadDocumentStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term),
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.value,
+          icon: renderStatusIcon(option.color),
+        }))
+    },
+    [documentStatuses, loadDocumentStatuses, renderStatusIcon],
+  )
+
+  const fetchLineStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options = lineStatuses.length && !query ? lineStatuses : await loadLineStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term),
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.value,
+          icon: renderStatusIcon(option.color),
+        }))
+    },
+    [lineStatuses, loadLineStatuses, renderStatusIcon],
+  )
+
   React.useEffect(() => {
     if (!open) return
     setFormResetKey((prev) => prev + 1)
@@ -549,12 +685,25 @@ export function ShipmentDialog({
     if (!addressOptions.length) {
       void loadAddressOptions()
     }
+    if (mode === 'create') {
+      if (!documentStatuses.length) {
+        void loadDocumentStatuses()
+      }
+      if (!lineStatuses.length) {
+        void loadLineStatuses()
+      }
+    }
   }, [
     addressOptions.length,
     baseAddressOptions,
+    documentStatuses.length,
     loadAddressOptions,
+    loadDocumentStatuses,
+    loadLineStatuses,
     loadShippingMethods,
+    mode,
     open,
+    lineStatuses.length,
     shippingMethods.length,
   ])
 
@@ -707,6 +856,22 @@ export function ShipmentDialog({
       const customFields = collectCustomFieldValues(values, { transform: normalizeCustomFieldSubmitValue })
       if (Object.keys(customFields).length) {
         payload.customFields = customFields
+      }
+      if (mode === 'create') {
+        const documentStatusEntryId =
+          typeof values.documentStatusEntryId === 'string' && values.documentStatusEntryId.trim().length
+            ? values.documentStatusEntryId
+            : null
+        const lineStatusEntryId =
+          typeof values.lineStatusEntryId === 'string' && values.lineStatusEntryId.trim().length
+            ? values.lineStatusEntryId
+            : null
+        if (documentStatusEntryId) {
+          payload.documentStatusEntryId = documentStatusEntryId
+        }
+        if (lineStatusEntryId) {
+          payload.lineStatusEntryId = lineStatusEntryId
+        }
       }
 
       const action = shipment?.id ? updateCrud : createCrud
@@ -1013,6 +1178,52 @@ export function ShipmentDialog({
           )
         },
       },
+      ...(mode === 'create'
+        ? ([
+            {
+              id: 'documentStatusEntryId',
+              label: t('sales.documents.status.changeDocument', 'Change order/quote status'),
+              type: 'custom',
+              component: ({ value, setValue }) => {
+                const currentValue = typeof value === 'string' && value.length ? value : null
+                return (
+                  <LookupSelect
+                    value={currentValue}
+                    onChange={(next) => setValue(next ?? '')}
+                    fetchItems={fetchDocumentStatusItems}
+                    placeholder={t(
+                      'sales.documents.status.documentPlaceholder',
+                      'Select new order/quote status',
+                    )}
+                    loading={documentStatusLoading}
+                    minQuery={0}
+                  />
+                )
+              },
+            },
+            {
+              id: 'lineStatusEntryId',
+              label: t('sales.documents.status.changeLine', 'Change order/quote item status'),
+              type: 'custom',
+              component: ({ value, setValue }) => {
+                const currentValue = typeof value === 'string' && value.length ? value : null
+                return (
+                  <LookupSelect
+                    value={currentValue}
+                    onChange={(next) => setValue(next ?? '')}
+                    fetchItems={fetchLineStatusItems}
+                    placeholder={t(
+                      'sales.documents.status.linePlaceholder',
+                      'Select item status',
+                    )}
+                    loading={lineStatusLoading}
+                    minQuery={0}
+                  />
+                )
+              },
+            },
+          ] as CrudField[])
+        : []),
       {
         id: 'shipmentAddressId',
         label: t('sales.documents.shipments.address', 'Ship to'),
@@ -1142,41 +1353,59 @@ export function ShipmentDialog({
     addressLoading,
     addressOptions,
     computeAvailable,
+    documentStatusLoading,
     fetchAddressItems,
+    fetchDocumentStatusItems,
+    fetchLineStatusItems,
     fetchShippingMethodItems,
+    lineStatusLoading,
     lines,
+    mode,
     registerItemErrors,
     shipment?.id,
     t,
   ])
 
   const groups = React.useMemo<CrudFormGroup[]>(
-    () => [
-      {
-        id: 'shipmentDetails',
-        title: t('sales.documents.shipments.addTitle', 'Add shipment'),
-        column: 1,
-        fields: ['shipmentNumber', 'carrierName', 'shippingMethodId', 'shipmentAddressId'],
-      },
-      {
-        id: 'tracking',
-        title: t('sales.documents.shipments.trackingGroup', 'Tracking information'),
-        column: 1,
-        fields: ['shippedAt', 'deliveredAt', 'trackingNumbers', 'notes'],
-      },
-      {
-        id: 'items',
-        column: 1,
-        fields: ['items', 'addShippingAdjustment', 'postComment'],
-      },
-      {
-        id: 'shipmentCustomFields',
-        title: t('entities.customFields.title', 'Custom fields'),
-        column: 2,
-        kind: 'customFields',
-      },
-    ],
-    [t],
+    () => {
+      const base: CrudFormGroup[] = [
+        {
+          id: 'shipmentDetails',
+          title: t('sales.documents.shipments.addTitle', 'Add shipment'),
+          column: 1,
+          fields: ['shipmentNumber', 'carrierName', 'shippingMethodId', 'shipmentAddressId'],
+        },
+      ]
+      if (mode === 'create') {
+        base.push({
+          id: 'statusChanges',
+          title: t('sales.documents.status.sectionTitle', 'Status changes'),
+          column: 1,
+          fields: ['documentStatusEntryId', 'lineStatusEntryId'],
+        })
+      }
+      base.push(
+        {
+          id: 'tracking',
+          title: t('sales.documents.shipments.trackingGroup', 'Tracking information'),
+          column: 1,
+          fields: ['shippedAt', 'deliveredAt', 'trackingNumbers', 'notes'],
+        },
+        {
+          id: 'items',
+          column: 1,
+          fields: ['items', 'addShippingAdjustment', 'postComment'],
+        },
+        {
+          id: 'shipmentCustomFields',
+          title: t('entities.customFields.title', 'Custom fields'),
+          column: 2,
+          kind: 'customFields',
+        },
+      )
+      return base
+    },
+    [mode, t],
   )
 
   return (

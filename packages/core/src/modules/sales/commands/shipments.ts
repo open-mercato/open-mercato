@@ -290,7 +290,10 @@ async function validateShipmentItems(params: {
   order: SalesOrder
   items?: ShipmentCreateInput['items']
   excludeShipmentId?: string | null
-}): Promise<Array<{ orderLineId: string; quantity: number; metadata: Record<string, unknown> | null }>> {
+}): Promise<{
+  items: Array<{ orderLineId: string; quantity: number; metadata: Record<string, unknown> | null }>
+  lineMap: Map<string, SalesOrderLine>
+}> {
   const { em, order, items, excludeShipmentId } = params
   const { translate } = await resolveTranslations()
   if (!items || !items.length) {
@@ -320,11 +323,14 @@ async function validateShipmentItems(params: {
     requestedTotals.set(lineId, nextTotal)
   }
 
-  return items.map((item) => ({
-    orderLineId: item.orderLineId,
-    quantity: toNumber(item.quantity),
-    metadata: item.metadata ? cloneJson(item.metadata) : null,
-  }))
+  return {
+    items: items.map((item) => ({
+      orderLineId: item.orderLineId,
+      quantity: toNumber(item.quantity),
+      metadata: item.metadata ? cloneJson(item.metadata) : null,
+    })),
+    lineMap,
+  }
 }
 
 function mergeAddressSnapshot(
@@ -347,7 +353,12 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await loadOrder(em, input.orderId)
     ensureSameScope(order, input.organizationId, input.tenantId)
-    const normalizedItems = await validateShipmentItems({ em, order, items: input.items })
+    const { translate } = await resolveTranslations()
+    const { items: normalizedItems, lineMap } = await validateShipmentItems({
+      em,
+      order,
+      items: input.items,
+    })
     const statusValue = await resolveDictionaryEntryValue(em, input.statusEntryId ?? null)
     const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
     const metadata =
@@ -400,6 +411,29 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         organizationId: input.organizationId,
         tenantId: input.tenantId,
         values: normalizeCustomFieldsInput(input.customFields),
+      })
+    }
+    if (input.documentStatusEntryId !== undefined) {
+      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
+      if (input.documentStatusEntryId && !orderStatus) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
+      order.statusEntryId = input.documentStatusEntryId ?? null
+      order.status = orderStatus
+      order.updatedAt = new Date()
+    }
+    if (input.lineStatusEntryId !== undefined) {
+      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
+      if (input.lineStatusEntryId && !lineStatus) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
+      const uniqueLineIds = Array.from(new Set(normalizedItems.map((item) => item.orderLineId)))
+      uniqueLineIds.forEach((lineId) => {
+        const line = lineMap.get(lineId)
+        if (!line) return
+        line.statusEntryId = input.lineStatusEntryId ?? null
+        line.status = lineStatus
+        line.updatedAt = new Date()
       })
     }
     await em.flush()
@@ -470,6 +504,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       { id: input.id },
       { populate: ['order'] }
     )
+    const { translate } = await resolveTranslations()
     if (!shipment || !shipment.order) {
       throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
     }
@@ -478,7 +513,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     if (input.orderId && input.orderId !== order.id) {
       throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
     }
-    const normalizedItems = input.items
+    const validatedItems = input.items
       ? await validateShipmentItems({
           em,
           order,
@@ -486,6 +521,8 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
           excludeShipmentId: shipment.id,
         })
       : null
+    const normalizedItems = validatedItems?.items ?? null
+    const lineMap = validatedItems?.lineMap ?? new Map<string, SalesOrderLine>()
     if (input.shipmentNumber !== undefined) shipment.shipmentNumber = input.shipmentNumber ?? null
     if (input.shippingMethodId !== undefined) shipment.shippingMethodId = input.shippingMethodId ?? null
     if (input.statusEntryId !== undefined) {
@@ -514,8 +551,9 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     }
     shipment.updatedAt = new Date()
 
+    const shouldLoadItems = Boolean(normalizedItems || input.lineStatusEntryId !== undefined)
+    const existingItems = shouldLoadItems ? await em.find(SalesShipmentItem, { shipment }) : []
     if (normalizedItems) {
-      const existingItems = await em.find(SalesShipmentItem, { shipment })
       existingItems.forEach((item) => em.remove(item))
       normalizedItems.forEach((item) => {
         const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
@@ -539,6 +577,48 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         tenantId: shipment.tenantId,
         values: normalizeCustomFieldsInput(input.customFields),
       })
+    }
+    if (input.documentStatusEntryId !== undefined) {
+      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
+      if (input.documentStatusEntryId && !orderStatus) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
+      order.statusEntryId = input.documentStatusEntryId ?? null
+      order.status = orderStatus
+      order.updatedAt = new Date()
+    }
+    if (input.lineStatusEntryId !== undefined) {
+      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
+      if (input.lineStatusEntryId && !lineStatus) {
+        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      }
+      const targetLineIds = normalizedItems
+        ? Array.from(new Set(normalizedItems.map((item) => item.orderLineId)))
+        : Array.from(
+            new Set(
+              existingItems
+                .map((item) =>
+                  typeof item.orderLine === 'string'
+                    ? item.orderLine
+                    : (item.orderLine as SalesOrderLine | null)?.id ?? null
+                )
+                .filter((id): id is string => Boolean(id))
+            )
+          )
+      if (targetLineIds.length) {
+        const missing = targetLineIds.filter((id) => !lineMap.has(id))
+        if (missing.length) {
+          const fetched = await em.find(SalesOrderLine, { id: { $in: missing } })
+          fetched.forEach((line) => lineMap.set(line.id, line))
+        }
+        targetLineIds.forEach((lineId) => {
+          const line = lineMap.get(lineId)
+          if (!line) return
+          line.statusEntryId = input.lineStatusEntryId ?? null
+          line.status = lineStatus
+          line.updatedAt = new Date()
+        })
+      }
     }
 
     await em.flush()

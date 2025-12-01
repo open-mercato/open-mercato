@@ -95,6 +95,7 @@ export type SalesTotalsCalculationHook = (params: {
   existingAdjustments: SalesAdjustmentDraft[]
   context: SalesCalculationContext
   current: SalesDocumentCalculationResult
+  eventBus?: EventBus | null
 }) => SalesDocumentCalculationResult | Promise<SalesDocumentCalculationResult>
 
 export type SalesCalculationContext = {

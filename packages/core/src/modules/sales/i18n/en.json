@@ -826,6 +826,7 @@
           "errorQuantity": "Quantity must be greater than 0.",
           "errorUnitPrice": "Unit price must be greater than 0.",
           "errorDelete": "Failed to delete line.",
+          "deleteConfirm": "Delete this line item?",
           "errorDeleteShipped": "You cannot delete a line that has shipped items.",
           "created": "Line added.",
           "updated": "Line updated.",
@@ -871,6 +872,13 @@
             "actions": "Actions",
             "gross": "gross"
           }
+        },
+        "status": {
+          "changeDocument": "Change order/quote status",
+          "changeLine": "Change order/quote item status",
+          "documentPlaceholder": "Select new order/quote status",
+          "linePlaceholder": "Select item status",
+          "sectionTitle": "Status changes"
         },
         "shipments": {
           "title": "Shipments",
@@ -1103,9 +1111,13 @@
   "sales.quotes.create": "Create sales quote",
   "sales.quotes.update": "Update sales quote",
   "sales.quotes.delete": "Delete sales quote",
+  "sales.quotes.adjustments.upsert": "Update quote adjustment",
+  "sales.quotes.adjustments.delete": "Delete quote adjustment",
   "sales.orders.create": "Create sales order",
   "sales.orders.update": "Update sales order",
   "sales.orders.delete": "Delete sales order",
+  "sales.orders.adjustments.upsert": "Update order adjustment",
+  "sales.orders.adjustments.delete": "Delete order adjustment",
   "sales.audit.orders.create": "Create sales order",
   "sales.audit.orders.delete": "Delete sales order",
   "sales.audit.orders.update": "Update sales order",

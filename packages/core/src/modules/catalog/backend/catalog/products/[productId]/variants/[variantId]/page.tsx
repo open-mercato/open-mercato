@@ -78,7 +78,6 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
   const [productTitle, setProductTitle] = React.useState<string>('')
   const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
   const [productTaxRate, setProductTaxRate] = React.useState<number | null>(null)
-  const [productTaxRateId, setProductTaxRateId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const loadPriceKinds = async () => {

@@ -1643,6 +1643,12 @@ export class SalesNote {
   @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
   authorUserId?: string | null
 
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
   @Property({ name: 'body', type: 'text' })
   body!: string
 

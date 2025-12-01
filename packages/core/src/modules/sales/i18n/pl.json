@@ -816,6 +816,7 @@
         },
         "items": {
           "wip": "Edytor pozycji pojawi się w następnej iteracji.",
+          "deleteConfirm": "Usunąć tę pozycję?",
           "errorProductRequired": "Wybierz produkt, aby kontynuować.",
           "errorVariantRequired": "Wybierz wariant, aby kontynuować.",
           "errorQuantity": "Ilość musi być większa niż 0.",
@@ -823,6 +824,13 @@
           "taxRate": "Klasa podatkowa",
           "taxRate.none": "Brak wybranej klasy podatkowej",
           "taxRate.empty": "Brak dostępnych klas podatkowych"
+        },
+        "status": {
+          "changeDocument": "Change order/quote status",
+          "changeLine": "Change order/quote item status",
+          "documentPlaceholder": "Select new order/quote status",
+          "linePlaceholder": "Select item status",
+          "sectionTitle": "Status changes"
         },
         "shipments": {
           "title": "Wysyłki",
@@ -1038,9 +1046,13 @@
   "sales.quotes.create": "Utwórz ofertę",
   "sales.quotes.update": "Aktualizuj ofertę",
   "sales.quotes.delete": "Usuń ofertę",
+  "sales.quotes.adjustments.upsert": "Zaktualizuj korektę oferty",
+  "sales.quotes.adjustments.delete": "Usuń korektę oferty",
   "sales.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.orders.update": "Aktualizuj zamówienie sprzedaży",
   "sales.orders.delete": "Usuń zamówienie sprzedaży",
+  "sales.orders.adjustments.upsert": "Zaktualizuj korektę zamówienia",
+  "sales.orders.adjustments.delete": "Usuń korektę zamówienia",
   "sales.audit.orders.create": "Utwórz zamówienie sprzedaży",
   "sales.audit.orders.delete": "Usuń zamówienie sprzedaży",
   "sales.audit.orders.update": "Aktualizuj zamówienie sprzedaży",

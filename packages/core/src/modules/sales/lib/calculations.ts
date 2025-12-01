@@ -43,7 +43,9 @@ function resolveAdjustmentAmounts(
   return adjustments.map((adj) => {
     const rate = toNumber(adj.rate, NaN)
     const taxRate = extractAdjustmentTaxRate(adj)
-    const hasRate = Number.isFinite(rate)
+    const hasAmountNet = Number.isFinite(toNumber(adj.amountNet, NaN))
+    const hasAmountGross = Number.isFinite(toNumber(adj.amountGross, NaN))
+    const hasRate = Number.isFinite(rate) && !hasAmountNet && !hasAmountGross
     const hasTaxRate = taxRate !== null
     let amountNet = toNumber(adj.amountNet, NaN)
     let amountGross = toNumber(adj.amountGross, NaN)
@@ -305,6 +307,7 @@ class SalesCalculationRegistry {
         existingAdjustments: adjustments,
         context,
         current,
+        eventBus,
       })
       if (next) current = next
     }

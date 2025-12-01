@@ -31,6 +31,7 @@ type AdjustmentFormState = {
   label: string
   code: string
   kind: SalesAdjustmentKind
+  mode?: 'rate' | 'amount'
   calculatorKey: string
   rate: string
   amountNet: string
@@ -173,6 +174,7 @@ export function AdjustmentDialog({
     label: '',
     code: '',
     kind: (kindOptions[0]?.value as SalesAdjustmentKind) ?? 'custom',
+    mode: initialMode,
     calculatorKey: '',
     rate: '',
     amountNet: '',
@@ -302,11 +304,13 @@ export function AdjustmentDialog({
           ? Number(normalizeNumber((initialAdjustment.metadata as any).taxRate))
           : null
       const defaultRate = rates.find((rate) => rate.isDefault) ?? null
+      const resolvedMode = resolveModeFromAdjustment(initialAdjustment)
       const next: AdjustmentFormState = {
         id: initialAdjustment?.id,
         label: initialAdjustment?.label ?? '',
         code: initialAdjustment?.code ?? '',
         kind: initialAdjustment?.kind ?? (kindOptions[0]?.value as SalesAdjustmentKind) ?? 'custom',
+        mode: resolvedMode,
         calculatorKey: initialAdjustment?.calculatorKey ?? '',
         rate: initialAdjustment?.rate ?? '',
         amountNet: initialAdjustment?.amountNet ?? '',
@@ -322,7 +326,7 @@ export function AdjustmentDialog({
         normalizeCustomFieldResponse(initialAdjustment?.customFields) ?? {}
       )
       setInitialValues({ ...next, ...customValues })
-      setMode(resolveModeFromAdjustment(initialAdjustment))
+      setMode(resolvedMode)
       setFormResetKey((prev) => prev + 1)
     }
     prepare().catch(() => {})
@@ -400,31 +404,35 @@ export function AdjustmentDialog({
         id: 'mode',
         label: t('sales.documents.adjustments.amountMode', 'Calculation mode'),
         type: 'custom',
-        component: () => (
-          <div className="inline-flex rounded-md border bg-muted/40 p-1 text-sm font-medium">
-            {(['rate', 'amount'] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={`rounded px-3 py-1 transition-colors ${
-                  mode === option ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
-                }`}
-                onClick={() => {
-                  setMode(option)
-                  if (option === 'rate') {
-                    const form = dialogContentRef.current?.querySelector('form')
-                    const rateInput = form?.querySelector<HTMLInputElement>('input[name="rate"]')
-                    rateInput?.focus()
-                  }
-                }}
-              >
-                {option === 'rate'
-                  ? t('sales.documents.adjustments.mode.rate', 'Percentage')
-                  : t('sales.documents.adjustments.mode.amount', 'Fixed amount')}
-              </button>
-            ))}
-          </div>
-        ),
+        component: ({ value, setValue }) => {
+          const currentMode = value === 'rate' || value === 'amount' ? value : mode
+          return (
+            <div className="inline-flex rounded-md border bg-muted/40 p-1 text-sm font-medium">
+              {(['rate', 'amount'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={`rounded px-3 py-1 transition-colors ${
+                    currentMode === option ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+                  }`}
+                  onClick={() => {
+                    setMode(option)
+                    setValue?.(option)
+                    if (option === 'rate') {
+                      const form = dialogContentRef.current?.querySelector('form')
+                      const rateInput = form?.querySelector<HTMLInputElement>('input[name="rate"]')
+                      rateInput?.focus()
+                    }
+                  }}
+                >
+                  {option === 'rate'
+                    ? t('sales.documents.adjustments.mode.rate', 'Percentage')
+                    : t('sales.documents.adjustments.mode.amount', 'Fixed amount')}
+                </button>
+              ))}
+            </div>
+          )
+        },
       },
       {
         id: 'rate',
@@ -608,8 +616,18 @@ export function AdjustmentDialog({
     ]
   }, [fields, t])
 
+  const resolveFormMode = React.useCallback(
+    (values: Record<string, unknown>): 'rate' | 'amount' => {
+      const raw = values.mode
+      if (raw === 'rate' || raw === 'amount') return raw
+      return mode
+    },
+    [mode]
+  )
+
   const handleSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
+      const calculationMode = resolveFormMode(values)
       const resolvedCurrency = currencyCode ? currencyCode.toUpperCase() : ''
       if (!resolvedCurrency || resolvedCurrency.length !== 3) {
         throw createCrudFormError(
@@ -627,7 +645,7 @@ export function AdjustmentDialog({
       const percentageRate = normalizeNumber(values.rate)
       const amountNet = normalizeNumber(values.amountNet)
       const amountGross = normalizeNumber(values.amountGross)
-      if (mode === 'rate') {
+      if (calculationMode === 'rate') {
         if (!Number.isFinite(percentageRate)) {
           throw createCrudFormError(
             t('sales.documents.adjustments.errorRate', 'Enter a percentage rate.'),
@@ -665,7 +683,7 @@ export function AdjustmentDialog({
       if (isEditingProviderAdjustment) {
         metadata.manualOverride = true
       }
-      metadata.calculationMode = mode
+      metadata.calculationMode = calculationMode
 
       const payload: AdjustmentSubmitPayload = {
         id: typeof values.id === 'string' ? values.id : initialAdjustment?.id,
@@ -680,9 +698,9 @@ export function AdjustmentDialog({
           typeof values.calculatorKey === 'string' && values.calculatorKey.trim().length
             ? values.calculatorKey.trim()
             : null,
-        rate: mode === 'rate' && Number.isFinite(percentageRate) ? percentageRate : null,
-        amountNet: mode === 'amount' && Number.isFinite(amountNet) ? amountNet : null,
-        amountGross: mode === 'amount' && Number.isFinite(amountGross) ? amountGross : null,
+        rate: calculationMode === 'rate' && Number.isFinite(percentageRate) ? percentageRate : null,
+        amountNet: calculationMode === 'amount' && Number.isFinite(amountNet) ? amountNet : null,
+        amountGross: calculationMode === 'amount' && Number.isFinite(amountGross) ? amountGross : null,
         position: Number.isFinite(normalizeNumber(values.position)) ? Number(normalizeNumber(values.position)) : null,
         currencyCode: resolvedCurrency,
         customFields: Object.keys(customFields).length ? normalizeCustomFieldValues(customFields) : null,
@@ -696,9 +714,9 @@ export function AdjustmentDialog({
       initialAdjustment?.calculatorKey,
       initialAdjustment?.id,
       initialAdjustment?.metadata,
-      mode,
       onOpenChange,
       onSubmit,
+      resolveFormMode,
       resolveTaxRateValue,
       t,
     ]

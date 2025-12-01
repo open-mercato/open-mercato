@@ -180,7 +180,7 @@ export function ensureProviderTotalsCalculator() {
   if (totalsRegistered) return
   totalsRegistered = true
 
-  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current }) => {
+  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus }) => {
     const metadata = (context.metadata ?? {}) as Record<string, unknown>
     const shippingMethod = (metadata.shippingMethod ?? null) as ShippingMethodContext | null
     const paymentMethod = (metadata.paymentMethod ?? null) as PaymentMethodContext | null
@@ -217,7 +217,7 @@ export function ensureProviderTotalsCalculator() {
           const settings =
             normalizeProviderSettings('shipping', provider.key, rawSettings) ?? rawSettings ?? {}
           const metrics = computeMetrics(working.lines)
-          const result = await provider.calculate({
+          let result = await provider.calculate({
             method: shippingMethod,
             settings,
             document: working,
@@ -225,8 +225,56 @@ export function ensureProviderTotalsCalculator() {
             context,
             metrics,
           })
+          if (eventBus) {
+            await eventBus.emitEvent('sales.shipping.adjustments.apply.before', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: shippingMethod,
+              settings,
+              document: working,
+              result,
+              setResult(next: ProviderAdjustmentResult | null | undefined) {
+                result = next ?? null
+              },
+            })
+          }
           working = applyProviderResult(working, runningAdjustments, provider.key, calculatorKey, result, 'shipping')
           runningAdjustments = working.adjustments
+          if (eventBus) {
+            let nextDocument = working
+            await eventBus.emitEvent('sales.shipping.adjustments.apply.after', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: shippingMethod,
+              settings,
+              document: nextDocument,
+              adjustments: nextDocument.adjustments.filter((adj) =>
+                (adj.calculatorKey ?? '').startsWith(calculatorKey)
+              ),
+              setDocument(next: SalesDocumentCalculationResult | null | undefined) {
+                if (next) {
+                  nextDocument = next
+                }
+              },
+              setAdjustments(next: SalesAdjustmentDraft[] | null | undefined) {
+                if (!next) return
+                const preserved = nextDocument.adjustments.filter(
+                  (adj) => !(adj.calculatorKey ?? '').startsWith(calculatorKey)
+                )
+                nextDocument = rebuildDocumentResult({
+                  documentKind,
+                  currencyCode: nextDocument.currencyCode,
+                  lines: nextDocument.lines,
+                  adjustments: [...preserved, ...next],
+                  metadata: nextDocument.metadata,
+                })
+              },
+            })
+            working = nextDocument
+            runningAdjustments = working.adjustments
+          }
         }
       }
     }
@@ -251,13 +299,27 @@ export function ensureProviderTotalsCalculator() {
           const rawSettings = extractProviderSettings(paymentMethod)
           const settings =
             normalizeProviderSettings('payment', provider.key, rawSettings) ?? rawSettings ?? {}
-          const result = await provider.calculate({
+          let result = await provider.calculate({
             method: paymentMethod,
             settings,
             document: working,
             lines: working.lines,
             context,
           })
+          if (eventBus) {
+            await eventBus.emitEvent('sales.payment.adjustments.apply.before', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: paymentMethod,
+              settings,
+              document: working,
+              result,
+              setResult(next: ProviderAdjustmentResult | null | undefined) {
+                result = next ?? null
+              },
+            })
+          }
           working = applyProviderResult(
             working,
             runningAdjustments,
@@ -267,6 +329,40 @@ export function ensureProviderTotalsCalculator() {
             'surcharge'
           )
           runningAdjustments = working.adjustments
+          if (eventBus) {
+            let nextDocument = working
+            await eventBus.emitEvent('sales.payment.adjustments.apply.after', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: paymentMethod,
+              settings,
+              document: nextDocument,
+              adjustments: nextDocument.adjustments.filter((adj) =>
+                (adj.calculatorKey ?? '').startsWith(calculatorKey)
+              ),
+              setDocument(next: SalesDocumentCalculationResult | null | undefined) {
+                if (next) {
+                  nextDocument = next
+                }
+              },
+              setAdjustments(next: SalesAdjustmentDraft[] | null | undefined) {
+                if (!next) return
+                const preserved = nextDocument.adjustments.filter(
+                  (adj) => !(adj.calculatorKey ?? '').startsWith(calculatorKey)
+                )
+                nextDocument = rebuildDocumentResult({
+                  documentKind,
+                  currencyCode: nextDocument.currencyCode,
+                  lines: nextDocument.lines,
+                  adjustments: [...preserved, ...next],
+                  metadata: nextDocument.metadata,
+                })
+              },
+            })
+            working = nextDocument
+            runningAdjustments = working.adjustments
+          }
         }
       }
     }

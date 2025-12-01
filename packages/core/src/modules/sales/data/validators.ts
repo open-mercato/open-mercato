@@ -535,6 +535,8 @@ export const shipmentCreateSchema = scoped.extend({
   shipmentNumber: z.string().trim().max(191).optional(),
   shippingMethodId: uuid().optional(),
   statusEntryId: uuid().optional(),
+  documentStatusEntryId: uuid().optional(),
+  lineStatusEntryId: uuid().optional(),
   carrierName: z.string().trim().max(191).optional(),
   trackingNumbers: z.array(z.string().trim().max(191)).optional(),
   shippedAt: z.coerce.date().optional(),
@@ -658,6 +660,8 @@ export const paymentCreateSchema = scoped.extend({
   paymentMethodId: uuid().optional(),
   paymentReference: z.string().trim().max(191).optional(),
   statusEntryId: uuid().optional(),
+  documentStatusEntryId: uuid().optional(),
+  lineStatusEntryId: uuid().optional(),
   amount: decimal({ min: 0 }),
   currencyCode,
   capturedAmount: decimal({ min: 0 }).optional(),
@@ -693,6 +697,13 @@ export const noteCreateSchema = scoped.extend({
   quoteId: uuid().optional(),
   authorUserId: uuid().optional(),
   body: z.string().trim().min(1).max(8000),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
 })
 
 export const noteUpdateSchema = z
@@ -706,6 +717,13 @@ export const noteUpdateSchema = z
       })
       .extend({
         authorUserId: uuid().optional(),
+        appearanceIcon: z.string().trim().max(100).optional().nullable(),
+        appearanceColor: z
+          .string()
+          .trim()
+          .regex(/^#([0-9a-fA-F]{6})$/)
+          .optional()
+          .nullable(),
       })
   )
 

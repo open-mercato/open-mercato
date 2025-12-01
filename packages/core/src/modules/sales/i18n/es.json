@@ -780,6 +780,7 @@
           "errorQuantity": "La cantidad debe ser mayor que 0.",
           "errorUnitPrice": "El precio unitario debe ser mayor que 0.",
           "errorDelete": "No se pudo eliminar la línea.",
+          "deleteConfirm": "¿Eliminar esta línea de artículo?",
           "errorDeleteShipped": "No puedes eliminar una línea que ya tiene envíos.",
           "created": "Línea agregada.",
           "updated": "Línea actualizada.",
@@ -823,8 +824,15 @@
             "unit": "Precio unitario",
             "total": "Total",
             "actions": "Acciones",
-            "gross": "bruto"
-          }
+          "gross": "bruto"
+        }
+      },
+        "status": {
+          "changeDocument": "Change order/quote status",
+          "changeLine": "Change order/quote item status",
+          "documentPlaceholder": "Select new order/quote status",
+          "linePlaceholder": "Select item status",
+          "sectionTitle": "Status changes"
         },
         "shipments": {
           "title": "Envíos",
@@ -1040,9 +1048,13 @@
   "sales.quotes.create": "Crear cotización",
   "sales.quotes.update": "Actualizar cotización",
   "sales.quotes.delete": "Eliminar cotización",
+  "sales.quotes.adjustments.upsert": "Actualizar ajuste de cotización",
+  "sales.quotes.adjustments.delete": "Eliminar ajuste de cotización",
   "sales.orders.create": "Crear pedido de ventas",
   "sales.orders.update": "Actualizar pedido de ventas",
   "sales.orders.delete": "Eliminar pedido de ventas",
+  "sales.orders.adjustments.upsert": "Actualizar ajuste de pedido",
+  "sales.orders.adjustments.delete": "Eliminar ajuste de pedido",
   "sales.audit.orders.create": "Crear pedido de ventas",
   "sales.audit.orders.delete": "Eliminar pedido de ventas",
   "sales.audit.orders.lines.upsert": "Actualizar línea de pedido",

@@ -768,6 +768,7 @@
         },
         "items": {
           "wip": "Der Positioneneditor kommt in der nächsten Iteration.",
+          "deleteConfirm": "Diese Position löschen?",
           "errorProductRequired": "Wähle ein Produkt aus, um fortzufahren.",
           "errorVariantRequired": "Wähle eine Variante aus, um fortzufahren.",
           "errorQuantity": "Die Menge muss größer als 0 sein.",
@@ -775,6 +776,13 @@
           "taxRate": "Steuerklasse",
           "taxRate.none": "Keine Steuerklasse ausgewählt",
           "taxRate.empty": "Keine Steuerklassen verfügbar"
+        },
+        "status": {
+          "changeDocument": "Change order/quote status",
+          "changeLine": "Change order/quote item status",
+          "documentPlaceholder": "Select new order/quote status",
+          "linePlaceholder": "Select item status",
+          "sectionTitle": "Status changes"
         },
         "shipments": {
           "title": "Sendungen",
@@ -990,9 +998,13 @@
   "sales.quotes.create": "Angebot erstellen",
   "sales.quotes.update": "Angebot aktualisieren",
   "sales.quotes.delete": "Angebot löschen",
+  "sales.quotes.adjustments.upsert": "Angebotsanpassung aktualisieren",
+  "sales.quotes.adjustments.delete": "Angebotsanpassung löschen",
   "sales.orders.create": "Bestellung erstellen",
   "sales.orders.update": "Bestellung aktualisieren",
   "sales.orders.delete": "Bestellung löschen",
+  "sales.orders.adjustments.upsert": "Auftragsanpassung aktualisieren",
+  "sales.orders.adjustments.delete": "Auftragsanpassung löschen",
   "sales.audit.orders.create": "Bestellung erstellen",
   "sales.audit.orders.delete": "Bestellung löschen",
   "sales.audit.orders.update": "Bestellung aktualisieren",

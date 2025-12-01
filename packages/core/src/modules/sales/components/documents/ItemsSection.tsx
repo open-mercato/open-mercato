@@ -168,13 +168,17 @@ export function SalesDocumentItemsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (items.length === 0) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: t('sales.documents.items.add', 'Add item'),
       onClick: openCreate,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [onActionChange, openCreate, t])
+  }, [items.length, onActionChange, openCreate, t])
 
   const handleEdit = React.useCallback((line: SalesLineRecord) => {
     setLineForEdit(line)
@@ -206,6 +210,10 @@ export function SalesDocumentItemsSection({
 
   const handleDelete = React.useCallback(
     async (line: SalesLineRecord) => {
+      const confirmed =
+        typeof window === 'undefined' ||
+        window.confirm(t('sales.documents.items.deleteConfirm', 'Delete this line item?'))
+      if (!confirmed) return
       try {
         const result = await deleteCrud(resourcePath, {
           body: {

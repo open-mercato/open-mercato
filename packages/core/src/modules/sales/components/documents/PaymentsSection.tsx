@@ -242,17 +242,13 @@ export function SalesDocumentPaymentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (!payments.length) {
-      onActionChange(null)
-      return () => onActionChange(null)
-    }
     onActionChange({
       label: addActionLabel,
       onClick: openCreate,
-      disabled: false,
+      disabled: loading,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, onActionChange, openCreate, payments.length])
+  }, [addActionLabel, loading, onActionChange, openCreate])
 
   const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
     () => [
@@ -346,7 +342,8 @@ export function SalesDocumentPaymentsSection({
             'Track received payments to keep outstanding balances up to date.'
           )}
           actionLabel={addActionLabel}
-          onAction={() => openCreate()}
+          onAction={openCreate}
+          disabled={loading}
         />
       )}
 

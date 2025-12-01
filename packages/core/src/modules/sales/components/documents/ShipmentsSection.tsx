@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Plus, Pencil, Trash2, Truck } from 'lucide-react'
+import { Pencil, Trash2, Truck } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
@@ -83,6 +83,10 @@ export function SalesShipmentsSection({
 }: SalesShipmentsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const addShipmentLabel = React.useMemo(
+    () => t('sales.documents.shipments.add', 'Add shipment'),
+    [t]
+  )
   const [shipments, setShipments] = React.useState<ShipmentRow[]>([])
   const [lines, setLines] = React.useState<OrderLine[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -312,17 +316,13 @@ export function SalesShipmentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
-    if (!shipments.length) {
-      onActionChange(null)
-      return () => onActionChange(null)
-    }
     onActionChange({
-      label: t('sales.documents.shipments.add', 'Add shipment'),
+      label: addShipmentLabel,
       onClick: handleOpenCreate,
-      disabled: false,
+      disabled: loading,
     })
     return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, shipments.length, t])
+  }, [addShipmentLabel, handleOpenCreate, loading, onActionChange])
 
   const handleEdit = React.useCallback((shipment: ShipmentRow) => {
     setDialogState({ mode: 'edit', shipment })
@@ -397,11 +397,9 @@ export function SalesShipmentsSection({
             'sales.documents.shipments.empty.description',
             'Add shipments for this document to let the user track the order.'
           )}
-          action={{
-            label: t('sales.documents.shipments.add', 'Add shipment'),
-            onClick: handleOpenCreate,
-            icon: <Plus className="h-4 w-4" aria-hidden />,
-          }}
+          actionLabel={addShipmentLabel}
+          onAction={handleOpenCreate}
+          disabled={loading}
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
