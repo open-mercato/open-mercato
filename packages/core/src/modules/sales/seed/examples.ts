@@ -66,6 +66,8 @@ type ExampleAdjustment = {
 type ExampleNote = {
   body: string
   createdAt?: Date
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
 }
 
 type ExampleShipment = {
@@ -203,8 +205,18 @@ const QUOTE_SEEDS: ExampleQuote[] = [
       },
     ],
     notes: [
-      { body: 'Requested weekend training option if schedules slip.', createdAt: daysFromNow(-1) },
-      { body: 'Prefers invoicing after acceptance instead of deposit.', createdAt: daysFromNow(0) },
+      {
+        body: 'Requested weekend training option if schedules slip.',
+        createdAt: daysFromNow(-1),
+        appearanceIcon: 'lucide:calendar-clock',
+        appearanceColor: '#0ea5e9',
+      },
+      {
+        body: 'Prefers invoicing after acceptance instead of deposit.',
+        createdAt: daysFromNow(0),
+        appearanceIcon: 'lucide:receipt',
+        appearanceColor: '#f97316',
+      },
     ],
     metadata: { seed: 'sales.examples' },
   },
@@ -329,8 +341,18 @@ const ORDER_SEEDS: ExampleOrder[] = [
       },
     ],
     notes: [
-      { body: 'Facilities requested 2-hour delivery window notice.', createdAt: daysFromNow(-2) },
-      { body: 'Panels can be staged in conference room A.', createdAt: daysFromNow(-1) },
+      {
+        body: 'Facilities requested 2-hour delivery window notice.',
+        createdAt: daysFromNow(-2),
+        appearanceIcon: 'lucide:bell-ring',
+        appearanceColor: '#0ea5e9',
+      },
+      {
+        body: 'Panels can be staged in conference room A.',
+        createdAt: daysFromNow(-1),
+        appearanceIcon: 'lucide:warehouse',
+        appearanceColor: '#22c55e',
+      },
     ],
     metadata: { seed: 'sales.examples' },
   },
@@ -429,8 +451,18 @@ const ORDER_SEEDS: ExampleOrder[] = [
       },
     ],
     notes: [
-      { body: 'TAM onboarding scheduled next Tuesday.', createdAt: daysFromNow(-3) },
-      { body: 'Retainer renewal review in mid-Q4.', createdAt: daysFromNow(-2) },
+      {
+        body: 'TAM onboarding scheduled next Tuesday.',
+        createdAt: daysFromNow(-3),
+        appearanceIcon: 'lucide:users',
+        appearanceColor: '#a855f7',
+      },
+      {
+        body: 'Retainer renewal review in mid-Q4.',
+        createdAt: daysFromNow(-2),
+        appearanceIcon: 'lucide:clock-3',
+        appearanceColor: '#f97316',
+      },
     ],
     metadata: { seed: 'sales.examples' },
   },
@@ -585,6 +617,8 @@ function attachNotes(
       contextType,
       contextId,
       body: note.body,
+      appearanceIcon: note.appearanceIcon ?? null,
+      appearanceColor: note.appearanceColor ?? null,
       createdAt: note.createdAt ?? new Date(),
       updatedAt: note.createdAt ?? new Date(),
     })

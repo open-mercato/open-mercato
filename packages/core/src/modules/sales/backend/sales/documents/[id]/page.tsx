@@ -50,7 +50,6 @@ import {
   subscribeSalesDocumentTotalsRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
-import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
 
@@ -865,21 +864,6 @@ const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefin
     acc[normalized] = value
     return acc
   }, {})
-}
-
-const SALES_NOTES_KEY = 'salesNotes'
-
-const readSalesNotes = (metadata: Record<string, unknown> | null | undefined): CommentSummary[] => {
-  if (!metadata || typeof metadata !== 'object') return []
-  const raw = (metadata as Record<string, unknown>)[SALES_NOTES_KEY]
-  if (!Array.isArray(raw)) return []
-  return raw.map(mapCommentSummary)
-}
-
-const applySalesNotes = (metadata: Record<string, unknown> | null | undefined, notes: CommentSummary[]): Record<string, unknown> => {
-  const next = { ...(metadata ?? {}) }
-  ;(next as Record<string, unknown>)[SALES_NOTES_KEY] = notes
-  return next
 }
 
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
@@ -3576,62 +3560,66 @@ export default function SalesDocumentDetailPage({
   const salesNotesAdapter = React.useMemo<NotesDataAdapter>(
     () => ({
       list: async ({ entityId }) => {
-        if (!record) return []
-        if (entityId && record.id !== entityId) return []
-        return readSalesNotes(record.metadata)
+        if (!record || !entityId || record.id !== entityId) return []
+        const params = new URLSearchParams({ contextType: kind, contextId: entityId })
+        const payload = await readApiResultOrThrow<Record<string, unknown>>(
+          `/api/sales/notes?${params.toString()}`,
+          undefined,
+          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        return items.map(mapCommentSummary)
       },
       create: async ({ entityId, body, appearanceIcon, appearanceColor }) => {
         if (!record || record.id !== entityId) {
           throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
         }
-        const existingNotes = readSalesNotes(record.metadata)
-        const newNote: CommentSummary = {
-          id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : generateTempId(),
-          body,
-          createdAt: new Date().toISOString(),
-          authorName: notesViewerLabel,
-          authorEmail: null,
-          authorUserId: null,
-          appearanceIcon: appearanceIcon ?? null,
-          appearanceColor: appearanceColor ?? null,
-        }
-        const nextMetadata = applySalesNotes(record.metadata ?? {}, [newNote, ...existingNotes])
-        const call = await updateDocument({ metadata: nextMetadata })
-        const savedMetadata = call.result?.metadata ?? nextMetadata
-        setRecord((prev) => (prev ? { ...prev, metadata: savedMetadata } : prev))
-        return {
-          id: newNote.id,
-          authorName: newNote.authorName,
-          authorEmail: newNote.authorEmail,
-          authorUserId: newNote.authorUserId,
-        }
+        const response = await apiCallOrThrow<Record<string, unknown>>(
+          '/api/sales/notes',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              contextType: kind,
+              contextId: entityId,
+              body,
+              appearanceIcon: appearanceIcon ?? undefined,
+              appearanceColor: appearanceColor ?? undefined,
+            }),
+          },
+          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        )
+        return response.result ?? {}
       },
       update: async ({ id, patch }) => {
         if (!record) throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
-        const existingNotes = readSalesNotes(record.metadata)
-        const nextNotes = existingNotes.map((note) => {
-          if (note.id !== id) return note
-          const next = { ...note }
-          if (patch.body !== undefined) next.body = patch.body ?? ''
-          if (patch.appearanceIcon !== undefined) next.appearanceIcon = patch.appearanceIcon ?? null
-          if (patch.appearanceColor !== undefined) next.appearanceColor = patch.appearanceColor ?? null
-          return next
-        })
-        const nextMetadata = applySalesNotes(record.metadata ?? {}, nextNotes)
-        const call = await updateDocument({ metadata: nextMetadata })
-        const savedMetadata = call.result?.metadata ?? nextMetadata
-        setRecord((prev) => (prev ? { ...prev, metadata: savedMetadata } : prev))
+        const payload: Record<string, unknown> = { id }
+        if (patch.body !== undefined) payload.body = patch.body
+        if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
+        if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
+        await apiCallOrThrow(
+          '/api/sales/notes',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        )
       },
       delete: async ({ id }) => {
         if (!record) throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
-        const remaining = readSalesNotes(record.metadata).filter((note) => note.id !== id)
-        const nextMetadata = applySalesNotes(record.metadata ?? {}, remaining)
-        const call = await updateDocument({ metadata: nextMetadata })
-        const savedMetadata = call.result?.metadata ?? nextMetadata
-        setRecord((prev) => (prev ? { ...prev, metadata: savedMetadata } : prev))
+        await apiCallOrThrow(
+          `/api/sales/notes?id=${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        )
       },
     }),
-    [notesViewerLabel, record, setRecord, t, updateDocument],
+    [kind, record, t],
   )
 
   const appendShipmentComment = React.useCallback(

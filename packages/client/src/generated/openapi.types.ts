@@ -2977,6 +2977,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sales notes
+         * @description Returns a paginated collection of sales notes that belong to the current organization.
+         */
+        get: operations["sales_get_sales_notes"];
+        /**
+         * Update sales note
+         * @description Updates a sales note.
+         */
+        put: operations["sales_put_sales_notes"];
+        /**
+         * Create sales note
+         * @description Creates a note attached to a sales document.
+         */
+        post: operations["sales_post_sales_notes"];
+        /**
+         * Delete sales note
+         * @description Deletes a sales note.
+         */
+        delete: operations["sales_delete_sales_notes"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/openapi": {
         parameters: {
             query?: never;
@@ -14429,6 +14461,183 @@ export interface components {
             error: components["schemas"]["DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesNotesDeleteRequestBodyContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesNotesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesNotesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesNotesDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesNotesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesNotesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesNotesDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesNotesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesNotesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesNotesGetParameters0Schema: number;
+        DocPathsSalesNotesGetParameters1Schema: number;
+        /** @enum {string} */
+        DocPathsSalesNotesGetParameters2Schema: "order" | "quote" | "invoice" | "credit_memo";
+        /** Format: uuid */
+        DocPathsSalesNotesGetParameters3Schema: string;
+        /** Format: uuid */
+        DocPathsSalesNotesGetParameters4Schema: string;
+        /** Format: uuid */
+        DocPathsSalesNotesGetParameters5Schema: string;
+        DocPathsSalesNotesGetParameters6Schema: string;
+        /** @enum {string} */
+        DocPathsSalesNotesGetParameters7Schema: "asc" | "desc";
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            appearance_color?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceColor"];
+            appearance_icon?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceIcon"];
+            author_user_id?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAuthorUserId"];
+            body: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBody"];
+            context_id: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContextId"];
+            context_type: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContextType"];
+            created_at: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
+            id: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            order_id?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderId"];
+            organization_id?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
+            quote_id?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteId"];
+            tenant_id?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
+            updated_at?: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
+        } & {
+            [key: string]: unknown;
+        };
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceColor: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceColorAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceColorAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceColorAnyOf0: null;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceColorAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceIcon: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceIconAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceIconAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceIconAnyOf0: null;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAppearanceIconAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAuthorUserId: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAuthorUserIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAuthorUserIdAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAuthorUserIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAuthorUserIdAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBody: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBodyAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBodyAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBodyAnyOf0: null;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesBodyAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContextId: string;
+        /** @enum {string} */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContextType: "order" | "quote" | "invoice" | "credit_memo";
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAtAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAtAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAtAnyOf0: null;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAtAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderId: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderIdAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderIdAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteId: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteIdAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesQuoteIdAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf0"] | components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf1"];
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf0: null;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf1: string;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesNotesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
+        DocPathsSalesNotesGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesNotesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesNotesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchema: {
+            appearanceColor?: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColor"];
+            appearanceIcon?: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIcon"];
+            authorUserId?: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAuthorUserId"];
+            body: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesBody"];
+            contextId: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesContextId"];
+            contextType: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesContextType"];
+            orderId?: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
+            organizationId: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            quoteId?: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteId"];
+            tenantId: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColor: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf0"] | components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf1"];
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf0: null;
+        /** Format: regex */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf1: string;
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIcon: components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf0"] | components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf1"];
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf0: null;
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesAuthorUserId: string;
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesBody: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesContextId: string;
+        /** @enum {string} */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesContextType: "order" | "quote" | "invoice" | "credit_memo";
+        /** Format: uuid */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteId: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchema: {
+            authorUserId: components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesAuthorUserId"];
+            id: components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesId"];
+        };
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesAuthorUserId: components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesAuthorUserIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesAuthorUserIdAnyOf1"];
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesAuthorUserIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesAuthorUserIdAnyOf1: string;
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesNotesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesNotesPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesNotesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesNotesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchema: {
+            appearanceColor?: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColor"];
+            appearanceIcon?: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIcon"];
+            authorUserId?: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAuthorUserId"];
+            body?: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesBody"];
+            id: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+        };
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColor: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf0"] | components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf1"];
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf0: null;
+        /** Format: regex */
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceColorAnyOf1: string;
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIcon: components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf0"] | components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf1"];
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf0: null;
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAppearanceIconAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesAuthorUserId: string;
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesBody: string;
+        /** Format: uuid */
+        DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesNotesPutResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesNotesPutResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesNotesPutResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesNotesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesNotesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesNotesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
             orderId: components["schemas"]["DocPathsSalesOrderAdjustmentsDeleteRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
@@ -32971,6 +33180,222 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesDocumentNumbersPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_notes: {
+        parameters: {
+            query?: {
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                contextId?: components["schemas"]["DocPathsSalesNotesGetParameters3Schema"];
+                /** @example order */
+                contextType?: components["schemas"]["DocPathsSalesNotesGetParameters2Schema"];
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                orderId?: components["schemas"]["DocPathsSalesNotesGetParameters4Schema"];
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesNotesGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesNotesGetParameters1Schema"];
+                /** @example 00000000-0000-4000-8000-000000000000 */
+                quoteId?: components["schemas"]["DocPathsSalesNotesGetParameters5Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesNotesGetParameters7Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesNotesGetParameters6Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated sales notes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fields to update on the target sales note. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000",
+                 *       "appearanceIcon": null,
+                 *       "appearanceColor": null
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesNotesPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Sales note updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Creates a note attached to a sales document. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "contextType": "order",
+                 *       "contextId": "00000000-0000-4000-8000-000000000000",
+                 *       "body": "string",
+                 *       "appearanceIcon": null,
+                 *       "appearanceColor": null
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesNotesPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Sales note created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null,
+                     *       "authorUserId": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_delete_sales_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Deletes a sales note. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesNotesDeleteRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Sales note deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesDeleteResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesNotesDeleteResponses401ContentApplicationJsonSchema"];
                 };
             };
         };

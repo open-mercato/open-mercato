@@ -14,6 +14,7 @@ import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
+import { Plus } from 'lucide-react'
 
 type PaymentRow = {
   id: string
@@ -341,9 +342,12 @@ export function SalesDocumentPaymentsSection({
             'sales.documents.payments.emptyDescription',
             'Track received payments to keep outstanding balances up to date.'
           )}
-          actionLabel={addActionLabel}
-          onAction={openCreate}
-          disabled={loading}
+          action={{
+            label: addActionLabel,
+            onClick: openCreate,
+            icon: <Plus className="h-4 w-4" aria-hidden />,
+            disabled: loading,
+          }}
         />
       )}
 

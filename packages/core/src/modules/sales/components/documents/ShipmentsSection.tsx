@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Pencil, Trash2, Truck } from 'lucide-react'
+import { Pencil, Plus, Trash2, Truck } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
@@ -397,9 +397,12 @@ export function SalesShipmentsSection({
             'sales.documents.shipments.empty.description',
             'Add shipments for this document to let the user track the order.'
           )}
-          actionLabel={addShipmentLabel}
-          onAction={handleOpenCreate}
-          disabled={loading}
+          action={{
+            label: addShipmentLabel,
+            onClick: handleOpenCreate,
+            icon: <Plus className="h-4 w-4" aria-hidden />,
+            disabled: loading,
+          }}
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
