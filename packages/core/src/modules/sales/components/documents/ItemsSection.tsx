@@ -9,6 +9,7 @@ import { Pencil, Trash2 } from 'lucide-react'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
@@ -191,11 +192,12 @@ export function SalesDocumentItemsSection({
           errorMessage: t('sales.documents.items.errorDelete', 'Failed to delete line.'),
         })
         await loadItems()
+        emitSalesDocumentTotalsRefresh({ documentId, kind })
       } catch (err) {
         console.error('sales.document.items.delete', err)
       }
     },
-    [documentId, documentKey, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
+    [documentId, documentKey, kind, loadItems, resolvedOrganizationId, resourcePath, t, resolvedTenantId],
   )
 
   const renderImage = (record: SalesLineRecord) => {
@@ -346,7 +348,10 @@ export function SalesDocumentItemsSection({
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
         initialLine={lineForEdit}
-        onSaved={loadItems}
+        onSaved={async () => {
+          await loadItems()
+          emitSalesDocumentTotalsRefresh({ documentId, kind })
+        }}
       />
     </div>
   )

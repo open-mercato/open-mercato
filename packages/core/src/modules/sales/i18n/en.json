@@ -913,6 +913,7 @@
           "attachAddress": "Attach address snapshot",
           "addComment": "Add note to comments",
           "comment": "Shipment {{number}} updated: {{summary}}",
+          "commentNotes": "Notes: {{notes}}",
           "confirmDelete": "Delete this shipment?",
           "cancel": "Cancel",
           "save": "Save changes",

@@ -818,6 +818,7 @@
           "attachAddress": "Adress-Snapshot anhängen",
           "addComment": "Notiz zu Kommentaren hinzufügen",
           "comment": "Sendung {{number}} aktualisiert: {{summary}}",
+          "commentNotes": "Notizen: {{notes}}",
           "confirmDelete": "Diese Sendung löschen?",
           "cancel": "Abbrechen",
           "save": "Änderungen speichern",

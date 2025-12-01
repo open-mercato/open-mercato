@@ -13,6 +13,7 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
@@ -332,6 +333,7 @@ export function SalesDocumentAdjustmentsSection({
       )
       if (result.ok) {
         await loadAdjustments()
+        emitSalesDocumentTotalsRefresh({ documentId, kind })
         setDialogOpen(false)
         setActiveAdjustment(null)
       }
@@ -340,6 +342,7 @@ export function SalesDocumentAdjustmentsSection({
       currencyCode,
       documentId,
       documentKey,
+      kind,
       loadAdjustments,
       crudResourcePath,
       resolvedOrganizationId,
@@ -360,13 +363,16 @@ export function SalesDocumentAdjustmentsSection({
           },
           errorMessage: t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'),
         })
-        if (result.ok) await loadAdjustments()
+        if (result.ok) {
+          await loadAdjustments()
+          emitSalesDocumentTotalsRefresh({ documentId, kind })
+        }
       } catch (err) {
         console.error('sales.document.adjustments.delete', err)
         flash(t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'), 'error')
       }
     },
-    [crudResourcePath, documentId, documentKey, loadAdjustments, resolvedOrganizationId, resolvedTenantId, t]
+    [crudResourcePath, documentId, documentKey, kind, loadAdjustments, resolvedOrganizationId, resolvedTenantId, t]
   )
 
   const columns = React.useMemo<ColumnDef<AdjustmentRow>[]>(

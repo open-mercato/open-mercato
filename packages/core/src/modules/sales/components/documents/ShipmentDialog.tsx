@@ -14,8 +14,10 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { useT } from '@/lib/i18n/context'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
@@ -75,6 +77,8 @@ const normalizePrice = (value: unknown): number | null => {
   return parsed
 }
 
+const roundAmount = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
+
 export function ShipmentDialog({
   open,
   mode,
@@ -116,6 +120,7 @@ export function ShipmentDialog({
       trackingNumbers: shipment?.trackingNumbers?.join('\n') ?? '',
       notes: shipment?.notes ?? '',
       postComment: true,
+      addShippingAdjustment: !shipment,
       items: lines.reduce<Record<string, string>>((acc, line) => {
         const found = shipment?.items.find((item) => item.orderLineId === line.id)
         acc[line.id] = found ? String(found.quantity) : ''
@@ -123,7 +128,7 @@ export function ShipmentDialog({
       }, baseItems),
       ...prefixCustomFieldValues(shipment?.customValues ?? null),
     }),
-    [baseItems, lines, shipment?.carrierName, shipment?.customValues, shipment?.deliveredAt, shipment?.items, shipment?.notes, shipment?.shipmentNumber, shipment?.shippedAt, shipment?.shippingMethodId, shipment?.trackingNumbers],
+    [baseItems, lines, mode, shipment?.carrierName, shipment?.customValues, shipment?.deliveredAt, shipment?.items, shipment?.notes, shipment?.shipmentNumber, shipment?.shippedAt, shipment?.shippingMethodId, shipment?.trackingNumbers],
   )
 
   const registerItemErrors = React.useCallback((updater: (errors: Record<string, string>) => void) => {
@@ -195,8 +200,9 @@ export function ShipmentDialog({
   )
 
   const loadShippingMethods = React.useCallback(
-    async (query?: string): Promise<ShippingMethodOption[]> => {
-      setShippingMethodLoading(true)
+    async (query?: string, opts?: { applyLoadingState?: boolean }): Promise<ShippingMethodOption[]> => {
+      const applyLoadingState = opts?.applyLoadingState !== false
+      if (applyLoadingState) setShippingMethodLoading(true)
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '50' })
         if (query && query.trim().length) params.set('search', query.trim())
@@ -217,7 +223,7 @@ export function ShipmentDialog({
         console.error('sales.shipments.shipping-methods.load', err)
         return []
       } finally {
-        setShippingMethodLoading(false)
+        if (applyLoadingState) setShippingMethodLoading(false)
       }
     },
     [mapShippingMethod],
@@ -225,9 +231,24 @@ export function ShipmentDialog({
 
   const fetchShippingMethodItems = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
-      const options = !query
-        ? shippingMethods
-        : await loadShippingMethods(query)
+      if (!query || !query.trim()) {
+        const options =
+          shippingMethods.length > 0
+            ? shippingMethods
+            : await loadShippingMethods(undefined, { applyLoadingState: true })
+        return options.map((option) => ({
+          id: option.id,
+          title: option.name,
+          subtitle: [option.code, buildPriceSubtitle(option)].filter(Boolean).join(' • ') || undefined,
+          icon: (
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <Truck className="h-4 w-4" />
+            </div>
+          ),
+        }))
+      }
+
+      const options = await loadShippingMethods(query, { applyLoadingState: false })
       const needle = query?.trim().toLowerCase() ?? ''
       const filtered = options.filter(
         (opt) =>
@@ -370,6 +391,94 @@ export function ShipmentDialog({
         },
       )
       if (result.ok) {
+        const shipmentId = ((result.result as any)?.id as string | undefined) ?? shipment?.id ?? null
+        if (
+          mode === 'create' &&
+          Boolean(values.addShippingAdjustment) &&
+          (!organizationId || !tenantId)
+        ) {
+          flash(
+            t(
+              'sales.documents.shipments.shippingAdjustmentScope',
+              'Organization and tenant are required to add a shipping adjustment.',
+            ),
+            'warning',
+          )
+        }
+        const shouldAddShippingAdjustment =
+          mode === 'create' &&
+          Boolean(values.addShippingAdjustment) &&
+          shipmentId &&
+          organizationId &&
+          tenantId
+        if (shouldAddShippingAdjustment) {
+          const method = shippingMethods.find((entry) => entry.id === shippingMethodId) ?? null
+          const totalQuantity = items.reduce((acc, item) => acc + item.quantity, 0)
+          const unitGross =
+            method?.baseRateGross ??
+            method?.avgPrice ??
+            method?.minPrice ??
+            (method?.baseRateNet ?? null)
+          const unitNet = method?.baseRateNet ?? null
+          const amountGross =
+            typeof unitGross === 'number' && Number.isFinite(unitGross) && totalQuantity > 0
+              ? roundAmount(Math.max(unitGross * totalQuantity, 0))
+              : null
+          const amountNet =
+            typeof unitNet === 'number' && Number.isFinite(unitNet) && totalQuantity > 0
+              ? roundAmount(Math.max(unitNet * totalQuantity, 0))
+              : null
+          const currency =
+            typeof method?.currencyCode === 'string' && method.currencyCode.trim().length
+              ? method.currencyCode.trim().toUpperCase()
+            : typeof currencyCode === 'string' && currencyCode.trim().length
+                ? currencyCode.trim().toUpperCase()
+                : null
+
+          if (amountGross !== null || amountNet !== null) {
+            try {
+              await createCrud(
+                'sales/order-adjustments',
+                {
+                  orderId,
+                  organizationId,
+                  tenantId,
+                  scope: 'order',
+                  kind: 'shipping',
+                  label:
+                    method?.name ??
+                    t('sales.documents.shipments.shippingAdjustmentLabel', 'Shipping cost'),
+                  code: shipmentNumber ? `ship-${shipmentNumber}` : undefined,
+                  amountGross: amountGross ?? undefined,
+                  amountNet: amountNet ?? undefined,
+                  currencyCode: currency ?? undefined,
+                  metadata: {
+                    shipmentId,
+                    shippingMethodId,
+                    calculation: 'per_item_base_rate',
+                    quantity: totalQuantity,
+                  },
+                },
+                {
+                  errorMessage: t(
+                    'sales.documents.shipments.shippingAdjustmentError',
+                    'Failed to add shipping cost adjustment.',
+                  ),
+                },
+              )
+              emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
+            } catch (err) {
+              console.warn('sales.shipments.adjustment.create', err)
+              flash(
+                t(
+                  'sales.documents.shipments.shippingAdjustmentError',
+                  'Failed to add shipping cost adjustment.',
+                ),
+                'warning',
+              )
+            }
+          }
+        }
         if (values.postComment && onAddComment) {
           const lineTitles = items
             .map((item) => {
@@ -377,17 +486,28 @@ export function ShipmentDialog({
               return `${item.quantity}× ${line?.title ?? item.lineId}`
             })
             .join(', ')
+          const commentNotes =
+            typeof values.notes === 'string' && values.notes.trim().length
+              ? values.notes.trim()
+              : ''
           const label =
             shipmentNumber.length > 0
               ? `#${shipmentNumber}`
               : shipment?.id
                 ? `#${shipment.id.slice(0, 6)}`
                 : ''
-          const note = t(
-            'sales.documents.shipments.comment',
-            'Shipment {{number}} updated: {{summary}}',
-            { number: label || String((result.result as any)?.id ?? ''), summary: lineTitles },
-          )
+          const noteParts = [
+            t('sales.documents.shipments.comment', 'Shipment {{number}} updated: {{summary}}', {
+              number: label || String((result.result as any)?.id ?? ''),
+              summary: lineTitles,
+            }),
+          ]
+          if (commentNotes) {
+            noteParts.push(
+              t('sales.documents.shipments.commentNotes', 'Notes: {{notes}}', { notes: commentNotes }),
+            )
+          }
+          const note = noteParts.join('\n\n')
           try {
             await onAddComment(note)
           } catch (err) {
@@ -397,7 +517,21 @@ export function ShipmentDialog({
         await onSaved()
       }
     },
-    [lines, onAddComment, onSaved, orderId, organizationId, shipment?.id, shippingAddressSnapshot, t, tenantId, validateItems],
+    [
+      currencyCode,
+      lines,
+      mode,
+      onAddComment,
+      onSaved,
+      orderId,
+      organizationId,
+      shipment?.id,
+      shippingAddressSnapshot,
+      shippingMethods,
+      t,
+      tenantId,
+      validateItems,
+    ],
   )
 
   const handleShortcutSubmit = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -451,20 +585,33 @@ export function ShipmentDialog({
                 <div
                   key={line.id}
                   className={cn(
-                    'grid gap-2 md:grid-cols-[1fr,140px]',
+                    'grid gap-3 md:grid-cols-[1fr,140px]',
                     disabled ? 'opacity-60' : null,
                   )}
                 >
-                  <div>
-                    <p className="text-sm font-medium">
-                      {line.lineNumber ? `#${line.lineNumber} · ` : null}
-                      {line.title}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('sales.documents.shipments.available', '{{count}} available', {
-                        count: available,
-                      })}
-                    </p>
+                  <div className="flex items-start gap-3">
+                    {line.thumbnail ? (
+                      <img
+                        src={line.thumbnail}
+                        alt={line.title}
+                        className="h-12 w-12 rounded-md border object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-muted text-[10px] text-muted-foreground">
+                        N/A
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">
+                        {line.lineNumber ? `#${line.lineNumber} · ` : null}
+                        {line.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t('sales.documents.shipments.available', '{{count}} available', {
+                          count: available,
+                        })}
+                      </p>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <Input
@@ -484,7 +631,6 @@ export function ShipmentDialog({
                 </div>
               )
             })}
-            {error ? <p className="text-xs text-destructive">{error}</p> : null}
           </div>
         )
       },
@@ -569,6 +715,37 @@ export function ShipmentDialog({
           />
         ),
       },
+      {
+        id: 'addShippingAdjustment',
+        label: t(
+          'sales.documents.shipments.addShippingAdjustment',
+          'Add shipping cost adjustment for this shipment',
+        ),
+        type: 'custom',
+        component: ({ value, setValue }) => (
+          <div className="flex items-start gap-2">
+            <Switch
+              id="shipment-add-shipping-adjustment"
+              checked={Boolean(value)}
+              onCheckedChange={(checked) => setValue(Boolean(checked))}
+            />
+            <div className="space-y-1">
+              <Label htmlFor="shipment-add-shipping-adjustment" className="cursor-pointer">
+                {t(
+                  'sales.documents.shipments.addShippingAdjustment',
+                  'Add shipping cost adjustment for this shipment',
+                )}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'sales.documents.shipments.addShippingAdjustmentHelp',
+                  'Create a shipping adjustment using this carrier’s calculated cost.',
+                )}
+              </p>
+            </div>
+          </div>
+        ),
+      },
       itemsField,
       {
         id: 'postComment',
@@ -606,9 +783,8 @@ export function ShipmentDialog({
       },
       {
         id: 'items',
-        title: t('sales.documents.shipments.items', 'Items to ship'),
         column: 1,
-        fields: ['items', 'postComment'],
+        fields: ['items', 'addShippingAdjustment', 'postComment'],
       },
       {
         id: 'shipmentCustomFields',

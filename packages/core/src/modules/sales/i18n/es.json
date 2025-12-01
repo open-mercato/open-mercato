@@ -867,6 +867,7 @@
           "attachAddress": "Adjuntar instantánea de dirección",
           "addComment": "Agregar nota a comentarios",
           "comment": "Envío {{number}} actualizado: {{summary}}",
+          "commentNotes": "Notas: {{notes}}",
           "confirmDelete": "¿Eliminar este envío?",
           "cancel": "Cancelar",
           "save": "Guardar cambios",

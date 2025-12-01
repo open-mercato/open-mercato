@@ -129,6 +129,22 @@ const formatTaxRateLabel = (rate: TaxRateOption): string => {
 
 const roundAmount = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
 
+const resolveModeFromAdjustment = (adjustment?: AdjustmentRowData | null): 'rate' | 'amount' => {
+  if (!adjustment) return 'amount'
+  const metadataMode =
+    typeof adjustment.metadata === 'object' && adjustment.metadata
+      ? (adjustment.metadata as any).calculationMode
+      : null
+  if (metadataMode === 'rate' || metadataMode === 'amount') return metadataMode
+  const rateValue = normalizeNumber(adjustment.rate)
+  const amountNetValue = normalizeNumber(adjustment.amountNet)
+  const amountGrossValue = normalizeNumber(adjustment.amountGross)
+  const hasAmounts = Number.isFinite(amountNetValue) || Number.isFinite(amountGrossValue)
+  if (Number.isFinite(rateValue) && (rateValue !== 0 || !hasAmounts)) return 'rate'
+  if (hasAmounts) return 'amount'
+  return 'amount'
+}
+
 export function AdjustmentDialog({
   open,
   onOpenChange,
@@ -143,8 +159,7 @@ export function AdjustmentDialog({
   const t = useT()
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const entityId = kind === 'order' ? E.sales.sales_order_adjustment : E.sales.sales_quote_adjustment
-  const initialMode: 'rate' | 'amount' =
-    initialAdjustment?.rate && Number.isFinite(initialAdjustment.rate) ? 'rate' : 'amount'
+  const initialMode: 'rate' | 'amount' = resolveModeFromAdjustment(initialAdjustment)
   const [mode, setMode] = React.useState<'rate' | 'amount'>(initialMode)
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [taxRates, setTaxRates] = React.useState<TaxRateOption[]>([])
@@ -305,9 +320,7 @@ export function AdjustmentDialog({
         normalizeCustomFieldResponse(initialAdjustment?.customFields) ?? {}
       )
       setInitialValues({ ...next, ...customValues })
-      setMode(
-        initialAdjustment?.rate && Number.isFinite(initialAdjustment?.rate) ? 'rate' : 'amount'
-      )
+      setMode(resolveModeFromAdjustment(initialAdjustment))
       setFormResetKey((prev) => prev + 1)
     }
     prepare().catch(() => {})
@@ -642,6 +655,7 @@ export function AdjustmentDialog({
       }
       if (selectedRateId) metadata.taxRateId = selectedRateId
       if (Number.isFinite(rateValue)) metadata.taxRate = rateValue
+      metadata.calculationMode = mode
 
       const payload: AdjustmentSubmitPayload = {
         id: typeof values.id === 'string' ? values.id : initialAdjustment?.id,

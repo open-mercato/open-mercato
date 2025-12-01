@@ -45,6 +45,7 @@ import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/c
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
 import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
+import { subscribeSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
@@ -2510,6 +2511,30 @@ export default function SalesDocumentDetailPage({
   React.useEffect(() => {
     void loadAdjustmentsForTotals()
   }, [loadAdjustmentsForTotals])
+
+  const refreshDocumentTotals = React.useCallback(async () => {
+    if (!record?.id) return
+    try {
+      const updated = await fetchDocumentByKind(record.id, kind)
+      if (updated) {
+        setRecord(updated)
+      }
+      await loadAdjustmentsForTotals()
+    } catch (err) {
+      console.error('sales.documents.totals.refresh', err)
+    }
+  }, [fetchDocumentByKind, kind, loadAdjustmentsForTotals, record?.id])
+
+  React.useEffect(
+    () =>
+      subscribeSalesDocumentTotalsRefresh((detail) => {
+        if (!record?.id) return
+        if (detail.documentId !== record.id) return
+        if (detail.kind && detail.kind !== kind) return
+        void refreshDocumentTotals()
+      }),
+    [kind, record?.id, refreshDocumentTotals],
+  )
 
   const statusDictionaryMap = React.useMemo(
     () =>

@@ -866,6 +866,7 @@
           "attachAddress": "Dołącz migawkę adresu",
           "addComment": "Dodaj notatkę w komentarzach",
           "comment": "Wysyłka {{number}} zaktualizowana: {{summary}}",
+          "commentNotes": "Notatki: {{notes}}",
           "confirmDelete": "Usunąć tę wysyłkę?",
           "cancel": "Anuluj",
           "save": "Zapisz zmiany",

@@ -10,6 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { ShipmentDialog } from './ShipmentDialog'
@@ -30,6 +31,47 @@ function formatDisplayDate(value: string | null | undefined): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+}
+
+const resolveLineThumbnail = (item: Record<string, unknown>): string | null => {
+  const pickThumbnail = (...candidates: Array<unknown>): string | null => {
+    const found = candidates.find(
+      (candidate): candidate is string =>
+        typeof candidate === 'string' && candidate.trim().length > 0,
+    )
+    return found ?? null
+  }
+
+  const metadata =
+    typeof (item as any).metadata === 'object' && (item as any).metadata !== null
+      ? ((item as any).metadata as Record<string, unknown>)
+      : null
+  const snapshot =
+    typeof (item as any).catalog_snapshot === 'object' && (item as any).catalog_snapshot !== null
+      ? ((item as any).catalog_snapshot as Record<string, unknown>)
+      : null
+  const productSnapshot =
+    snapshot && typeof (snapshot as any).product === 'object' ? ((snapshot as any).product as Record<string, unknown>) : null
+  const variantSnapshot =
+    snapshot && typeof (snapshot as any).variant === 'object' ? ((snapshot as any).variant as Record<string, unknown>) : null
+
+  const productThumb = pickThumbnail(
+    metadata ? (metadata as any).productThumbnail : null,
+    productSnapshot ? (productSnapshot as any).thumbnailUrl : null,
+    productSnapshot ? (productSnapshot as any).thumbnail_url : null,
+  )
+  const variantThumb = pickThumbnail(
+    metadata ? (metadata as any).variantThumbnail : null,
+    variantSnapshot ? (variantSnapshot as any).thumbnailUrl : null,
+    variantSnapshot ? (variantSnapshot as any).thumbnail_url : null,
+  )
+
+  const snapshotThumb = pickThumbnail(
+    snapshot ? (snapshot as any).thumbnailUrl : null,
+    snapshot ? (snapshot as any).thumbnail_url : null,
+  )
+
+  return variantThumb ?? productThumb ?? snapshotThumb ?? null
 }
 
 export function SalesShipmentsSection({
@@ -113,6 +155,7 @@ export function SalesShipmentsSection({
           title: name ?? id,
           lineNumber,
           quantity: Number.isFinite(quantity) ? quantity : 0,
+          thumbnail: resolveLineThumbnail(item as Record<string, unknown>),
         }
       })
       .filter((entry): entry is OrderLine => Boolean(entry?.id))
@@ -303,6 +346,7 @@ export function SalesShipmentsSection({
         })
         if (result.ok) {
           await loadShipments()
+          emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
         }
       } catch (err) {
         console.error('sales.shipments.delete', err)
@@ -460,6 +504,7 @@ export function SalesShipmentsSection({
         onClose={() => setDialogState(null)}
         onSaved={async () => {
           await loadShipments()
+          emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
           setDialogState(null)
         }}
         onAddComment={onAddComment}

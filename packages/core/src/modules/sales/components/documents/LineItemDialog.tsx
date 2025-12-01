@@ -23,6 +23,8 @@ type ProductOption = {
   title: string
   sku: string | null
   thumbnailUrl: string | null
+  taxRateId?: string | null
+  taxRate?: number | null
 }
 
 type VariantOption = {
@@ -30,6 +32,8 @@ type VariantOption = {
   title: string
   sku: string | null
   thumbnailUrl: string | null
+  taxRateId?: string | null
+  taxRate?: number | null
 }
 
 type PriceOption = {
@@ -209,6 +213,25 @@ export function LineItemDialog({
     []
   )
 
+  const resolveTaxSelection = React.useCallback(
+    (source?: { taxRateId?: string | null; taxRate?: number | null } | null) => {
+      const taxRateId =
+        typeof source?.taxRateId === 'string' && source.taxRateId.trim().length ? source.taxRateId.trim() : null
+      const rateFromId = taxRateId ? normalizeNumber(taxRateMap.get(taxRateId)?.rate, Number.NaN) : Number.NaN
+      const numericRate = normalizeNumber(source?.taxRate, Number.NaN)
+      const resolvedRateId =
+        taxRateId ??
+        (Number.isFinite(numericRate) ? findTaxRateIdByValue(numericRate) : null)
+      const resolvedRate = Number.isFinite(rateFromId)
+        ? rateFromId
+        : Number.isFinite(numericRate)
+          ? numericRate
+          : null
+      return { taxRateId: resolvedRateId, taxRate: resolvedRate }
+    },
+    [findTaxRateIdByValue, taxRateMap]
+  )
+
   const resetForm = React.useCallback(
     (next?: Partial<LineFormState>) => {
       const base = { ...defaultForm(currencyCode), ...next }
@@ -302,6 +325,24 @@ export function LineItemDialog({
               : typeof (item as any).defaultMediaUrl === 'string'
                 ? (item as any).defaultMediaUrl
                 : null
+          const pricing = typeof (item as any).pricing === 'object' && (item as any).pricing ? (item as any).pricing : null
+          const metadata = typeof (item as any).metadata === 'object' && (item as any).metadata ? (item as any).metadata : null
+          const pricingTaxRateId =
+            typeof (pricing as any)?.tax_rate_id === 'string' && (pricing as any).tax_rate_id.trim().length
+              ? (pricing as any).tax_rate_id.trim()
+              : typeof (pricing as any)?.taxRateId === 'string' && (pricing as any).taxRateId.trim().length
+                ? (pricing as any).taxRateId.trim()
+                : null
+          const metaTaxRateId =
+            typeof (metadata as any)?.taxRateId === 'string' && (metadata as any).taxRateId.trim().length
+              ? (metadata as any).taxRateId.trim()
+              : typeof (metadata as any)?.tax_rate_id === 'string' && (metadata as any).tax_rate_id.trim().length
+                ? (metadata as any).tax_rate_id.trim()
+                : null
+          const taxRateValue = normalizeNumber(
+            (pricing as any)?.tax_rate ?? (pricing as any)?.taxRate ?? (item as any).tax_rate ?? (item as any).taxRate,
+            Number.NaN
+          )
           const matches =
             !needle ||
             title.toLowerCase().includes(needle) ||
@@ -314,7 +355,14 @@ export function LineItemDialog({
             icon: thumbnail
               ? <img src={thumbnail} alt={title} className="h-8 w-8 rounded object-cover" />
               : buildPlaceholder(title),
-            option: { id, title, sku, thumbnailUrl: thumbnail } satisfies ProductOption,
+            option: {
+              id,
+              title,
+              sku,
+              thumbnailUrl: thumbnail,
+              taxRateId: pricingTaxRateId ?? metaTaxRateId ?? null,
+              taxRate: Number.isFinite(taxRateValue) ? taxRateValue : null,
+            } satisfies ProductOption,
           } as LookupSelectItem & { option: ProductOption }
         })
         .filter((entry): entry is LookupSelectItem & { option: ProductOption } => Boolean(entry))
@@ -341,6 +389,17 @@ export function LineItemDialog({
           if (!id) return null
           const title = typeof item.name === 'string' ? item.name : id
           const sku = typeof (item as any).sku === 'string' ? (item as any).sku : null
+          const metadata = typeof (item as any).metadata === 'object' && (item as any).metadata ? (item as any).metadata : null
+          const variantTaxRateId =
+            typeof (metadata as any)?.taxRateId === 'string' && (metadata as any).taxRateId.trim().length
+              ? (metadata as any).taxRateId.trim()
+              : typeof (metadata as any)?.tax_rate_id === 'string' && (metadata as any).tax_rate_id.trim().length
+                ? (metadata as any).tax_rate_id.trim()
+                : null
+          const variantTaxRate = normalizeNumber(
+            (item as any).tax_rate ?? (item as any).taxRate ?? (metadata as any)?.tax_rate ?? (metadata as any)?.taxRate,
+            Number.NaN
+          )
           const thumbnail =
             typeof (item as any).default_media_url === 'string'
               ? (item as any).default_media_url
@@ -354,7 +413,14 @@ export function LineItemDialog({
             icon: thumbnail
               ? <img src={thumbnail} alt={title} className="h-8 w-8 rounded object-cover" />
               : buildPlaceholder(title),
-            option: { id, title, sku, thumbnailUrl: thumbnail } satisfies VariantOption,
+            option: {
+              id,
+              title,
+              sku,
+              thumbnailUrl: thumbnail,
+              taxRateId: variantTaxRateId,
+              taxRate: Number.isFinite(variantTaxRate) ? variantTaxRate : null,
+            } satisfies VariantOption,
           } as LookupSelectItem & { option: VariantOption }
         })
         .filter((entry): entry is LookupSelectItem & { option: VariantOption } => Boolean(entry))
@@ -416,7 +482,11 @@ export function LineItemDialog({
                       item &&
                       typeof (item as any).price_kind?.title === 'string'
                     ? (item as any).price_kind.title
-                    : null
+                    : typeof (item as any).price_kind === 'object' &&
+                        item &&
+                        typeof (item as any).price_kind?.name === 'string'
+                      ? (item as any).price_kind.name
+                      : null
             const priceKindCode =
               typeof (item as any).price_kind_code === 'string'
                 ? (item as any).price_kind_code
@@ -443,7 +513,6 @@ export function LineItemDialog({
                   ? t('sales.documents.items.priceGross', 'Gross')
                   : t('sales.documents.items.priceNet', 'Net')
                 : null,
-              resolvedPriceKindTitle,
             ].filter(Boolean)
             const { reason, tags } = buildPriceScopeReason(item, (key, fallback) => t(key, fallback))
             const label =
@@ -562,6 +631,15 @@ export function LineItemDialog({
       const resolvedTaxRate = Number.isFinite(values.taxRate)
         ? (values.taxRate as number)
         : normalizeNumber(values.taxRate)
+      const normalizedTaxRate = Number.isFinite(resolvedTaxRate) ? resolvedTaxRate : 0
+      const unitPriceNetValue =
+        resolvedPriceMode === 'net' ? unitPriceNumber : unitPriceNumber / (1 + normalizedTaxRate / 100)
+      const unitPriceGrossValue =
+        resolvedPriceMode === 'gross' ? unitPriceNumber : unitPriceNumber * (1 + normalizedTaxRate / 100)
+      const safeUnitPriceNet = Number.isFinite(unitPriceNetValue) ? unitPriceNetValue : unitPriceNumber
+      const safeUnitPriceGross = Number.isFinite(unitPriceGrossValue) ? unitPriceGrossValue : unitPriceNumber
+      const totalNetAmount = safeUnitPriceNet * qtyNumber
+      const totalGrossAmount = safeUnitPriceGross * qtyNumber
 
       const metadata = {
         ...(catalogSnapshot ?? {}),
@@ -595,6 +673,10 @@ export function LineItemDialog({
         priceId: values.priceId ? String(values.priceId) : undefined,
         priceMode: resolvedPriceMode,
         taxRate: Number.isFinite(resolvedTaxRate) ? resolvedTaxRate : undefined,
+        unitPriceNet: safeUnitPriceNet,
+        unitPriceGross: safeUnitPriceGross,
+        totalNetAmount,
+        totalGrossAmount,
         catalogSnapshot,
         metadata,
         customFieldSetId: values.customFieldSetId ?? undefined,
@@ -607,11 +689,6 @@ export function LineItemDialog({
         payload.customFields = normalizeCustomFieldValues(customFields)
       }
       if (resolvedName) payload.name = resolvedName
-      if (resolvedPriceMode === 'gross') {
-        payload.unitPriceGross = unitPriceNumber
-      } else {
-        payload.unitPriceNet = unitPriceNumber
-      }
 
       console.debug('resolved scope', { resolvedDocumentId, resolvedOrg, resolvedTenant, resolvedCurrency })
       console.debug('parsed numbers', { qtyNumber, unitPriceNumber })
@@ -675,7 +752,9 @@ export function LineItemDialog({
               setFormValue?.('priceId', null)
               setFormValue?.('unitPrice', '')
               setFormValue?.('priceMode', 'gross')
-              setFormValue?.('taxRate', null)
+              const taxSelection = selectedOption ? resolveTaxSelection(selectedOption) : { taxRate: null, taxRateId: null }
+              setFormValue?.('taxRate', taxSelection.taxRate ?? null)
+              setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
               const existingName = typeof values?.name === 'string' ? values.name : ''
               if (!existingName.trim() && selectedOption?.title) {
                 setFormValue?.('name', selectedOption.title)
@@ -724,6 +803,9 @@ export function LineItemDialog({
                 if (!existingName.trim()) {
                   setFormValue?.('name', selectedOption?.title ?? productOption?.title ?? existingName)
                 }
+                const taxSelection = resolveTaxSelection(selectedOption ?? productOption ?? null)
+                setFormValue?.('taxRate', taxSelection.taxRate ?? null)
+                setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
                 const prevSnapshot =
                   typeof values?.catalogSnapshot === 'object' && values.catalogSnapshot
                     ? (values.catalogSnapshot as Record<string, unknown>)
@@ -796,8 +878,9 @@ export function LineItemDialog({
                     selected.currencyCode ?? values?.currencyCode ?? currencyCode ?? null,
                   )
                 } else {
-                  setFormValue?.('taxRate', null)
-                  setFormValue?.('taxRateId', null)
+                  const fallbackTax = resolveTaxSelection(variantOption ?? productOption ?? null)
+                  setFormValue?.('taxRate', fallbackTax.taxRate ?? null)
+                  setFormValue?.('taxRateId', fallbackTax.taxRateId ?? null)
                 }
               }}
               fetchItems={async (query) => {
@@ -822,12 +905,7 @@ export function LineItemDialog({
                     id: price.id,
                     title: price.label,
                     subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
-                    description: [
-                      price.priceKindTitle ?? price.priceKindCode ?? null,
-                      price.scopeReason ?? null,
-                    ]
-                      .filter(Boolean)
-                      .join(' • ') || undefined,
+                    description: price.scopeReason ?? undefined,
                     rightLabel: price.currencyCode ?? undefined,
                     icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
                   }))
@@ -954,9 +1032,11 @@ export function LineItemDialog({
     priceLoading,
     priceOptions,
     productOption,
+    variantOption,
     t,
     taxRateMap,
     taxRates.length,
+    resolveTaxSelection,
   ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {

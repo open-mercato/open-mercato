@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
 
 type PaymentRow = {
@@ -206,9 +207,10 @@ export function SalesDocumentPaymentsSection({
         onTotalsChange(totals)
       }
       await loadPayments()
+      emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
       handleDialogChange(false)
     },
-    [handleDialogChange, loadPayments, onTotalsChange]
+    [handleDialogChange, loadPayments, onTotalsChange, orderId]
   )
 
   const handleDelete = React.useCallback(
@@ -230,6 +232,7 @@ export function SalesDocumentPaymentsSection({
           }
           flash(t('sales.documents.payments.deleted', 'Payment deleted.'), 'success')
           await loadPayments()
+          emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
         }
       } catch (err) {
         console.error('sales.payments.delete', err)

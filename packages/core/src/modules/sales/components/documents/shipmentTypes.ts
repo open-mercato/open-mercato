@@ -30,4 +30,5 @@ export type OrderLine = {
   title: string
   lineNumber: number | null
   quantity: number
+  thumbnail: string | null
 }

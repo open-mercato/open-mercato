@@ -11,6 +11,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_order_line'
 
 const rawBodySchema = z.object({}).passthrough()
+const resolveRawBody = (raw: unknown) => (raw && typeof raw === 'object' && 'body' in raw ? (raw as any).body : raw)
 
 const listSchema = z
   .object({
@@ -120,7 +121,7 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         console.log('CREATE order line raw input:', raw)
         const { translate } = await resolveTranslations()
-        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = upsertSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
         return { body: payload }
       },
       response: ({ result }) => ({ id: result?.lineId ?? null, orderId: result?.orderId ?? null }),
@@ -131,7 +132,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = upsertSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = upsertSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
         return { body: payload }
       },
       response: ({ result }) => ({ id: result?.lineId ?? null, orderId: result?.orderId ?? null }),
@@ -141,7 +142,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const payload = deleteSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const payload = deleteSchema.parse(withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate))
         if (!payload.id || !payload.orderId) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
         }

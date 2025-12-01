@@ -57,3 +57,8 @@ The pipeline works for any `SalesDocumentKind` (`quote`, `order`, `invoice`, `cr
 - When adding new document types, reuse `SalesAdjustmentKind` and the calculator registry instead of rolling bespoke totals logic.
 - Emit commands with undo support (via `@open-mercato/shared/lib/commands`) for every state mutation; reducer style helpers can reuse the validators and calculation pipeline.
 - When integrating catalog data, snapshot the necessary fields (`name`, `sku`, pricing, configuration`) to keep historical accuracy even if catalog entries change later.
+
+## Frontend Events
+
+- Sales document UI surfaces emit `sales:document:totals:refresh` after mutating items, adjustments, shipments, or payments; use `emitSalesDocumentTotalsRefresh({ documentId, kind })` from `lib/frontend/documentTotalsEvents.ts` to fire it.
+- Subscribe via `subscribeSalesDocumentTotalsRefresh` to reload cached totals without coupling sections directly to the detail page.

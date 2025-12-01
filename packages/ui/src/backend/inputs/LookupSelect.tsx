@@ -174,11 +174,11 @@ export function LookupSelect({
                   }}
                   aria-pressed={isSelected}
                 >
-                  <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded border bg-muted">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
                     {item.icon ?? <span className="text-muted-foreground">•</span>}
                   </div>
-                  <div className="flex flex-1 flex-col gap-1">
-                    <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{item.title}</div>
                         {item.subtitle ? (
@@ -189,7 +189,7 @@ export function LookupSelect({
                         ) : null}
                       </div>
                       {item.rightLabel ? (
-                        <div className="text-xs font-medium text-muted-foreground">{item.rightLabel}</div>
+                        <div className="shrink-0 text-xs font-medium text-muted-foreground">{item.rightLabel}</div>
                       ) : null}
                     </div>
                     <div className="flex justify-end">
@@ -197,6 +197,7 @@ export function LookupSelect({
                         type="button"
                         variant={isSelected ? 'secondary' : 'outline'}
                         size="sm"
+                        className="shrink-0"
                         onClick={(event) => {
                           event.stopPropagation()
                           handleSelect()
