@@ -868,6 +868,7 @@
         },
         "currency": "Moneda",
         "currencyInvalid": "El código de moneda debe tener 3 letras.",
+        "currencyLocked": "La moneda no se puede cambiar después de agregar artículos o pagos.",
         "date": "Fecha",
         "dateInvalid": "Introduce una fecha válida en formato AAAA-MM-DD.",
         "expectedDeliveryAt": {
@@ -1369,6 +1370,9 @@
   "sales.order-line-statuses.create": "Agregar estado de línea de pedido",
   "sales.order-line-statuses.update": "Actualizar estado de línea de pedido",
   "sales.order-line-statuses.delete": "Eliminar estado de línea de pedido",
+  "sales.shipment-statuses.create": "Agregar estado de envío",
+  "sales.shipment-statuses.update": "Actualizar estado de envío",
+  "sales.shipment-statuses.delete": "Eliminar estado de envío",
   "sales.channels.create": "Crear canal de ventas",
   "sales.channels.update": "Actualizar canal de ventas",
   "sales.tax-rates.create": "Crear tipo de impuesto",

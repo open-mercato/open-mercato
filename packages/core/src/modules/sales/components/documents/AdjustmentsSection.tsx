@@ -18,6 +18,7 @@ import {
   subscribeSalesDocumentTotalsRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { PriceWithCurrency } from '../PriceWithCurrency'
 import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload } from './AdjustmentDialog'
@@ -156,17 +157,54 @@ export function SalesDocumentAdjustmentsSection({
   }, [fallbackKindOptions, kindOptions])
 
   const extractCustomFields = React.useCallback((item: Record<string, unknown>) => {
-    const entries: Record<string, unknown> = {}
+    const merged: Record<string, unknown> = {}
+    const merge = (source?: Record<string, unknown> | null) => {
+      const normalized = normalizeCustomFieldResponse(source ?? undefined)
+      if (!normalized) return
+      Object.entries(normalized).forEach(([key, value]) => {
+        if (value === undefined) return
+        merged[key] = value
+      })
+    }
+
+    const nestedObject =
+      (item as any).custom_fields && !Array.isArray((item as any).custom_fields)
+        ? ((item as any).custom_fields as Record<string, unknown>)
+        : (item as any).customFields && !Array.isArray((item as any).customFields)
+          ? ((item as any).customFields as Record<string, unknown>)
+          : null
+    merge(nestedObject)
+
+    const nestedList =
+      Array.isArray((item as any).custom_fields) && (item as any).custom_fields.length
+        ? ((item as any).custom_fields as Array<Record<string, unknown>>)
+        : Array.isArray((item as any).customFields) && (item as any).customFields.length
+          ? ((item as any).customFields as Array<Record<string, unknown>>)
+          : null
+    if (nestedList) {
+      const mapped: Record<string, unknown> = {}
+      nestedList.forEach((entry) => {
+        const key =
+          typeof entry?.key === 'string'
+            ? entry.key
+            : typeof (entry as any)?.id === 'string'
+              ? (entry as any).id
+              : null
+        if (!key) return
+        mapped[key] = (entry as any)?.value
+      })
+      merge(mapped)
+    }
+
+    const prefixed: Record<string, unknown> = {}
     Object.entries(item).forEach(([key, value]) => {
-      if (key.startsWith('cf_')) {
-        entries[key] = value
-      }
-      if (key.startsWith('cf:')) {
-        const stripped = key.slice(3)
-        if (stripped) entries[`cf_${stripped}`] = value
+      if (key.startsWith('cf_') || key.startsWith('cf:')) {
+        prefixed[key] = value
       }
     })
-    return entries
+    merge(prefixed)
+
+    return merged
   }, [])
 
   React.useEffect(() => {

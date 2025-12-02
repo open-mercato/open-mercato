@@ -1270,6 +1270,8 @@ export function ShipmentDialog({
               onChange={(next) => setValue(next ?? '')}
               fetchItems={fetchShippingMethodItems}
               placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
+              loading={shippingMethodLoading}
+              minQuery={0}
             />
           )
         },

@@ -223,23 +223,66 @@ async function recomputeOrderPaymentTotals(
   em: EntityManager,
   order: SalesOrder
 ): Promise<{ paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }> {
-  const payments = await em.find(SalesPayment, { order, deletedAt: null })
-  const totals = payments.reduce(
-    (acc, payment) => {
-      acc.paid += toNumber(payment.amount)
-      acc.refunded += toNumber(payment.refundedAmount)
-      return acc
-    },
-    { paid: 0, refunded: 0 }
+  const orderId = order.id
+  const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
+
+  const allocations = await em.find(
+    SalesPaymentAllocation,
+    { ...scope, order: orderId },
+    { populate: ['payment'] }
   )
+
+  const paymentIds = new Set<string>()
+  allocations.forEach((allocation) => {
+    const paymentRef = allocation.payment
+    const paymentId =
+      typeof paymentRef === 'object' && paymentRef !== null
+        ? paymentRef.id
+        : typeof paymentRef === 'string'
+          ? paymentRef
+          : null
+    if (paymentId) paymentIds.add(paymentId)
+  })
+
+  const payments =
+    paymentIds.size > 0
+      ? await em.find(SalesPayment, { id: { $in: Array.from(paymentIds) }, deletedAt: null, ...scope })
+      : await em.find(SalesPayment, { order: orderId, deletedAt: null, ...scope })
+
+  const resolvePaidAmount = (payment: SalesPayment) => {
+    const captured = toNumber(payment.capturedAmount)
+    return captured > 0 ? captured : toNumber(payment.amount)
+  }
+
+  const activePaymentIds = new Set(payments.map((payment) => payment.id))
+  const paidTotal =
+    allocations.length > 0
+      ? allocations.reduce((sum, allocation) => {
+          const paymentRef = allocation.payment
+          const paymentId =
+            typeof paymentRef === 'object' && paymentRef !== null
+              ? paymentRef.id
+              : typeof paymentRef === 'string'
+                ? paymentRef
+                : null
+          if (paymentId && !activePaymentIds.has(paymentId)) return sum
+          return sum + toNumber(allocation.amount)
+        }, 0)
+      : payments.reduce((sum, payment) => sum + resolvePaidAmount(payment), 0)
+
+  const refundedTotal = payments.reduce(
+    (sum, payment) => sum + toNumber(payment.refundedAmount),
+    0
+  )
+
   const grandTotal = toNumber(order.grandTotalGrossAmount)
-  const outstanding = Math.max(grandTotal - totals.paid + totals.refunded, 0)
-  order.paidTotalAmount = toNumericString(totals.paid) ?? '0'
-  order.refundedTotalAmount = toNumericString(totals.refunded) ?? '0'
+  const outstanding = Math.max(grandTotal - paidTotal + refundedTotal, 0)
+  order.paidTotalAmount = toNumericString(paidTotal) ?? '0'
+  order.refundedTotalAmount = toNumericString(refundedTotal) ?? '0'
   order.outstandingAmount = toNumericString(outstanding) ?? '0'
   return {
-    paidTotalAmount: totals.paid,
-    refundedTotalAmount: totals.refunded,
+    paidTotalAmount: paidTotal,
+    refundedTotalAmount: refundedTotal,
     outstandingAmount: outstanding,
   }
 }

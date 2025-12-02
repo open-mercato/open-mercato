@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Pencil, Trash2 } from 'lucide-react'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import {
   DictionaryValue,
   type DictionaryMap,
@@ -30,6 +31,7 @@ type SalesDocumentItemsSectionProps = {
   organizationId?: string | null
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
+  onItemsChange?: (items: SalesLineRecord[]) => void
 }
 
 export function SalesDocumentItemsSection({
@@ -39,6 +41,7 @@ export function SalesDocumentItemsSection({
   organizationId: orgFromProps,
   tenantId: tenantFromProps,
   onActionChange,
+  onItemsChange,
 }: SalesDocumentItemsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
@@ -88,15 +91,7 @@ export function SalesDocumentItemsSection({
           const id = typeof item.id === 'string' ? item.id : null
           if (!id) return []
           const taxRate = normalizeNumber((item as any).tax_rate ?? (item as any).taxRate, 0)
-          const rawCustomFields = Object.entries(item as Record<string, unknown>).reduce<Record<string, unknown>>(
-            (acc, [key, value]) => {
-              if (key.startsWith('cf_') || key.startsWith('cf:')) {
-                acc[key] = value
-              }
-              return acc
-            },
-            {},
-          )
+          const rawCustomFields = extractAllCustomFieldEntries(item as Record<string, unknown>)
           const customFields = normalizeCustomFieldResponse(rawCustomFields) ?? null
           const name =
             typeof item.name === 'string'
@@ -178,16 +173,19 @@ export function SalesDocumentItemsSection({
           return [record]
         })
         setItems(mapped)
+        if (onItemsChange) onItemsChange(mapped)
       } else {
         setItems([])
+        if (onItemsChange) onItemsChange([])
       }
     } catch (err) {
       console.error('sales.document.items.load', err)
       setError(t('sales.documents.items.errorLoad', 'Failed to load items.'))
+      if (onItemsChange) onItemsChange([])
     } finally {
       setLoading(false)
     }
-  }, [currencyCode, documentId, documentKey, resourcePath, t])
+  }, [currencyCode, documentId, documentKey, onItemsChange, resourcePath, t])
 
   const loadShippedTotals = React.useCallback(async () => {
     if (kind !== 'order') {

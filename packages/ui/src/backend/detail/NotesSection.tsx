@@ -259,6 +259,7 @@ function AppearanceDialog({
   renderColor,
 }: AppearanceDialogProps) {
   if (!open) return null
+  const normalizedColor = color ?? '#000000'
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4">
       <div
@@ -326,25 +327,34 @@ function AppearanceDialog({
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-foreground">{labels.colorLabel}</label>
-            <input
-              type="text"
-              value={color ?? ''}
-              onChange={(event) => onColorChange(event.target.value.trim() ? event.target.value.trim() : null)}
-              placeholder="#aabbcc"
-              className="w-full rounded border border-muted-foreground/40 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              disabled={isSaving}
-            />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{labels.colorHelp}</span>
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => onColorChange(null)}
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="color"
+                value={normalizedColor}
+                onChange={(event) => onColorChange(event.target.value)}
                 disabled={isSaving}
+                className="h-10 w-12 cursor-pointer rounded border border-muted-foreground/40 bg-background"
+                aria-label={labels.colorLabel}
+              />
+              <input
+                type="text"
+                value={color ?? ''}
+                onChange={(event) => onColorChange(event.target.value.trim() ? event.target.value.trim() : null)}
+                placeholder="#aabbcc"
+                className="flex-1 rounded border border-muted-foreground/40 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                disabled={isSaving}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onColorChange(null)}
+                disabled={isSaving || !color}
               >
                 {labels.colorClearLabel}
-              </button>
+              </Button>
             </div>
+            <p className="text-xs text-muted-foreground">{labels.colorHelp}</p>
             {color && renderColor ? (
               <div className="flex items-center gap-2 rounded border border-dashed px-2 py-1 text-xs">
                 {renderColor(color, 'h-3.5 w-3.5 rounded-full border border-border')}

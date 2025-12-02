@@ -396,8 +396,11 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   const [channelLoading, setChannelLoading] = React.useState(false)
   const [addressOptions, setAddressOptions] = React.useState<AddressOption[]>([])
   const [addressesLoading, setAddressesLoading] = React.useState(false)
+  const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
   const addressRequestRef = React.useRef(0)
+  const addressAbortRef = React.useRef<AbortController | null>(null)
+  const addressTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const customerQuerySetter = React.useRef<((value: string) => void) | null>(null)
   const currencyLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('sales.documents.form.currency.placeholder', 'Select currency'),
@@ -525,16 +528,33 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     addressRequestRef.current += 1
     const requestId = addressRequestRef.current
 
+    if (addressTimeoutRef.current) {
+      clearTimeout(addressTimeoutRef.current)
+      addressTimeoutRef.current = null
+    }
+    if (addressAbortRef.current) {
+      addressAbortRef.current.abort()
+      addressAbortRef.current = null
+    }
+
     if (!customerId) {
+      setAddressesError(null)
       setAddressOptions([])
       setAddressesLoading(false)
       return
     }
     setAddressesLoading(true)
+    setAddressesError(null)
+    setAddressOptions([])
+    const controller = new AbortController()
+    addressAbortRef.current = controller
+    addressTimeoutRef.current = setTimeout(() => controller.abort(), 12_000)
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '50', entityId: customerId })
       const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/customers/addresses?${params.toString()}`
+        `/api/customers/addresses?${params.toString()}`,
+        { signal: controller.signal },
+        { fallback: { items: [] } }
       )
       if (call.ok && Array.isArray(call.result?.items)) {
         const options = call.result.items.reduce<AddressOption[]>((acc, item) => {
@@ -563,24 +583,55 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       } else {
         if (addressRequestRef.current === requestId) {
           setAddressOptions([])
+          setAddressesError(
+            t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
+          )
         }
       }
     } catch (err) {
-      console.error('sales.documents.loadAddresses', err)
+      if ((err as DOMException)?.name !== 'AbortError') {
+        console.error('sales.documents.loadAddresses', err)
+      }
       if (addressRequestRef.current === requestId) {
         setAddressOptions([])
+        if ((err as DOMException)?.name !== 'AbortError') {
+          setAddressesError(
+            t('sales.documents.detail.addresses.loadError', 'Failed to load addresses.')
+          )
+        }
       }
     } finally {
+      if (addressTimeoutRef.current) {
+        clearTimeout(addressTimeoutRef.current)
+        addressTimeoutRef.current = null
+      }
+      if (addressAbortRef.current === controller) {
+        addressAbortRef.current = null
+      }
       if (addressRequestRef.current === requestId) {
         setAddressesLoading(false)
       }
     }
-  }, [addressFormat])
+  }, [addressFormat, t])
 
   React.useEffect(() => {
     loadCustomers().catch(() => {})
     loadChannels().catch(() => {})
   }, [loadChannels, loadCustomers])
+
+  React.useEffect(
+    () => () => {
+      if (addressAbortRef.current) {
+        addressAbortRef.current.abort()
+        addressAbortRef.current = null
+      }
+      if (addressTimeoutRef.current) {
+        clearTimeout(addressTimeoutRef.current)
+        addressTimeoutRef.current = null
+      }
+    },
+    [],
+  )
 
   React.useEffect(() => {
     setAddressOptions((prev) =>
@@ -611,6 +662,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       cancelled = true
     }
   }, [])
+
+  const resetAddressFormState = React.useCallback(
+    (updateValue: (key: string, value: unknown) => void) => {
+      updateValue('shippingAddressId', null)
+      updateValue('billingAddressId', null)
+      updateValue('shippingAddressDraft', undefined)
+      updateValue('billingAddressDraft', undefined)
+      updateValue('useCustomShipping', false)
+      updateValue('useCustomBilling', false)
+      updateValue('saveShippingAddress', false)
+      updateValue('saveBillingAddress', false)
+      updateValue('sameAsShipping', true)
+    },
+    [],
+  )
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -778,6 +844,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         const selectedId = typeof formValues.shippingAddressId === 'string' ? formValues.shippingAddressId : ''
         const draft = (formValues.shippingAddressDraft ?? {}) as AddressDraft
         const customerRequired = !formValues.customerEntityId
+        const customerId = typeof formValues.customerEntityId === 'string' ? formValues.customerEntityId : null
         return (
           <div className="space-y-3">
             <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
@@ -835,6 +902,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   />
                   {t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
                 </label>
+              </div>
+            ) : null}
+            {addressesError && customerId ? (
+              <div className="flex items-start justify-between gap-3 rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                <span className="flex-1">{addressesError}</span>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  onClick={() => loadAddresses(customerId)}
+                  disabled={addressesLoading}
+                  className="shrink-0"
+                >
+                  {t('sales.documents.detail.retry', 'Try again')}
+                </Button>
               </div>
             ) : null}
           </div>
@@ -982,17 +1064,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         </div>
       ),
     },
-  ], [
-    addressFormat,
-    addressOptions,
-    addressesLoading,
-    fetchCurrencyOptions,
-    loadAddresses,
-    loadChannels,
-    loadCustomers,
-    t,
-    currencyLabels,
-  ])
+  ], [customers, fetchCustomerEmail, loadAddresses, loadCustomers, resetAddressFormState, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'docType', title: '', column: 1, fields: ['documentKind', 'documentNumber'] },
@@ -1014,6 +1086,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
               <LookupSelect
                 value={typeof values.customerEntityId === 'string' ? values.customerEntityId : null}
                 onChange={(next) => {
+                  if (next !== values.customerEntityId) {
+                    resetAddressFormState(setValue)
+                  }
                   setValue('customerEntityId', next)
                   loadAddresses(next)
                   if (next) {
@@ -1025,9 +1100,11 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     if (possibleEmail) {
                       setValue('customerEmail', possibleEmail)
                     } else {
-                      fetchCustomerEmail(next, match?.kind).then((email) => {
-                        if (email) setValue('customerEmail', email)
-                      }).catch(() => {})
+                      fetchCustomerEmail(next, match?.kind)
+                        .then((email) => {
+                          if (email) setValue('customerEmail', email)
+                        })
+                        .catch(() => {})
                     }
                   }
                 }}
@@ -1064,6 +1141,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                         return [next, ...prev]
                       })
                       setValue('customerEntityId', id)
+                      resetAddressFormState(setValue)
                       loadAddresses(id)
                       if (email && !values.customerEmail) {
                         setValue('customerEmail', email)
@@ -1106,6 +1184,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     aria-disabled={values.customerEntityId === duplicate.id}
                     onClick={() => {
                       setValue('customerEntityId', duplicate.id)
+                      resetAddressFormState(setValue)
                       loadAddresses(duplicate.id)
                     }}
                   >
@@ -1128,7 +1207,19 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
-  ], [loadAddresses, loadCustomers, t])
+  ], [
+    addressFormat,
+    addressOptions,
+    addressesError,
+    addressesLoading,
+    currencyLabels,
+    fetchCurrencyOptions,
+    loadAddresses,
+    loadChannels,
+    loadCustomers,
+    resetAddressFormState,
+    t,
+  ])
 
   const initialValues = React.useMemo<Partial<SalesDocumentFormValues>>(
     () => ({

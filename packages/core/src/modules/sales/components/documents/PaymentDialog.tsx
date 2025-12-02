@@ -465,7 +465,7 @@ export function PaymentDialog({
           id: 'paymentDetails',
           title: t('sales.documents.payments.form.title', 'Payment details'),
           column: 1,
-          fields: ['amount', 'paymentMethodId', 'statusEntryId', 'paymentReference', 'receivedAt'],
+          fields: ['amount', 'paymentMethodId', 'statusEntryId'],
         },
       ]
       if (mode === 'create') {
@@ -476,6 +476,12 @@ export function PaymentDialog({
           fields: ['documentStatusEntryId'],
         })
       }
+      base.push({
+        id: 'paymentReference',
+        title: t('sales.documents.payments.reference', 'Reference'),
+        column: 2,
+        fields: ['paymentReference', 'receivedAt'],
+      })
       base.push({
         id: 'paymentCustomFields',
         title: t('entities.customFields.title', 'Custom fields'),

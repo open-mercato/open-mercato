@@ -3671,9 +3671,8 @@ const convertQuoteToOrderCommand: CommandHandler<
 > = {
   id: 'sales.quotes.convert_to_order',
   async prepare(input, ctx) {
-    const raw = { ...(input?.body ?? {}), ...(input?.query ?? {}) }
-    const parsed = quoteConvertToOrderSchema.safeParse(raw)
-    const quoteId = parsed.success ? parsed.data.quoteId : typeof raw?.quoteId === 'string' ? raw.quoteId : null
+    const parsed = quoteConvertToOrderSchema.safeParse(input ?? {})
+    const quoteId = parsed.success ? parsed.data.quoteId : typeof (input as any)?.quoteId === 'string' ? (input as any).quoteId : null
     if (!quoteId) return {}
     const em = ctx.container.resolve('em') as EntityManager
     const snapshot = await loadQuoteSnapshot(em, quoteId)
@@ -3681,7 +3680,7 @@ const convertQuoteToOrderCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const payload = quoteConvertToOrderSchema.parse({ ...(rawInput?.body ?? {}), ...(rawInput?.query ?? {}) })
+    const payload = quoteConvertToOrderSchema.parse(rawInput ?? {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: payload.quoteId, deletedAt: null })
     const { translate } = await resolveTranslations()

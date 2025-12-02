@@ -61,6 +61,7 @@ describe('sales command registration', () => {
         'sales.quotes.update',
         'sales.quotes.create',
         'sales.quotes.delete',
+        'sales.quotes.convert_to_order',
         'sales.orders.update',
         'sales.orders.create',
         'sales.orders.delete',

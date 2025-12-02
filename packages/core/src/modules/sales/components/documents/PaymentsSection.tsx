@@ -39,6 +39,7 @@ type SalesDocumentPaymentsSectionProps = {
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onTotalsChange?: (totals: PaymentTotals) => void
+  onPaymentsChange?: (payments: PaymentRow[]) => void
 }
 
 function normalizeNumber(value: unknown): number {
@@ -97,6 +98,7 @@ export function SalesDocumentPaymentsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onTotalsChange,
+  onPaymentsChange,
 }: SalesDocumentPaymentsSectionProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
@@ -170,16 +172,19 @@ export function SalesDocumentPaymentsSection({
           return [record]
         })
         setPayments(mapped)
+        if (onPaymentsChange) onPaymentsChange(mapped)
       } else {
         setPayments([])
+        if (onPaymentsChange) onPaymentsChange([])
       }
     } catch (err) {
       console.error('sales.payments.list', err)
       setError(t('sales.documents.payments.errorLoad', 'Failed to load payments.'))
+      if (onPaymentsChange) onPaymentsChange([])
     } finally {
       setLoading(false)
     }
-  }, [currencyCode, orderId, t])
+  }, [currencyCode, onPaymentsChange, orderId, t])
 
   React.useEffect(() => {
     void loadPayments()

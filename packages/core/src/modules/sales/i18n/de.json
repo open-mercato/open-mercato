@@ -869,6 +869,7 @@
         },
         "currency": "Währung",
         "currencyInvalid": "Der Währungscode muss aus 3 Buchstaben bestehen.",
+        "currencyLocked": "Die Währung kann nach dem Hinzufügen von Positionen oder Zahlungen nicht mehr geändert werden.",
         "date": "Datum",
         "dateInvalid": "Geben Sie ein gültiges Datum im Format JJJJ-MM-TT ein.",
         "expectedDeliveryAt": {
@@ -1381,6 +1382,9 @@
   "sales.order-line-statuses.create": "Positionsstatus hinzufügen",
   "sales.order-line-statuses.update": "Positionsstatus aktualisieren",
   "sales.order-line-statuses.delete": "Positionsstatus löschen",
+  "sales.shipment-statuses.create": "Sendungsstatus hinzufügen",
+  "sales.shipment-statuses.update": "Sendungsstatus aktualisieren",
+  "sales.shipment-statuses.delete": "Sendungsstatus löschen",
   "sales.channels.create": "Vertriebskanal erstellen",
   "sales.channels.update": "Vertriebskanal aktualisieren",
   "sales.tax-rates.create": "Steuersatz erstellen",

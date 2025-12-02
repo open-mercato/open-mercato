@@ -873,6 +873,7 @@
         },
         "currency": "Waluta",
         "currencyInvalid": "Kod waluty musi mieć 3 litery.",
+        "currencyLocked": "Waluty nie można zmienić po dodaniu pozycji lub płatności.",
         "date": "Data",
         "dateInvalid": "Wprowadź poprawną datę w formacie RRRR-MM-DD.",
         "expectedDeliveryAt": {
@@ -1379,6 +1380,9 @@
   "sales.order-line-statuses.create": "Dodaj status pozycji zamówienia",
   "sales.order-line-statuses.update": "Zaktualizuj status pozycji zamówienia",
   "sales.order-line-statuses.delete": "Usuń status pozycji zamówienia",
+  "sales.shipment-statuses.create": "Dodaj status wysyłki",
+  "sales.shipment-statuses.update": "Zaktualizuj status wysyłki",
+  "sales.shipment-statuses.delete": "Usuń status wysyłki",
   "sales.channels.create": "Utwórz kanał sprzedaży",
   "sales.channels.update": "Zaktualizuj kanał sprzedaży",
   "sales.tax-rates.create": "Utwórz stawkę podatku",

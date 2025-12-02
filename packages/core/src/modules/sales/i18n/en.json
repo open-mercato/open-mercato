@@ -872,6 +872,7 @@
         },
         "currency": "Currency",
         "currencyInvalid": "Currency code must be 3 letters.",
+        "currencyLocked": "Currency cannot be changed after adding items or payments.",
         "date": "Date",
         "dateInvalid": "Enter a valid date in YYYY-MM-DD format.",
         "expectedDeliveryAt": {
@@ -1369,6 +1370,9 @@
   },
   "sales.order-statuses": {},
   "sales.order-line-statuses": {},
+  "sales.shipment-statuses.create": "Add shipment status",
+  "sales.shipment-statuses.update": "Update shipment status",
+  "sales.shipment-statuses.delete": "Delete shipment status",
   "sales.channels.create": "Create sales channel",
   "sales.channels.update": "Update sales channel",
   "sales.tax-rates.create": "Create tax rate",

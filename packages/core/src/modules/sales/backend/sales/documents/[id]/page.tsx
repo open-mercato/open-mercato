@@ -62,6 +62,8 @@ function CurrencyInlineEditor({
   onSave,
   error,
   onClearError,
+  locked,
+  onLocked,
 }: {
   label: string
   value: string | null | undefined
@@ -71,6 +73,8 @@ function CurrencyInlineEditor({
   onSave: (next: string | null) => Promise<void>
   error: string | null
   onClearError: () => void
+  locked?: boolean
+  onLocked?: () => void
 }) {
   const t = useT()
   const [editing, setEditing] = React.useState(false)
@@ -94,13 +98,28 @@ function CurrencyInlineEditor({
     if (!editing) setDraft(normalizedValue)
   }, [editing, normalizedValue])
 
+  React.useEffect(() => {
+    if (locked && editing) {
+      setEditing(false)
+    }
+  }, [editing, locked])
+
   const fetchOptions = React.useCallback(async () => options, [options])
 
+  const handleLocked = React.useCallback(() => {
+    if (onLocked) onLocked()
+  }, [onLocked])
+
   const handleActivate = React.useCallback(() => {
+    if (locked) {
+      onClearError()
+      handleLocked()
+      return
+    }
     if (!editing) {
       setEditing(true)
     }
-  }, [editing])
+  }, [editing, handleLocked, locked, onClearError])
 
   const handleSave = React.useCallback(async () => {
     setSaving(true)
@@ -117,7 +136,11 @@ function CurrencyInlineEditor({
 
   return (
     <div
-      className={cn('group rounded-lg border bg-card p-4', !editing ? 'cursor-pointer' : null)}
+      className={cn(
+        'group rounded-lg border bg-card p-4',
+        !editing ? 'cursor-pointer' : null,
+        locked ? 'cursor-not-allowed opacity-80' : null
+      )}
       role={!editing ? 'button' : undefined}
       tabIndex={!editing ? 0 : undefined}
       onClick={handleActivate}
@@ -208,12 +231,18 @@ function CurrencyInlineEditor({
           className="h-8 w-8 shrink-0 text-muted-foreground transition-opacity duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={(event) => {
             event.stopPropagation()
+            if (locked) {
+              onClearError()
+              handleLocked()
+              return
+            }
             if (editing) {
               onClearError()
               setDraft(value ?? undefined)
             }
             setEditing((prev) => !prev)
           }}
+          aria-disabled={locked ? true : undefined}
           aria-label={editing ? t('ui.detail.inline.cancel', 'Cancel') : t('ui.detail.inline.edit', 'Edit')}
         >
           {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -1817,6 +1846,8 @@ export default function SalesDocumentDetailPage({
   const [deleting, setDeleting] = React.useState(false)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
+  const [hasItems, setHasItems] = React.useState(false)
+  const [hasPayments, setHasPayments] = React.useState(false)
   const [customerOptions, setCustomerOptions] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
   const [customerSaving, setCustomerSaving] = React.useState(false)
@@ -2126,6 +2157,48 @@ export default function SalesDocumentDetailPage({
     [t, upsertPaymentMethodOptions]
   )
 
+  const refreshItemPresence = React.useCallback(async () => {
+    if (!record?.id) {
+      setHasItems(false)
+      return
+    }
+    const params = new URLSearchParams({
+      page: '1',
+      pageSize: '1',
+      [kind === 'order' ? 'orderId' : 'quoteId']: record.id,
+    })
+    try {
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/${kind === 'order' ? 'order-lines' : 'quote-lines'}?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      setHasItems(items.some((item) => item && typeof (item as any).id === 'string'))
+    } catch (err) {
+      console.error('sales.documents.currency.itemsGuard', err)
+    }
+  }, [kind, record?.id])
+
+  const refreshPaymentPresence = React.useCallback(async () => {
+    if (!record?.id || kind !== 'order') {
+      setHasPayments(false)
+      return
+    }
+    const params = new URLSearchParams({ page: '1', pageSize: '1', orderId: record.id })
+    try {
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/payments?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      setHasPayments(items.some((item) => item && typeof (item as any).id === 'string'))
+    } catch (err) {
+      console.error('sales.documents.currency.paymentsGuard', err)
+    }
+  }, [kind, record?.id])
+
   const fetchCustomerEmail = React.useCallback(
     async (id: string, kindHint?: 'person' | 'company'): Promise<string | null> => {
       try {
@@ -2361,6 +2434,11 @@ export default function SalesDocumentDetailPage({
     loadShippingMethods().catch(() => {})
     loadPaymentMethods().catch(() => {})
   }, [loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
+
+  React.useEffect(() => {
+    void refreshItemPresence()
+    void refreshPaymentPresence()
+  }, [refreshItemPresence, refreshPaymentPresence])
 
   const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
     if (value === null) return null
@@ -2739,6 +2817,20 @@ export default function SalesDocumentDetailPage({
     }),
     [t]
   )
+  const currencyLocked = React.useMemo(
+    () => hasItems || (kind === 'order' && hasPayments),
+    [hasItems, hasPayments, kind]
+  )
+  const currencyLockMessage = React.useMemo(
+    () =>
+      currencyLocked
+        ? t(
+            'sales.documents.detail.currencyLocked',
+            'Currency cannot be changed after adding items or payments.'
+          )
+        : null,
+    [currencyLocked, t]
+  )
   const statusLabels = React.useMemo<DictionarySelectLabels>(
     () => ({
       placeholder: t('sales.documents.detail.status.placeholder', 'Select status'),
@@ -2783,6 +2875,13 @@ export default function SalesDocumentDetailPage({
   const handleUpdateCurrency = React.useCallback(
     async (next: string | null) => {
       if (!record) return
+      if (currencyLocked) {
+        const message =
+          currencyLockMessage ??
+          t('sales.documents.detail.currencyLocked', 'Currency cannot be changed after adding items or payments.')
+        flash(message, 'error')
+        throw new Error(message)
+      }
       const normalized = typeof next === 'string' ? next.trim().toUpperCase() : ''
       if (!/^[A-Z]{3}$/.test(normalized)) {
         const message = t('sales.documents.detail.currencyInvalid', 'Currency code must be 3 letters.')
@@ -2801,7 +2900,7 @@ export default function SalesDocumentDetailPage({
         throw err
       }
     },
-    [record, t, updateDocument]
+    [currencyLockMessage, currencyLocked, record, t, updateDocument]
   )
 
   const handleUpdatePlacedAt = React.useCallback(
@@ -3334,7 +3433,7 @@ export default function SalesDocumentDetailPage({
       )
       const orderId = call.result?.orderId ?? record.id
       flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
-      router.push(`/backend/sales/orders/${orderId}`)
+      router.replace(`/backend/sales/orders/${orderId}`)
     } catch (err) {
       console.error('sales.documents.convert', err)
       flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
@@ -3779,6 +3878,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          onItemsChange={(items) => setHasItems(items.length > 0)}
         />
       )
     }
@@ -3834,6 +3934,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
           onTotalsChange={(totals) =>
             setRecord((prev) =>
               prev
@@ -4261,6 +4362,12 @@ export default function SalesDocumentDetailPage({
                   labels={currencyLabels}
                   error={currencyError}
                   onClearError={() => setCurrencyError(null)}
+                  locked={currencyLocked}
+                  onLocked={() => {
+                    if (currencyLockMessage) {
+                      flash(currencyLockMessage, 'error')
+                    }
+                  }}
                   onSave={async (next) => {
                     setCurrencyError(null)
                     try {
