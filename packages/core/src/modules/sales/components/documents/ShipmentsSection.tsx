@@ -15,6 +15,7 @@ import type { SectionAction } from '@open-mercato/core/modules/customers/compone
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { formatAddressString, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { ShipmentDialog } from './ShipmentDialog'
+import { extractCustomFieldValues } from './customFieldHelpers'
 import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
@@ -258,12 +259,7 @@ export function SalesShipmentsSection({
             Array.isArray((item as any).tracking_numbers) && (item as any).tracking_numbers.length
               ? ((item as any).tracking_numbers as string[])
               : []
-          const rawCustomValues =
-            (item as any).customValues && typeof (item as any).customValues === 'object'
-              ? ((item as any).customValues as Record<string, unknown>)
-              : (item as any).custom_values && typeof (item as any).custom_values === 'object'
-                ? ((item as any).custom_values as Record<string, unknown>)
-                : null
+          const customValues = extractCustomFieldValues(item as Record<string, unknown>)
           return {
             id,
             shipmentNumber:
@@ -334,7 +330,7 @@ export function SalesShipmentsSection({
                   ? (item as any).notesText
                   : null,
             metadata: (item as Record<string, unknown> | null | undefined)?.metadata ?? null,
-            customValues: rawCustomValues && Object.keys(rawCustomValues).length ? rawCustomValues : null,
+            customValues: Object.keys(customValues).length ? customValues : null,
             items: shipmentItems,
             createdAt:
               typeof (item as any).created_at === 'string'

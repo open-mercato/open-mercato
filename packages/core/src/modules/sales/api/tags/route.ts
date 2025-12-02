@@ -5,6 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesDocumentTag } from '../../data/entities'
 import { salesTagCreateSchema, salesTagUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
+import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -108,3 +109,35 @@ const crud = makeCrudRoute({
 const { POST, PUT, DELETE } = crud
 export { POST, PUT, DELETE }
 export const GET = crud.GET
+
+const tagSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+})
+
+export const openApi = createSalesCrudOpenApi({
+  resourceName: 'Sales tag',
+  pluralName: 'Sales tags',
+  description: 'Manage reusable tags to categorize sales orders and quotes.',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(tagSchema),
+  create: {
+    schema: salesTagCreateSchema,
+    responseSchema: z.object({ id: z.string().uuid().nullable() }),
+    description: 'Creates a sales document tag.',
+  },
+  update: {
+    schema: salesTagUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing sales tag.',
+  },
+  del: {
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a sales tag.',
+  },
+})

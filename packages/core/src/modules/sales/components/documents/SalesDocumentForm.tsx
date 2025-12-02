@@ -1064,7 +1064,19 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         </div>
       ),
     },
-  ], [customers, fetchCustomerEmail, loadAddresses, loadCustomers, resetAddressFormState, t])
+  ], [
+    addressFormat,
+    addressOptions,
+    addressesError,
+    addressesLoading,
+    currencyLabels,
+    fetchCurrencyOptions,
+    loadAddresses,
+    loadChannels,
+    loadCustomers,
+    resetAddressFormState,
+    t,
+  ])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'docType', title: '', column: 1, fields: ['documentKind', 'documentNumber'] },
@@ -1208,14 +1220,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [
-    addressFormat,
-    addressOptions,
-    addressesError,
-    addressesLoading,
-    currencyLabels,
-    fetchCurrencyOptions,
+    customers,
+    fetchCustomerEmail,
     loadAddresses,
-    loadChannels,
     loadCustomers,
     resetAddressFormState,
     t,

@@ -17,6 +17,7 @@ import { useT } from '@/lib/i18n/context'
 import type { SalesAdjustmentKind } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Settings } from 'lucide-react'
+import { extractCustomFieldValues, normalizeCustomFieldSubmitValue } from './customFieldHelpers'
 
 type TaxRateOption = {
   id: string
@@ -97,23 +98,6 @@ const normalizeNumber = (value: unknown): number | null => {
     if (!Number.isNaN(parsed)) return parsed
   }
   return null
-}
-
-const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.filter((entry) => entry !== undefined)
-  }
-  if (value === undefined) return null
-  return value
-}
-
-function prefixCustomFieldValues(input: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  if (!input || typeof input !== 'object') return {}
-  return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
-    const normalized = key.startsWith('cf_') ? key : `cf_${key}`
-    acc[normalized] = value
-    return acc
-  }, {})
 }
 
 const formatTaxRateLabel = (rate: TaxRateOption): string => {
@@ -322,9 +306,7 @@ export function AdjustmentDialog({
           metaTaxRateValue ??
           (Number.isFinite(defaultRate?.rate ?? null) ? (defaultRate?.rate as number) : null),
       }
-      const customValues = prefixCustomFieldValues(
-        normalizeCustomFieldResponse(initialAdjustment?.customFields) ?? {}
-      )
+      const customValues = extractCustomFieldValues(initialAdjustment as Record<string, unknown> | null)
       setInitialValues({ ...next, ...customValues })
       setMode(resolvedMode)
       setFormResetKey((prev) => prev + 1)

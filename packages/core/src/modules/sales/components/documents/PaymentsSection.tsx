@@ -14,6 +14,7 @@ import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
+import { extractCustomFieldValues } from './customFieldHelpers'
 import { Plus } from 'lucide-react'
 
 type PaymentRow = {
@@ -60,37 +61,6 @@ function formatMoney(value: number, currency: string | null | undefined): string
   }
 }
 
-function toCustomValues(raw: unknown): Record<string, unknown> | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const entries = raw as Record<string, unknown>
-  return Object.keys(entries).length ? entries : null
-}
-
-function extractCustomValues(item: Record<string, unknown>): Record<string, unknown> | null {
-  const direct = toCustomValues((item as any).customValues ?? (item as any).custom_values)
-  if (direct) return direct
-  const list =
-    Array.isArray((item as any).customFields) && (item as any).customFields.length
-      ? ((item as any).customFields as Array<Record<string, unknown>>)
-      : Array.isArray((item as any).custom_fields) && (item as any).custom_fields.length
-        ? ((item as any).custom_fields as Array<Record<string, unknown>>)
-        : null
-  if (!list) return null
-  const mapped: Record<string, unknown> = {}
-  list.forEach((entry) => {
-    const key =
-      typeof entry?.key === 'string'
-        ? entry.key
-        : typeof (entry as any)?.id === 'string'
-          ? (entry as any).id
-          : null
-    if (!key) return
-    const value = (entry as any)?.value
-    mapped[key] = value
-  })
-  return Object.keys(mapped).length ? mapped : null
-}
-
 export function SalesDocumentPaymentsSection({
   orderId,
   currencyCode,
@@ -109,6 +79,11 @@ export function SalesDocumentPaymentsSection({
   const [error, setError] = React.useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingPayment, setEditingPayment] = React.useState<PaymentFormData | null>(null)
+  const onPaymentsChangeRef = React.useRef<typeof onPaymentsChange>(onPaymentsChange)
+
+  React.useEffect(() => {
+    onPaymentsChangeRef.current = onPaymentsChange
+  }, [onPaymentsChange])
 
   const addActionLabel = t('sales.documents.payments.add', 'Add payment')
   const editActionLabel = t('sales.documents.payments.edit', 'Edit payment')
@@ -128,7 +103,9 @@ export function SalesDocumentPaymentsSection({
         const mapped = response.result.items.flatMap<PaymentRow>((item) => {
           if (typeof item.id !== 'string') return []
           const customValues =
-            item && typeof item === 'object' ? extractCustomValues(item as Record<string, unknown>) : null
+            item && typeof item === 'object'
+              ? extractCustomFieldValues(item as Record<string, unknown>)
+              : {}
           const record: PaymentRow = {
             id: item.id,
             paymentReference: typeof item.payment_reference === 'string' ? item.payment_reference : null,
@@ -161,7 +138,7 @@ export function SalesDocumentPaymentsSection({
                   : null,
             receivedAt: typeof item.received_at === 'string' ? item.received_at : null,
             createdAt: typeof item.created_at === 'string' ? item.created_at : null,
-            customValues,
+            customValues: Object.keys(customValues).length ? customValues : null,
             customFieldSetId:
               typeof (item as any)?.custom_field_set_id === 'string'
                 ? (item as any).custom_field_set_id
@@ -172,19 +149,19 @@ export function SalesDocumentPaymentsSection({
           return [record]
         })
         setPayments(mapped)
-        if (onPaymentsChange) onPaymentsChange(mapped)
+        onPaymentsChangeRef.current?.(mapped)
       } else {
         setPayments([])
-        if (onPaymentsChange) onPaymentsChange([])
+        onPaymentsChangeRef.current?.([])
       }
     } catch (err) {
       console.error('sales.payments.list', err)
       setError(t('sales.documents.payments.errorLoad', 'Failed to load payments.'))
-      if (onPaymentsChange) onPaymentsChange([])
+      onPaymentsChangeRef.current?.([])
     } finally {
       setLoading(false)
     }
-  }, [currencyCode, onPaymentsChange, orderId, t])
+  }, [currencyCode, orderId, t])
 
   React.useEffect(() => {
     void loadPayments()

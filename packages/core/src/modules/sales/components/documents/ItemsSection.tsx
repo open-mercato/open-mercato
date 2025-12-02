@@ -8,8 +8,6 @@ import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Pencil, Trash2 } from 'lucide-react'
-import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import {
   DictionaryValue,
   type DictionaryMap,
@@ -23,6 +21,7 @@ import { LineItemDialog } from './LineItemDialog'
 import type { SalesLineRecord } from './lineItemTypes'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import { extractCustomFieldValues } from './customFieldHelpers'
 
 type SalesDocumentItemsSectionProps = {
   documentId: string
@@ -91,8 +90,7 @@ export function SalesDocumentItemsSection({
           const id = typeof item.id === 'string' ? item.id : null
           if (!id) return []
           const taxRate = normalizeNumber((item as any).tax_rate ?? (item as any).taxRate, 0)
-          const rawCustomFields = extractAllCustomFieldEntries(item as Record<string, unknown>)
-          const customFields = normalizeCustomFieldResponse(rawCustomFields) ?? null
+          const customFields = extractCustomFieldValues(item as Record<string, unknown>)
           const name =
             typeof item.name === 'string'
               ? item.name
@@ -166,7 +164,7 @@ export function SalesDocumentItemsSection({
             metadata: (item.metadata as Record<string, unknown> | null | undefined) ?? null,
             catalogSnapshot: (item.catalog_snapshot as Record<string, unknown> | null | undefined) ?? null,
             customFieldSetId,
-            customFields,
+            customFields: Object.keys(customFields).length ? customFields : null,
             status,
             statusEntryId,
           }

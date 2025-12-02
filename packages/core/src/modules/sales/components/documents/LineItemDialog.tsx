@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DollarSign, Settings } from 'lucide-react'
-import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import {
   DictionaryValue,
   renderDictionaryIcon,
@@ -27,6 +27,7 @@ import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { SalesLineRecord } from './lineItemTypes'
+import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
 
 type ProductOption = {
   id: string
@@ -124,23 +125,6 @@ const defaultForm = (currencyCode?: string | null): LineFormState => ({
   customFieldSetId: null,
   statusEntryId: null,
 })
-
-const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) {
-    return value.filter((entry) => entry !== undefined)
-  }
-  if (value === undefined) return null
-  return value
-}
-
-function prefixCustomFieldValues(input: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  if (!input || typeof input !== 'object') return {}
-  return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
-    const normalized = key.startsWith('cf_') ? key : `cf_${key}`
-    acc[normalized] = value
-    return acc
-  }, {})
-}
 
 function buildPriceScopeReason(item: Record<string, unknown>, t: (k: string, f: string) => string): {
   reason: string | null
@@ -1343,7 +1327,7 @@ export function LineItemDialog({
         setVariantOption(option)
       }
     }
-    const customValues = prefixCustomFieldValues(normalizeCustomFieldResponse(initialLine.customFields) ?? {})
+    const customValues = extractCustomFieldValues(initialLine as Record<string, unknown>)
     const merged = { ...nextForm, ...customValues }
     setInitialValues(merged)
     setLineMode(merged.lineMode)

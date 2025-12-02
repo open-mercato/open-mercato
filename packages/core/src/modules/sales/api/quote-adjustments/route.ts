@@ -48,6 +48,7 @@ const crud = makeCrudRoute({
   list: {
     schema: listSchema,
     entityId: E.sales.sales_quote_adjustment,
+    decorateCustomFields: { entityIds: [E.sales.sales_quote_adjustment] },
     fields: [
       F.id,
       'quote_id',

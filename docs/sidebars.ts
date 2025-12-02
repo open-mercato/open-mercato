@@ -34,6 +34,20 @@ const sidebars: SidebarsConfig = {
         "user-guide/organizations",
         {
           type: "category",
+          label: "Sales",
+          items: [
+            "user-guide/sales/orders-and-quotes",
+            "user-guide/sales/create-sales-document",
+            "user-guide/sales/edit-order-quote",
+            "user-guide/sales/payments",
+            "user-guide/sales/shipments",
+            "user-guide/sales/adjustments",
+            "user-guide/sales/order-items",
+            "user-guide/sales/sales-settings",
+          ],
+        },
+        {
+          type: "category",
           label: "Customers",
           items: [
             "user-guide/customers",

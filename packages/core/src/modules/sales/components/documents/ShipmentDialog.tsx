@@ -21,6 +21,7 @@ import { useT } from '@/lib/i18n/context'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
+import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
 
 type ShippingMethodOption = {
   id: string
@@ -87,21 +88,6 @@ type NormalizedAddressSnapshot = {
   longitude?: number
   isPrimary?: boolean
   [key: string]: string | number | boolean | null | undefined
-}
-
-const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.filter((entry) => entry !== undefined)
-  if (value === undefined) return null
-  return value
-}
-
-const prefixCustomFieldValues = (input?: Record<string, unknown> | null): Record<string, unknown> => {
-  if (!input || typeof input !== 'object') return {}
-  return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
-    const normalized = key.startsWith('cf_') ? key : `cf_${key}`
-    acc[normalized] = value
-    return acc
-  }, {})
 }
 
 const parseTrackingNumbers = (value: string | null | undefined): string[] =>
@@ -354,7 +340,7 @@ export function ShipmentDialog({
         acc[line.id] = found ? String(found.quantity) : ''
         return acc
       }, baseItems),
-      ...prefixCustomFieldValues(shipment?.customValues ?? null),
+      ...extractCustomFieldValues(shipment),
     }),
     [
       baseItems,

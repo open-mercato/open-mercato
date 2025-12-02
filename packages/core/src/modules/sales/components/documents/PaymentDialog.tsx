@@ -13,6 +13,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
+import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
 
 export type PaymentTotals = {
   paidTotalAmount?: number | null
@@ -66,21 +67,6 @@ const normalizeNumber = (value: unknown): number => {
   return 0
 }
 
-const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.filter((entry) => entry !== undefined)
-  if (value === undefined) return null
-  return value
-}
-
-const prefixCustomFieldValues = (input?: Record<string, unknown> | null): Record<string, unknown> => {
-  if (!input || typeof input !== 'object') return {}
-  return Object.entries(input).reduce<Record<string, unknown>>((acc, [key, value]) => {
-    const normalized = key.startsWith('cf_') ? key : `cf_${key}`
-    acc[normalized] = value
-    return acc
-  }, {})
-}
-
 export function PaymentDialog({
   open,
   mode,
@@ -116,10 +102,12 @@ export function PaymentDialog({
       receivedAt: payment?.receivedAt ? payment.receivedAt.slice(0, 10) : '',
       statusEntryId: payment?.statusEntryId ?? '',
       documentStatusEntryId: '',
-      ...prefixCustomFieldValues(payment?.customValues ?? null),
+      customFieldSetId: payment?.customFieldSetId ?? '',
+      ...extractCustomFieldValues(payment),
     }),
     [
       payment?.amount,
+      payment?.customFieldSetId,
       payment?.customValues,
       payment?.paymentMethodId,
       payment?.paymentReference,
@@ -522,6 +510,10 @@ export function PaymentDialog({
           typeof values.statusEntryId === 'string' && values.statusEntryId.trim().length
             ? values.statusEntryId
             : undefined,
+        customFieldSetId:
+          typeof values.customFieldSetId === 'string' && values.customFieldSetId.trim().length
+            ? values.customFieldSetId.trim()
+            : undefined,
         organizationId: organizationId ?? undefined,
         tenantId: tenantId ?? undefined,
       }
@@ -598,6 +590,7 @@ export function PaymentDialog({
           fields={fields}
           groups={groups}
           initialValues={initialValues}
+          customFieldsetBindings={{ [E.sales.sales_payment]: { valueKey: 'customFieldSetId' } }}
           submitLabel={shortcutLabel}
           onSubmit={handleSubmit}
           loadingMessage={t('sales.documents.payments.loading', 'Loading payments…')}
