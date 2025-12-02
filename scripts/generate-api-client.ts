@@ -110,8 +110,6 @@ async function main() {
 
   if (wroteTypes) {
     console.log('✅ Generated Open API artifacts')
-  } else {
-    console.log('ℹ️ Open API artifacts already up to date')
   }
 }
 

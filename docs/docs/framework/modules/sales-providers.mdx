@@ -1,0 +1,117 @@
+---
+title: Shipping & Payment Providers
+---
+
+The sales module now discovers shipping and payment providers so modules can plug in custom pricing and checkout flows without forking core logic.
+
+## Register a provider
+
+Providers are registered at module load time and exposed on both the backend (for calculations) and the admin UI (for configuration forms).
+
+```ts
+// src/modules/your-module/index.ts
+import { registerPaymentProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerPaymentProvider({
+  key: 'your-gateway',
+  label: 'Your Gateway',
+  description: 'Redirects buyers to your hosted checkout.',
+  settings: {
+    // Optional UI schema rendered in admin forms
+    fields: [
+      { key: 'checkoutUrl', label: 'Checkout URL', type: 'url', required: true },
+      { key: 'apiKey', label: 'API key', type: 'secret' },
+    ],
+    // Optional validation for providerSettings
+    schema: z.object({
+      checkoutUrl: z.string().url(),
+      apiKey: z.string().min(1).optional(),
+    }),
+  },
+  // Optional hook: return surcharge adjustments (kind defaults to "surcharge")
+  async calculate({ document, context, settings }) {
+    const fee = Number(settings.applicationFee ?? 0)
+    if (!fee) return { adjustments: [] }
+    return {
+      adjustments: [
+        {
+          amountNet: fee,
+          amountGross: fee,
+          currencyCode: context.currencyCode,
+          metadata: { applied: true },
+        },
+      ],
+    }
+  },
+})
+```
+
+Shipping providers follow the same shape via `registerShippingProvider` and can emit `shipping` adjustments.
+
+```ts
+// src/modules/your-module/index.ts
+import { registerShippingProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerShippingProvider({
+  key: 'priority-courier',
+  label: 'Priority courier',
+  description: 'Weight-based express shipping.',
+  settings: {
+    fields: [
+      { key: 'base', label: 'Base fee', type: 'number', required: true },
+      { key: 'perKg', label: 'Per-kg rate', type: 'number', required: true },
+    ],
+  },
+  async calculate({ metrics, settings, context, method }) {
+    const base = Number(settings.base ?? method.baseRateNet ?? 0)
+    const perKg = Number(settings.perKg ?? 0)
+    const amount = base + metrics.totalWeight * perKg
+    if (!amount) return { adjustments: [] }
+    return {
+      adjustments: [
+        {
+          amountNet: amount,
+          amountGross: amount,
+          currencyCode: context.currencyCode,
+          metadata: { applied: true, weight: metrics.totalWeight },
+        },
+      ],
+    }
+  },
+})
+```
+
+## Runtime behaviour
+
+- Shipping/payment adjustments are injected via a totals calculator, so provider fees feed into `calculateDocumentTotals` for quotes and orders.
+- Provider settings from the admin UI are stored under `metadata.providerSettings` on the `sales_shipping_methods` and `sales_payment_methods` rows, and exposed in the CRUD APIs as `providerSettings`.
+- Existing provider-generated adjustments are replaced on recalculation (updates, line edits), avoiding double application.
+- When the event bus is available, provider adjustments fire `sales.shipping.adjustments.apply.before|after` and `sales.payment.adjustments.apply.before|after`, letting you mutate or override the calculated adjustments before they are merged into the document totals.
+
+## Default providers
+
+Out of the box the sales module registers:
+
+- **Wire transfer** (`wire-transfer`) – offline payment with optional instructions.
+- **Cash on delivery** (`cash-on-delivery`) – optional flat/percent fee.
+- **Flat rate shipping** (`flat-rate`) – tiered rates by item count, weight, volume, or subtotal; optional base-rate toggle.
+
+Stripe is available as an opt-in helper:
+
+```ts
+import { registerStripeProvider } from '@open-mercato/core/modules/sales/lib/providers'
+
+registerStripeProvider()
+```
+
+You can extend or replace these by registering providers in your own modules; registry calls are idempotent, so re-registering a key overwrites the previous handler.
+
+## Admin configuration
+
+The sales settings page (`/backend/config/sales`) now includes **Shipping Methods** and **Payment Methods** sections built with the provider registry:
+
+- Providers declare UI fields; the admin forms render them automatically and persist values to `providerSettings`.
+- Flat-rate shipping includes a rate table editor to add/remove tiered rules.
+- Provider selection controls validation via the provider `settings.schema`, keeping saved rows aligned with the hooks that consume them.
+
+These settings drive the provider calculations during quote/order creation and updates, ensuring shipping costs and payment fees stay in sync with the configured provider rules.

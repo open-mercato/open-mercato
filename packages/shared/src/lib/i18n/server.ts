@@ -53,3 +53,10 @@ export async function resolveTranslations() {
   const translate = createFallbackTranslator(dict)
   return { locale, dict, t, translate }
 }
+// Hint Next.js to keep this server-only; ignore if unavailable when running scripts outside Next.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('server-only')
+} catch {
+  // noop: allows running generator scripts without Next's server-only package
+}

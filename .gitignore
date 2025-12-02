@@ -51,6 +51,7 @@ next-env.d.ts
 # /**/migrations/*
 # Generated module files
 /src/generated/
+/src/generated/*
 /generated/
 packages/*/generated/
 packages/client/src/generated/
@@ -75,6 +76,7 @@ tmp/
 
 public/uploads/*
 storage/attachments/*
+packages/client/src/generated/openapi.types.ts
 package-lock.json
 
 # IDE related

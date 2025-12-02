@@ -3,6 +3,7 @@ import {
   createDictionaryEntrySchema,
   updateDictionaryEntrySchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
+import { getPaymentProvider, getShippingProvider } from '../lib/providers'
 
 const uuid = () => z.string().uuid()
 
@@ -28,6 +29,7 @@ const percentage = () => decimal({ min: 0, max: 100 })
 const jsonRecord = z.record(z.string(), z.unknown())
 
 const metadata = jsonRecord.optional()
+const providerSettings = jsonRecord.optional()
 
 const channelCodeSchema = z
   .string()
@@ -37,15 +39,31 @@ const channelCodeSchema = z
   .max(120)
 
 const numberFormatSchema = z.string().trim().min(1).max(191)
+const statusListSchema = z
+  .array(z.string().trim().min(1).max(120))
+  .max(200)
+  .optional()
+  .nullable()
 
 export const salesSettingsUpsertSchema = scoped.extend({
   orderNumberFormat: numberFormatSchema,
   quoteNumberFormat: numberFormatSchema,
   orderNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
   quoteNextNumber: z.coerce.number().int().min(1).max(1_000_000_000).optional(),
+  orderCustomerEditableStatuses: statusListSchema,
+  orderAddressEditableStatuses: statusListSchema,
 })
 
 export type SalesSettingsUpsertInput = z.infer<typeof salesSettingsUpsertSchema>
+
+export const salesEditingSettingsSchema = scoped.extend({
+  orderNumberFormat: numberFormatSchema.optional(),
+  quoteNumberFormat: numberFormatSchema.optional(),
+  orderCustomerEditableStatuses: statusListSchema,
+  orderAddressEditableStatuses: statusListSchema,
+})
+
+export type SalesEditingSettingsInput = z.infer<typeof salesEditingSettingsSchema>
 
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -84,13 +102,30 @@ export const shippingMethodCreateSchema = scoped.extend({
     .max(120),
   description: z.string().trim().max(2000).optional(),
   carrierCode: z.string().trim().max(120).optional(),
+  providerKey: z.string().trim().max(120).optional(),
   serviceLevel: z.string().trim().max(120).optional(),
   estimatedTransitDays: z.coerce.number().int().min(0).max(365).optional(),
   baseRateNet: decimal({ min: 0 }).optional(),
   baseRateGross: decimal({ min: 0 }).optional(),
   currencyCode: currencyCode.optional(),
   isActive: z.boolean().optional(),
+  providerSettings,
   metadata,
+}).superRefine((value, ctx) => {
+  if (value.providerKey) {
+    const provider = getShippingProvider(value.providerKey)
+    const schema = provider?.settings?.schema
+    if (schema) {
+      const parsed = schema.safeParse(value.providerSettings ?? {})
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: parsed.error.issues?.[0]?.message ?? 'Invalid provider configuration',
+          path: ['providerSettings'],
+        })
+      }
+    }
+  }
 })
 
 export const shippingMethodUpdateSchema = z
@@ -133,7 +168,23 @@ export const paymentMethodCreateSchema = scoped.extend({
   providerKey: z.string().trim().max(120).optional(),
   terms: z.string().trim().max(4000).optional(),
   isActive: z.boolean().optional(),
+  providerSettings,
   metadata,
+}).superRefine((value, ctx) => {
+  if (value.providerKey) {
+    const provider = getPaymentProvider(value.providerKey)
+    const schema = provider?.settings?.schema
+    if (schema) {
+      const parsed = schema.safeParse(value.providerSettings ?? {})
+      if (!parsed.success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: parsed.error.issues?.[0]?.message ?? 'Invalid provider configuration',
+          path: ['providerSettings'],
+        })
+      }
+    }
+  }
 })
 
 export const paymentMethodUpdateSchema = z
@@ -141,6 +192,24 @@ export const paymentMethodUpdateSchema = z
     id: uuid(),
   })
   .merge(paymentMethodCreateSchema.partial())
+
+export const salesTagCreateSchema = scoped.extend({
+  slug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9_-]+$/, 'Slug must be lowercase and may contain dashes or underscores'),
+  label: z.string().trim().min(1).max(120),
+  color: z.string().trim().max(30).optional(),
+  description: z.string().trim().max(400).optional(),
+})
+
+export const salesTagUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(salesTagCreateSchema.partial())
 
 export const taxRateCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
@@ -199,13 +268,16 @@ export const statusDictionaryUpdateSchema = scoped
 
 const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'adjustment'])
 
-const adjustmentKindSchema = z.enum(['tax', 'discount', 'surcharge', 'shipping', 'custom'])
+const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
 const linePricingSchema = z.object({
   quantity: decimal({ min: 0 }),
   quantityUnit: z.string().trim().max(25).optional(),
   unitPriceNet: decimal({ min: 0 }).optional(),
   unitPriceGross: decimal({ min: 0 }).optional(),
+  priceId: uuid().optional(),
+  priceMode: z.enum(['net', 'gross']).optional(),
+  taxRateId: uuid().optional(),
   discountAmount: decimal({ min: 0 }).optional(),
   discountPercent: percentage().optional(),
   taxRate: percentage().optional(),
@@ -228,6 +300,7 @@ const lineSharedSchema = z.object({
   promotionSnapshot: z.record(z.string(), z.unknown()).optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const orderLineCreateSchema = scoped.extend({
@@ -272,6 +345,7 @@ export const orderAdjustmentCreateSchema = scoped.extend({
   amountGross: decimal().optional(),
   currencyCode: currencyCode.optional(),
   metadata,
+  customFields: z.record(z.string(), z.unknown()).optional(),
   position: z.coerce.number().int().min(0).optional(),
 })
 
@@ -295,6 +369,7 @@ export const quoteAdjustmentCreateSchema = scoped.extend({
   amountGross: decimal().optional(),
   currencyCode: currencyCode.optional(),
   metadata,
+  customFields: z.record(z.string(), z.unknown()).optional(),
   position: z.coerce.number().int().min(0).optional(),
 })
 
@@ -368,6 +443,7 @@ export const orderCreateSchema = scoped.extend({
   customFieldSetId: uuid().optional(),
   lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  tags: z.array(uuid()).optional(),
   ...orderTotalsSchema.shape,
 })
 
@@ -410,6 +486,7 @@ export const quoteCreateSchema = scoped.extend({
   adjustments: z
     .array(quoteAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),
+  tags: z.array(uuid()).optional(),
   ...quoteTotalsSchema.shape,
 })
 
@@ -419,11 +496,47 @@ export const quoteUpdateSchema = z
   })
   .merge(quoteCreateSchema.partial())
 
+const documentKind = z.enum(['order', 'quote'])
+
+const documentAddressFields = {
+  documentId: uuid(),
+  documentKind,
+  customerAddressId: uuid().optional(),
+  name: z.string().trim().max(255).nullable().optional(),
+  purpose: z.string().trim().max(120).nullable().optional(),
+  companyName: z.string().trim().max(255).nullable().optional(),
+  addressLine1: z.string().trim().min(1).max(255),
+  addressLine2: z.string().trim().max(255).nullable().optional(),
+  city: z.string().trim().max(120).nullable().optional(),
+  region: z.string().trim().max(120).nullable().optional(),
+  postalCode: z.string().trim().max(60).nullable().optional(),
+  country: z.string().trim().max(2).nullable().optional(),
+  buildingNumber: z.string().trim().max(60).nullable().optional(),
+  flatNumber: z.string().trim().max(60).nullable().optional(),
+  latitude: z.coerce.number().optional().nullable(),
+  longitude: z.coerce.number().optional().nullable(),
+}
+
+export const documentAddressCreateSchema = scoped.extend(documentAddressFields)
+
+export const documentAddressUpdateSchema = scoped.extend({
+  id: uuid(),
+  ...documentAddressFields,
+})
+
+export const documentAddressDeleteSchema = scoped.extend({
+  id: uuid(),
+  documentId: uuid(),
+  documentKind,
+})
+
 export const shipmentCreateSchema = scoped.extend({
   orderId: uuid(),
   shipmentNumber: z.string().trim().max(191).optional(),
   shippingMethodId: uuid().optional(),
   statusEntryId: uuid().optional(),
+  documentStatusEntryId: uuid().optional(),
+  lineStatusEntryId: uuid().optional(),
   carrierName: z.string().trim().max(191).optional(),
   trackingNumbers: z.array(z.string().trim().max(191)).optional(),
   shippedAt: z.coerce.date().optional(),
@@ -435,6 +548,8 @@ export const shipmentCreateSchema = scoped.extend({
   currencyCode: currencyCode.optional(),
   notes: z.string().trim().max(4000).optional(),
   metadata,
+  shipmentAddressSnapshot: jsonRecord.optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   items: z
     .array(
       z.object({
@@ -545,6 +660,8 @@ export const paymentCreateSchema = scoped.extend({
   paymentMethodId: uuid().optional(),
   paymentReference: z.string().trim().max(191).optional(),
   statusEntryId: uuid().optional(),
+  documentStatusEntryId: uuid().optional(),
+  lineStatusEntryId: uuid().optional(),
   amount: decimal({ min: 0 }),
   currencyCode,
   capturedAmount: decimal({ min: 0 }).optional(),
@@ -553,6 +670,7 @@ export const paymentCreateSchema = scoped.extend({
   capturedAt: z.coerce.date().optional(),
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   allocations: z
     .array(
       z.object({
@@ -579,6 +697,13 @@ export const noteCreateSchema = scoped.extend({
   quoteId: uuid().optional(),
   authorUserId: uuid().optional(),
   body: z.string().trim().min(1).max(8000),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
 })
 
 export const noteUpdateSchema = z
@@ -592,6 +717,13 @@ export const noteUpdateSchema = z
       })
       .extend({
         authorUserId: uuid().optional(),
+        appearanceIcon: z.string().trim().max(100).optional().nullable(),
+        appearanceColor: z
+          .string()
+          .trim()
+          .regex(/^#([0-9a-fA-F]{6})$/)
+          .optional()
+          .nullable(),
       })
   )
 
@@ -634,3 +766,8 @@ export type PaymentCreateInput = z.infer<typeof paymentCreateSchema>
 export type PaymentUpdateInput = z.infer<typeof paymentUpdateSchema>
 export type NoteCreateInput = z.infer<typeof noteCreateSchema>
 export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>
+export type SalesTagCreateInput = z.infer<typeof salesTagCreateSchema>
+export type SalesTagUpdateInput = z.infer<typeof salesTagUpdateSchema>
+export type DocumentAddressCreateInput = z.infer<typeof documentAddressCreateSchema>
+export type DocumentAddressUpdateInput = z.infer<typeof documentAddressUpdateSchema>
+export type DocumentAddressDeleteInput = z.infer<typeof documentAddressDeleteSchema>

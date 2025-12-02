@@ -43,6 +43,7 @@ const shippingMethodItemSchema = z.object({
   code: z.string(),
   description: z.string().nullable(),
   carrierCode: z.string().nullable(),
+  providerKey: z.string().nullable(),
   serviceLevel: z.string().nullable(),
   estimatedTransitDays: z.number().nullable(),
   baseRateNet: z.string(),
@@ -50,6 +51,7 @@ const shippingMethodItemSchema = z.object({
   currencyCode: z.string().nullable(),
   isActive: z.boolean(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
+  providerSettings: z.record(z.string(), z.unknown()).nullable().optional(),
   organizationId: z.string().uuid().nullable(),
   tenantId: z.string().uuid().nullable(),
   createdAt: z.string(),
@@ -96,6 +98,7 @@ const crud = makeCrudRoute({
       F.code,
       F.description,
       F.carrier_code,
+      F.provider_key,
       F.service_level,
       F.estimated_transit_days,
       F.base_rate_net,
@@ -125,6 +128,7 @@ const crud = makeCrudRoute({
         code: item.code,
         description: item.description ?? null,
         carrierCode: item.carrier_code ?? null,
+        providerKey: item.provider_key ?? null,
         serviceLevel: item.service_level ?? null,
         estimatedTransitDays: item.estimated_transit_days ?? null,
         baseRateNet: item.base_rate_net ?? '0',
@@ -132,6 +136,10 @@ const crud = makeCrudRoute({
         currencyCode: item.currency_code ?? null,
         isActive: item.is_active ?? false,
         metadata: item.metadata ?? null,
+        providerSettings:
+          item.metadata && typeof item.metadata === 'object'
+            ? (item.metadata as any).providerSettings ?? null
+            : null,
         organizationId: item.organization_id ?? null,
         tenantId: item.tenant_id ?? null,
         createdAt: item.created_at,

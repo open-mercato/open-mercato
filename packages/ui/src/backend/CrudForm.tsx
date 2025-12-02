@@ -130,6 +130,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   fields: CrudField[]
   initialValues?: Partial<TValues>
   submitLabel?: string
+  customFieldsLoadingMessage?: string
   cancelHref?: string
   successRedirect?: string
   deleteRedirect?: string
@@ -252,6 +253,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   fields,
   initialValues,
   submitLabel,
+  customFieldsLoadingMessage,
   cancelHref,
   successRedirect,
   deleteRedirect,
@@ -278,6 +280,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const t = useT()
   const resolvedSubmitLabel = submitLabel ?? t('ui.forms.actions.save')
   const resolvedLoadingMessage = loadingMessage ?? t('ui.forms.loading')
+  const resolvedCustomFieldsLoadingMessage = customFieldsLoadingMessage ?? resolvedLoadingMessage
   const cancelLabel = t('ui.forms.actions.cancel')
   const deleteLabel = t('ui.forms.actions.delete')
   const savingLabel = t('ui.forms.status.saving')
@@ -307,6 +310,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [isLoadingCustomFields, setIsLoadingCustomFields] = React.useState(false)
   const [customFieldDefsVersion, setCustomFieldDefsVersion] = React.useState(0)
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
+  const [isInDialog, setIsInDialog] = React.useState(false)
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
   const fieldsetManagerRef = React.useRef<FieldDefinitionsManagerHandle | null>(null)
   const resolvedEntityIds = React.useMemo(() => {
     if (Array.isArray(entityIds) && entityIds.length) {
@@ -326,6 +331,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
+  React.useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
+  }, [])
+  const dialogFooterClass = isInDialog
+    ? 'sticky bottom-0 left-0 right-0 z-20 -mx-6 px-6 bg-card border-t border-border/70 py-2 sm:-mx-6 sm:px-6'
+    : ''
+  const dialogFormPadding = isInDialog ? 'pb-4' : ''
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -724,6 +738,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const run = () => {
       const form = document.getElementById(formId)
       if (!form) return
+
+      // Do not steal focus if the user is already interacting with any element inside the form
+      const active = typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null
+      if (active && form.contains(active)) {
+        return
+      }
 
       const container = form.querySelector<HTMLElement>(`[data-crud-field-id="${firstFieldId}"]`)
       const target =
@@ -1325,7 +1345,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <div key={`${g.id}-loading`} className="rounded-lg border bg-card p-4">
                 <DataLoader
                   isLoading
-                  loadingMessage={resolvedLoadingMessage}
+                  loadingMessage={resolvedCustomFieldsLoadingMessage}
                   spinnerSize="md"
                   className="min-h-[1px]"
                 >
@@ -1382,7 +1402,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const col2Content = renderGroupedCards(col2)
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-4" ref={rootRef}>
         {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -1420,13 +1440,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           spinnerSize="md"
           className="min-h-[400px]"
         >
-          <form id={formId} onSubmit={handleSubmit} className="space-y-4">
+          <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
               <div className="space-y-3">{col1Content}</div>
               <div className="space-y-3">{col2Content}</div>
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2`}>
+            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-between'} gap-2 ${dialogFooterClass}`}>
               {embedded ? null : <div />}
               <div className="flex items-center gap-2">
                 {extraActions}
@@ -1456,7 +1476,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   // Default single-card layout (compatible with previous API)
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={rootRef}>
       {!embedded ? (
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -1498,7 +1518,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <form
             id={formId}
             onSubmit={handleSubmit}
-            className={embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'}
+            className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
           >
             <div className={grid}>
               {allFields.map((f) => {
@@ -1524,7 +1544,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2`}>
+            <div className={`flex items-center ${embedded ? 'justify-end' : 'justify-end'} gap-2 ${dialogFooterClass}`}>
               {extraActions}
               {!embedded && showDelete ? (
                 <Button type="button" variant="outline" onClick={handleDelete} className="text-red-600 border-red-200 hover:bg-red-50">

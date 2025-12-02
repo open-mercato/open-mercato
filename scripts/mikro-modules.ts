@@ -2,15 +2,39 @@
 import 'dotenv/config'
 import path from 'node:path'
 import fs from 'node:fs'
-import { MikroORM } from '@mikro-orm/core'
+import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase, type ModuleEntry } from './shared/modules-config'
 
 type Cmd = 'generate' | 'apply' | 'greenfield'
+const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
+const PROGRESS_EMOJI = '🗄️'
 
 function formatResult(modId: string, message: string, emoji = '•') {
   return `${emoji} ${modId}: ${message}`
+}
+
+function createProgressRenderer(total: number) {
+  const width = 20
+  const normalizedTotal = total > 0 ? total : 1
+  return (current: number) => {
+    const clamped = Math.min(Math.max(current, 0), normalizedTotal)
+    const filled = Math.round((clamped / normalizedTotal) * width)
+    const bar = `${'='.repeat(filled)}${'.'.repeat(Math.max(width - filled, 0))}`
+    return `[${bar}] ${clamped}/${normalizedTotal}`
+  }
+}
+
+function createMinimalLogger(): Logger {
+  return {
+    log: () => {},
+    error: (_namespace, message) => console.error(message),
+    warn: (_namespace, message) => { if (!QUIET_MODE) console.warn(message) },
+    logQuery: () => {},
+    setDebugMode: () => {},
+    isEnabled: () => false,
+  }
 }
 
 async function loadModuleEntities(entry: ModuleEntry) {
@@ -92,6 +116,7 @@ async function run(cmd: Cmd) {
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
+      loggerFactory: () => createMinimalLogger(),
       entities,
       migrations: {
         path: migrationsPath,
@@ -138,8 +163,29 @@ async function run(cmd: Cmd) {
       results.push(formatResult(modId, 'no changes', 'ℹ️'))
     }
   } else if (cmd === 'apply') {
-    await migrator.up()
-    results.push(formatResult(modId, 'applied', '✅'))
+    const pending = await migrator.getPendingMigrations()
+    if (!pending.length) {
+      results.push(formatResult(modId, 'no pending migrations', 'ℹ️'))
+    } else {
+      const renderProgress = createProgressRenderer(pending.length)
+      let applied = 0
+      if (!QUIET_MODE) {
+        process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+      }
+      for (const migration of pending) {
+        const migrationName =
+          typeof migration === 'string'
+            ? migration
+            : (migration as any).name ?? (migration as any).fileName
+        await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
+        applied += 1
+        if (!QUIET_MODE) {
+          process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+        }
+      }
+      if (!QUIET_MODE) process.stdout.write('\n')
+      results.push(formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '✅'))
+    }
   }
     await orm.close(true)
   }

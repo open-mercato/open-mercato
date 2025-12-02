@@ -32,7 +32,7 @@ describe('sales channels route helpers', () => {
   })
 
   it('decorates listed channels with aggregated offer counts', async () => {
-    const items = [{ id: 'ch-1' }, { id: 'ch-2' }, { id: null as any }]
+    const items: Array<{ id: string | null; offerCount?: number }> = [{ id: 'ch-1' }, { id: 'ch-2' }, { id: null }]
     const offers = [
       { id: 'offer-1', channelId: 'ch-1' },
       { id: 'offer-2', channelId: 'ch-1' },

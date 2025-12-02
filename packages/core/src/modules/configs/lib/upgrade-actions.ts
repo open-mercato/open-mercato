@@ -1,12 +1,23 @@
+import { runWithCacheTenant } from '@open-mercato/cache'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { Role, RoleAcl } from '@open-mercato/core/modules/auth/data/entities'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
 import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
-import { runWithCacheTenant } from '@open-mercato/cache'
+import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
 import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shared/lib/crud/cache-stats'
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
+import type { VectorIndexService } from '@open-mercato/vector'
+
+function resolveVectorService(container: AwilixContainer): VectorIndexService | null {
+  try {
+    return container.resolve<VectorIndexService>('vectorIndexService')
+  } catch {
+    return null
+  }
+}
 
 export type UpgradeActionContext = CatalogSeedScope & {
   container: AwilixContainer
@@ -73,7 +84,8 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     loadingKey: 'upgrades.v034.loading',
     async run({ container, em, tenantId, organizationId }) {
       await installExampleCatalogData(container, { tenantId, organizationId }, em)
-      await purgeCatalogCrudCache(container, tenantId)
+      const vectorService = resolveVectorService(container)
+      await reindexModules(em, ['catalog'], { tenantId, organizationId, vectorService })
     },
   },
   {
@@ -120,6 +132,22 @@ export const upgradeActions: UpgradeActionDefinition[] = [
 
       const rbac = container.resolve<RbacService>('rbacService')
       await rbac.invalidateTenantCache(normalizedTenantId)
+    },
+  },
+  {
+    id: 'configs.upgrades.sales.examples',
+    version: '0.3.6',
+    messageKey: 'upgrades.v036.message',
+    ctaKey: 'upgrades.v036.cta',
+    successKey: 'upgrades.v036.success',
+    loadingKey: 'upgrades.v036.loading',
+    async run({ container, em, tenantId, organizationId }) {
+      await em.transactional(async (tem) => {
+        await seedSalesExamples(tem, container, { tenantId, organizationId })
+      })
+      const vectorService = resolveVectorService(container)
+      await reindexModules(em, ['sales', 'catalog'], { tenantId, organizationId, vectorService })
+      await purgeCatalogCrudCache(container, tenantId)
     },
   },
 ]

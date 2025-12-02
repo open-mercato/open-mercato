@@ -660,6 +660,46 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     : defaultIdentifierResolver
 
   const listCustomFieldDecorator = opts.list?.decorateCustomFields
+  const indexerConfig = opts.indexer as CrudIndexerConfig | undefined
+  const eventsConfig = opts.events as CrudEventsConfig | undefined
+
+  const markCommandResultForIndexing = async (
+    id: string | null,
+    action: CrudEventAction,
+    ctx: CrudCtx,
+  ) => {
+    if (!id || (!indexerConfig && !eventsConfig)) return
+    try {
+      const em = ctx.container.resolve('em') as EntityManager
+      const entity = await em.findOne(ormCfg.entity, { [ormCfg.idField!]: id } as any)
+      const de = ctx.container.resolve('dataEngine') as DataEngine
+      const identifiers = identifierResolver(
+        entity ?? ({ [ormCfg.idField!]: id } as any),
+        action,
+      )
+      const scopedIdentifiers = {
+        ...identifiers,
+        organizationId:
+          identifiers.organizationId ??
+          ctx.selectedOrganizationId ??
+          ctx.auth?.orgId ??
+          null,
+        tenantId: identifiers.tenantId ?? ctx.auth?.tenantId ?? null,
+      }
+      de.markOrmEntityChange({
+        action,
+        entity: entity ?? ({ [ormCfg.idField!]: id } as any),
+        identifiers: scopedIdentifiers,
+        events: eventsConfig,
+        indexer: indexerConfig,
+      })
+      await de.flushOrmEntityChanges()
+    } catch (err) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('[crud] failed to mark command result for indexing', { err, id, action, resourceKind })
+      }
+    }
+  }
 
   const inferFieldValue = (item: Record<string, unknown>, keys: string[]): string | null => {
     for (const key of keys) {
@@ -1272,6 +1312,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 201
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        const indexedId =
+          normalizeIdentifierValue(
+            (resolvedPayload as any)?.id ??
+            (result as any)?.id ??
+            (result as any)?.orderId ??
+            (result as any)?.quoteId ??
+            (parsed as any)?.id
+          )
+        await markCommandResultForIndexing(indexedId, 'created', ctx)
         return response
       }
 
@@ -1373,6 +1422,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        const indexedId =
+          normalizeIdentifierValue(
+            (resolvedPayload as any)?.id ??
+            (result as any)?.id ??
+            (result as any)?.orderId ??
+            (result as any)?.quoteId ??
+            (parsed as any)?.id
+          )
+        await markCommandResultForIndexing(indexedId, 'updated', ctx)
         return response
       }
 
@@ -1489,6 +1547,16 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
+        const indexedId =
+          normalizeIdentifierValue(
+            (resolvedPayload as any)?.id ??
+            (result as any)?.id ??
+            (result as any)?.orderId ??
+            (result as any)?.quoteId ??
+            (parsed as any)?.body?.id ??
+            (parsed as any)?.id
+          )
+        await markCommandResultForIndexing(indexedId, 'deleted', ctx)
         return response
       }
 

@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -20,9 +20,9 @@
     "modules:generate": "tsx scripts/generate-module-registry.ts",
     "prebuild": "npm run modules:prepare",
     "db:generate": "tsx scripts/mikro-modules.ts generate",
-    "db:migrate": "npm run modules:prepare && tsx scripts/mikro-modules.ts apply && tsx packages/cli/src/bin.ts entities install --global",
+    "db:migrate": "node --import tsx scripts/generate-entity-ids.ts && node --import tsx scripts/generate-module-registry.ts && node --import tsx scripts/generate-module-entities.ts && node --import tsx scripts/generate-module-di.ts && node --import tsx scripts/generate-api-client.ts && tsx scripts/mikro-modules.ts apply && tsx packages/cli/src/bin.ts entities install --global",
     "db:greenfield": "tsx scripts/mikro-modules.ts greenfield",
-    "db:entities:install": "npm run modules:prepare && tsx packages/cli/src/bin.ts entities install",
+    "db:entities:install": "node --import tsx scripts/generate-entity-ids.ts && node --import tsx scripts/generate-module-registry.ts && node --import tsx scripts/generate-module-entities.ts && node --import tsx scripts/generate-module-di.ts && node --import tsx scripts/generate-api-client.ts && tsx packages/cli/src/bin.ts entities install",
     "init": "tsx packages/cli/src/bin.ts init",
     "premercato": "npm run modules:prepare",
     "mercato": "tsx packages/cli/src/bin.ts",

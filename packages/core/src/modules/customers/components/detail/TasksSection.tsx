@@ -4,11 +4,11 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@/lib/utils'
 import { useT } from '@/lib/i18n/context'
-import type { SectionAction, TabEmptyState, TodoLinkSummary, Translator } from './types'
+import type { SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate, formatDateTime, resolveTodoHref } from './utils'
 import { TimelineItemHeader } from './TimelineItemHeader'
@@ -20,7 +20,7 @@ type TasksSectionProps = {
   initialTasks: TodoLinkSummary[]
   emptyLabel: string
   addActionLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   translator?: Translator
@@ -252,10 +252,17 @@ export function TasksSection({
   const hasTasks = tasks.length > 0
 
   return (
-    <div className="mt-4 space-y-6">
+    <div className="mt-0 space-y-6">
       <div className="space-y-4">
+        {isInitialLoading ? (
+          <LoadingMessage
+            label={t('customers.people.detail.tasks.loading', 'Loading tasks…')}
+            className="border-0 bg-transparent p-0 py-8 justify-center"
+          />
+        ) : null}
+
         {!isInitialLoading && !hasTasks ? (
-          <EmptyState
+          <TabEmptyState
             title={emptyState.title}
             action={{
               label: emptyState.actionLabel,

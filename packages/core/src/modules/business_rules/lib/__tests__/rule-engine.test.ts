@@ -4,6 +4,7 @@ import * as ruleEngine from '../rule-engine'
 import * as ruleEvaluator from '../rule-evaluator'
 import * as actionExecutor from '../action-executor'
 import type { RuleEngineContext } from '../rule-engine'
+import type { ActionExecutionOutcome } from '../action-executor'
 import type { BusinessRule } from '../../data/entities'
 
 // Mock dependencies
@@ -16,6 +17,30 @@ describe('Rule Engine (Unit Tests)', () => {
   const testTenantId = '00000000-0000-4000-8000-000000000001'
   const testOrgId = '00000000-0000-4000-8000-000000000002'
   const testEntityId = '00000000-0000-4000-8000-000000000003'
+  const allowOutcome: ActionExecutionOutcome = {
+    success: true,
+    results: [
+      {
+        action: { type: 'ALLOW_TRANSITION' },
+        success: true,
+        result: { type: 'ALLOW_TRANSITION', allowed: true, message: 'Allowed' },
+        executionTime: 1,
+      },
+    ],
+    totalTime: 1,
+  }
+  const blockOutcome: ActionExecutionOutcome = {
+    success: false,
+    results: [
+      {
+        action: { type: 'BLOCK_TRANSITION' },
+        success: true,
+        result: { type: 'BLOCK_TRANSITION', allowed: false, message: 'Blocked' },
+        executionTime: 1,
+      },
+    ],
+    totalTime: 1,
+  }
 
   beforeEach(() => {
     // Create mock EntityManager
@@ -187,17 +212,13 @@ describe('Rule Engine (Unit Tests)', () => {
       })
 
       // Mock action execution
-      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: false,
-        results: [{ type: 'ALLOW_TRANSITION', success: true, executionTime: 1 }],
-        totalExecutionTime: 1,
-      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(allowOutcome)
 
       const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
 
       expect(result.conditionResult).toBe(true)
       expect(result.actionsExecuted).not.toBeNull()
-      expect(result.actionsExecuted?.blocked).toBe(false)
+      expect(result.actionsExecuted?.success).toBe(true)
       expect(result.executionTime).toBeGreaterThanOrEqual(0)
       expect(ruleEvaluator.evaluateSingleRule).toHaveBeenCalledWith(
         mockRule,
@@ -232,17 +253,13 @@ describe('Rule Engine (Unit Tests)', () => {
       })
 
       // Mock failure action execution
-      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: true,
-        results: [{ type: 'BLOCK_TRANSITION', success: true, executionTime: 1 }],
-        totalExecutionTime: 1,
-      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(blockOutcome)
 
       const result = await ruleEngine.executeSingleRule(mockEm, mockRule as BusinessRule, context)
 
       expect(result.conditionResult).toBe(false)
       expect(result.actionsExecuted).not.toBeNull()
-      expect(result.actionsExecuted?.blocked).toBe(true)
+      expect(result.actionsExecuted?.success).toBe(false)
       expect(actionExecutor.executeActions).toHaveBeenCalledWith(
         mockRule.failureActions,
         expect.any(Object)
@@ -351,9 +368,9 @@ describe('Rule Engine (Unit Tests)', () => {
         })
 
       jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: false,
+        success: true,
         results: [],
-        totalExecutionTime: 1,
+        totalTime: 1,
       })
 
       const context: RuleEngineContext = {
@@ -397,11 +414,7 @@ describe('Rule Engine (Unit Tests)', () => {
         evaluationTime: 1,
       })
 
-      jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: true,
-        results: [{ type: 'BLOCK_TRANSITION', success: true, executionTime: 1 }],
-        totalExecutionTime: 1,
-      })
+      jest.mocked(actionExecutor.executeActions).mockResolvedValue(blockOutcome)
 
       const context: RuleEngineContext = {
         entityType: 'WorkOrder',
@@ -464,9 +477,9 @@ describe('Rule Engine (Unit Tests)', () => {
         })
 
       jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: false,
+        success: true,
         results: [],
-        totalExecutionTime: 1,
+        totalTime: 1,
       })
 
       const context: RuleEngineContext = {
@@ -531,9 +544,9 @@ describe('Rule Engine (Unit Tests)', () => {
         })
 
       jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: false,
+        success: true,
         results: [],
-        totalExecutionTime: 1,
+        totalTime: 1,
       })
 
       const context: RuleEngineContext = {
@@ -590,9 +603,9 @@ describe('Rule Engine (Unit Tests)', () => {
       })
 
       jest.mocked(actionExecutor.executeActions).mockResolvedValue({
-        blocked: false,
+        success: true,
         results: [],
-        totalExecutionTime: 5,
+        totalTime: 5,
       })
 
       const context: RuleEngineContext = {

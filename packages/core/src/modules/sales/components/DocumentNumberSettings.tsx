@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -75,6 +76,8 @@ export function DocumentNumberSettings() {
     quoteNext: t('sales.config.numbering.quoteNext', 'Next quote sequence'),
     save: t('sales.config.numbering.actions.save', 'Save settings'),
     reset: t('sales.config.numbering.actions.reset', 'Reset changes'),
+    refresh: t('sales.config.numbering.actions.refresh', 'Refresh'),
+    refreshing: t('sales.config.numbering.actions.refreshing', 'Refreshing…'),
     tokensTitle: t('sales.config.numbering.tokensTitle', 'Available tokens'),
     tokensHint: t(
       'sales.config.numbering.tokensHint',
@@ -151,15 +154,24 @@ export function DocumentNumberSettings() {
   }, [handleLoad])
 
   return (
-    <section className="rounded-lg border bg-card/30 p-5 shadow-sm">
+    <section className="rounded-none border bg-card/30 p-5 shadow-sm">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <h2 className="text-lg font-semibold">{translations.title}</h2>
           <p className="text-sm text-muted-foreground">{translations.description}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" type="button" onClick={handleLoad} disabled={loading || saving}>
-            {loading ? t('sales.config.numbering.actions.refreshing', 'Refreshing…') : t('sales.config.numbering.actions.refresh', 'Refresh')}
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            className="rounded-none border-0 shadow-none hover:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+            onClick={handleLoad}
+            disabled={loading || saving}
+            aria-label={translations.refresh}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            <span className="sr-only">{loading ? translations.refreshing : translations.refresh}</span>
           </Button>
         </div>
       </div>

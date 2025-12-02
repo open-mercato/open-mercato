@@ -125,7 +125,7 @@ export async function seedExampleTodos(
 
   const existing = await em.count(Todo, { organizationId, tenantId })
   if (existing > 0) {
-    logger(`Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
+    logger(`📝 Example todos already seeded for org=${organizationId}, tenant=${tenantId}; skipping`)
     return false
   }
 

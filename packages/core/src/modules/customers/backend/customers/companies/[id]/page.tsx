@@ -14,12 +14,15 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
+import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import {
   ActivitiesSection,
 } from '../../../../components/detail/ActivitiesSection'
 import {
   NotesSection,
-} from '../../../../components/detail/NotesSection'
+  type CommentSummary,
+  type SectionAction,
+} from '@open-mercato/ui/backend/detail'
 import {
   TagsSection,
   type TagOption,
@@ -27,26 +30,22 @@ import {
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { AddressesSection } from '../../../../components/detail/AddressesSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
-import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
-import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { CompanyHighlights } from '../../../../components/detail/CompanyHighlights'
 import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
-import { renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
+import { InlineDictionaryEditor, renderMultilineMarkdownDisplay } from '../../../../components/detail/InlineEditors'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import {
   CompanyPeopleSection,
   type CompanyPersonSummary,
 } from '../../../../components/detail/CompanyPeopleSection'
-import type {
-  ActivitySummary,
-  CommentSummary,
-  DealSummary,
-  TagSummary,
-  TodoLinkSummary,
-  SectionAction,
-} from '../../../../components/detail/types'
+import { AnnualRevenueField } from '../../../../components/detail/AnnualRevenueField'
+import type { ActivitySummary, DealSummary, TagSummary, TodoLinkSummary } from '../../../../components/detail/types'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 
 type CompanyOverview = {
   company: {
@@ -92,17 +91,11 @@ type CompanyOverview = {
 
 type SectionKey = 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 'tasks'
 
-type SectionLoaderProps = { isLoading: boolean; label?: string }
-
-function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
-  if (!isLoading) return null
-  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
-}
-
 export default function CustomerCompanyDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
+  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
@@ -116,14 +109,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
-  const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
-    notes: false,
-    activities: false,
-    deals: false,
-    people: false,
-    addresses: false,
-    tasks: false,
-  })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const currentCompanyId = data?.company?.id ?? null
@@ -453,29 +438,17 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     [submitCustomFields],
   )
 
-  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, notes: loading }))
-  }, [])
+  const handleNotesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, activities: loading }))
-  }, [])
+  const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleDealsLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, deals: loading }))
-  }, [])
+  const handleDealsLoadingChange = React.useCallback(() => {}, [])
 
-  const handlePeopleLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, people: loading }))
-  }, [])
+  const handlePeopleLoadingChange = React.useCallback(() => {}, [])
 
-  const handleAddressesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, addresses: loading }))
-  }, [])
+  const handleAddressesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleTasksLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, tasks: loading }))
-  }, [])
+  const handleTasksLoadingChange = React.useCallback(() => {}, [])
 
   const dealsScope = React.useMemo(
     () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
@@ -571,23 +544,39 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
     {
       key: 'lifecycleStage',
-      kind: 'dictionary',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.lifecycleStage', 'Lifecycle stage'),
-      value: company.lifecycleStage ?? null,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      dictionaryKind: 'lifecycle-stages',
-      onSave: (next) => updateCompanyField('lifecycleStage', next),
-      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+      render: () => (
+        <InlineDictionaryEditor
+          label={t('customers.companies.detail.fields.lifecycleStage', 'Lifecycle stage')}
+          value={company.lifecycleStage ?? null}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          kind="lifecycle-stages"
+          onSave={(next) => updateCompanyField('lifecycleStage', next)}
+          selectClassName="h-9 w-full rounded border px-3 text-sm"
+          variant="muted"
+          activateOnClick
+        />
+      ),
     },
     {
       key: 'source',
-      kind: 'dictionary',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.source', 'Source'),
-      value: company.source ?? null,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      dictionaryKind: 'sources',
-      onSave: (next) => updateCompanyField('source', next),
-      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+      render: () => (
+        <InlineDictionaryEditor
+          label={t('customers.companies.detail.fields.source', 'Source')}
+          value={company.source ?? null}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          kind="sources"
+          onSave={(next) => updateCompanyField('source', next)}
+          selectClassName="h-9 w-full rounded border px-3 text-sm"
+          variant="muted"
+          activateOnClick
+        />
+      ),
     },
     {
       key: 'domain',
@@ -600,13 +589,21 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
     {
       key: 'industry',
-      kind: 'dictionary',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.industry', 'Industry'),
-      value: profile?.industry ?? null,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      dictionaryKind: 'industries',
-      onSave: (next) => updateProfileField('industry', next),
-      selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+      render: () => (
+        <InlineDictionaryEditor
+          label={t('customers.companies.detail.fields.industry', 'Industry')}
+          value={profile?.industry ?? null}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          kind="industries"
+          onSave={(next) => updateProfileField('industry', next)}
+          selectClassName="h-9 w-full rounded border px-3 text-sm"
+          variant="muted"
+          activateOnClick
+        />
+      ),
     },
     {
       key: 'sizeBucket',
@@ -619,13 +616,19 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     },
     {
       key: 'annualRevenue',
-      kind: 'annualRevenue',
+      kind: 'custom',
       label: t('customers.companies.detail.fields.annualRevenue', 'Annual revenue'),
-      value: profile?.annualRevenue ?? null,
-      currency: annualRevenueCurrency,
       emptyLabel: t('customers.companies.detail.noValue', 'Not provided'),
-      validator: validators.annualRevenue,
-      onSave: handleAnnualRevenueChange,
+      render: () => (
+        <AnnualRevenueField
+          label={t('customers.companies.detail.fields.annualRevenue', 'Annual revenue')}
+          amount={profile?.annualRevenue ?? null}
+          currency={annualRevenueCurrency}
+          emptyLabel={t('customers.companies.detail.noValue', 'Not provided')}
+          validator={validators.annualRevenue}
+          onSave={handleAnnualRevenueChange}
+        />
+      ),
     },
     {
       key: 'websiteUrl',
@@ -718,12 +721,6 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               ) : null}
             </div>
             <div>
-              {activeTab !== 'notes' ? (
-                <SectionLoader
-                  isLoading={sectionPending[activeTab as SectionKey]}
-                  label={sectionLoaderLabel}
-                />
-              ) : null}
               {activeTab === 'notes' && (
                 <NotesSection
                   entityId={companyId}
@@ -739,6 +736,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                   onActionChange={handleSectionActionChange}
                   translator={translateCompanyDetail}
                   onLoadingChange={handleNotesLoadingChange}
+                  dataAdapter={notesAdapter}
+                  renderIcon={renderDictionaryIcon}
+                  renderColor={renderDictionaryColor}
+                  iconSuggestions={ICON_SUGGESTIONS}
+                  readMarkdownPreference={readMarkdownPreferenceCookie}
+                  writeMarkdownPreference={writeMarkdownPreferenceCookie}
                 />
               )}
               {activeTab === 'activities' && (

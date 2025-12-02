@@ -43,7 +43,7 @@ const seedUnitsCommand: ModuleCli = {
       await em.transactional(async (tem) => {
         await seedCatalogUnits(tem, scope)
       })
-      console.log('Unit dictionary seeded for organization', organizationId)
+      console.log('📏 Unit dictionary seeded for organization', organizationId)
     } finally {
       const disposable = container as unknown as { dispose?: () => Promise<void> }
       if (typeof disposable.dispose === 'function') {
@@ -71,7 +71,7 @@ const seedPriceKindsCommand: ModuleCli = {
         await seedCatalogPriceKinds(tem, scope)
       })
       console.log(
-        'Price kinds seeded for tenant',
+        '🏷️ Price kinds seeded for tenant',
         tenantId,
         organizationId ? `(org: ${organizationId})` : '(org: shared)',
       )
