@@ -793,12 +793,24 @@ function buildCatalogSnapshot(
   price: { net: number; gross: number; currency: string } | null
 ): Record<string, unknown> | null {
   if (!product) return null
+  const productThumbnail =
+    (product as any).defaultMediaUrl ??
+    (product as any).thumbnailUrl ??
+    (product.metadata && typeof product.metadata === 'object'
+      ? ((product.metadata as any).thumbnailUrl as string | null | undefined)
+      : null) ??
+    null
+  const variantThumbnail =
+    variant && variant.metadata && typeof variant.metadata === 'object'
+      ? ((variant.metadata as any).thumbnailUrl as string | null | undefined) ?? null
+      : null
   return {
     product: {
       id: product.id,
       title: product.title,
       handle: product.handle ?? null,
       sku: product.sku ?? null,
+      thumbnailUrl: productThumbnail,
     },
     variant: variant
       ? {
@@ -806,6 +818,7 @@ function buildCatalogSnapshot(
           name: variant.name ?? product.title,
           sku: variant.sku ?? null,
           optionValues: variant.optionValues ?? null,
+          thumbnailUrl: variantThumbnail,
         }
       : null,
     price: price
@@ -828,6 +841,8 @@ function resolveCatalogLine(
   unitPriceGross: number | null
   currencyCode: string | null
   snapshot: Record<string, unknown> | null
+  productThumbnail: string | null
+  variantThumbnail: string | null
 } {
   const variant =
     line.variantSku && catalog.variantsBySku.size
@@ -837,13 +852,22 @@ function resolveCatalogLine(
     variant?.product ??
     (line.productHandle ? catalog.productsByHandle.get(normalizeKey(line.productHandle)) ?? null : null)
   const price = variant ? catalog.variantPrices.get(variant.id) ?? null : null
+  const snapshot = buildCatalogSnapshot(product ?? null, variant ?? null, price ?? null)
+  const productThumbnail =
+    (snapshot as any)?.product?.thumbnailUrl ??
+    (product as any)?.defaultMediaUrl ??
+    (product as any)?.thumbnailUrl ??
+    null
+  const variantThumbnail = (snapshot as any)?.variant?.thumbnailUrl ?? null
   return {
     productId: product ? product.id : null,
     variantId: variant ? variant.id : null,
     unitPriceNet: price?.net ?? null,
     unitPriceGross: price?.gross ?? null,
     currencyCode: price?.currency ?? null,
-    snapshot: buildCatalogSnapshot(product ?? null, variant ?? null, price ?? null),
+    snapshot,
+    productThumbnail: productThumbnail ?? null,
+    variantThumbnail: variantThumbnail ?? null,
   }
 }
 
@@ -1177,9 +1201,20 @@ export async function seedSalesExamples(
 
     const lineSnapshots = seed.lines.map((line) => {
       const catalogRef = resolveCatalogLine(line, catalogLookups)
+      if ((line.kind ?? 'product') === 'product' && !catalogRef.productId) {
+        console.warn(
+          `[sales.examples] Missing catalog match for quote line "${line.name ?? line.variantSku ?? line.productHandle ?? 'unknown'}".`
+        )
+      }
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
       const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet
       const currencyCode = catalogRef.currencyCode ?? seed.currencyCode
+      const metadata: Record<string, unknown> = {}
+      if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
+      if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
+      const metadata: Record<string, unknown> = {}
+      if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
+      if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
       return {
         id: randomUUID(),
         kind: line.kind ?? 'product',
@@ -1196,6 +1231,7 @@ export async function seedSalesExamples(
         productId: catalogRef.productId,
         productVariantId: catalogRef.variantId,
         catalogSnapshot: catalogRef.snapshot,
+        metadata: Object.keys(metadata).length ? metadata : null,
       }
     })
 
@@ -1369,6 +1405,11 @@ export async function seedSalesExamples(
 
     const lineSnapshots = seed.lines.map((line) => {
       const catalogRef = resolveCatalogLine(line, catalogLookups)
+      if ((line.kind ?? 'product') === 'product' && !catalogRef.productId) {
+        console.warn(
+          `[sales.examples] Missing catalog match for order line "${line.name ?? line.variantSku ?? line.productHandle ?? 'unknown'}".`
+        )
+      }
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
       const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet
       const currencyCode = catalogRef.currencyCode ?? seed.currencyCode
@@ -1388,6 +1429,7 @@ export async function seedSalesExamples(
         productId: catalogRef.productId,
         productVariantId: catalogRef.variantId,
         catalogSnapshot: catalogRef.snapshot,
+        metadata: Object.keys(metadata).length ? metadata : null,
       }
     })
 

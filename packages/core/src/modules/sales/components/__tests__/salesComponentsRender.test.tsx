@@ -356,10 +356,12 @@ describe('sales components', () => {
     mockReadApiResultOrThrow
       .mockResolvedValueOnce({ items: [{ id: 'st-1', value: 'new', label: 'New' }] })
       .mockResolvedValueOnce({ items: [{ id: 'ln-1', value: 'processing', label: 'Processing' }] })
+      .mockResolvedValueOnce({ items: [{ id: 'sh-1', value: 'shipped', label: 'Shipped' }] })
+      .mockResolvedValueOnce({ items: [{ id: 'pay-1', value: 'paid', label: 'Paid' }] })
     render(<StatusSettings />)
     await waitFor(() => {
       const tables = screen.getAllByTestId('dictionary-table-count')
-      expect(tables).toHaveLength(2)
+      expect(tables).toHaveLength(4)
       tables.forEach((table) => expect(table).toHaveTextContent('1'))
     })
   })
@@ -420,6 +422,7 @@ describe('sales components', () => {
       items: [],
     })
     render(<ChannelOfferForm channelId="channel-1" mode="create" />)
+    await waitFor(() => expect(mockReadApiResultOrThrow).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: /create|save|submit/i })).toBeInTheDocument()
   })
 })

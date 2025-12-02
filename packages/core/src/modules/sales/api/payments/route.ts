@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
