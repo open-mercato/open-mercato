@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+export {}
+
 const registerCommand = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({

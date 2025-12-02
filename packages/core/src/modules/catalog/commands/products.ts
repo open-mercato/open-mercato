@@ -204,7 +204,12 @@ async function resolveScopedTaxRate(
   tenantId: string
 ): Promise<{ taxRateId: string | null; taxRate: string | null }> {
   const normalizedRate =
-    taxRateInput === null || taxRateInput === undefined ? null : toNumericString(taxRateInput)
+    taxRateInput === null || taxRateInput === undefined
+      ? null
+      : (() => {
+          const numeric = typeof taxRateInput === 'string' ? Number(taxRateInput) : taxRateInput
+          return Number.isFinite(numeric) ? toNumericString(numeric) : null
+        })()
   if (!taxRateId) {
     return { taxRateId: null, taxRate: normalizedRate }
   }

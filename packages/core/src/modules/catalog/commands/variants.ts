@@ -151,7 +151,12 @@ async function resolveVariantTaxRate(
   const organizationId = product.organizationId
   const tenantId = product.tenantId
   const normalizedRate =
-    taxRateInput === null || taxRateInput === undefined ? null : toNumericString(taxRateInput)
+    taxRateInput === null || taxRateInput === undefined
+      ? null
+      : (() => {
+          const numeric = typeof taxRateInput === 'string' ? Number(taxRateInput) : taxRateInput
+          return Number.isFinite(numeric) ? toNumericString(numeric) : null
+        })()
   if (taxRateIdInput === null) {
     return { taxRateId: product.taxRateId ?? null, taxRate: product.taxRate ?? null }
   }

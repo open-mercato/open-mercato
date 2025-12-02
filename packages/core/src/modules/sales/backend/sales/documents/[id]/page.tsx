@@ -1813,6 +1813,7 @@ export default function SalesDocumentDetailPage({
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const detailSectionRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
+  const [converting, setConverting] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [numberEditing, setNumberEditing] = React.useState(false)
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
@@ -3318,6 +3319,30 @@ export default function SalesDocumentDetailPage({
     setGenerating(false)
   }, [kind, t])
 
+  const handleConvert = React.useCallback(async () => {
+    if (!record || kind !== 'quote') return
+    setConverting(true)
+    try {
+      const call = await apiCallOrThrow<{ orderId?: string }>(
+        '/api/sales/quotes/convert',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quoteId: record.id }),
+        },
+        { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+      )
+      const orderId = call.result?.orderId ?? record.id
+      flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
+      router.push(`/backend/sales/orders/${orderId}`)
+    } catch (err) {
+      console.error('sales.documents.convert', err)
+      flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
+    } finally {
+      setConverting(false)
+    }
+  }, [kind, record, router, t])
+
   const handleDelete = React.useCallback(async () => {
     if (!record) return
     const confirmed = window.confirm(
@@ -4082,6 +4107,17 @@ export default function SalesDocumentDetailPage({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {kind === 'quote' ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleConvert()}
+                disabled={converting}
+              >
+                {converting ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {t('sales.documents.detail.convertToOrder', 'Convert to order')}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"

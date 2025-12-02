@@ -43,7 +43,7 @@ type ShipmentDialogProps = {
   organizationId: string | null
   tenantId: string | null
   computeAvailable: (lineId: string, excludeShipmentId?: string | null) => number
-  shippingAddressSnapshot?: Record<string, unknown> | null
+  shippingAddressSnapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null
   onClose: () => void
   onSaved: () => Promise<void>
   onAddComment?: (body: string) => Promise<void>
@@ -283,6 +283,57 @@ export function ShipmentDialog({
     [shipment?.metadata],
   )
 
+  const normalizedShippingAddressSnapshot = React.useMemo(
+    () => normalizeAddressSnapshot(shippingAddressSnapshot ?? null),
+    [shippingAddressSnapshot],
+  )
+
+  const shippingAddressOption = React.useMemo(
+    () =>
+      buildAddressOption(normalizedShippingAddressSnapshot ?? null, {
+        id: 'shipping-address',
+        label: t('sales.documents.shipments.shippingAddressLabel', 'Shipping address'),
+      }),
+    [normalizedShippingAddressSnapshot, t],
+  )
+
+  const shipmentAddressOption = React.useMemo(
+    () =>
+      buildAddressOption(shipmentAddressSnapshot ?? null, {
+        id: 'shipment-address',
+        label: t('sales.documents.shipments.shipmentAddressLabel', 'Shipment address'),
+      }),
+    [shipmentAddressSnapshot, t],
+  )
+
+  const baseAddressOptions = React.useMemo(
+    () =>
+      dedupeAddressOptions(
+        [shippingAddressOption, shipmentAddressOption].filter(
+          (entry): entry is ShipmentAddressOption => Boolean(entry),
+        ),
+      ),
+    [shipmentAddressOption, shippingAddressOption],
+  )
+
+  const preferredAddressId = React.useMemo(() => {
+    const shipmentKey = snapshotKey(shipmentAddressSnapshot)
+    if (shipmentKey) {
+      const match = baseAddressOptions.find(
+        (option) => snapshotKey(option.snapshot) === shipmentKey
+      )
+      if (match) return match.id
+    }
+    if (normalizedShippingAddressSnapshot) {
+      const shippingKey = snapshotKey(normalizedShippingAddressSnapshot)
+      const match = baseAddressOptions.find(
+        (option) => snapshotKey(option.snapshot) === shippingKey
+      )
+      if (match) return match.id
+    }
+    return baseAddressOptions[0]?.id ?? ''
+  }, [baseAddressOptions, shipmentAddressSnapshot, normalizedShippingAddressSnapshot])
+
   const initialValues = React.useMemo(
     () => ({
       shipmentNumber: shipment?.shipmentNumber ?? '',
@@ -325,52 +376,6 @@ export function ShipmentDialog({
       shipmentAddressSnapshot,
     ],
   )
-
-  const shippingAddressOption = React.useMemo(
-    () =>
-      buildAddressOption(shippingAddressSnapshot ?? null, {
-        id: 'shipping-address',
-        label: t('sales.documents.shipments.shippingAddressLabel', 'Shipping address'),
-      }),
-    [shippingAddressSnapshot, t],
-  )
-
-  const shipmentAddressOption = React.useMemo(
-    () =>
-      buildAddressOption(shipmentAddressSnapshot ?? null, {
-        id: 'shipment-address',
-        label: t('sales.documents.shipments.shipmentAddressLabel', 'Shipment address'),
-      }),
-    [shipmentAddressSnapshot, t],
-  )
-
-  const baseAddressOptions = React.useMemo(
-    () =>
-      dedupeAddressOptions(
-        [shippingAddressOption, shipmentAddressOption].filter(
-          (entry): entry is ShipmentAddressOption => Boolean(entry),
-        ),
-      ),
-    [shipmentAddressOption, shippingAddressOption],
-  )
-
-  const preferredAddressId = React.useMemo(() => {
-    const shipmentKey = snapshotKey(shipmentAddressSnapshot)
-    if (shipmentKey) {
-      const match = baseAddressOptions.find(
-        (option) => snapshotKey(option.snapshot) === shipmentKey
-      )
-      if (match) return match.id
-    }
-    if (shippingAddressSnapshot) {
-      const shippingKey = snapshotKey(shippingAddressSnapshot)
-      const match = baseAddressOptions.find(
-        (option) => snapshotKey(option.snapshot) === shippingKey
-      )
-      if (match) return match.id
-    }
-    return baseAddressOptions[0]?.id ?? ''
-  }, [baseAddressOptions, shipmentAddressSnapshot, shippingAddressSnapshot])
 
   const addressOptionsMap = React.useMemo(() => {
     const map = new Map<string, ShipmentAddressOption>()

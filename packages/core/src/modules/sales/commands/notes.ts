@@ -79,14 +79,37 @@ async function requireContext(
   order?: SalesOrder | null
   quote?: SalesQuote | null
 }> {
-  const repo =
-    contextType === 'order'
-      ? SalesOrder
-      : contextType === 'quote'
-        ? SalesQuote
-        : contextType === 'invoice'
-          ? SalesInvoice
-          : SalesCreditMemo
+  if (contextType === 'order') {
+    const order = await em.findOne(SalesOrder, { id: contextId })
+    if (!order) {
+      throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+    }
+    if (organizationId && tenantId) {
+      ensureSameScope(order, organizationId, tenantId)
+    }
+    return {
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      order,
+      quote: null,
+    }
+  }
+  if (contextType === 'quote') {
+    const quote = await em.findOne(SalesQuote, { id: contextId })
+    if (!quote) {
+      throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
+    }
+    if (organizationId && tenantId) {
+      ensureSameScope(quote, organizationId, tenantId)
+    }
+    return {
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      order: null,
+      quote,
+    }
+  }
+  const repo = contextType === 'invoice' ? SalesInvoice : SalesCreditMemo
   const entity = await em.findOne(repo, { id: contextId })
   if (!entity) {
     throw new CrudHttpError(404, { error: 'sales.notes.context_not_found' })
@@ -97,8 +120,8 @@ async function requireContext(
   return {
     organizationId: entity.organizationId,
     tenantId: entity.tenantId,
-    order: contextType === 'order' ? (entity as SalesOrder) : null,
-    quote: contextType === 'quote' ? (entity as SalesQuote) : null,
+    order: null,
+    quote: null,
   }
 }
 
@@ -270,7 +293,14 @@ const updateNoteCommand: CommandHandler<NoteUpdateInput, { noteId: string }> = {
         tenantId: before.tenantId,
         contextType: before.contextType,
         contextId: before.contextId,
+        order: before.orderId ? context.order ?? null : null,
+        quote: before.quoteId ? context.quote ?? null : null,
+        body: before.body,
+        authorUserId: before.authorUserId,
+        appearanceIcon: before.appearanceIcon,
+        appearanceColor: before.appearanceColor,
         createdAt: new Date(),
+        updatedAt: new Date(),
       })
       em.persist(note)
     }
@@ -360,18 +390,25 @@ const deleteNoteCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const context = await requireContext(em, before.contextType, before.contextId).catch(() => null)
       if (!context) return
-      let note = await em.findOne(SalesNote, { id: before.id })
-      if (!note) {
-        note = em.create(SalesNote, {
-          id: before.id,
-          organizationId: before.organizationId,
-          tenantId: before.tenantId,
-          contextType: before.contextType,
-          contextId: before.contextId,
-          createdAt: new Date(),
-        })
-        em.persist(note)
-      }
+    let note = await em.findOne(SalesNote, { id: before.id })
+    if (!note) {
+      note = em.create(SalesNote, {
+        id: before.id,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+        contextType: before.contextType,
+        contextId: before.contextId,
+        order: before.orderId ? context.order ?? null : null,
+        quote: before.quoteId ? context.quote ?? null : null,
+        body: before.body,
+        authorUserId: before.authorUserId,
+        appearanceIcon: before.appearanceIcon,
+        appearanceColor: before.appearanceColor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(note)
+    }
       note.organizationId = before.organizationId
       note.tenantId = before.tenantId
       note.contextType = before.contextType

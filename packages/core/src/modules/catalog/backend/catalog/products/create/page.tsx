@@ -252,7 +252,20 @@ export default function CreateCatalogProductPage() {
             const optionSchemaDefinition = buildOptionSchemaDefinition(formValues.options, title)
             const dimensions = sanitizeProductDimensions(formValues.dimensions ?? null)
             const weight = sanitizeProductWeight(formValues.weight ?? null)
-            const productTaxRate = resolveTaxRateValue(formValues.taxRateId ?? null)
+            const resolveTaxRateValue = (taxRateId?: string | null) => {
+              if (!taxRateId) return null
+              const match = taxRates.find((rate) => rate.id === taxRateId)
+              return typeof match?.rate === 'number' ? match.rate : null
+            }
+            const productLevelTaxRateId = formValues.taxRateId ?? null
+            const productTaxRate = resolveTaxRateValue(productLevelTaxRateId)
+            const resolveVariantTax = (variant: VariantDraft) => {
+              const resolvedVariantTaxRateId = variant.taxRateId ?? productLevelTaxRateId
+              const resolvedVariantTaxRate =
+                resolveTaxRateValue(resolvedVariantTaxRateId) ??
+                (resolvedVariantTaxRateId ? null : productTaxRate ?? null)
+              return { resolvedVariantTaxRateId, resolvedVariantTaxRate }
+            }
             const productPayload: Record<string, unknown> = {
               title,
               subtitle: formValues.subtitle?.trim() || undefined,
@@ -309,18 +322,9 @@ export default function CreateCatalogProductPage() {
               (Array.isArray(formValues.variants) && formValues.variants.length
                 ? formValues.variants
                 : [createVariantDraft(formValues.taxRateId ?? null, { isDefault: true })]) ?? []
-            const resolveTaxRateValue = (taxRateId?: string | null) => {
-              if (!taxRateId) return null
-              const match = taxRates.find((rate) => rate.id === taxRateId)
-              return typeof match?.rate === 'number' ? match.rate : null
-            }
-            const productLevelTaxRateId = formValues.taxRateId ?? null
             const priceRequests: VariantPriceRequest[] = []
             for (const variant of variantDrafts) {
-              const resolvedVariantTaxRateId = variant.taxRateId ?? productLevelTaxRateId
-              const resolvedVariantTaxRate =
-                resolveTaxRateValue(resolvedVariantTaxRateId) ??
-                (resolvedVariantTaxRateId ? null : productTaxRate ?? null)
+              const { resolvedVariantTaxRateId, resolvedVariantTaxRate } = resolveVariantTax(variant)
               for (const priceKind of priceKinds) {
                 const value = variant.prices?.[priceKind.id]?.amount?.trim()
                 if (!value) continue
@@ -363,16 +367,17 @@ export default function CreateCatalogProductPage() {
 
               const variantIdMap: Record<string, string> = {}
               for (const variant of variantDrafts) {
-              const variantPayload: Record<string, unknown> = {
-                productId,
-                name: variant.title?.trim() || Object.values(variant.optionValues).join(' / ') || 'Variant',
-                sku: variant.sku?.trim() || undefined,
-                isDefault: Boolean(variant.isDefault),
-                isActive: true,
-                optionValues: Object.keys(variant.optionValues).length ? variant.optionValues : undefined,
-                taxRateId: resolvedVariantTaxRateId ?? null,
-                taxRate: resolvedVariantTaxRate ?? null,
-              }
+                const { resolvedVariantTaxRateId, resolvedVariantTaxRate } = resolveVariantTax(variant)
+                const variantPayload: Record<string, unknown> = {
+                  productId,
+                  name: variant.title?.trim() || Object.values(variant.optionValues).join(' / ') || 'Variant',
+                  sku: variant.sku?.trim() || undefined,
+                  isDefault: Boolean(variant.isDefault),
+                  isActive: true,
+                  optionValues: Object.keys(variant.optionValues).length ? variant.optionValues : undefined,
+                  taxRateId: resolvedVariantTaxRateId ?? null,
+                  taxRate: resolvedVariantTaxRate ?? null,
+                }
                 const { result: variantResult } = await createCrud<{ id?: string; variantId?: string }>(
                   'catalog/variants',
                   variantPayload,

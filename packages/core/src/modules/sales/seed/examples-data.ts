@@ -30,7 +30,7 @@ export const EXAMPLE_SHIPPING_METHODS: ExampleShippingSeed[] = [
     baseRateGross: '9.90',
     currencyCode: 'USD',
     providerSettings: {
-      applyBaseRate: true,
+      applyBaseRate: false,
       rates: [
         {
           id: 'ground-small',

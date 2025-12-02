@@ -11,6 +11,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
@@ -36,6 +37,7 @@ import {
   type SalesAdjustmentKind,
   type SalesSettings,
 } from '../data/entities'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   CustomerAddress,
   CustomerEntity,
@@ -348,6 +350,11 @@ type OrderUndoPayload = {
 type QuoteUndoPayload = {
   before?: QuoteGraphSnapshot | null
   after?: QuoteGraphSnapshot | null
+}
+
+type QuoteConvertUndoPayload = {
+  quote?: QuoteGraphSnapshot | null
+  order?: OrderGraphSnapshot | null
 }
 
 const currencyCodeSchema = z
@@ -3652,6 +3659,325 @@ const deleteOrderCommand: CommandHandler<
   },
 }
 
+const quoteConvertToOrderSchema = z.object({
+  quoteId: z.string().uuid(),
+  orderId: z.string().uuid().optional(),
+  orderNumber: z.string().trim().max(191).optional(),
+})
+
+const convertQuoteToOrderCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { orderId: string }
+> = {
+  id: 'sales.quotes.convert_to_order',
+  async prepare(input, ctx) {
+    const raw = { ...(input?.body ?? {}), ...(input?.query ?? {}) }
+    const parsed = quoteConvertToOrderSchema.safeParse(raw)
+    const quoteId = parsed.success ? parsed.data.quoteId : typeof raw?.quoteId === 'string' ? raw.quoteId : null
+    if (!quoteId) return {}
+    const em = ctx.container.resolve('em') as EntityManager
+    const snapshot = await loadQuoteSnapshot(em, quoteId)
+    if (snapshot) ensureQuoteScope(ctx, snapshot.quote.organizationId, snapshot.quote.tenantId)
+    return snapshot ? { before: snapshot } : {}
+  },
+  async execute(rawInput, ctx) {
+    const payload = quoteConvertToOrderSchema.parse({ ...(rawInput?.body ?? {}), ...(rawInput?.query ?? {}) })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const quote = await em.findOne(SalesQuote, { id: payload.quoteId, deletedAt: null })
+    const { translate } = await resolveTranslations()
+    if (!quote) throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
+    ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    const snapshot = await loadQuoteSnapshot(em, payload.quoteId)
+    if (!snapshot) throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
+    const orderId = payload.orderId ?? quote.id
+    const existingOrder = await em.findOne(SalesOrder, { id: orderId, deletedAt: null })
+    if (existingOrder) {
+      throw new CrudHttpError(409, { error: translate('sales.documents.detail.convertExists', 'Order already exists for this quote.') })
+    }
+
+    const generator = ctx.container.resolve('salesDocumentNumberGenerator') as SalesDocumentNumberGenerator
+    const generatedNumber =
+      snapshot.quote.quoteNumber && snapshot.quote.quoteNumber.trim().length
+        ? snapshot.quote.quoteNumber
+        : (
+            await generator.generate({
+              kind: 'order',
+              organizationId: snapshot.quote.organizationId,
+              tenantId: snapshot.quote.tenantId,
+            })
+          ).number
+    const orderNumber =
+      typeof payload.orderNumber === 'string' && payload.orderNumber.trim().length
+        ? payload.orderNumber.trim()
+        : generatedNumber
+
+    const [quoteCustomFields, quoteLineCustomFields] = await Promise.all([
+      loadCustomFieldValues({
+        em,
+        entityId: E.sales.sales_quote,
+        recordIds: [snapshot.quote.id],
+        tenantIdByRecord: { [snapshot.quote.id]: snapshot.quote.tenantId },
+        organizationIdByRecord: { [snapshot.quote.id]: snapshot.quote.organizationId },
+      }),
+      snapshot.lines.length
+        ? loadCustomFieldValues({
+            em,
+            entityId: E.sales.sales_quote_line,
+            recordIds: snapshot.lines.map((line) => line.id),
+            tenantIdByRecord: Object.fromEntries(snapshot.lines.map((line) => [line.id, snapshot.quote.tenantId])),
+            organizationIdByRecord: Object.fromEntries(snapshot.lines.map((line) => [line.id, snapshot.quote.organizationId])),
+          })
+        : Promise.resolve({}),
+    ])
+
+    const order = em.create(SalesOrder, {
+      id: orderId,
+      organizationId: snapshot.quote.organizationId,
+      tenantId: snapshot.quote.tenantId,
+      orderNumber,
+      statusEntryId: snapshot.quote.statusEntryId ?? null,
+      status: snapshot.quote.status ?? null,
+      fulfillmentStatusEntryId: null,
+      fulfillmentStatus: null,
+      paymentStatusEntryId: null,
+      paymentStatus: null,
+      customerEntityId: snapshot.quote.customerEntityId ?? null,
+      customerContactId: snapshot.quote.customerContactId ?? null,
+      customerSnapshot: snapshot.quote.customerSnapshot ? cloneJson(snapshot.quote.customerSnapshot) : null,
+      billingAddressId: snapshot.quote.billingAddressId ?? null,
+      shippingAddressId: snapshot.quote.shippingAddressId ?? null,
+      billingAddressSnapshot: snapshot.quote.billingAddressSnapshot ? cloneJson(snapshot.quote.billingAddressSnapshot) : null,
+      shippingAddressSnapshot: snapshot.quote.shippingAddressSnapshot ? cloneJson(snapshot.quote.shippingAddressSnapshot) : null,
+      currencyCode: snapshot.quote.currencyCode,
+      exchangeRate: null,
+      taxStrategyKey: null,
+      discountStrategyKey: null,
+      taxInfo: snapshot.quote.taxInfo ? cloneJson(snapshot.quote.taxInfo) : null,
+      shippingMethodId: snapshot.quote.shippingMethodId ?? null,
+      shippingMethodCode: snapshot.quote.shippingMethodCode ?? null,
+      deliveryWindowId: snapshot.quote.deliveryWindowId ?? null,
+      deliveryWindowCode: snapshot.quote.deliveryWindowCode ?? null,
+      paymentMethodId: snapshot.quote.paymentMethodId ?? null,
+      paymentMethodCode: snapshot.quote.paymentMethodCode ?? null,
+      channelId: snapshot.quote.channelId ?? null,
+      placedAt: snapshot.quote.validFrom ? new Date(snapshot.quote.validFrom) : quote.createdAt,
+      expectedDeliveryAt: snapshot.quote.validUntil ? new Date(snapshot.quote.validUntil) : null,
+      dueAt: null,
+      comments: snapshot.quote.comments ?? null,
+      internalNotes: null,
+      shippingMethodSnapshot: snapshot.quote.shippingMethodSnapshot ? cloneJson(snapshot.quote.shippingMethodSnapshot) : null,
+      deliveryWindowSnapshot: snapshot.quote.deliveryWindowSnapshot ? cloneJson(snapshot.quote.deliveryWindowSnapshot) : null,
+      paymentMethodSnapshot: snapshot.quote.paymentMethodSnapshot ? cloneJson(snapshot.quote.paymentMethodSnapshot) : null,
+      metadata: snapshot.quote.metadata ? cloneJson(snapshot.quote.metadata) : null,
+      customFieldSetId: snapshot.quote.customFieldSetId ?? null,
+      subtotalNetAmount: snapshot.quote.subtotalNetAmount,
+      subtotalGrossAmount: snapshot.quote.subtotalGrossAmount,
+      discountTotalAmount: snapshot.quote.discountTotalAmount,
+      taxTotalAmount: snapshot.quote.taxTotalAmount,
+      shippingNetAmount: '0',
+      shippingGrossAmount: '0',
+      surchargeTotalAmount: '0',
+      grandTotalNetAmount: snapshot.quote.grandTotalNetAmount,
+      grandTotalGrossAmount: snapshot.quote.grandTotalGrossAmount,
+      paidTotalAmount: '0',
+      refundedTotalAmount: '0',
+      outstandingAmount: snapshot.quote.grandTotalGrossAmount,
+      totalsSnapshot: snapshot.quote.totalsSnapshot ? cloneJson(snapshot.quote.totalsSnapshot) : null,
+      lineItemCount: snapshot.quote.lineItemCount,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(order)
+
+    const orderLineMap = new Map<string, SalesOrderLine>()
+    snapshot.lines.forEach((line, index) => {
+      const orderLine = em.create(SalesOrderLine, {
+        id: line.id,
+        order,
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
+        lineNumber: line.lineNumber ?? index + 1,
+        kind: line.kind as SalesLineKind,
+        statusEntryId: (line as any).statusEntryId ?? null,
+        status: (line as any).status ?? null,
+        productId: line.productId ?? null,
+        productVariantId: line.productVariantId ?? null,
+        catalogSnapshot: line.catalogSnapshot ? cloneJson(line.catalogSnapshot) : null,
+        name: line.name ?? null,
+        description: line.description ?? null,
+        comment: line.comment ?? null,
+        quantity: line.quantity,
+        quantityUnit: line.quantityUnit ?? null,
+        reservedQuantity: '0',
+        fulfilledQuantity: '0',
+        invoicedQuantity: '0',
+        returnedQuantity: '0',
+        currencyCode: line.currencyCode,
+        unitPriceNet: line.unitPriceNet,
+        unitPriceGross: line.unitPriceGross,
+        discountAmount: line.discountAmount,
+        discountPercent: line.discountPercent,
+        taxRate: line.taxRate,
+        taxAmount: line.taxAmount,
+        totalNetAmount: line.totalNetAmount,
+        totalGrossAmount: line.totalGrossAmount,
+        configuration: line.configuration ? cloneJson(line.configuration) : null,
+        promotionCode: line.promotionCode ?? null,
+        promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
+        metadata: line.metadata ? cloneJson(line.metadata) : null,
+        customFieldSetId: line.customFieldSetId ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(orderLine)
+      orderLineMap.set(orderLine.id, orderLine)
+    })
+
+    snapshot.adjustments.forEach((adj, index) => {
+      const orderLineId = adj.quoteLineId ?? null
+      const orderLine = orderLineId ? orderLineMap.get(orderLineId) ?? null : null
+      const entity = em.create(SalesOrderAdjustment, {
+        id: adj.id,
+        order,
+        orderLine: orderLine ?? null,
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
+        scope: adj.scope,
+        kind: adj.kind as SalesAdjustmentKind,
+        code: adj.code ?? null,
+        label: adj.label ?? null,
+        calculatorKey: adj.calculatorKey ?? null,
+        promotionId: adj.promotionId ?? null,
+        rate: adj.rate,
+        amountNet: adj.amountNet,
+        amountGross: adj.amountGross,
+        currencyCode: adj.currencyCode ?? null,
+        metadata: adj.metadata ? cloneJson(adj.metadata) : null,
+        position: adj.position ?? index,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(entity)
+    })
+
+    const [addresses, notes, tags] = await Promise.all([
+      em.find(SalesDocumentAddress, { documentId: snapshot.quote.id, documentKind: 'quote' }),
+      em.find(SalesNote, { contextType: 'quote', contextId: snapshot.quote.id }),
+      em.find(SalesDocumentTagAssignment, { documentId: snapshot.quote.id, documentKind: 'quote' }),
+    ])
+    addresses.forEach((entry) => {
+      entry.documentKind = 'order'
+      entry.documentId = order.id
+      entry.order = order
+      entry.quote = null
+      entry.updatedAt = new Date()
+    })
+    notes.forEach((note) => {
+      note.contextType = 'order'
+      note.contextId = order.id
+      note.order = order
+      note.quote = null
+      note.updatedAt = new Date()
+    })
+    tags.forEach((assignment) => {
+      assignment.documentKind = 'order'
+      assignment.documentId = order.id
+      assignment.order = order
+      assignment.quote = null
+      assignment.updatedAt = new Date()
+    })
+
+    const documentCustomValues = quoteCustomFields[snapshot.quote.id]
+    if (documentCustomValues && Object.keys(documentCustomValues).length) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_order,
+        recordId: order.id,
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
+        values: documentCustomValues,
+      })
+    }
+    const lineCustomEntries = quoteLineCustomFields as Record<string, Record<string, unknown>>
+    if (lineCustomEntries && Object.keys(lineCustomEntries).length) {
+      for (const [lineId, values] of Object.entries(lineCustomEntries)) {
+        if (!values || !Object.keys(values).length) continue
+        if (!orderLineMap.has(lineId)) continue
+        await setRecordCustomFields(em, {
+          entityId: E.sales.sales_order_line,
+          recordId: lineId,
+          organizationId: snapshot.quote.organizationId,
+          tenantId: snapshot.quote.tenantId,
+          values,
+        })
+      }
+    }
+
+    await em.nativeDelete(SalesQuoteAdjustment, { quote: snapshot.quote.id })
+    await em.nativeDelete(SalesQuoteLine, { quote: snapshot.quote.id })
+    em.remove(quote)
+    await em.flush()
+
+    return { orderId: order.id }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve('em') as EntityManager
+    return loadOrderSnapshot(em, result.orderId)
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const before = snapshots.before as QuoteGraphSnapshot | undefined
+    const after = snapshots.after as OrderGraphSnapshot | undefined
+    if (!before) return null
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('sales.audit.quotes.convert', 'Convert quote to order'),
+      resourceKind: 'sales.order',
+      resourceId: result.orderId,
+      tenantId: before.quote.tenantId,
+      organizationId: before.quote.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after ?? null,
+      payload: {
+        undo: { quote: before, order: after ?? null } satisfies QuoteConvertUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<QuoteConvertUndoPayload>(logEntry)
+    const quoteSnapshot = payload?.quote
+    const orderSnapshot = payload?.order
+    if (!quoteSnapshot) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    ensureQuoteScope(ctx, quoteSnapshot.quote.organizationId, quoteSnapshot.quote.tenantId)
+    if (orderSnapshot) {
+      const orderId = orderSnapshot.order.id
+      const orderLineIds = orderSnapshot.lines.map((line) => line.id)
+      const existingOrder = await em.findOne(SalesOrder, { id: orderId })
+      if (existingOrder) {
+        const shipments = await em.find(SalesShipment, { order: orderId })
+        const shipmentIds = shipments.map((entry) => entry.id)
+        if (shipmentIds.length) {
+          await em.nativeDelete(SalesShipmentItem, { shipment: { $in: shipmentIds } })
+          await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } })
+        }
+        await em.nativeDelete(SalesPaymentAllocation, { order: orderId })
+        await em.nativeDelete(SalesPayment, { order: orderId })
+        await em.nativeDelete(SalesDocumentAddress, { documentId: orderId, documentKind: 'order' })
+        await em.nativeDelete(SalesNote, { contextType: 'order', contextId: orderId })
+        await em.nativeDelete(SalesDocumentTagAssignment, { documentId: orderId, documentKind: 'order' })
+        await em.nativeDelete(SalesOrderAdjustment, { order: orderId })
+        await em.nativeDelete(SalesOrderLine, { order: orderId })
+        em.remove(existingOrder)
+      }
+      await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_order, recordId: orderId })
+      if (orderLineIds.length) {
+        await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_order_line, recordId: { $in: orderLineIds } as any })
+      }
+    }
+    await restoreQuoteGraph(em, quoteSnapshot)
+    await em.flush()
+  },
+}
+
 const orderLineUpsertSchema = orderLineCreateSchema.extend({ id: z.string().uuid().optional() })
 
 const orderLineDeleteSchema = z.object({
@@ -4999,6 +5325,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
 registerCommand(updateQuoteCommand)
 registerCommand(createQuoteCommand)
 registerCommand(deleteQuoteCommand)
+registerCommand(convertQuoteToOrderCommand)
 registerCommand(updateOrderCommand)
 registerCommand(createOrderCommand)
 registerCommand(deleteOrderCommand)

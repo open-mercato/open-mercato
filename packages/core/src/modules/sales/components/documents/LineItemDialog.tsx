@@ -2,7 +2,12 @@
 
 import * as React from 'react'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import {
+  CrudForm,
+  type CrudField,
+  type CrudFormGroup,
+  type CrudCustomFieldRenderProps,
+} from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -88,6 +93,8 @@ type LineFormState = {
   customFieldSetId?: string | null
   statusEntryId?: string | null
 }
+
+type FieldRenderProps = CrudCustomFieldRenderProps
 
 type SalesLineDialogProps = {
   open: boolean
@@ -856,7 +863,7 @@ export function LineItemDialog({
         label: t('sales.documents.items.lineMode.label', 'Line type'),
         type: 'custom',
         layout: 'full',
-        component: ({ value, setValue, setFormValue }) => {
+        component: ({ value, setValue, setFormValue }: FieldRenderProps) => {
           const mode = value === 'custom' ? 'custom' : 'catalog'
           const switchMode = (next: 'catalog' | 'custom') => {
             if (next === mode) return
@@ -913,7 +920,7 @@ export function LineItemDialog({
               type: 'custom',
               required: true,
               layout: 'half',
-              component: ({ value, setValue, setFormValue, values }) => (
+              component: ({ value, setValue, setFormValue, values }: FieldRenderProps) => (
                 <LookupSelect
                   value={typeof value === 'string' ? value : null}
                   onChange={(next) => {
@@ -963,7 +970,7 @@ export function LineItemDialog({
               type: 'custom',
               required: true,
               layout: 'half',
-              component: ({ value, setValue, setFormValue, values }) => {
+              component: ({ value, setValue, setFormValue, values }: FieldRenderProps) => {
                 const productId = typeof values?.productId === 'string' ? values.productId : null
                 return (
                   <LookupSelect
@@ -1033,7 +1040,7 @@ export function LineItemDialog({
               label: t('sales.documents.items.price', 'Price'),
               type: 'custom',
               layout: 'half',
-              component: ({ value, setValue, setFormValue, values }) => {
+              component: ({ value, setValue, setFormValue, values }: FieldRenderProps) => {
                 const productId = typeof values?.productId === 'string' ? values.productId : null
                 const variantId = typeof values?.variantId === 'string' ? values.variantId : null
                 return (
@@ -1106,7 +1113,7 @@ export function LineItemDialog({
         label: t('sales.documents.items.unitPrice', 'Unit price'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue, setFormValue, values }) => {
+        component: ({ value, setValue, setFormValue, values }: FieldRenderProps) => {
           const mode = values?.priceMode === 'net' ? 'net' : 'gross'
           return (
             <div className="flex gap-2">
@@ -1135,7 +1142,7 @@ export function LineItemDialog({
         label: t('sales.documents.items.taxRate', 'Tax class'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue, setFormValue, values }) => {
+        component: ({ value, setValue, setFormValue, values }: FieldRenderProps) => {
           const resolvedValue =
             typeof value === 'string' && value.trim().length
               ? value
@@ -1190,7 +1197,7 @@ export function LineItemDialog({
         label: t('sales.documents.items.quantity', 'Quantity'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue }) => (
+        component: ({ value, setValue }: FieldRenderProps) => (
           <Input
             value={typeof value === 'string' ? value : value == null ? '' : String(value)}
             onChange={(event) => setValue(event.target.value)}
@@ -1203,12 +1210,12 @@ export function LineItemDialog({
         label: t('sales.documents.items.status', 'Status'),
         type: 'custom',
         layout: 'half',
-        component: ({ value, setValue }) => (
+        component: ({ value, setValue }: FieldRenderProps) => (
           <LookupSelect
             value={typeof value === 'string' ? value : null}
             onChange={(next) => setValue(next ?? null)}
             placeholder={t('sales.documents.items.statusPlaceholder', 'Select status')}
-            emptyMessage={t('sales.documents.items.statusEmpty', 'No status')}
+            emptyLabel={t('sales.documents.items.statusEmpty', 'No status')}
             fetchItems={fetchLineStatusItems}
             loadingLabel={t('sales.documents.items.statusLoading', 'Loading statuses…')}
             minQuery={0}
