@@ -1,32 +1,11 @@
 /** @jest-environment node */
 
 import { describe, test, expect, beforeEach, jest } from '@jest/globals'
+import { createAuthMock, createMockContainer, createMockEntityManager } from './test-helpers'
 
-type MockEntityManager = {
-  findOne: jest.Mock
-  find: jest.Mock
-  findAndCount: jest.Mock
-  create: jest.Mock
-  assign: jest.Mock
-  persistAndFlush: jest.Mock
-}
-
-const mockGetAuthFromRequest = jest.fn()
-const mockEm: MockEntityManager = {
-  findOne: jest.fn() as jest.Mock,
-  find: jest.fn() as jest.Mock,
-  findAndCount: jest.fn() as jest.Mock,
-  create: jest.fn() as jest.Mock,
-  assign: jest.fn() as jest.Mock,
-  persistAndFlush: jest.fn() as jest.Mock,
-}
-
-const mockContainer = {
-  resolve: jest.fn((token: string) => {
-    if (token === 'em') return mockEm
-    return undefined
-  }),
-}
+const mockGetAuthFromRequest = createAuthMock()
+const mockEm = createMockEntityManager()
+const mockContainer = createMockContainer(mockEm)
 
 jest.mock('@/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),

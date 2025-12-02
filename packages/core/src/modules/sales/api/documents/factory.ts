@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
@@ -321,7 +321,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           table: 'sales_document_tag_assignments',
           from: { field: 'id' },
           to: { field: 'document_id' },
-          type: 'left',
+          type: 'left' as const,
         },
       ],
       transformItem: (item: any) => {
@@ -391,7 +391,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       create: {
         commandId: binding.createCommandId,
         schema: rawBodySchema,
-        mapInput: async ({ raw, ctx }) => {
+        mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
           const parsed = parseScopedCommandInput(
@@ -402,13 +402,13 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           )
           return parsed
         },
-        response: ({ result }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
+        response: ({ result }: { result: any }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
         status: 201,
       },
       update: {
         commandId: binding.updateCommandId,
         schema: rawBodySchema,
-        mapInput: async ({ raw, ctx }) => {
+        mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
           const parsed = parseScopedCommandInput(
@@ -419,12 +419,13 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           )
           return parsed
         },
-        response: ({ result }) => mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
+        response: ({ result }: { result: any }) =>
+          mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
       },
       delete: {
         commandId: binding.deleteCommandId,
         schema: rawBodySchema,
-        mapInput: async ({ parsed, ctx }) => {
+        mapInput: async ({ parsed, ctx }: { parsed: any; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const id = resolveCrudRecordId(parsed, ctx, translate)
           return { id }

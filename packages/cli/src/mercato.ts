@@ -280,7 +280,7 @@ export async function run(argv = process.argv) {
         console.log('🗂️  Reindexing catalog and sales entities...')
         const [{ reindexModules }, { createRequestContainer }] = await Promise.all([
           import('@open-mercato/core/modules/configs/lib/reindex-helpers'),
-          import('@open-mercato/core/lib/di/container'),
+          import('@open-mercato/shared/lib/di/container'),
         ])
         const reindexContainer = await createRequestContainer()
         try {

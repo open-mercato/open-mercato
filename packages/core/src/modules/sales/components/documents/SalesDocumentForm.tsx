@@ -909,7 +909,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                 <span className="flex-1">{addressesError}</span>
                 <Button
                   type="button"
-                  size="xs"
+                  size="sm"
                   variant="outline"
                   onClick={() => loadAddresses(customerId)}
                   disabled={addressesLoading}

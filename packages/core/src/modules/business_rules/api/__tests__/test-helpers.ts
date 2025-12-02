@@ -1,7 +1,8 @@
+import { jest } from '@jest/globals'
 import type { AuthContext } from '@/lib/auth/server'
 
-type AsyncMock<T = unknown, Args extends any[] = any[]> = jest.Mock<Promise<T>, Args>
-type SyncMock<T = unknown, Args extends any[] = any[]> = jest.Mock<T, Args>
+type AsyncMock<T = unknown> = jest.MockedFunction<(...args: any[]) => Promise<T>>
+type SyncMock<T = unknown, Args extends any[] = any[]> = jest.MockedFunction<(...args: Args) => T>
 
 export type MockEntityManager = {
   findOne: AsyncMock<any>
@@ -13,8 +14,8 @@ export type MockEntityManager = {
   removeAndFlush: AsyncMock<void>
 }
 
-export function createAuthMock(defaultValue?: AuthContext): AsyncMock<AuthContext, [Request?]> {
-  const mock = jest.fn<Promise<AuthContext>, [Request?]>()
+export function createAuthMock(defaultValue?: AuthContext): AsyncMock<AuthContext> {
+  const mock = jest.fn() as AsyncMock<AuthContext>
   if (defaultValue !== undefined) {
     mock.mockResolvedValue(defaultValue)
   }
@@ -23,13 +24,13 @@ export function createAuthMock(defaultValue?: AuthContext): AsyncMock<AuthContex
 
 export function createMockEntityManager(overrides: Partial<MockEntityManager> = {}): MockEntityManager {
   const base: MockEntityManager = {
-    findOne: jest.fn<Promise<any>, any[]>(),
-    find: jest.fn<Promise<any[]>, any[]>(),
-    findAndCount: jest.fn<Promise<[any[], number]>, any[]>(),
-    create: jest.fn<any, any[]>(),
-    persistAndFlush: jest.fn<Promise<void>, any[]>(),
-    assign: jest.fn<any, [any, any]>(),
-    removeAndFlush: jest.fn<Promise<void>, any[]>(),
+    findOne: jest.fn() as AsyncMock<any>,
+    find: jest.fn() as AsyncMock<any[]>,
+    findAndCount: jest.fn() as AsyncMock<[any[], number]>,
+    create: jest.fn() as SyncMock<any>,
+    persistAndFlush: jest.fn() as AsyncMock<void>,
+    assign: jest.fn() as SyncMock<any, [any, any]>,
+    removeAndFlush: jest.fn() as AsyncMock<void>,
   }
   return { ...base, ...overrides }
 }
