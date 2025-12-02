@@ -8,6 +8,7 @@ import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/en
 import { SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../../data/entities'
 import { shipmentCreateSchema, shipmentUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
+import { readShipmentItemsSnapshot } from '../../lib/shipments/snapshots'
 import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
@@ -81,6 +82,7 @@ const crud = makeCrudRoute({
       F.currency_code,
       F.notes,
       F.metadata,
+      F.items_snapshot,
       F.created_at,
       F.updated_at,
     ],
@@ -150,6 +152,18 @@ const crud = makeCrudRoute({
     afterList: async (payload, ctx) => {
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
+      const snapshotMap = new Map<string, ReturnType<typeof readShipmentItemsSnapshot>>()
+      items.forEach((item: unknown) => {
+        if (!item || typeof item !== 'object') return
+        const id = (item as Record<string, unknown>).id
+        if (typeof id !== 'string') return
+        const snapshot = readShipmentItemsSnapshot(
+          (item as any).items_snapshot ?? (item as any).itemsSnapshot ?? null
+        )
+        if (snapshot.length) {
+          snapshotMap.set(id, snapshot)
+        }
+      })
       const shipmentIds = items
         .map((item: unknown) => (item && typeof item === 'object' ? (item as Record<string, unknown>).id : null))
         .filter((value: string | null): value is string => typeof value === 'string')
@@ -250,7 +264,8 @@ const crud = makeCrudRoute({
         if (!item || typeof item !== 'object') return
         const id = (item as Record<string, unknown>).id
         if (typeof id !== 'string') return
-        ;(item as Record<string, unknown>).items = grouped.get(id) ?? []
+        const snapshot = snapshotMap.get(id)
+        ;(item as Record<string, unknown>).items = snapshot?.length ? snapshot : grouped.get(id) ?? []
         const shippingId = (item as Record<string, unknown>).shipping_method_id
         if (typeof shippingId === 'string' && shippingMap.has(shippingId)) {
           ;(item as Record<string, unknown>).shipping_method_code = shippingMap.get(shippingId)
@@ -301,6 +316,8 @@ const shipmentSchema = z
     customValues: z.record(z.string(), z.unknown()).nullable().optional(),
     custom_fields: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
     customFields: z.array(z.record(z.string(), z.unknown())).nullable().optional(),
+    items_snapshot: z.array(shipmentItemSchema).nullable().optional(),
+    itemsSnapshot: z.array(shipmentItemSchema).nullable().optional(),
     created_at: z.string(),
     updated_at: z.string(),
     items: z.array(shipmentItemSchema).optional(),

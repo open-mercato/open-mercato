@@ -15,6 +15,12 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import {
+  DictionaryValue,
+  type DictionaryMap,
+  createDictionaryMap,
+  normalizeDictionaryEntries,
+} from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
 type SalesDocumentKind = 'order' | 'quote'
 
@@ -148,6 +154,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [channelOptions, setChannelOptions] = React.useState<FilterOption[]>([])
   const [tagOptions, setTagOptions] = React.useState<FilterOption[]>([])
   const [customerOptions, setCustomerOptions] = React.useState<FilterOption[]>([])
+  const [statusMap, setStatusMap] = React.useState<DictionaryMap>({})
 
   const resource = kind === 'order' ? 'orders' : 'quotes'
   const entityId = kind === 'order' ? E.sales.sales_order : E.sales.sales_quote
@@ -233,6 +240,22 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     }
   }, [])
 
+  const loadStatusMap = React.useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/order-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } }
+      )
+      const entries = normalizeDictionaryEntries(response.result?.items ?? [])
+      setStatusMap(createDictionaryMap(entries))
+    } catch (err) {
+      console.error('sales.documents.statuses.load', err)
+      setStatusMap({})
+    }
+  }, [])
+
   const loadChannelOptions = React.useCallback(
     async (query?: string) => {
       const opts = await fetchChannelOptions(query)
@@ -264,7 +287,8 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     loadChannelOptions().catch(() => {})
     loadTagOptions().catch(() => {})
     loadCustomerOptions().catch(() => {})
-  }, [loadChannelOptions, loadCustomerOptions, loadTagOptions, scopeVersion])
+    loadStatusMap().catch(() => setStatusMap({}))
+  }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -543,7 +567,15 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         <div className="flex flex-col">
           <span className="font-semibold">{row.original.number}</span>
           {row.original.status ? (
-            <span className="text-xs text-muted-foreground">{row.original.status}</span>
+            <DictionaryValue
+              value={row.original.status}
+              map={statusMap}
+              fallback={<span className="text-xs text-muted-foreground">{row.original.status}</span>}
+              className="text-xs text-muted-foreground font-medium"
+              iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded bg-muted text-muted-foreground"
+              iconClassName="h-3.5 w-3.5"
+              colorClassName="h-3 w-3 rounded-full border border-border/70"
+            />
           ) : null}
         </div>
       ),
@@ -610,7 +642,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [channelOptions, kind, t])
+  ], [channelOptions, kind, statusMap, t])
 
   const emptyLabel = kind === 'order'
     ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')

@@ -331,9 +331,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setIsInDialog(Boolean(root.closest('[data-dialog-content]')))
   }, [])
   const dialogFooterClass = isInDialog
-    ? 'sticky bottom-0 z-20 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-t border-border/70 pt-3 pb-3'
+    ? 'sticky bottom-0 z-20 bg-card border-t border-border/70 py-2'
     : ''
-  const dialogFormPadding = isInDialog ? 'pb-16' : ''
+  const dialogFormPadding = isInDialog ? 'pb-6' : ''
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {

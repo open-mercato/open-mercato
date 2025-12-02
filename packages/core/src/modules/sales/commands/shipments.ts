@@ -16,6 +16,13 @@ import {
   type ShipmentUpdateInput,
 } from '../data/validators'
 import {
+  coerceShipmentQuantity as toNumber,
+  readShipmentItemsSnapshot,
+  refreshShipmentItemsSnapshot,
+  type ShipmentItemSnapshot,
+  buildShipmentItemSnapshots,
+} from '../lib/shipments/snapshots'
+import {
   cloneJson,
   ensureOrganizationScope,
   ensureSameScope,
@@ -25,13 +32,6 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
-
-export type ShipmentItemSnapshot = {
-  id: string
-  orderLineId: string
-  quantity: number
-  metadata: Record<string, unknown> | null
-}
 
 export type ShipmentSnapshot = {
   id: string
@@ -55,6 +55,7 @@ export type ShipmentSnapshot = {
   metadata: Record<string, unknown> | null
   customFields?: Record<string, unknown> | null
   items: ShipmentItemSnapshot[]
+  itemsSnapshot?: ShipmentItemSnapshot[] | null
 }
 
 type ShipmentUndoPayload = {
@@ -87,15 +88,6 @@ const buildShipmentCreateRedoInput = (snapshot: ShipmentSnapshot): ShipmentCreat
     metadata: item.metadata ? cloneJson(item.metadata) : undefined,
   })),
 })
-
-const toNumber = (value: unknown): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim().length) {
-    const parsed = Number(value)
-    if (!Number.isNaN(parsed)) return parsed
-  }
-  return 0
-}
 
 const parseTrackingNumbers = (input: unknown): string[] | null => {
   if (typeof input === 'string') {
@@ -156,12 +148,19 @@ export async function loadShipmentSnapshot(em: EntityManager, id: string): Promi
     { populate: ['order', 'items', 'items.orderLine'] }
   )
   if (!shipment || !shipment.order) return null
-  const items: ShipmentItemSnapshot[] = Array.from(shipment.items ?? []).map((item) => ({
-    id: item.id,
-    orderLineId: typeof item.orderLine === 'string' ? item.orderLine : item.orderLine.id,
-    quantity: toNumber(item.quantity),
-    metadata: item.metadata ? cloneJson(item.metadata) : null,
-  }))
+  const storedSnapshot = readShipmentItemsSnapshot(
+    (shipment as any).itemsSnapshot ?? (shipment as any).items_snapshot ?? null
+  )
+  const lineMap = new Map(
+    Array.from(shipment.items ?? [])
+      .map((item) => {
+        const line = typeof item.orderLine === 'string' ? null : (item.orderLine as SalesOrderLine | null)
+        return line ? [line.id, line] : null
+      })
+      .filter((entry): entry is [string, SalesOrderLine] => Boolean(entry))
+  )
+  const fallbackItems = buildShipmentItemSnapshots(Array.from(shipment.items ?? []), { lineMap })
+  const itemsSnapshot = storedSnapshot.length ? storedSnapshot : fallbackItems
   const customFieldValues = await loadCustomFieldValues({
     em,
     entityId: E.sales.sales_shipment,
@@ -197,7 +196,8 @@ export async function loadShipmentSnapshot(em: EntityManager, id: string): Promi
     notesText: shipment.notesText ?? null,
     metadata: shipment.metadata ? cloneJson(shipment.metadata) : null,
     customFields: customFields && Object.keys(customFields).length ? customFields : null,
-    items,
+    items: itemsSnapshot,
+    itemsSnapshot,
   }
 }
 
@@ -239,6 +239,7 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   snapshot.items.forEach((item) => {
     const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
     const shipmentItem = em.create(SalesShipmentItem, {
+      id: item.id ?? randomUUID(),
       shipment: entity,
       orderLine: lineRef,
       organizationId: snapshot.organizationId,
@@ -248,6 +249,11 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
     })
     em.persist(shipmentItem)
   })
+  const snapshotItems = snapshot.itemsSnapshot ?? snapshot.items
+  entity.itemsSnapshot = snapshotItems && snapshotItems.length ? cloneJson(snapshotItems) : null
+  if (!entity.itemsSnapshot) {
+    await refreshShipmentItemsSnapshot(em, entity)
+  }
   if ((snapshot as any).customFields !== undefined) {
     await setRecordCustomFields(em, {
       entityId: E.sales.sales_shipment,
@@ -425,9 +431,11 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    const createdItems: SalesShipmentItem[] = []
     normalizedItems.forEach((item) => {
       const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
       const shipmentItem = em.create(SalesShipmentItem, {
+        id: randomUUID(),
         shipment,
         orderLine: lineRef,
         organizationId: input.organizationId,
@@ -435,6 +443,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         quantity: item.quantity.toString(),
         metadata: item.metadata ? cloneJson(item.metadata) : null,
       })
+      createdItems.push(shipmentItem)
       em.persist(shipmentItem)
     })
     em.persist(shipment)
@@ -470,6 +479,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         line.updatedAt = new Date()
       })
     }
+    await refreshShipmentItemsSnapshot(em, shipment, { items: createdItems, lineMap })
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
@@ -586,11 +596,13 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
 
     const shouldLoadItems = Boolean(normalizedItems || input.lineStatusEntryId !== undefined)
     const existingItems = shouldLoadItems ? await em.find(SalesShipmentItem, { shipment }) : []
+    const newItems: SalesShipmentItem[] = []
     if (normalizedItems) {
       existingItems.forEach((item) => em.remove(item))
       normalizedItems.forEach((item) => {
         const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
         const shipmentItem = em.create(SalesShipmentItem, {
+          id: randomUUID(),
           shipment,
           orderLine: lineRef,
           organizationId: shipment.organizationId,
@@ -598,6 +610,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
           quantity: item.quantity.toString(),
           metadata: item.metadata ? cloneJson(item.metadata) : null,
         })
+        newItems.push(shipmentItem)
         em.persist(shipmentItem)
       })
     }
@@ -654,6 +667,11 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       }
     }
 
+    const itemsForSnapshot =
+      normalizedItems || shouldLoadItems
+        ? (normalizedItems ? newItems : existingItems)
+        : await em.find(SalesShipmentItem, { shipment })
+    await refreshShipmentItemsSnapshot(em, shipment, { items: itemsForSnapshot, lineMap })
     await em.flush()
     await recomputeFulfilledQuantities(em, order)
     await em.flush()

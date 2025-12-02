@@ -21,6 +21,7 @@ import {
   type SalesLineKind,
 } from '../data/entities'
 import { seedSalesDictionaries } from '../lib/dictionaries'
+import { refreshShipmentItemsSnapshot } from '../lib/shipments/snapshots'
 import { toNumericString } from '../commands/shared'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import { ensureExamplePaymentMethods, ensureExampleShippingMethods, type SeedScope } from './examples-data'
@@ -1531,6 +1532,7 @@ export async function seedSalesExamples(
     order.totalsSnapshot = toSnapshot(calculation.totals)
     order.lineItemCount = seed.lines.length
 
+    const lineMap = new Map(lineEntities.map((line) => [line.id, line]))
     if (seed.shipments?.length) {
       for (const shipmentSeed of seed.shipments) {
         const shipment = em.create(SalesShipment, {
@@ -1559,6 +1561,7 @@ export async function seedSalesExamples(
         })
         em.persist(shipment)
 
+        const shipmentItems: SalesShipmentItem[] = []
         for (const item of shipmentSeed.items) {
           const line = lineEntities[item.lineIndex]
           if (!line) continue
@@ -1574,8 +1577,10 @@ export async function seedSalesExamples(
             quantity: toAmount(item.quantity),
             metadata: null,
           })
+          shipmentItems.push(shipmentItem)
           em.persist(shipmentItem)
         }
+        await refreshShipmentItemsSnapshot(em, shipment, { items: shipmentItems, lineMap })
       }
     }
 

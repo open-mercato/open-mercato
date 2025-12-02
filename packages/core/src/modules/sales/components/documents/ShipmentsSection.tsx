@@ -187,7 +187,13 @@ export function SalesShipmentsSection({
         .map((item) => {
           const id = typeof item.id === 'string' ? item.id : null
           if (!id) return null
-          const itemsRaw = Array.isArray((item as any).items) ? ((item as any).items as Array<Record<string, unknown>>) : []
+          const snapshotItemsRaw = Array.isArray((item as any).items_snapshot)
+            ? ((item as any).items_snapshot as Array<Record<string, unknown>>)
+            : []
+          const responseItems = Array.isArray((item as any).items)
+            ? ((item as any).items as Array<Record<string, unknown>>)
+            : []
+          const itemsRaw = responseItems.length ? responseItems : snapshotItemsRaw
           const shipmentItems: ShipmentItem[] = itemsRaw
             .map((entry) => {
               const lineId =

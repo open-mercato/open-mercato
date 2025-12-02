@@ -17797,6 +17797,8 @@ export interface components {
             delivered_at?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeliveredAt"];
             id: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
             items?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItems"];
+            items_snapshot?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshot"];
+            itemsSnapshot?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshot1"];
             metadata?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata"];
             notes?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesNotes"];
             order_id: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrderId"];
@@ -17853,31 +17855,37 @@ export interface components {
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDeliveredAtAnyOf1: string;
         /** Format: uuid */
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItems: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItems"][];
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItems: {
-            id: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesId"];
-            metadata?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesMetadata"];
-            orderLineId: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineId"];
-            orderLineName?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineName"];
-            orderLineNumber?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNumber"];
-            quantity: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesQuantity"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItems: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1Items"][];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshot: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshot1: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf01"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf11"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1Items"][];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf01: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1Items: {
+            id: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesId"];
+            metadata?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesMetadata"];
+            orderLineId: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineId"];
+            orderLineName?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineName"];
+            orderLineNumber?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNumber"];
+            quantity: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesQuantity"];
         };
         /** Format: uuid */
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesId: string;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesMetadataAnyOf1"];
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesMetadataAnyOf0: null;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesMetadataAnyOf1: {
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesId: string;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesMetadata: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesMetadataAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesMetadataAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesMetadataAnyOf1: {
             [key: string]: unknown;
         };
         /** Format: uuid */
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineId: string;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineName: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNameAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNameAnyOf1"];
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNameAnyOf0: null;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNameAnyOf1: string;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNumber: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNumberAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNumberAnyOf1"];
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNumberAnyOf0: null;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesOrderLineNumberAnyOf1: number;
-        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsItemsPropertiesQuantity: number;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineId: string;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineName: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNameAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNameAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNameAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNameAnyOf1: string;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNumber: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNumberAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNumberAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNumberAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesOrderLineNumberAnyOf1: number;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1ItemsPropertiesQuantity: number;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf11: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesItemsSnapshotAnyOf1Items"][];
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadata: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1"];
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf0: null;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesMetadataAnyOf1: {

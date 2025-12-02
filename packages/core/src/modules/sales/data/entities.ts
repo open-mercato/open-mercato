@@ -10,6 +10,7 @@ import {
   Unique,
 } from '@mikro-orm/core'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
+import type { ShipmentItemSnapshot } from '../lib/shipments/types'
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
@@ -1206,6 +1207,9 @@ export class SalesShipment {
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'items_snapshot', type: 'jsonb', nullable: true })
+  itemsSnapshot?: ShipmentItemSnapshot[] | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
