@@ -151,6 +151,7 @@ const crud = makeCrudRoute({
     afterList: async (payload, ctx) => {
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
+      const em = ctx.container.resolve('em') as EntityManager
       const methodIds: string[] = Array.from(
         new Set(
           items
@@ -162,17 +163,46 @@ const crud = makeCrudRoute({
             .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
         )
       )
-      if (!methodIds.length) return
-      const em = ctx.container.resolve('em') as EntityManager
-      const methods = await em.find(SalesPaymentMethod, { id: { $in: methodIds } })
-      const map = new Map(methods.map((method) => [method.id, method]))
+      const statusIds: string[] = Array.from(
+        new Set(
+          items
+            .map((item: unknown) =>
+              item && typeof item === 'object' && typeof (item as any).status_entry_id === 'string'
+                ? ((item as any).status_entry_id as string)
+                : null
+            )
+            .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
+        )
+      )
+      const [methods, statusEntries] = await Promise.all([
+        methodIds.length ? em.find(SalesPaymentMethod, { id: { $in: methodIds } }) : [],
+        statusIds.length ? em.find(DictionaryEntry, { id: { $in: statusIds } }) : [],
+      ])
+      const methodMap = new Map(methods.map((method) => [method.id, method]))
+      const statusMap = new Map(
+        statusEntries.map((entry) => [
+          entry.id,
+          {
+            value: entry.value ?? null,
+            label: entry.label ?? entry.value ?? null,
+          },
+        ])
+      )
       items.forEach((item: unknown) => {
         if (!item || typeof item !== 'object') return
         const id = (item as Record<string, unknown>).payment_method_id
-        const method = typeof id === 'string' ? map.get(id) : null
+        const method = typeof id === 'string' ? methodMap.get(id) : null
         if (method) {
           ;(item as Record<string, unknown>).payment_method_name = method.name ?? method.code ?? method.id
           ;(item as Record<string, unknown>).payment_method_code = method.code ?? null
+        }
+        const statusId = (item as Record<string, unknown>).status_entry_id
+        const status = typeof statusId === 'string' ? statusMap.get(statusId) : null
+        if (status) {
+          if (!(item as Record<string, unknown>).status) {
+            ;(item as Record<string, unknown>).status = status.value
+          }
+          ;(item as Record<string, unknown>).status_label = status.label ?? status.value ?? null
         }
       })
     },
@@ -192,6 +222,7 @@ const paymentSchema = z.object({
   payment_reference: z.string().nullable().optional(),
   status_entry_id: z.string().uuid().nullable().optional(),
   status: z.string().nullable().optional(),
+  status_label: z.string().nullable().optional(),
   amount: z.number(),
   currency_code: z.string(),
   captured_amount: z.number().nullable().optional(),

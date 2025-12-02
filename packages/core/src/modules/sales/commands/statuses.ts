@@ -73,4 +73,6 @@ function registerStatusDictionaryCommands(kind: SalesDictionaryKind): void {
 
 registerStatusDictionaryCommands('order-status')
 registerStatusDictionaryCommands('order-line-status')
+registerStatusDictionaryCommands('shipment-status')
+registerStatusDictionaryCommands('payment-status')
 registerStatusDictionaryCommands('adjustment-kind')

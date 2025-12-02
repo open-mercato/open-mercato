@@ -22,6 +22,8 @@ type PaymentRow = {
   paymentMethodId: string | null
   paymentMethodName: string | null
   status: string | null
+  statusEntryId: string | null
+  statusLabel: string | null
   amount: number
   currencyCode: string | null
   receivedAt: string | null
@@ -136,6 +138,18 @@ export function SalesDocumentPaymentsSection({
                   ? item.payment_method_code
                   : null,
             status: typeof item.status === 'string' ? item.status : null,
+            statusEntryId:
+              typeof (item as any).status_entry_id === 'string'
+                ? (item as any).status_entry_id
+                : typeof (item as any).statusEntryId === 'string'
+                  ? (item as any).statusEntryId
+                  : null,
+            statusLabel:
+              typeof (item as any).status_label === 'string'
+                ? (item as any).status_label
+                : typeof (item as any).statusLabel === 'string'
+                  ? (item as any).statusLabel
+                  : null,
             amount: normalizeNumber(item.amount),
             currencyCode:
               typeof item.currency_code === 'string'
@@ -192,6 +206,7 @@ export function SalesDocumentPaymentsSection({
         paymentReference: record.paymentReference ?? '',
         receivedAt: record.receivedAt ? record.receivedAt.slice(0, 10) : '',
         currencyCode: record.currencyCode ?? currencyCode ?? null,
+        statusEntryId: record.statusEntryId ?? null,
         customValues: record.customValues ?? null,
         customFieldSetId: record.customFieldSetId ?? null,
       })
@@ -270,7 +285,7 @@ export function SalesDocumentPaymentsSection({
       {
         accessorKey: 'status',
         header: t('sales.documents.payments.status', 'Status'),
-        cell: ({ row }) => row.original.status ?? '—',
+        cell: ({ row }) => row.original.statusLabel ?? row.original.status ?? '—',
       },
       {
         accessorKey: 'amount',

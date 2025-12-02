@@ -242,7 +242,13 @@ const crud = makeCrudRoute({
         return acc
       }, new Map())
       const shippingMap = new Map(
-        shippingMethods.map((method) => [method.id, method.code ?? null])
+        shippingMethods.map((method) => [
+          method.id,
+          {
+            code: method.code ?? null,
+            name: method.name ?? method.code ?? null,
+          },
+        ])
       )
       const statusIds: string[] = Array.from(
         new Set(
@@ -255,24 +261,38 @@ const crud = makeCrudRoute({
             .filter((value: string | null): value is string => typeof value === 'string' && value.length > 0)
         )
       )
-      const statusMap = new Map<string, string | null>()
+      const statusMap = new Map<string, { value: string | null; label: string | null }>()
       if (statusIds.length) {
         const entries = await em.find(DictionaryEntry, { id: { $in: statusIds } })
-        entries.forEach((entry) => statusMap.set(entry.id, entry.value ?? null))
+        entries.forEach((entry) =>
+          statusMap.set(entry.id, {
+            value: entry.value ?? null,
+            label: entry.label ?? entry.value ?? null,
+          })
+        )
       }
       items.forEach((item: unknown) => {
         if (!item || typeof item !== 'object') return
         const id = (item as Record<string, unknown>).id
         if (typeof id !== 'string') return
         const snapshot = snapshotMap.get(id)
+        if (snapshot?.length) {
+          ;(item as Record<string, unknown>).items_snapshot = snapshot
+        }
         ;(item as Record<string, unknown>).items = snapshot?.length ? snapshot : grouped.get(id) ?? []
         const shippingId = (item as Record<string, unknown>).shipping_method_id
         if (typeof shippingId === 'string' && shippingMap.has(shippingId)) {
-          ;(item as Record<string, unknown>).shipping_method_code = shippingMap.get(shippingId)
+          const method = shippingMap.get(shippingId)
+          ;(item as Record<string, unknown>).shipping_method_code = method?.code ?? null
+          ;(item as Record<string, unknown>).shipping_method_name = method?.name ?? null
         }
         const statusId = (item as Record<string, unknown>).status_entry_id
-        if (!(item as Record<string, unknown>).status && typeof statusId === 'string' && statusMap.has(statusId)) {
-          ;(item as Record<string, unknown>).status = statusMap.get(statusId)
+        if (typeof statusId === 'string' && statusMap.has(statusId)) {
+          const status = statusMap.get(statusId)
+          if (!(item as Record<string, unknown>).status) {
+            ;(item as Record<string, unknown>).status = status?.value ?? null
+          }
+          ;(item as Record<string, unknown>).status_label = status?.label ?? status?.value ?? null
         }
       })
     },
@@ -299,8 +319,10 @@ const shipmentSchema = z
     shipment_number: z.string().nullable().optional(),
     shipping_method_id: z.string().uuid().nullable().optional(),
     shipping_method_code: z.string().nullable().optional(),
+    shipping_method_name: z.string().nullable().optional(),
     status_entry_id: z.string().uuid().nullable().optional(),
     status: z.string().nullable().optional(),
+    status_label: z.string().nullable().optional(),
     carrier_name: z.string().nullable().optional(),
     tracking_numbers: z.array(z.string()).nullable().optional(),
     shipped_at: z.string().nullable().optional(),

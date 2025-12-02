@@ -27,6 +27,7 @@ export type PaymentFormData = {
   paymentReference?: string | null
   receivedAt?: string | null
   currencyCode?: string | null
+  statusEntryId?: string | null
   customValues?: Record<string, unknown> | null
   customFieldSetId?: string | null
 }
@@ -96,6 +97,8 @@ export function PaymentDialog({
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [paymentMethods, setPaymentMethods] = React.useState<PaymentMethodOption[]>([])
   const [methodsLoading, setMethodsLoading] = React.useState(false)
+  const [paymentStatuses, setPaymentStatuses] = React.useState<StatusOption[]>([])
+  const [paymentStatusLoading, setPaymentStatusLoading] = React.useState(false)
   const [documentStatuses, setDocumentStatuses] = React.useState<StatusOption[]>([])
   const [documentStatusLoading, setDocumentStatusLoading] = React.useState(false)
 
@@ -111,6 +114,7 @@ export function PaymentDialog({
       paymentMethodId: payment?.paymentMethodId ?? '',
       paymentReference: payment?.paymentReference ?? '',
       receivedAt: payment?.receivedAt ? payment.receivedAt.slice(0, 10) : '',
+      statusEntryId: payment?.statusEntryId ?? '',
       documentStatusEntryId: '',
       ...prefixCustomFieldValues(payment?.customValues ?? null),
     }),
@@ -120,6 +124,7 @@ export function PaymentDialog({
       payment?.paymentMethodId,
       payment?.paymentReference,
       payment?.receivedAt,
+      payment?.statusEntryId,
     ],
   )
 
@@ -233,11 +238,49 @@ export function PaymentDialog({
     }
   }, [])
 
+  const loadPaymentStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setPaymentStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/payment-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          return { id, value, label, color }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setPaymentStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.payments.statuses.load', err)
+      setPaymentStatuses([])
+      return []
+    } finally {
+      setPaymentStatusLoading(false)
+    }
+  }, [])
+
   React.useEffect(() => {
     if (!open) return
     setFormResetKey((prev) => prev + 1)
     if (!paymentMethods.length) {
       void loadPaymentMethods()
+    }
+    if (!paymentStatuses.length) {
+      void loadPaymentStatuses()
     }
     if (mode === 'create') {
       if (!documentStatuses.length) {
@@ -247,10 +290,12 @@ export function PaymentDialog({
   }, [
     documentStatuses.length,
     loadDocumentStatuses,
+    loadPaymentStatuses,
     loadPaymentMethods,
     mode,
     open,
     payment?.id,
+    paymentStatuses.length,
     paymentMethods.length,
   ])
 
@@ -274,6 +319,28 @@ export function PaymentDialog({
         }))
     },
     [documentStatuses, loadDocumentStatuses, renderStatusIcon],
+  )
+
+  const fetchPaymentStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options =
+        paymentStatuses.length && !query ? paymentStatuses : await loadPaymentStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term),
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.value,
+          icon: renderStatusIcon(option.color),
+        }))
+    },
+    [loadPaymentStatuses, paymentStatuses, renderStatusIcon],
   )
 
   const fields = React.useMemo<CrudField[]>(
@@ -324,6 +391,24 @@ export function PaymentDialog({
           )
         },
       },
+      {
+        id: 'statusEntryId',
+        label: t('sales.documents.payments.status', 'Status'),
+        type: 'custom',
+        component: ({ value, setValue }) => {
+          const currentValue = typeof value === 'string' && value.length ? value : null
+          return (
+            <LookupSelect
+              value={currentValue}
+              onChange={(next) => setValue(next ?? '')}
+              fetchItems={fetchPaymentStatusItems}
+              placeholder={t('sales.documents.payments.statusPlaceholder', 'Select status')}
+              loading={paymentStatusLoading}
+              minQuery={0}
+            />
+          )
+        },
+      },
       ...(mode === 'create'
         ? ([
             {
@@ -364,8 +449,10 @@ export function PaymentDialog({
     [
       currencyLabel,
       documentStatusLoading,
+      fetchPaymentStatusItems,
       fetchDocumentStatusItems,
       fetchPaymentMethodItems,
+      paymentStatusLoading,
       mode,
       t,
     ],
@@ -378,7 +465,7 @@ export function PaymentDialog({
           id: 'paymentDetails',
           title: t('sales.documents.payments.form.title', 'Payment details'),
           column: 1,
-          fields: ['amount', 'paymentMethodId', 'paymentReference', 'receivedAt'],
+          fields: ['amount', 'paymentMethodId', 'statusEntryId', 'paymentReference', 'receivedAt'],
         },
       ]
       if (mode === 'create') {
@@ -424,6 +511,10 @@ export function PaymentDialog({
         paymentMethodId:
           typeof values.paymentMethodId === 'string' && values.paymentMethodId.trim().length
             ? values.paymentMethodId
+            : undefined,
+        statusEntryId:
+          typeof values.statusEntryId === 'string' && values.statusEntryId.trim().length
+            ? values.statusEntryId
             : undefined,
         organizationId: organizationId ?? undefined,
         tenantId: tenantId ?? undefined,

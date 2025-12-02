@@ -12,7 +12,11 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { DollarSign, Settings } from 'lucide-react'
 import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
-import { DictionaryValue } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import {
+  DictionaryValue,
+  renderDictionaryIcon,
+  renderDictionaryColor,
+} from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
@@ -644,16 +648,7 @@ export function LineItemDialog({
           id: option.id,
           title: option.label,
           subtitle: option.label !== option.value ? option.value : undefined,
-          icon: (
-            <DictionaryValue
-              value={option.value}
-              map={currentMap}
-              className="text-xs font-medium"
-              iconWrapperClassName="inline-flex h-6 w-6 items-center justify-center rounded bg-muted text-muted-foreground"
-              iconClassName="h-3.5 w-3.5"
-              colorClassName="h-3 w-3 rounded-full border border-border/70"
-            />
-          ),
+          icon: renderDictionaryIcon(option.icon, 'h-4 w-4') ?? renderDictionaryColor(option.color, 'h-4 w-4 rounded-full'),
         }))
     },
     [lineStatuses, loadLineStatuses],
@@ -799,10 +794,9 @@ export function LineItemDialog({
         ...(catalogSnapshot ? { catalogSnapshot } : {}),
         metadata,
         customFieldSetId: values.customFieldSetId ?? undefined,
-        statusEntryId:
-          typeof values.statusEntryId === 'string' && values.statusEntryId.trim().length
-            ? values.statusEntryId
-            : null,
+        ...(typeof values.statusEntryId === 'string' && values.statusEntryId.trim().length
+          ? { statusEntryId: values.statusEntryId.trim() }
+          : {}),
       }
 
       const customFields = collectCustomFieldValues(values, {

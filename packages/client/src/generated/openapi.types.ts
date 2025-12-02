@@ -3247,6 +3247,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/payment-statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List payment statuses
+         * @description Manage the lifecycle states available for payments.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        get: operations["sales_get_sales_payment_statuses"];
+        /**
+         * Update payment status
+         * @description Updates an existing payment status by id.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        put: operations["sales_put_sales_payment_statuses"];
+        /**
+         * Create payment status
+         * @description Creates a new payment status.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        post: operations["sales_post_sales_payment_statuses"];
+        /**
+         * Delete payment status
+         * @description Deletes a payment status identified by id.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        delete: operations["sales_delete_sales_payment_statuses"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/payments": {
         parameters: {
             query?: never;
@@ -3452,6 +3492,46 @@ export interface paths {
         put: operations["sales_put_sales_settings_order_editing"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sales/shipment-statuses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List shipment statuses
+         * @description Manage the lifecycle states available for shipments.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        get: operations["sales_get_sales_shipment_statuses"];
+        /**
+         * Update shipment status
+         * @description Updates an existing shipment status by id.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        put: operations["sales_put_sales_shipment_statuses"];
+        /**
+         * Create shipment status
+         * @description Creates a new shipment status.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        post: operations["sales_post_sales_shipment_statuses"];
+        /**
+         * Delete shipment status
+         * @description Deletes a shipment status identified by id.
+         *
+         *     Requires features: sales.settings.manage
+         */
+        delete: operations["sales_delete_sales_shipment_statuses"];
         options?: never;
         head?: never;
         patch?: never;
@@ -16252,6 +16332,7 @@ export interface components {
             refunded_amount?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesRefundedAmount"];
             status?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatus"];
             status_entry_id?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryId"];
+            status_label?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabel"];
             updated_at?: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
         };
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAmount: number;
@@ -16330,6 +16411,9 @@ export interface components {
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryIdAnyOf1: string;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabel: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf0"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf1"];
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf0: null;
+        DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf1: string;
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf0"] | components["schemas"]["DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf1"];
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf0: null;
         DocPathsSalesPaymentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAtAnyOf1: string;
@@ -16542,6 +16626,154 @@ export interface components {
             error: components["schemas"]["DocPathsSalesPaymentsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesPaymentsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesDeleteRequestBodyContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesPaymentStatusesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesPaymentStatusesDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesPaymentStatusesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesPaymentStatusesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesPaymentStatusesDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesGetParameters0Schema: number;
+        DocPathsSalesPaymentStatusesGetParameters1Schema: number;
+        DocPathsSalesPaymentStatusesGetParameters2Schema: string;
+        DocPathsSalesPaymentStatusesGetParameters3Schema: string;
+        /** @enum {string} */
+        DocPathsSalesPaymentStatusesGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            color: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColor"];
+            createdAt: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
+            icon: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIcon"];
+            id: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            label: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
+            updatedAt: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
+            value: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesValue"];
+        };
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColor: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf1"];
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf0: null;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf1: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIcon: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf1"];
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf0: null;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1"];
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0: null;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1"];
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1"];
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesValue: string;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
+        DocPathsSalesPaymentStatusesGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchema: {
+            color?: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColor"];
+            icon?: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIcon"];
+            label?: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+            value: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesValue"];
+        };
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColor: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1"];
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0: null;
+        /** Format: regex */
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1: string;
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIcon: components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1"];
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0: null;
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1: string;
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesValue: string;
+        DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesId"];
+        };
+        DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesPaymentStatusesPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchema: {
+            color?: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColor"];
+            icon?: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIcon"];
+            id: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            label?: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+            value?: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesValue"];
+        };
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColor: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1"];
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0: null;
+        /** Format: regex */
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1: string;
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIcon: components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0"] | components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1"];
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0: null;
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesValue: string;
+        DocPathsSalesPaymentStatusesPutResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesPaymentStatusesPutResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesPaymentStatusesPutResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesPaymentStatusesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesPaymentStatusesPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesPaymentStatusesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesPaymentStatusesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
         DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
@@ -17806,8 +18038,10 @@ export interface components {
             shipped_at?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippedAt"];
             shipping_method_code?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodCode"];
             shipping_method_id?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodId"];
+            shipping_method_name?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodName"];
             status?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatus"];
             status_entry_id?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryId"];
+            status_label?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabel"];
             tracking_numbers?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbers"];
             updated_at: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
             weight_unit?: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesWeightUnit"];
@@ -17909,6 +18143,9 @@ export interface components {
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodIdAnyOf1: string;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodName: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodNameAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodNameAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodNameAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesShippingMethodNameAnyOf1: string;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatus: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusAnyOf1"];
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusAnyOf0: null;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusAnyOf1: string;
@@ -17916,6 +18153,9 @@ export interface components {
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusEntryIdAnyOf1: string;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabel: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf1"];
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf0: null;
+        DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesStatusLabelAnyOf1: string;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbers: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbersAnyOf0"] | components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbersAnyOf1"];
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbersAnyOf0: null;
         DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbersAnyOf1: components["schemas"]["DocPathsSalesShipmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTrackingNumbersAnyOf1Items"][];
@@ -18081,6 +18321,154 @@ export interface components {
             ok: components["schemas"]["DocPathsSalesShipmentsPutResponses200ContentApplicationJsonSchemaPropertiesOk"];
         };
         DocPathsSalesShipmentsPutResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesShipmentStatusesDeleteRequestBodyContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesShipmentStatusesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesShipmentStatusesDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesShipmentStatusesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesShipmentStatusesDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesShipmentStatusesDeleteResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesDeleteResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesDeleteResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesGetParameters0Schema: number;
+        DocPathsSalesShipmentStatusesGetParameters1Schema: number;
+        DocPathsSalesShipmentStatusesGetParameters2Schema: string;
+        DocPathsSalesShipmentStatusesGetParameters3Schema: string;
+        /** @enum {string} */
+        DocPathsSalesShipmentStatusesGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            color: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColor"];
+            createdAt: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
+            icon: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIcon"];
+            id: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            label: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
+            updatedAt: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt"];
+            value: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesValue"];
+        };
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColor: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf1"];
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf0: null;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf1: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIcon: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf1"];
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf0: null;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIconAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1"];
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0: null;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1"];
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1"];
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesUpdatedAt: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesValue: string;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
+        DocPathsSalesShipmentStatusesGetResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesGetResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesGetResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesGetResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchema: {
+            color?: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColor"];
+            icon?: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIcon"];
+            label?: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+            value: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesValue"];
+        };
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColor: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1"];
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0: null;
+        /** Format: regex */
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1: string;
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIcon: components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1"];
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0: null;
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1: string;
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchemaPropertiesValue: string;
+        DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesId"];
+        };
+        DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
+        DocPathsSalesShipmentStatusesPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchema: {
+            color?: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColor"];
+            icon?: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIcon"];
+            id: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            label?: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            tenantId: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+            value?: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesValue"];
+        };
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColor: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1"];
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf0: null;
+        /** Format: regex */
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesColorAnyOf1: string;
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIcon: components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0"] | components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1"];
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf0: null;
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesIconAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: uuid */
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchemaPropertiesValue: string;
+        DocPathsSalesShipmentStatusesPutResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesShipmentStatusesPutResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesShipmentStatusesPutResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
+        DocPathsSalesShipmentStatusesPutResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesPutResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesPutResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesShipmentStatusesPutResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesShipmentStatusesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesShipmentStatusesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesShippingMethodsDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -34784,6 +35172,271 @@ export interface operations {
             };
         };
     };
+    sales_get_sales_payment_statuses: {
+        parameters: {
+            query?: {
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesPaymentStatusesGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesPaymentStatusesGetParameters1Schema"];
+                /** @example string */
+                search?: components["schemas"]["DocPathsSalesPaymentStatusesGetParameters2Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesPaymentStatusesGetParameters4Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesPaymentStatusesGetParameters3Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated payment statuses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_payment_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fields to update on the target payment status. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "color": null,
+                 *       "icon": null,
+                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Payment status updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_payment_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Payload describing the payment status to create. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "value": "string",
+                 *       "color": null,
+                 *       "icon": null
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Payment status created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_delete_sales_payment_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Identifier payload. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesPaymentStatusesDeleteRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Payment status deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesDeleteResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesPaymentStatusesDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
     sales_get_sales_payments: {
         parameters: {
             query?: {
@@ -35979,6 +36632,271 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesSettingsOrderEditingPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_get_sales_shipment_statuses: {
+        parameters: {
+            query?: {
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesShipmentStatusesGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesShipmentStatusesGetParameters1Schema"];
+                /** @example string */
+                search?: components["schemas"]["DocPathsSalesShipmentStatusesGetParameters2Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesShipmentStatusesGetParameters4Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesShipmentStatusesGetParameters3Schema"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated shipment statuses */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesGetResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesGetResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesGetResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_put_sales_shipment_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Fields to update on the target shipment status. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "color": null,
+                 *       "icon": null,
+                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Shipment status updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPutResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPutResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPutResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_shipment_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Payload describing the shipment status to create. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "value": "string",
+                 *       "color": null,
+                 *       "icon": null
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Shipment status created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPostResponses201ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesPostResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_delete_sales_shipment_statuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Identifier payload. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesShipmentStatusesDeleteRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Shipment status deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesDeleteResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesDeleteResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesShipmentStatusesDeleteResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

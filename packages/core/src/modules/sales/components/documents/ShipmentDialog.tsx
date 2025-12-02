@@ -262,8 +262,10 @@ export function ShipmentDialog({
   const [addressError, setAddressError] = React.useState<string | null>(null)
   const [documentStatuses, setDocumentStatuses] = React.useState<StatusOption[]>([])
   const [lineStatuses, setLineStatuses] = React.useState<StatusOption[]>([])
+  const [shipmentStatuses, setShipmentStatuses] = React.useState<StatusOption[]>([])
   const [documentStatusLoading, setDocumentStatusLoading] = React.useState(false)
   const [lineStatusLoading, setLineStatusLoading] = React.useState(false)
+  const [shipmentStatusLoading, setShipmentStatusLoading] = React.useState(false)
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null)
   const itemErrorSetterRef = React.useRef<((errors: Record<string, string | undefined>) => void) | null>(null)
 
@@ -286,15 +288,12 @@ export function ShipmentDialog({
       shipmentNumber: shipment?.shipmentNumber ?? '',
       carrierName: shipment?.carrierName ?? '',
       shippingMethodId: shipment?.shippingMethodId ?? '',
-      shipmentAddressId: shipmentAddressSnapshot
-        ? 'shipment-address'
-        : shippingAddressSnapshot
-          ? 'shipping-address'
-          : '',
+      shipmentAddressId: preferredAddressId,
       shippedAt: shipment?.shippedAt ? shipment.shippedAt.slice(0, 10) : '',
       deliveredAt: shipment?.deliveredAt ? shipment.deliveredAt.slice(0, 10) : '',
       trackingNumbers: shipment?.trackingNumbers?.join('\n') ?? '',
       notes: shipment?.notes ?? '',
+      statusEntryId: shipment?.statusEntryId ?? '',
       documentStatusEntryId: '',
       lineStatusEntryId: '',
       postComment: true,
@@ -306,7 +305,25 @@ export function ShipmentDialog({
       }, baseItems),
       ...prefixCustomFieldValues(shipment?.customValues ?? null),
     }),
-    [baseItems, lines, mode, shipment?.carrierName, shipment?.customValues, shipment?.deliveredAt, shipment?.items, shipment?.metadata, shipment?.notes, shipment?.shipmentNumber, shipment?.shippedAt, shipment?.shippingMethodId, shipment?.trackingNumbers, shippingAddressSnapshot, shipmentAddressSnapshot],
+    [
+      baseItems,
+      lines,
+      mode,
+      preferredAddressId,
+      shipment?.carrierName,
+      shipment?.customValues,
+      shipment?.deliveredAt,
+      shipment?.items,
+      shipment?.metadata,
+      shipment?.notes,
+      shipment?.shipmentNumber,
+      shipment?.shippedAt,
+      shipment?.shippingMethodId,
+      shipment?.statusEntryId,
+      shipment?.trackingNumbers,
+      shippingAddressSnapshot,
+      shipmentAddressSnapshot,
+    ],
   )
 
   const shippingAddressOption = React.useMemo(
@@ -336,6 +353,24 @@ export function ShipmentDialog({
       ),
     [shipmentAddressOption, shippingAddressOption],
   )
+
+  const preferredAddressId = React.useMemo(() => {
+    const shipmentKey = snapshotKey(shipmentAddressSnapshot)
+    if (shipmentKey) {
+      const match = baseAddressOptions.find(
+        (option) => snapshotKey(option.snapshot) === shipmentKey
+      )
+      if (match) return match.id
+    }
+    if (shippingAddressSnapshot) {
+      const shippingKey = snapshotKey(shippingAddressSnapshot)
+      const match = baseAddressOptions.find(
+        (option) => snapshotKey(option.snapshot) === shippingKey
+      )
+      if (match) return match.id
+    }
+    return baseAddressOptions[0]?.id ?? ''
+  }, [baseAddressOptions, shipmentAddressSnapshot, shippingAddressSnapshot])
 
   const addressOptionsMap = React.useMemo(() => {
     const map = new Map<string, ShipmentAddressOption>()
@@ -631,6 +666,41 @@ export function ShipmentDialog({
     }
   }, [])
 
+  const loadShipmentStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
+    setShipmentStatusLoading(true)
+    try {
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
+      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+        `/api/sales/shipment-statuses?${params.toString()}`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      const items = Array.isArray(response.result?.items) ? response.result.items : []
+      const mapped = items
+        .map((entry) => {
+          const id = typeof entry.id === 'string' ? entry.id : null
+          const value = typeof entry.value === 'string' ? entry.value : null
+          if (!id || !value) return null
+          const label =
+            typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label
+              : value
+          const color =
+            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+          return { id, value, label, color }
+        })
+        .filter((entry): entry is StatusOption => Boolean(entry))
+      setShipmentStatuses(mapped)
+      return mapped
+    } catch (err) {
+      console.error('sales.shipments.statuses.load', err)
+      setShipmentStatuses([])
+      return []
+    } finally {
+      setShipmentStatusLoading(false)
+    }
+  }, [])
+
   const fetchDocumentStatusItems = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const options =
@@ -674,6 +744,28 @@ export function ShipmentDialog({
     [lineStatuses, loadLineStatuses, renderStatusIcon],
   )
 
+  const fetchShipmentStatusItems = React.useCallback(
+    async (query?: string): Promise<LookupSelectItem[]> => {
+      const options =
+        shipmentStatuses.length && !query ? shipmentStatuses : await loadShipmentStatuses()
+      const term = query?.trim().toLowerCase() ?? ''
+      return options
+        .filter(
+          (option) =>
+            !term.length ||
+            option.label.toLowerCase().includes(term) ||
+            option.value.toLowerCase().includes(term),
+        )
+        .map<LookupSelectItem>((option) => ({
+          id: option.id,
+          title: option.label,
+          subtitle: option.value,
+          icon: renderStatusIcon(option.color),
+        }))
+    },
+    [loadShipmentStatuses, renderStatusIcon, shipmentStatuses],
+  )
+
   React.useEffect(() => {
     if (!open) return
     setFormResetKey((prev) => prev + 1)
@@ -685,13 +777,14 @@ export function ShipmentDialog({
     if (!addressOptions.length) {
       void loadAddressOptions()
     }
-    if (mode === 'create') {
-      if (!documentStatuses.length) {
-        void loadDocumentStatuses()
-      }
-      if (!lineStatuses.length) {
-        void loadLineStatuses()
-      }
+    if (!shipmentStatuses.length) {
+      void loadShipmentStatuses()
+    }
+    if (!documentStatuses.length && mode === 'create') {
+      void loadDocumentStatuses()
+    }
+    if (!lineStatuses.length && mode === 'create') {
+      void loadLineStatuses()
     }
   }, [
     addressOptions.length,
@@ -699,11 +792,13 @@ export function ShipmentDialog({
     documentStatuses.length,
     loadAddressOptions,
     loadDocumentStatuses,
+    loadShipmentStatuses,
     loadLineStatuses,
     loadShippingMethods,
     mode,
     open,
     lineStatuses.length,
+    shipmentStatuses.length,
     shippingMethods.length,
   ])
 
@@ -712,13 +807,20 @@ export function ShipmentDialog({
       ensureShippingMethodOption(
         mapShippingMethod({
           id: shipment.shippingMethodId,
-          name: shipment.shippingMethodCode ?? shipment.shippingMethodId,
+          name: shipment.shippingMethodName ?? shipment.shippingMethodCode ?? shipment.shippingMethodId,
           code: shipment.shippingMethodCode ?? shipment.shippingMethodId,
           currencyCode: currencyCode ?? null,
         }),
       )
     }
-  }, [currencyCode, ensureShippingMethodOption, mapShippingMethod, shipment?.shippingMethodCode, shipment?.shippingMethodId])
+  }, [
+    currencyCode,
+    ensureShippingMethodOption,
+    mapShippingMethod,
+    shipment?.shippingMethodCode,
+    shipment?.shippingMethodId,
+    shipment?.shippingMethodName,
+  ])
 
   React.useEffect(() => {
     if (!open) return
@@ -828,6 +930,10 @@ export function ShipmentDialog({
         tenantId: tenantId ?? undefined,
         shipmentNumber,
         shippingMethodId,
+        statusEntryId:
+          typeof values.statusEntryId === 'string' && values.statusEntryId.trim().length
+            ? values.statusEntryId
+            : undefined,
         carrierName:
           typeof values.carrierName === 'string' && values.carrierName.trim().length
             ? values.carrierName.trim()
@@ -1163,6 +1269,24 @@ export function ShipmentDialog({
           )
         },
       },
+      {
+        id: 'statusEntryId',
+        label: t('sales.documents.shipments.status', 'Shipment status'),
+        type: 'custom',
+        component: ({ value, setValue }) => {
+          const currentValue = typeof value === 'string' && value.length ? value : null
+          return (
+            <LookupSelect
+              value={currentValue}
+              onChange={(next) => setValue(next ?? '')}
+              fetchItems={fetchShipmentStatusItems}
+              placeholder={t('sales.documents.shipments.statusPlaceholder', 'Select shipment status')}
+              loading={shipmentStatusLoading}
+              minQuery={0}
+            />
+          )
+        },
+      },
       ...(mode === 'create'
         ? ([
             {
@@ -1342,12 +1466,14 @@ export function ShipmentDialog({
     fetchAddressItems,
     fetchDocumentStatusItems,
     fetchLineStatusItems,
+    fetchShipmentStatusItems,
     fetchShippingMethodItems,
     lineStatusLoading,
     lines,
     mode,
     registerItemErrors,
     shipment?.id,
+    shipmentStatusLoading,
     t,
   ])
 
@@ -1356,16 +1482,18 @@ export function ShipmentDialog({
       const base: CrudFormGroup[] = [
         {
           id: 'shipmentDetails',
-          title: t('sales.documents.shipments.addTitle', 'Add shipment'),
+          title: mode === 'edit'
+            ? t('sales.documents.shipments.editTitle', 'Edit shipment')
+            : t('sales.documents.shipments.addTitle', 'Add shipment'),
           column: 1,
-          fields: ['shipmentNumber', 'carrierName', 'shippingMethodId', 'shipmentAddressId'],
+          fields: ['shipmentNumber', 'carrierName', 'shippingMethodId', 'statusEntryId', 'shipmentAddressId'],
         },
       ]
       if (mode === 'create') {
         base.push({
           id: 'statusChanges',
           title: t('sales.documents.status.sectionTitle', 'Status changes'),
-          column: 1,
+          column: 2,
           fields: ['documentStatusEntryId', 'lineStatusEntryId'],
         })
       }
@@ -1373,7 +1501,7 @@ export function ShipmentDialog({
         {
           id: 'tracking',
           title: t('sales.documents.shipments.trackingGroup', 'Tracking information'),
-          column: 1,
+          column: 2,
           fields: ['shippedAt', 'deliveredAt', 'trackingNumbers', 'notes'],
         },
         {

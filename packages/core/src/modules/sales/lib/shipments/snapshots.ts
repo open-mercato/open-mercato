@@ -127,3 +127,5 @@ export const refreshShipmentItemsSnapshot = async (
   shipment.itemsSnapshot = snapshot.length ? snapshot : null
   return snapshot
 }
+
+export type { ShipmentItemSnapshot } from './types'

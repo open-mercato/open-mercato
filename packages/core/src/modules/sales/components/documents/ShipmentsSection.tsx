@@ -13,10 +13,12 @@ import { useT } from '@/lib/i18n/context'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import type { SectionAction } from '@open-mercato/core/modules/customers/components/detail/types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { formatAddressString, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { ShipmentDialog } from './ShipmentDialog'
 import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
+const ADDRESS_FORMAT: 'line_first' = 'line_first'
 
 type SalesShipmentsSectionProps = {
   orderId: string
@@ -33,6 +35,29 @@ function formatDisplayDate(value: string | null | undefined): string | null {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+}
+
+const formatShipmentAddress = (metadata?: Record<string, unknown> | null): string | null => {
+  if (!metadata || typeof metadata !== 'object') return null
+  const snapshot = (metadata as any)[ADDRESS_SNAPSHOT_KEY]
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
+  const read = (key: string): string | null => {
+    const value = (snapshot as any)[key]
+    return typeof value === 'string' && value.trim().length ? value.trim() : null
+  }
+  const addressValue: AddressValue = {
+    addressLine1: read('addressLine1') ?? read('address_line1'),
+    addressLine2: read('addressLine2') ?? read('address_line2'),
+    buildingNumber: read('buildingNumber') ?? read('building_number'),
+    flatNumber: read('flatNumber') ?? read('flat_number'),
+    city: read('city'),
+    region: read('region'),
+    postalCode: read('postalCode') ?? read('postal_code'),
+    country: read('country'),
+    companyName: read('companyName') ?? read('company_name'),
+  }
+  const summary = formatAddressString(addressValue, ADDRESS_FORMAT)
+  return summary && summary.trim().length ? summary : null
 }
 
 const resolveLineThumbnail = (item: Record<string, unknown>): string | null => {
@@ -259,11 +284,23 @@ export function SalesShipmentsSection({
                 : typeof (item as any).shippingMethodCode === 'string'
                   ? (item as any).shippingMethodCode
                   : null,
+            shippingMethodName:
+              typeof (item as any).shipping_method_name === 'string'
+                ? (item as any).shipping_method_name
+                : typeof (item as any).shippingMethodName === 'string'
+                  ? (item as any).shippingMethodName
+                  : null,
             status:
               typeof item.status === 'string'
                 ? item.status
                 : typeof (item as any).status === 'string'
                   ? (item as any).status
+                  : null,
+            statusLabel:
+              typeof (item as any).status_label === 'string'
+                ? (item as any).status_label
+                : typeof (item as any).statusLabel === 'string'
+                  ? (item as any).statusLabel
                   : null,
             statusEntryId:
               typeof (item as any).status_entry_id === 'string'
@@ -425,8 +462,11 @@ export function SalesShipmentsSection({
           {shipments.map((shipment) => {
             const shippedAt = formatDisplayDate(shipment.shippedAt)
             const deliveredAt = formatDisplayDate(shipment.deliveredAt)
-            const hasAddressSnapshot =
-              shipment.metadata && ADDRESS_SNAPSHOT_KEY in shipment.metadata
+            const addressSummary = formatShipmentAddress(shipment.metadata)
+            const statusLabel =
+              shipment.statusLabel ??
+              shipment.status ??
+              t('sales.documents.shipments.statusMissing', 'Status pending')
             return (
               <div key={shipment.id} className="rounded-lg border bg-card p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
@@ -445,7 +485,7 @@ export function SalesShipmentsSection({
                             })}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {shipment.status ?? t('sales.documents.shipments.statusMissing', 'Status pending')}
+                        {statusLabel}
                       </p>
                     </div>
                   </div>
@@ -489,10 +529,8 @@ export function SalesShipmentsSection({
                       {t('sales.documents.shipments.deliveredOn', 'Delivered on {{date}}', { date: deliveredAt })}
                     </p>
                   ) : null}
-                  {hasAddressSnapshot ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t('sales.documents.shipments.addressSnapshot', 'Address snapshot saved.')}
-                    </p>
+                  {addressSummary ? (
+                    <p className="text-xs text-muted-foreground">{addressSummary}</p>
                   ) : null}
                   {shipment.notes ? (
                     <p className="rounded-md bg-muted px-3 py-2 text-muted-foreground">

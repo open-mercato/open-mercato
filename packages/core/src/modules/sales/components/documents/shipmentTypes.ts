@@ -12,7 +12,9 @@ export type ShipmentRow = {
   shipmentNumber: string | null
   shippingMethodId: string | null
   shippingMethodCode: string | null
+  shippingMethodName: string | null
   status: string | null
+  statusLabel: string | null
   statusEntryId: string | null
   carrierName: string | null
   trackingNumbers: string[]
