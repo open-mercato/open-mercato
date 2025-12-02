@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
+import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
 
 export type UpgradeActionContext = CatalogSeedScope & {
   container: AwilixContainer
@@ -27,6 +28,19 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     loadingKey: 'upgrades.v034.loading',
     async run({ container, em, tenantId, organizationId }) {
       await installExampleCatalogData(container, { tenantId, organizationId }, em)
+    },
+  },
+  {
+    id: 'configs.upgrades.sales.examples',
+    version: '0.3.6',
+    messageKey: 'upgrades.v036.message',
+    ctaKey: 'upgrades.v036.cta',
+    successKey: 'upgrades.v036.success',
+    loadingKey: 'upgrades.v036.loading',
+    async run({ container, em, tenantId, organizationId }) {
+      await em.transactional(async (tem) => {
+        await seedSalesExamples(tem, container, { tenantId, organizationId })
+      })
     },
   },
 ]

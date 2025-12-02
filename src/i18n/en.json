@@ -131,6 +131,10 @@
   "upgrades.v034.cta": "Install example catalog products and categories",
   "upgrades.v034.loading": "Installing…",
   "upgrades.v034.success": "Example catalog products and categories installed.",
+  "upgrades.v036.message": "Version {{version}} has been installed. To try the new sales module, run \"Install example sales quotes and orders\".",
+  "upgrades.v036.cta": "Install example sales quotes and orders",
+  "upgrades.v036.loading": "Installing…",
+  "upgrades.v036.success": "Example sales quotes and orders installed.",
   "upgrades.runFailed": "We could not run this upgrade action.",
   "upgrades.loading": "Loading upgrade…"
 }

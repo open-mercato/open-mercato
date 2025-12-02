@@ -130,6 +130,10 @@
   "upgrades.v034.cta": "Beispielkatalog-Produkte und -Kategorien installieren",
   "upgrades.v034.loading": "Installiere…",
   "upgrades.v034.success": "Beispielkatalog-Produkte und -Kategorien wurden installiert.",
+  "upgrades.v036.message": "Version {{version}} wurde installiert. Um das neue Sales-Modul auszuprobieren, führe „Beispielangebote und -bestellungen installieren“ aus.",
+  "upgrades.v036.cta": "Beispielangebote und -bestellungen installieren",
+  "upgrades.v036.loading": "Installiere…",
+  "upgrades.v036.success": "Beispielangebote und -bestellungen wurden installiert.",
   "upgrades.runFailed": "Die Upgrade-Aktion konnte nicht ausgeführt werden.",
   "upgrades.loading": "Upgrade wird geladen…"
 }

@@ -561,6 +561,7 @@ function buildPaymentMethodSnapshot(method?: SalesPaymentMethod | null) {
 
 function attachDocumentAddresses(
   em: EntityManager,
+  scope: SeedScope,
   params: {
     documentId: string
     documentKind: 'order' | 'quote'
@@ -600,6 +601,7 @@ function attachDocumentAddresses(
 
 function attachNotes(
   em: EntityManager,
+  scope: SeedScope,
   params: {
     contextId: string
     contextType: 'order' | 'quote'
@@ -819,7 +821,7 @@ export async function seedSalesExamples(
     quote.lineItemCount = seed.lines.length
 
     if (seed.addresses?.length) {
-      attachDocumentAddresses(em, {
+      attachDocumentAddresses(em, scope, {
         documentId: quoteId,
         documentKind: 'quote',
         addresses: seed.addresses,
@@ -831,7 +833,7 @@ export async function seedSalesExamples(
       quote.shippingAddressSnapshot = shipping ? buildAddressSnapshot(shipping) : null
     }
     if (seed.notes?.length) {
-      attachNotes(em, {
+      attachNotes(em, scope, {
         contextId: quoteId,
         contextType: 'quote',
         notes: seed.notes,
@@ -1092,7 +1094,7 @@ export async function seedSalesExamples(
     }
 
     if (seed.addresses?.length) {
-      attachDocumentAddresses(em, {
+      attachDocumentAddresses(em, scope, {
         documentId: orderId,
         documentKind: 'order',
         addresses: seed.addresses,
@@ -1104,7 +1106,7 @@ export async function seedSalesExamples(
       order.shippingAddressSnapshot = shipping ? buildAddressSnapshot(shipping) : null
     }
     if (seed.notes?.length) {
-      attachNotes(em, {
+      attachNotes(em, scope, {
         contextId: orderId,
         contextType: 'order',
         notes: seed.notes,

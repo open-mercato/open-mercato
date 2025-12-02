@@ -131,6 +131,10 @@
   "upgrades.v034.cta": "Zainstaluj przykładowe produkty i kategorie katalogu",
   "upgrades.v034.loading": "Instalowanie…",
   "upgrades.v034.success": "Przykładowe produkty i kategorie katalogu zostały zainstalowane.",
+  "upgrades.v036.message": "Wersja {{version}} została zainstalowana. Aby wypróbować nowy moduł sprzedaży, uruchom „Zainstaluj przykładowe oferty i zamówienia sprzedaży”.",
+  "upgrades.v036.cta": "Zainstaluj przykładowe oferty i zamówienia sprzedaży",
+  "upgrades.v036.loading": "Instalowanie…",
+  "upgrades.v036.success": "Przykładowe oferty i zamówienia sprzedaży zostały zainstalowane.",
   "upgrades.runFailed": "Nie udało się uruchomić tej akcji aktualizacji.",
   "upgrades.loading": "Ładowanie aktualizacji…"
 }

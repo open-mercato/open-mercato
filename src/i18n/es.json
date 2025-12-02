@@ -131,6 +131,10 @@
   "upgrades.v034.cta": "Instalar productos y categorías de catálogo de ejemplo",
   "upgrades.v034.loading": "Instalando…",
   "upgrades.v034.success": "Productos y categorías de catálogo de ejemplo instalados.",
+  "upgrades.v036.message": "La versión {{version}} se ha instalado. Para probar el nuevo módulo de ventas, ejecuta \"Instalar cotizaciones y pedidos de ejemplo\".",
+  "upgrades.v036.cta": "Instalar cotizaciones y pedidos de ejemplo",
+  "upgrades.v036.loading": "Instalando…",
+  "upgrades.v036.success": "Se instalaron cotizaciones y pedidos de ejemplo.",
   "upgrades.runFailed": "No pudimos ejecutar esta acción de actualización.",
   "upgrades.loading": "Cargando actualización…"
 }
