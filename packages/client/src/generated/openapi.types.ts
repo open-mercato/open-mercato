@@ -3335,8 +3335,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /sales/price-kinds
-         * @description Requires features: sales.channels.manage
+         * List price kinds
+         * @description Lists available price kinds that can be used when pricing sales channels and offers.
+         *
+         *     Requires features: sales.channels.manage
          */
         get: operations["sales_get_sales_price_kinds"];
         put?: never;
@@ -3639,23 +3641,31 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /sales/tags
-         * @description Requires features: sales.orders.view
+         * List sales tags
+         * @description Manage reusable tags to categorize sales orders and quotes.
+         *
+         *     Requires features: sales.orders.view
          */
         get: operations["sales_get_sales_tags"];
         /**
-         * PUT /sales/tags
-         * @description Requires features: sales.orders.manage
+         * Update sales tag
+         * @description Updates an existing sales tag.
+         *
+         *     Requires features: sales.orders.manage
          */
         put: operations["sales_put_sales_tags"];
         /**
-         * POST /sales/tags
-         * @description Requires features: sales.orders.manage
+         * Create sales tag
+         * @description Creates a sales document tag.
+         *
+         *     Requires features: sales.orders.manage
          */
         post: operations["sales_post_sales_tags"];
         /**
-         * DELETE /sales/tags
-         * @description Requires features: sales.orders.manage
+         * Delete sales tag
+         * @description Deletes a sales tag.
+         *
+         *     Requires features: sales.orders.manage
          */
         delete: operations["sales_delete_sales_tags"];
         options?: never;
@@ -16796,7 +16806,39 @@ export interface components {
             error: components["schemas"]["DocPathsSalesPaymentStatusesPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesPaymentStatusesPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesPriceKindsGetParameters0Schema: number;
+        DocPathsSalesPriceKindsGetParameters1Schema: number;
+        DocPathsSalesPriceKindsGetParameters2Schema: string;
+        DocPathsSalesPriceKindsGetParameters3Schema: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            code: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCode"];
+            currency_code?: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode"];
+            display_mode: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDisplayMode"];
+            id: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            is_active: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsActive"];
+            title: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitle"];
+        };
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCode: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCode: components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0"] | components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1"];
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf0: null;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCurrencyCodeAnyOf1: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDisplayMode: string;
+        /** Format: uuid */
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesIsActive: boolean;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTitle: string;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
         DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesPriceKindsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -18737,6 +18779,10 @@ export interface components {
             error: components["schemas"]["DocPathsSalesShippingMethodsPutResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesShippingMethodsPutResponses403ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesTagsDeleteResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesTagsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesTagsDeleteResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
         DocPathsSalesTagsDeleteResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesTagsDeleteResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -18745,7 +18791,53 @@ export interface components {
             error: components["schemas"]["DocPathsSalesTagsDeleteResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesTagsDeleteResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesTagsGetParameters0Schema: number;
+        DocPathsSalesTagsGetParameters1Schema: number;
+        DocPathsSalesTagsGetParameters2Schema: string;
+        DocPathsSalesTagsGetParameters3Schema: string;
+        /** @enum {string} */
+        DocPathsSalesTagsGetParameters4Schema: "asc" | "desc";
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchema: {
+            items: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItems"];
+            page: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesPage"];
+            pageSize: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize"];
+            total: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesTotal"];
+            totalPages: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages"];
+        };
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
+            color?: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColor"];
+            description?: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDescription"];
+            id: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId"];
+            label?: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel"];
+            organization_id?: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId"];
+            slug: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesSlug"];
+            tenant_id?: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId"];
+        };
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColor: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf0"] | components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf1"];
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf0: null;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesColorAnyOf1: string;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDescription: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDescriptionAnyOf0"] | components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDescriptionAnyOf1"];
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDescriptionAnyOf0: null;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesDescriptionAnyOf1: string;
+        /** Format: uuid */
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesId: string;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabel: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0"] | components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1"];
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf0: null;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesLabelAnyOf1: string;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationId: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0"] | components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1"];
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesOrganizationIdAnyOf1: string;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesSlug: string;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantId: components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0"] | components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1"];
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesTenantIdAnyOf1: string;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesPage: number;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesPageSize: number;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesTotal: number;
+        DocPathsSalesTagsGetResponses200ContentApplicationJsonSchemaPropertiesTotalPages: number;
         DocPathsSalesTagsGetResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesTagsGetResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -18754,7 +18846,30 @@ export interface components {
             error: components["schemas"]["DocPathsSalesTagsGetResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesTagsGetResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsSalesTagsPostResponses201ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchema: {
+            color?: components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesColor"];
+            description?: components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
+            label: components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            organizationId: components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            slug: components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesSlug"];
+            tenantId: components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesColor: string;
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        /** Format: uuid */
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: regex */
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesSlug: string;
+        /** Format: uuid */
+        DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesTagsPostResponses201ContentApplicationJsonSchema: {
+            id: components["schemas"]["DocPathsSalesTagsPostResponses201ContentApplicationJsonSchemaPropertiesId"];
+        };
+        DocPathsSalesTagsPostResponses201ContentApplicationJsonSchemaPropertiesId: components["schemas"]["DocPathsSalesTagsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0"] | components["schemas"]["DocPathsSalesTagsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1"];
+        DocPathsSalesTagsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf0: null;
+        /** Format: uuid */
+        DocPathsSalesTagsPostResponses201ContentApplicationJsonSchemaPropertiesIdAnyOf1: string;
         DocPathsSalesTagsPostResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesTagsPostResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -18763,7 +18878,30 @@ export interface components {
             error: components["schemas"]["DocPathsSalesTagsPostResponses403ContentApplicationJsonSchemaPropertiesError"];
         };
         DocPathsSalesTagsPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
-        DocPathsSalesTagsPutResponses200ContentApplicationJsonSchema: Record<string, never>;
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchema: {
+            color?: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesColor"];
+            description?: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesDescription"];
+            id: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesId"];
+            label?: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel"];
+            organizationId?: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId"];
+            slug?: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesSlug"];
+            tenantId?: components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId"];
+        };
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesColor: string;
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesDescription: string;
+        /** Format: uuid */
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesId: string;
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesLabel: string;
+        /** Format: uuid */
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesOrganizationId: string;
+        /** Format: regex */
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesSlug: string;
+        /** Format: uuid */
+        DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchemaPropertiesTenantId: string;
+        DocPathsSalesTagsPutResponses200ContentApplicationJsonSchema: {
+            ok: components["schemas"]["DocPathsSalesTagsPutResponses200ContentApplicationJsonSchemaPropertiesOk"];
+        };
+        DocPathsSalesTagsPutResponses200ContentApplicationJsonSchemaPropertiesOk: boolean;
         DocPathsSalesTagsPutResponses401ContentApplicationJsonSchema: {
             error: components["schemas"]["DocPathsSalesTagsPutResponses401ContentApplicationJsonSchemaPropertiesError"];
         };
@@ -35753,19 +35891,37 @@ export interface operations {
     };
     sales_get_sales_price_kinds: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @example string */
+                isActive?: components["schemas"]["DocPathsSalesPriceKindsGetParameters3Schema"];
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesPriceKindsGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesPriceKindsGetParameters1Schema"];
+                /** @example string */
+                search?: components["schemas"]["DocPathsSalesPriceKindsGetParameters2Schema"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Success response */
+            /** @description Paginated price kinds */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
                     "application/json": components["schemas"]["DocPathsSalesPriceKindsGetResponses200ContentApplicationJsonSchema"];
                 };
             };
@@ -37441,19 +37597,39 @@ export interface operations {
     };
     sales_get_sales_tags: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @example 1 */
+                page?: components["schemas"]["DocPathsSalesTagsGetParameters0Schema"];
+                /** @example 1 */
+                pageSize?: components["schemas"]["DocPathsSalesTagsGetParameters1Schema"];
+                /** @example string */
+                search?: components["schemas"]["DocPathsSalesTagsGetParameters2Schema"];
+                /** @example asc */
+                sortDir?: components["schemas"]["DocPathsSalesTagsGetParameters4Schema"];
+                /** @example string */
+                sortField?: components["schemas"]["DocPathsSalesTagsGetParameters3Schema"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Success response */
+            /** @description Paginated sales tags */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "items": [],
+                     *       "total": 1,
+                     *       "page": 1,
+                     *       "pageSize": 1,
+                     *       "totalPages": 1
+                     *     }
+                     */
                     "application/json": components["schemas"]["DocPathsSalesTagsGetResponses200ContentApplicationJsonSchema"];
                 };
             };
@@ -37494,14 +37670,29 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Fields to update on the target sales tag. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "id": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesTagsPutRequestBodyContentApplicationJsonSchema"];
+            };
+        };
         responses: {
-            /** @description Success response */
+            /** @description Sales tag updated */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
                     "application/json": components["schemas"]["DocPathsSalesTagsPutResponses200ContentApplicationJsonSchema"];
                 };
             };
@@ -37542,14 +37733,32 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Creates a sales document tag. */
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "organizationId": "00000000-0000-4000-8000-000000000000",
+                 *       "tenantId": "00000000-0000-4000-8000-000000000000",
+                 *       "slug": "string",
+                 *       "label": "string"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesTagsPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
         responses: {
-            /** @description Success response */
+            /** @description Sales tag created */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": null
+                     *     }
+                     */
                     "application/json": components["schemas"]["DocPathsSalesTagsPostResponses201ContentApplicationJsonSchema"];
                 };
             };
@@ -37592,12 +37801,19 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Success */
-            204: {
+            /** @description Sales tag deleted */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    /**
+                     * @example {
+                     *       "ok": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesTagsDeleteResponses200ContentApplicationJsonSchema"];
+                };
             };
             /** @description Unauthorized */
             401: {

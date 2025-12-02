@@ -41,6 +41,9 @@ This repository is designed for extensibility. Agents should leverage the module
   - `src/modules/entities.generated.ts` (MikroORM entities)
   - `src/modules/di.generated.ts` (DI registrars)
   - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+- Query index coverage:
+  - Every CRUD route that should emit index/refresh events must configure `indexer: { entityType }` in `makeCrudRoute` (see sales orders/lines/payments/shipments, catalog products, customer deals).
+  - Partial coverage warnings in the UI mean the index is missing records—ensure the route has `indexer` enabled and rerun a reindex task if needed.
 - Migrations (module-scoped with MikroORM):
   - Generate all modules: `npm run db:generate` (iterates modules, writes to `src/modules/<module>/migrations`)
   - Apply all modules: `npm run db:migrate` (ordered, directory first)

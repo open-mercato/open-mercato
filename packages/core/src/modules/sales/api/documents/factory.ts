@@ -303,6 +303,9 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       tenantField: 'tenantId',
       softDeleteField: 'deletedAt',
     },
+    indexer: {
+      entityType: binding.entityId,
+    },
     list: {
       schema: listSchema,
       entityId: binding.entityId,
