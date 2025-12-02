@@ -379,14 +379,12 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           createdAt: item.created_at,
           updatedAt: item.updated_at,
         }
-        const customRaw: Record<string, unknown> = {}
-        Object.entries(item as Record<string, unknown>).forEach(([key, value]) => {
-          if (typeof key !== 'string') return
-          if (key.startsWith('cf_') || key.startsWith('cf:')) {
-            customRaw[key] = value
-          }
+        const cfEntries = extractAllCustomFieldEntries(item as Record<string, unknown>)
+        const normalized = { ...base }
+        Object.keys(normalized).forEach((key) => {
+          if (key.startsWith('cf:')) delete (normalized as any)[key]
         })
-        return Object.keys(customRaw).length ? { ...base, ...customRaw } : base
+        return Object.keys(cfEntries).length ? { ...normalized, ...cfEntries } : normalized
       },
     },
     actions: {
