@@ -434,7 +434,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
       },
     },
     hooks: {
-      afterList: async (payload, ctx) => {
+      afterList: async (payload: any, ctx: CrudCtx) => {
         await attachTags(payload, { ...ctx, bindingKind: binding.kind })
       },
     },

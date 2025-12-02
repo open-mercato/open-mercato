@@ -256,7 +256,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       }
 
       mockEm.findOne.mockResolvedValue(existingRule)
-      mockEm.assign.mockImplementation((target, data) => Object.assign(target, data))
+      mockEm.assign.mockImplementation((target: any, data: any) => Object.assign(target, data))
       mockEm.persistAndFlush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/rules', {
@@ -325,7 +325,7 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       }
 
       mockEm.findOne.mockResolvedValue(existingRule)
-      mockEm.assign.mockImplementation((target, data) => Object.assign(target, data))
+      mockEm.assign.mockImplementation((target: any, data: any) => Object.assign(target, data))
       mockEm.persistAndFlush.mockResolvedValue(undefined)
 
       const request = new Request('http://localhost:3000/api/business_rules/rules', {

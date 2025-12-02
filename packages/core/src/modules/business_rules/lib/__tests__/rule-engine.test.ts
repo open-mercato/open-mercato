@@ -4,6 +4,7 @@ import * as ruleEngine from '../rule-engine'
 import * as ruleEvaluator from '../rule-evaluator'
 import * as actionExecutor from '../action-executor'
 import type { RuleEngineContext } from '../rule-engine'
+import type { ActionExecutionOutcome } from '../action-executor'
 import type { BusinessRule } from '../../data/entities'
 
 // Mock dependencies
@@ -16,7 +17,7 @@ describe('Rule Engine (Unit Tests)', () => {
   const testTenantId = '00000000-0000-4000-8000-000000000001'
   const testOrgId = '00000000-0000-4000-8000-000000000002'
   const testEntityId = '00000000-0000-4000-8000-000000000003'
-  const allowOutcome = {
+  const allowOutcome: ActionExecutionOutcome = {
     success: true,
     results: [
       {
@@ -28,7 +29,7 @@ describe('Rule Engine (Unit Tests)', () => {
     ],
     totalTime: 1,
   }
-  const blockOutcome = {
+  const blockOutcome: ActionExecutionOutcome = {
     success: false,
     results: [
       {
