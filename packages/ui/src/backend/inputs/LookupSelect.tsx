@@ -160,7 +160,7 @@ export function LookupSelect({
                 <div
                   key={item.id}
                   className={cn(
-                    'flex gap-3 rounded border bg-card p-3 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary',
+                    'flex gap-3 rounded border bg-card p-3 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                     isSelected ? 'border-primary/70 bg-primary/5' : 'hover:border-primary/50'
                   )}
                   role="button"

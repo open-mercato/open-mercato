@@ -3,6 +3,9 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
+import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
+import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
+import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '../FlashMessages'
@@ -60,7 +63,6 @@ export type NotesDataAdapter<C = unknown> = {
 
 type RenderIconFn = (icon: string, className?: string) => React.ReactNode
 type RenderColorFn = (color: string, className?: string) => React.ReactNode
-type IconSuggestion = { value: string; label?: string }
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -207,183 +209,6 @@ function TimelineItemHeader({
   )
 }
 
-type AppearanceDialogProps = {
-  open: boolean
-  title: string
-  icon: string | null
-  color: string | null
-  labels: {
-    colorLabel: string
-    colorHelp: string
-    colorClearLabel: string
-    iconLabel: string
-    iconPlaceholder: string
-    iconPickerTriggerLabel: string
-    iconSearchPlaceholder: string
-    iconSearchEmptyLabel: string
-    iconSuggestionsLabel: string
-    iconClearLabel: string
-    previewEmptyLabel: string
-  }
-  iconSuggestions?: IconSuggestion[]
-  onIconChange: (value: string | null) => void
-  onColorChange: (value: string | null) => void
-  onSubmit: () => void
-  onClose: () => void
-  isSaving?: boolean
-  errorMessage?: string | null
-  primaryLabel: string
-  savingLabel: string
-  cancelLabel: string
-  renderIcon?: RenderIconFn
-  renderColor?: RenderColorFn
-}
-
-function AppearanceDialog({
-  open,
-  title,
-  icon,
-  color,
-  labels,
-  iconSuggestions,
-  onIconChange,
-  onColorChange,
-  onSubmit,
-  onClose,
-  isSaving = false,
-  errorMessage = null,
-  primaryLabel,
-  savingLabel,
-  cancelLabel,
-  renderIcon,
-  renderColor,
-}: AppearanceDialogProps) {
-  if (!open) return null
-  const normalizedColor = color ?? '#000000'
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-md rounded-xl border bg-card p-4 shadow-lg"
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault()
-            if (!isSaving) onSubmit()
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onClose()
-          }
-        }}
-      >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <Button type="button" variant="ghost" size="icon" onClick={onClose} disabled={isSaving}>
-            ×
-          </Button>
-        </div>
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-foreground">{labels.iconLabel}</label>
-            <input
-              type="text"
-              value={icon ?? ''}
-              onChange={(event) => onIconChange(event.target.value.trim() ? event.target.value.trim() : null)}
-              placeholder={labels.iconPlaceholder}
-              className="w-full rounded border border-muted-foreground/40 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              disabled={isSaving}
-            />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{labels.iconPickerTriggerLabel}</span>
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => onIconChange(null)}
-                disabled={isSaving}
-              >
-                {labels.iconClearLabel}
-              </button>
-            </div>
-            {iconSuggestions && iconSuggestions.length ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">{labels.iconSuggestionsLabel}</p>
-                <div className="flex flex-wrap gap-2">
-                  {iconSuggestions.map((suggestion) => (
-                    <button
-                      key={suggestion.value}
-                      type="button"
-                      className="flex items-center gap-2 rounded border px-2 py-1 text-xs hover:border-primary"
-                      onClick={() => onIconChange(suggestion.value)}
-                      disabled={isSaving}
-                    >
-                      {renderIcon ? renderIcon(suggestion.value, 'h-4 w-4') : null}
-                      <span>{suggestion.label ?? suggestion.value}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-foreground">{labels.colorLabel}</label>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="color"
-                value={normalizedColor}
-                onChange={(event) => onColorChange(event.target.value)}
-                disabled={isSaving}
-                className="h-10 w-12 cursor-pointer rounded border border-muted-foreground/40 bg-background"
-                aria-label={labels.colorLabel}
-              />
-              <input
-                type="text"
-                value={color ?? ''}
-                onChange={(event) => onColorChange(event.target.value.trim() ? event.target.value.trim() : null)}
-                placeholder="#aabbcc"
-                className="flex-1 rounded border border-muted-foreground/40 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                disabled={isSaving}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onColorChange(null)}
-                disabled={isSaving || !color}
-              >
-                {labels.colorClearLabel}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">{labels.colorHelp}</p>
-            {color && renderColor ? (
-              <div className="flex items-center gap-2 rounded border border-dashed px-2 py-1 text-xs">
-                {renderColor(color, 'h-3.5 w-3.5 rounded-full border border-border')}
-                <span className="font-semibold uppercase text-muted-foreground">{color}</span>
-              </div>
-            ) : null}
-          </div>
-          {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
-        </div>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
-            {cancelLabel}
-          </Button>
-          <Button type="button" onClick={onSubmit} disabled={isSaving}>
-            {isSaving ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {savingLabel}
-              </>
-            ) : (
-              primaryLabel
-            )}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export type NotesSectionProps<C = unknown> = {
   entityId: string | null
   dealId?: string | null
@@ -402,7 +227,7 @@ export type NotesSectionProps<C = unknown> = {
   dataContext?: C
   renderIcon?: RenderIconFn
   renderColor?: RenderColorFn
-  iconSuggestions?: IconSuggestion[]
+  iconSuggestions?: IconOption[]
   readMarkdownPreference?: () => boolean | null
   writeMarkdownPreference?: (value: boolean) => void
   disableMarkdown?: boolean
@@ -1036,7 +861,7 @@ export function NotesSection<C = unknown>({
     [viewerUserId, youLabel],
   )
 
-  const noteAppearanceLabels = React.useMemo(
+  const noteAppearanceLabels = React.useMemo<AppearanceSelectorLabels>(
     () => ({
       colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
       colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
@@ -1416,18 +1241,18 @@ export function NotesSection<C = unknown>({
                   <div
                     role="button"
                     tabIndex={0}
-                className="cursor-pointer text-sm"
-                onClick={() => setContentEditor({ id: note.id, value: note.body })}
-                onKeyDown={(event) => handleContentKeyDown(event, note)}
-              >
-                <MarkdownPreviewComponent
-                  remarkPlugins={markdownPlugins}
-                  className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
-                >
-                  {note.body}
-                </MarkdownPreviewComponent>
-              </div>
-            )}
+                    className="cursor-pointer text-sm"
+                    onClick={() => setContentEditor({ id: note.id, value: note.body })}
+                    onKeyDown={(event) => handleContentKeyDown(event, note)}
+                  >
+                    <MarkdownPreviewComponent
+                      remarkPlugins={markdownPlugins}
+                      className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
+                    >
+                      {note.body}
+                    </MarkdownPreviewComponent>
+                  </div>
+                )}
               </div>
             )
           })
@@ -1472,8 +1297,6 @@ export function NotesSection<C = unknown>({
         primaryLabel={appearanceDialogPrimaryLabel}
         savingLabel={appearanceDialogSavingLabel}
         cancelLabel={t('customers.people.detail.notes.appearance.cancel')}
-        renderIcon={renderIcon}
-        renderColor={renderColor}
       />
     </div>
   )

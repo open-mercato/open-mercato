@@ -895,6 +895,13 @@ const prefixCustomFieldValues = (input: Record<string, unknown> | null | undefin
   }, {})
 }
 
+const resolveLineItemCount = (record: unknown): number | null => {
+  if (!record || typeof record !== 'object') return null
+  const current = (record as any).lineItemCount ?? (record as any).line_item_count
+  if (typeof current !== 'number') return null
+  return Number.isFinite(current) ? current : null
+}
+
 async function fetchDocument(id: string, kind: 'order' | 'quote', errorMessage: string): Promise<DocumentRecord | null> {
   const params = new URLSearchParams({ id, page: '1', pageSize: '1' })
   const payload = await readApiResultOrThrow<{ items?: DocumentRecord[] }>(
@@ -2157,29 +2164,6 @@ export default function SalesDocumentDetailPage({
     [t, upsertPaymentMethodOptions]
   )
 
-  const refreshItemPresence = React.useCallback(async () => {
-    if (!record?.id) {
-      setHasItems(false)
-      return
-    }
-    const params = new URLSearchParams({
-      page: '1',
-      pageSize: '1',
-      [kind === 'order' ? 'orderId' : 'quoteId']: record.id,
-    })
-    try {
-      const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/sales/${kind === 'order' ? 'order-lines' : 'quote-lines'}?${params.toString()}`,
-        undefined,
-        { fallback: { items: [] } }
-      )
-      const items = Array.isArray(response.result?.items) ? response.result.items : []
-      setHasItems(items.some((item) => item && typeof (item as any).id === 'string'))
-    } catch (err) {
-      console.error('sales.documents.currency.itemsGuard', err)
-    }
-  }, [kind, record?.id])
-
   const refreshPaymentPresence = React.useCallback(async () => {
     if (!record?.id || kind !== 'order') {
       setHasPayments(false)
@@ -2429,6 +2413,17 @@ export default function SalesDocumentDetailPage({
   }, [record?.tags])
 
   React.useEffect(() => {
+    if (!record) {
+      setHasItems(false)
+      return
+    }
+    const lineItemCount = resolveLineItemCount(record)
+    if (lineItemCount !== null) {
+      setHasItems(lineItemCount > 0)
+    }
+  }, [record])
+
+  React.useEffect(() => {
     loadChannels().catch(() => {})
     loadStatuses().catch(() => {})
     loadShippingMethods().catch(() => {})
@@ -2436,9 +2431,8 @@ export default function SalesDocumentDetailPage({
   }, [loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
 
   React.useEffect(() => {
-    void refreshItemPresence()
     void refreshPaymentPresence()
-  }, [refreshItemPresence, refreshPaymentPresence])
+  }, [refreshPaymentPresence])
 
   const normalizeGuardList = React.useCallback((value: unknown): string[] | null => {
     if (value === null) return null

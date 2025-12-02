@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { splitCustomFieldPayload, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { SalesOrder, SalesQuote } from '../../data/entities'
@@ -78,7 +78,9 @@ const listSchema = z
   })
   .passthrough()
 
-function buildFilters(query: z.infer<typeof listSchema>, numberColumn: string, kind: DocumentKind) {
+type ListQuery = z.infer<typeof listSchema>
+
+function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind) {
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
@@ -148,7 +150,86 @@ function buildSortMap(numberColumn: string) {
   }
 }
 
-export function createDocumentCrudRoute(binding: DocumentBinding) {
+const mapUpdateResponse = (entity: any) => ({
+  id: entity?.id ?? null,
+  customerEntityId: entity?.customerEntityId ?? null,
+  customerContactId: entity?.customerContactId ?? null,
+  customerSnapshot: entity?.customerSnapshot ?? null,
+  metadata: entity?.metadata ?? null,
+  externalReference: entity?.externalReference ?? null,
+  customerReference: entity?.customerReference ?? null,
+  comment: entity?.comments ?? null,
+  statusEntryId: (entity as any)?.statusEntryId ?? null,
+  status: (entity as any)?.status ?? null,
+  channelId: (entity as any)?.channelId ?? null,
+  customerName: resolveCustomerName(entity?.customerSnapshot ?? null, entity?.customerEntityId ?? null),
+  contactEmail:
+    resolveCustomerEmail(entity?.customerSnapshot ?? null) ??
+    (typeof entity?.metadata?.customerEmail === 'string' ? entity.metadata.customerEmail : null),
+  currencyCode: entity?.currencyCode ?? null,
+  placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
+  expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
+  shippingAddressId: entity?.shippingAddressId ?? null,
+  billingAddressId: entity?.billingAddressId ?? null,
+  shippingAddressSnapshot: entity?.shippingAddressSnapshot ?? null,
+  billingAddressSnapshot: entity?.billingAddressSnapshot ?? null,
+  shippingMethodId: entity?.shippingMethodId ?? null,
+  shippingMethodCode: entity?.shippingMethodCode ?? null,
+  shippingMethodSnapshot: entity?.shippingMethodSnapshot ?? null,
+  paymentMethodId: entity?.paymentMethodId ?? null,
+  paymentMethodCode: entity?.paymentMethodCode ?? null,
+  paymentMethodSnapshot: entity?.paymentMethodSnapshot ?? null,
+})
+
+const attachTags = async (payload: any, ctx: any) => {
+  const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
+  if (!items.length) return
+  const ids = items
+    .map((item) => (item && typeof item.id === 'string' ? item.id : null))
+    .filter((id): id is string => !!id)
+  if (!ids.length) return
+  const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as any) : null
+  if (!em) return
+  const where: Record<string, unknown> = {
+    documentId: { $in: ids },
+    documentKind: ctx?.bindingKind ?? null,
+  }
+  if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
+  const orgIds =
+    Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
+      ? ctx.organizationIds.filter((val: string | null) => !!val)
+      : ctx?.selectedOrganizationId
+        ? [ctx.selectedOrganizationId]
+        : []
+  if (orgIds.length) where.organizationId = { $in: orgIds }
+  const assignments = await em.find(
+    SalesDocumentTagAssignment,
+    where,
+    { populate: ['tag'] },
+  )
+  const grouped = new Map<string, Array<{ id: string; label: string; color: string | null }>>()
+  assignments.forEach((assignment: any) => {
+    const tag = assignment?.tag
+    const documentId = assignment?.documentId
+    if (!tag || typeof tag.id !== 'string' || typeof documentId !== 'string') return
+    const entry = {
+      id: tag.id,
+      label: typeof tag.label === 'string' && tag.label.trim().length ? tag.label : tag.slug ?? tag.id,
+      color: typeof tag.color === 'string' && tag.color.trim().length ? tag.color : null,
+    }
+    const list = grouped.get(documentId) ?? []
+    list.push(entry)
+    grouped.set(documentId, list)
+  })
+  items.forEach((item: Record<string, any>) => {
+    const id = item && typeof item.id === 'string' ? item.id : null
+    if (!id) return
+    const list = grouped.get(id)
+    if (list) item.tags = list
+  })
+}
+
+export function buildDocumentCrudOptions(binding: DocumentBinding) {
   const numberColumn = binding.numberField === 'orderNumber' ? 'order_number' : 'quote_number'
   const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
 
@@ -157,85 +238,6 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     POST: { requireAuth: true, requireFeatures: [binding.manageFeature] },
     PUT: { requireAuth: true, requireFeatures: [binding.manageFeature] },
     DELETE: { requireAuth: true, requireFeatures: [binding.manageFeature] },
-  }
-
-  const mapUpdateResponse = (entity: any) => ({
-    id: entity?.id ?? null,
-    customerEntityId: entity?.customerEntityId ?? null,
-    customerContactId: entity?.customerContactId ?? null,
-    customerSnapshot: entity?.customerSnapshot ?? null,
-    metadata: entity?.metadata ?? null,
-    externalReference: entity?.externalReference ?? null,
-    customerReference: entity?.customerReference ?? null,
-    comment: entity?.comments ?? null,
-    statusEntryId: (entity as any)?.statusEntryId ?? null,
-    status: (entity as any)?.status ?? null,
-    channelId: (entity as any)?.channelId ?? null,
-    customerName: resolveCustomerName(entity?.customerSnapshot ?? null, entity?.customerEntityId ?? null),
-    contactEmail:
-      resolveCustomerEmail(entity?.customerSnapshot ?? null) ??
-      (typeof entity?.metadata?.customerEmail === 'string' ? entity.metadata.customerEmail : null),
-    currencyCode: entity?.currencyCode ?? null,
-    placedAt: entity?.placedAt ? entity.placedAt.toISOString() : null,
-    expectedDeliveryAt: entity?.expectedDeliveryAt ? entity.expectedDeliveryAt.toISOString() : null,
-    shippingAddressId: entity?.shippingAddressId ?? null,
-    billingAddressId: entity?.billingAddressId ?? null,
-    shippingAddressSnapshot: entity?.shippingAddressSnapshot ?? null,
-    billingAddressSnapshot: entity?.billingAddressSnapshot ?? null,
-    shippingMethodId: entity?.shippingMethodId ?? null,
-    shippingMethodCode: entity?.shippingMethodCode ?? null,
-    shippingMethodSnapshot: entity?.shippingMethodSnapshot ?? null,
-    paymentMethodId: entity?.paymentMethodId ?? null,
-    paymentMethodCode: entity?.paymentMethodCode ?? null,
-    paymentMethodSnapshot: entity?.paymentMethodSnapshot ?? null,
-  })
-
-  const attachTags = async (payload: any, ctx: any) => {
-    const items = Array.isArray(payload?.items) ? (payload.items as Array<Record<string, any>>) : []
-    if (!items.length) return
-    const ids = items
-      .map((item) => (item && typeof item.id === 'string' ? item.id : null))
-      .filter((id): id is string => !!id)
-    if (!ids.length) return
-    const em = ctx?.container?.resolve ? (ctx.container.resolve('em') as any) : null
-    if (!em) return
-    const where: Record<string, unknown> = {
-      documentId: { $in: ids },
-      documentKind: binding.kind,
-    }
-    if (ctx?.auth?.tenantId) where.tenantId = ctx.auth.tenantId
-    const orgIds =
-      Array.isArray(ctx?.organizationIds) && ctx.organizationIds.length
-        ? ctx.organizationIds.filter((val: string | null) => !!val)
-        : ctx?.selectedOrganizationId
-          ? [ctx.selectedOrganizationId]
-          : []
-    if (orgIds.length) where.organizationId = { $in: orgIds }
-    const assignments = await em.find(
-      SalesDocumentTagAssignment,
-      where,
-      { populate: ['tag'] },
-    )
-    const grouped = new Map<string, Array<{ id: string; label: string; color: string | null }>>()
-    assignments.forEach((assignment: any) => {
-      const tag = assignment?.tag
-      const documentId = assignment?.documentId
-      if (!tag || typeof tag.id !== 'string' || typeof documentId !== 'string') return
-      const entry = {
-        id: tag.id,
-        label: typeof tag.label === 'string' && tag.label.trim().length ? tag.label : tag.slug ?? tag.id,
-        color: typeof tag.color === 'string' && tag.color.trim().length ? tag.color : null,
-      }
-      const list = grouped.get(documentId) ?? []
-      list.push(entry)
-      grouped.set(documentId, list)
-    })
-    items.forEach((item: Record<string, any>) => {
-      const id = item && typeof item.id === 'string' ? item.id : null
-      if (!id) return
-      const list = grouped.get(id)
-      if (list) item.tags = list
-    })
   }
 
   const commonFields = [
@@ -294,7 +296,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     ...(binding.kind === 'order' ? orderOnlyFields : quoteOnlyFields),
   ]
 
-  const crud = makeCrudRoute({
+  return {
     metadata: routeMetadata,
     orm: {
       entity: binding.entity as any,
@@ -311,7 +313,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       entityId: binding.entityId,
       fields: listFields,
       sortFieldMap: buildSortMap(numberColumn),
-      buildFilters: async (query) => buildFilters(query, numberColumn, binding.kind),
+      buildFilters: async (query: any) => buildFilters(query, numberColumn, binding.kind),
       decorateCustomFields: { entityIds: [binding.entityId] },
       joins: [
         {
@@ -377,8 +379,8 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
           createdAt: item.created_at,
           updatedAt: item.updated_at,
         }
-        const { custom } = splitCustomFieldPayload(item)
-        return Object.keys(custom).length ? { ...base, customFields: custom } : base
+        const customEntries = extractAllCustomFieldEntries(item as Record<string, unknown>)
+        return Object.keys(customEntries).length ? { ...base, customValues: customEntries } : base
       },
     },
     actions: {
@@ -414,13 +416,14 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
     },
     hooks: {
       afterList: async (payload, ctx) => {
-        await attachTags(payload, ctx)
+        await attachTags(payload, { ...ctx, bindingKind: binding.kind })
       },
     },
-  })
+  }
+}
 
-  const { GET, POST, PUT, DELETE } = crud
-
+export function buildDocumentOpenApi(binding: DocumentBinding) {
+  const createSchema = binding.kind === 'order' ? orderCreateSchema : quoteCreateSchema
   const itemSchema = z.object({
     id: z.string().uuid(),
     [binding.numberField]: z.string().nullable(),
@@ -470,7 +473,7 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
 
   const listResponseSchema = createPagedListResponseSchema(itemSchema)
 
-  const openApi = createSalesCrudOpenApi({
+  return createSalesCrudOpenApi({
     resourceName: binding.kind === 'order' ? 'Order' : 'Quote',
     querySchema: listSchema,
     listResponseSchema,
@@ -485,6 +488,11 @@ export function createDocumentCrudRoute(binding: DocumentBinding) {
       description: `Deletes a sales ${binding.kind}.`,
     },
   })
+}
 
-  return { GET, POST, PUT, DELETE, openApi, metadata: routeMetadata }
+// Compatibility wrapper
+export function createDocumentCrudRoute(binding: DocumentBinding) {
+  const crud = makeCrudRoute(buildDocumentCrudOptions(binding))
+  const { GET, POST, PUT, DELETE } = crud
+  return { GET, POST, PUT, DELETE, openApi: buildDocumentOpenApi(binding), metadata: crud.metadata }
 }

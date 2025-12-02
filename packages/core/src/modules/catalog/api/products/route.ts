@@ -555,6 +555,7 @@ const crud = makeCrudRoute({
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: { entityIds: [E.catalog.catalog_product] },
     sortFieldMap: {
       title: F.title,
       sku: F.sku,

@@ -129,12 +129,12 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
     if (lastError instanceof Error) throw lastError
     throw new CrudHttpError(400, { error: translate('errors.invalid_input', 'Invalid input') })
   }
-  if (hasCustomFields) {
-    return Object.assign({}, parsed, { customFields: custom }) as z.infer<TSchema> & {
-      customFields?: Record<string, unknown>
-    }
-  }
-  return parsed as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+
+  const parsedWithCustom = hasCustomFields
+    ? Object.assign({}, parsed, { customFields: custom })
+    : parsed
+
+  return parsedWithCustom as z.infer<TSchema> & { customFields?: Record<string, unknown> }
 }
 
 function normalizeTenant(candidate: unknown): string | null {
