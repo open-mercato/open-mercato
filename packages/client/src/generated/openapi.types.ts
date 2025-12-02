@@ -3449,6 +3449,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sales/quotes/convert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Convert quote
+         * @description Creates a sales order from a quote and removes the original quote record.
+         *
+         *     Requires features: sales.quotes.manage, sales.orders.manage
+         */
+        post: operations["sales_post_sales_quotes_convert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sales/settings/document-numbers": {
         parameters: {
             query?: never;
@@ -17337,6 +17359,33 @@ export interface components {
         DocPathsSalesQuoteLinesPutResponses200ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf0: null;
         /** Format: uuid */
         DocPathsSalesQuoteLinesPutResponses200ContentApplicationJsonSchemaPropertiesQuoteIdAnyOf1: string;
+        DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchema: {
+            orderId?: components["schemas"]["DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId"];
+            orderNumber?: components["schemas"]["DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchemaPropertiesOrderNumber"];
+            quoteId: components["schemas"]["DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchemaPropertiesOrderId: string;
+        DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchemaPropertiesOrderNumber: string;
+        /** Format: uuid */
+        DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchemaPropertiesQuoteId: string;
+        DocPathsSalesQuotesConvertPostResponses200ContentApplicationJsonSchema: {
+            orderId: components["schemas"]["DocPathsSalesQuotesConvertPostResponses200ContentApplicationJsonSchemaPropertiesOrderId"];
+        };
+        /** Format: uuid */
+        DocPathsSalesQuotesConvertPostResponses200ContentApplicationJsonSchemaPropertiesOrderId: string;
+        DocPathsSalesQuotesConvertPostResponses400ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesQuotesConvertPostResponses400ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesQuotesConvertPostResponses400ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesQuotesConvertPostResponses401ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesQuotesConvertPostResponses401ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesQuotesConvertPostResponses401ContentApplicationJsonSchemaPropertiesError: string;
+        DocPathsSalesQuotesConvertPostResponses403ContentApplicationJsonSchema: {
+            error: components["schemas"]["DocPathsSalesQuotesConvertPostResponses403ContentApplicationJsonSchemaPropertiesError"];
+        };
+        DocPathsSalesQuotesConvertPostResponses403ContentApplicationJsonSchemaPropertiesError: string;
         DocPathsSalesQuotesDeleteRequestBodyContentApplicationJsonSchema: {
             id: components["schemas"]["DocPathsSalesQuotesDeleteRequestBodyContentApplicationJsonSchemaPropertiesId"];
         };
@@ -36328,6 +36377,82 @@ export interface operations {
                      *     }
                      */
                     "application/json": components["schemas"]["DocPathsSalesQuotesDeleteResponses403ContentApplicationJsonSchema"];
+                };
+            };
+        };
+    };
+    sales_post_sales_quotes_convert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "quoteId": "00000000-0000-4000-8000-000000000000"
+                 *     }
+                 */
+                "application/json": components["schemas"]["DocPathsSalesQuotesConvertPostRequestBodyContentApplicationJsonSchema"];
+            };
+        };
+        responses: {
+            /** @description Conversion succeeded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "orderId": "00000000-0000-4000-8000-000000000000"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuotesConvertPostResponses200ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuotesConvertPostResponses400ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuotesConvertPostResponses401ContentApplicationJsonSchema"];
+                };
+            };
+            /** @description Forbidden – missing required features */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": "string"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["DocPathsSalesQuotesConvertPostResponses403ContentApplicationJsonSchema"];
                 };
             };
         };

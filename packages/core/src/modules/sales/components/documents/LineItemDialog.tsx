@@ -911,7 +911,7 @@ export function LineItemDialog({
             </div>
           )
         },
-      },
+      } satisfies CrudField,
       ...(!isCustomLine
         ? [
             {
@@ -933,7 +933,9 @@ export function LineItemDialog({
                     setFormValue?.('priceId', null)
                     setFormValue?.('unitPrice', '')
                     setFormValue?.('priceMode', 'gross')
-                    const taxSelection = selectedOption ? resolveTaxSelection(selectedOption) : { taxRate: null, taxRateId: null }
+                    const taxSelection = selectedOption
+                      ? resolveTaxSelection(selectedOption)
+                      : { taxRate: null, taxRateId: null }
                     setFormValue?.('taxRate', taxSelection.taxRate ?? null)
                     setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
                     const existingName = typeof values?.name === 'string' ? values.name : ''
@@ -963,7 +965,7 @@ export function LineItemDialog({
                   selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
                 />
               ),
-            },
+            } satisfies CrudField,
             {
               id: 'variantId',
               label: t('sales.documents.items.variant', 'Variant'),
@@ -1034,7 +1036,7 @@ export function LineItemDialog({
                   />
                 )
               },
-            },
+            } satisfies CrudField,
             {
               id: 'priceId',
               label: t('sales.documents.items.price', 'Price'),
@@ -1105,7 +1107,7 @@ export function LineItemDialog({
                   />
                 )
               },
-            },
+            } satisfies CrudField,
           ]
         : []),
       {
@@ -1136,7 +1138,7 @@ export function LineItemDialog({
             </div>
           )
         },
-      },
+      } satisfies CrudField,
       {
         id: 'taxRateId',
         label: t('sales.documents.items.taxRate', 'Tax class'),
@@ -1191,7 +1193,7 @@ export function LineItemDialog({
             </div>
           )
         },
-      },
+      } satisfies CrudField,
       {
         id: 'quantity',
         label: t('sales.documents.items.quantity', 'Quantity'),
@@ -1204,7 +1206,7 @@ export function LineItemDialog({
             placeholder="1"
           />
         ),
-      },
+      } satisfies CrudField,
       {
         id: 'statusEntryId',
         label: t('sales.documents.items.status', 'Status'),
@@ -1221,7 +1223,7 @@ export function LineItemDialog({
             minQuery={0}
           />
         ),
-      },
+      } satisfies CrudField,
       {
         id: 'name',
         label: t('sales.documents.items.name', 'Name'),
@@ -1229,7 +1231,7 @@ export function LineItemDialog({
         placeholder: t('sales.documents.items.namePlaceholder', 'Optional line name'),
         layout: 'full',
         required: isCustomLine,
-      },
+      } satisfies CrudField,
     ]
   }, [
     currencyCode,

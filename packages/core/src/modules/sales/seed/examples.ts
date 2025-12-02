@@ -38,16 +38,16 @@ import {
 
 type ExampleAddress = {
   role: 'billing' | 'shipping'
-  companyName?: string
-  name?: string
+  companyName?: string | null
+  name?: string | null
   addressLine1: string
-  addressLine2?: string
-  city?: string
-  region?: string
-  postalCode?: string
-  country?: string
-  latitude?: number
-  longitude?: number
+  addressLine2?: string | null
+  city?: string | null
+  region?: string | null
+  postalCode?: string | null
+  country?: string | null
+  latitude?: number | null
+  longitude?: number | null
   customerAddressId?: string | null
 }
 
@@ -257,12 +257,14 @@ const QUOTE_SEEDS: ExampleQuote[] = [
       {
         name: 'Atlas Runner Sneaker',
         quantity: 3,
+        unitPriceNet: 120,
         taxRate: 10,
         variantSku: 'ATLAS-RUN-NAVY-8',
       },
       {
         name: 'Aurora Wrap Dress',
         quantity: 1,
+        unitPriceNet: 180,
         taxRate: 10,
         variantSku: 'AURORA-ROSE-M',
         discountPercent: 5,
@@ -296,6 +298,7 @@ const QUOTE_SEEDS: ExampleQuote[] = [
       {
         name: 'Aurora Wrap Dress',
         quantity: 2,
+        unitPriceNet: 180,
         taxRate: 10,
         variantSku: 'AURORA-CELESTIAL-L',
         comment: 'Alternate colorway accepted if Celestial runs out.',
@@ -303,6 +306,7 @@ const QUOTE_SEEDS: ExampleQuote[] = [
       {
         name: 'Signature Haircut & Finish',
         quantity: 4,
+        unitPriceNet: 95,
         taxRate: 0,
         variantSku: 'SERV-HAIR-60',
         quantityUnit: 'hour',
@@ -324,134 +328,6 @@ const QUOTE_SEEDS: ExampleQuote[] = [
         createdAt: daysFromNow(-2),
         appearanceIcon: 'lucide:file-text',
         appearanceColor: '#f97316',
-      },
-    ],
-    metadata: { seed: 'sales.examples' },
-  },
-  {
-    orderNumber: 'SO-DEMO-2003',
-    status: 'confirmed',
-    fulfillmentStatus: 'in_fulfillment',
-    paymentStatus: 'partial',
-    comments: 'Equipment refresh for analytics field team with matching footwear.',
-    internalNotes: 'Coordinate delivery around team offsite schedule.',
-    placedAt: daysFromNow(-2),
-    expectedDeliveryAt: daysFromNow(5),
-    currencyCode: 'USD',
-    shippingMethodCode: 'standard-ground',
-    paymentMethodCode: 'card',
-    channelCode: 'online',
-    customerKey: 'harborview',
-    lines: [
-      {
-        name: 'Atlas Runner Sneaker',
-        quantity: 4,
-        taxRate: 10,
-        variantSku: 'ATLAS-RUN-GLACIER-10',
-        comment: 'Size mix handled via catalog variants.',
-      },
-      {
-        name: 'Aurora Wrap Dress',
-        quantity: 1,
-        taxRate: 10,
-        variantSku: 'AURORA-ROSE-M',
-        discountPercent: 10,
-      },
-    ],
-    adjustments: [
-      {
-        scope: 'order',
-        kind: 'shipping',
-        label: 'Ground shipping',
-        amountNet: 25,
-        amountGross: 27.5,
-        position: 1,
-      },
-    ],
-    shipments: [
-      {
-        shipmentNumber: 'SHIP-2003-1',
-        methodCode: 'standard-ground',
-        status: 'pending',
-        shippedAt: null,
-        trackingNumbers: [],
-        weightKg: 12,
-        declaredValue: 0,
-        currencyCode: 'USD',
-        notes: 'Bundle footwear and apparel together.',
-        items: [
-          { lineIndex: 0, quantity: 4 },
-          { lineIndex: 1, quantity: 1 },
-        ],
-      },
-    ],
-    payments: [
-      {
-        reference: 'CARD-2003',
-        methodCode: 'card',
-        status: 'authorized',
-        amount: 300,
-        currencyCode: 'USD',
-        receivedAt: daysFromNow(-1),
-      },
-    ],
-    notes: [
-      {
-        body: 'Leadership wants tracking shared in Slack channel.',
-        createdAt: daysFromNow(-1),
-        appearanceIcon: 'lucide:message-circle',
-        appearanceColor: '#22c55e',
-      },
-    ],
-    metadata: { seed: 'sales.examples' },
-  },
-  {
-    orderNumber: 'SO-DEMO-2004',
-    status: 'confirmed',
-    fulfillmentStatus: 'pending',
-    paymentStatus: 'unpaid',
-    comments: 'On-site styling block for studio launch week.',
-    placedAt: daysFromNow(-4),
-    expectedDeliveryAt: daysFromNow(1),
-    currencyCode: 'USD',
-    shippingMethodCode: 'express-air',
-    paymentMethodCode: 'bank-transfer',
-    channelCode: 'field-sales',
-    customerKey: 'copperleaf',
-    lines: [
-      {
-        name: 'Signature Haircut & Finish',
-        quantity: 6,
-        taxRate: 0,
-        variantSku: 'SERV-HAIR-60',
-        quantityUnit: 'hour',
-        comment: 'Block book stylists for staggered sessions.',
-      },
-    ],
-    adjustments: [
-      {
-        scope: 'order',
-        kind: 'discount',
-        label: 'Launch week courtesy',
-        amountNet: 45,
-        position: 1,
-      },
-    ],
-    payments: [
-      {
-        reference: 'WIRE-2004',
-        methodCode: 'bank-transfer',
-        status: 'pending',
-        amount: 0,
-        currencyCode: 'USD',
-      },
-    ],
-    notes: [
-      {
-        body: 'Confirm stylist roster by Friday.',
-        createdAt: daysFromNow(-2),
-        appearanceIcon: 'lucide:check-circle',
-        appearanceColor: '#0ea5e9',
       },
     ],
     metadata: { seed: 'sales.examples' },
@@ -698,6 +574,137 @@ const ORDER_SEEDS: ExampleOrder[] = [
         createdAt: daysFromNow(-2),
         appearanceIcon: 'lucide:clock-3',
         appearanceColor: '#f97316',
+      },
+    ],
+    metadata: { seed: 'sales.examples' },
+  },
+  {
+    orderNumber: 'SO-DEMO-2003',
+    status: 'confirmed',
+    fulfillmentStatus: 'in_fulfillment',
+    paymentStatus: 'partial',
+    comments: 'Equipment refresh for analytics field team with matching footwear.',
+    internalNotes: 'Coordinate delivery around team offsite schedule.',
+    placedAt: daysFromNow(-2),
+    expectedDeliveryAt: daysFromNow(5),
+    currencyCode: 'USD',
+    shippingMethodCode: 'standard-ground',
+    paymentMethodCode: 'card',
+    channelCode: 'online',
+    customerKey: 'harborview',
+    lines: [
+      {
+        name: 'Atlas Runner Sneaker',
+        quantity: 4,
+        unitPriceNet: 120,
+        taxRate: 10,
+        variantSku: 'ATLAS-RUN-GLACIER-10',
+        comment: 'Size mix handled via catalog variants.',
+      },
+      {
+        name: 'Aurora Wrap Dress',
+        quantity: 1,
+        unitPriceNet: 180,
+        taxRate: 10,
+        variantSku: 'AURORA-ROSE-M',
+        discountPercent: 10,
+      },
+    ],
+    adjustments: [
+      {
+        scope: 'order',
+        kind: 'shipping',
+        label: 'Ground shipping',
+        amountNet: 25,
+        amountGross: 27.5,
+        position: 1,
+      },
+    ],
+    shipments: [
+      {
+        shipmentNumber: 'SHIP-2003-1',
+        methodCode: 'standard-ground',
+        status: 'pending',
+        shippedAt: undefined,
+        trackingNumbers: [],
+        weightKg: 12,
+        declaredValue: 0,
+        currencyCode: 'USD',
+        notes: 'Bundle footwear and apparel together.',
+        items: [
+          { lineIndex: 0, quantity: 4 },
+          { lineIndex: 1, quantity: 1 },
+        ],
+      },
+    ],
+    payments: [
+      {
+        reference: 'CARD-2003',
+        methodCode: 'card',
+        status: 'authorized',
+        amount: 300,
+        currencyCode: 'USD',
+        receivedAt: daysFromNow(-1),
+      },
+    ],
+    notes: [
+      {
+        body: 'Leadership wants tracking shared in Slack channel.',
+        createdAt: daysFromNow(-1),
+        appearanceIcon: 'lucide:message-circle',
+        appearanceColor: '#22c55e',
+      },
+    ],
+    metadata: { seed: 'sales.examples' },
+  },
+  {
+    orderNumber: 'SO-DEMO-2004',
+    status: 'confirmed',
+    fulfillmentStatus: 'pending',
+    paymentStatus: 'unpaid',
+    comments: 'On-site styling block for studio launch week.',
+    placedAt: daysFromNow(-4),
+    expectedDeliveryAt: daysFromNow(1),
+    currencyCode: 'USD',
+    shippingMethodCode: 'express-air',
+    paymentMethodCode: 'bank-transfer',
+    channelCode: 'field-sales',
+    customerKey: 'copperleaf',
+    lines: [
+      {
+        name: 'Signature Haircut & Finish',
+        quantity: 6,
+        unitPriceNet: 95,
+        taxRate: 0,
+        variantSku: 'SERV-HAIR-60',
+        quantityUnit: 'hour',
+        comment: 'Block book stylists for staggered sessions.',
+      },
+    ],
+    adjustments: [
+      {
+        scope: 'order',
+        kind: 'discount',
+        label: 'Launch week courtesy',
+        amountNet: 45,
+        position: 1,
+      },
+    ],
+    payments: [
+      {
+        reference: 'WIRE-2004',
+        methodCode: 'bank-transfer',
+        status: 'pending',
+        amount: 0,
+        currencyCode: 'USD',
+      },
+    ],
+    notes: [
+      {
+        body: 'Confirm stylist roster by Friday.',
+        createdAt: daysFromNow(-2),
+        appearanceIcon: 'lucide:check-circle',
+        appearanceColor: '#0ea5e9',
       },
     ],
     metadata: { seed: 'sales.examples' },
@@ -1079,9 +1086,10 @@ function attachDocumentAddresses(
     order?: SalesOrder
     quote?: SalesQuote
   }
-) {
+): void {
   const { documentId, documentKind, addresses, order, quote } = params
   for (const entry of addresses) {
+    const now = new Date()
     const record = em.create(SalesDocumentAddress, {
       id: randomUUID(),
       organizationId: scope.organizationId,
@@ -1104,6 +1112,8 @@ function attachDocumentAddresses(
       flatNumber: null,
       order: documentKind === 'order' ? order ?? null : null,
       quote: documentKind === 'quote' ? quote ?? null : null,
+      createdAt: now,
+      updatedAt: now,
     })
     em.persist(record)
   }
@@ -1212,9 +1222,6 @@ export async function seedSalesExamples(
       const metadata: Record<string, unknown> = {}
       if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
       if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
-      const metadata: Record<string, unknown> = {}
-      if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
-      if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
       return {
         id: randomUUID(),
         kind: line.kind ?? 'product',
@@ -1261,6 +1268,7 @@ export async function seedSalesExamples(
       },
     })
 
+    const totals = calculation.totals
     const quoteNumber = seed.quoteNumber ?? `SQ-${quoteId.slice(0, 8).toUpperCase()}`
     const quote = em.create(SalesQuote, {
       id: quoteId,
@@ -1283,6 +1291,14 @@ export async function seedSalesExamples(
       shippingMethodSnapshot: buildShippingMethodSnapshot(shippingMethod),
       paymentMethodSnapshot: buildPaymentMethodSnapshot(paymentMethod),
       metadata: seed.metadata ?? { seed: 'sales.examples' },
+      subtotalNetAmount: toAmount(totals.subtotalNetAmount),
+      subtotalGrossAmount: toAmount(totals.subtotalGrossAmount),
+      discountTotalAmount: toAmount(totals.discountTotalAmount),
+      taxTotalAmount: toAmount(totals.taxTotalAmount),
+      grandTotalNetAmount: toAmount(totals.grandTotalNetAmount),
+      grandTotalGrossAmount: toAmount(totals.grandTotalGrossAmount),
+      totalsSnapshot: toSnapshot(totals),
+      lineItemCount: seed.lines.length,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -1413,6 +1429,9 @@ export async function seedSalesExamples(
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
       const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet
       const currencyCode = catalogRef.currencyCode ?? seed.currencyCode
+      const metadata: Record<string, unknown> = {}
+      if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
+      if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
       return {
         id: randomUUID(),
         kind: line.kind ?? 'product',
@@ -1459,6 +1478,7 @@ export async function seedSalesExamples(
       },
     })
 
+    const totals = calculation.totals
     const order = em.create(SalesOrder, {
       id: orderId,
       organizationId: scope.organizationId,
@@ -1483,6 +1503,20 @@ export async function seedSalesExamples(
       shippingMethodSnapshot: buildShippingMethodSnapshot(shippingMethod),
       paymentMethodSnapshot: buildPaymentMethodSnapshot(paymentMethod),
       metadata: seed.metadata ?? { seed: 'sales.examples' },
+      subtotalNetAmount: toAmount(totals.subtotalNetAmount),
+      subtotalGrossAmount: toAmount(totals.subtotalGrossAmount),
+      discountTotalAmount: toAmount(totals.discountTotalAmount),
+      taxTotalAmount: toAmount(totals.taxTotalAmount),
+      shippingNetAmount: toAmount(totals.shippingNetAmount ?? 0),
+      shippingGrossAmount: toAmount(totals.shippingGrossAmount ?? 0),
+      surchargeTotalAmount: toAmount(totals.surchargeTotalAmount ?? 0),
+      grandTotalNetAmount: toAmount(totals.grandTotalNetAmount),
+      grandTotalGrossAmount: toAmount(totals.grandTotalGrossAmount),
+      paidTotalAmount: toAmount(totals.paidTotalAmount ?? 0),
+      refundedTotalAmount: toAmount(totals.refundedTotalAmount ?? 0),
+      outstandingAmount: toAmount(totals.outstandingAmount ?? totals.grandTotalGrossAmount),
+      totalsSnapshot: toSnapshot(totals),
+      lineItemCount: seed.lines.length,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
