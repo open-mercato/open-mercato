@@ -3956,10 +3956,23 @@ export default function SalesDocumentDetailPage({
     )
   }
 
-  const customFieldValues = React.useMemo(
-    () => prefixCustomFieldValues(record?.customFields ?? {}),
-    [record?.customFields],
-  )
+  const customFieldValues = React.useMemo(() => {
+    const merged: Record<string, unknown> = {}
+    if (record?.customValues && typeof record.customValues === 'object' && !Array.isArray(record.customValues)) {
+      Object.assign(merged, record.customValues as Record<string, unknown>)
+    }
+    const rawFields = record?.customFields
+    if (Array.isArray(rawFields)) {
+      rawFields.forEach((entry) => {
+        const key = entry && typeof entry === 'object' && 'key' in entry ? (entry as any).key : null
+        const value = entry && typeof entry === 'object' && 'value' in entry ? (entry as any).value : undefined
+        if (typeof key === 'string' && key.trim()) merged[key] = value
+      })
+    } else if (rawFields && typeof rawFields === 'object') {
+      Object.assign(merged, rawFields as Record<string, unknown>)
+    }
+    return prefixCustomFieldValues(merged)
+  }, [record?.customFields, record?.customValues])
 
   const handleCustomFieldsSubmit = React.useCallback(
     async (values: Record<string, unknown>) => {
@@ -3968,6 +3981,7 @@ export default function SalesDocumentDetailPage({
       }
       const customPayload = collectCustomFieldValues(values, {
         transform: (value) => normalizeCustomFieldSubmitValue(value),
+        accept: (fieldId) => !fieldId.startsWith('cf_'),
       })
       if (!Object.keys(customPayload).length) {
         flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
@@ -3999,8 +4013,15 @@ export default function SalesDocumentDetailPage({
         if (mappedErrors && Object.keys(mappedErrors).length) error.fieldErrors = mappedErrors
         throw error
       }
-      const prefixed = prefixCustomFieldValues(customPayload)
-      setRecord((prev) => (prev ? { ...prev, customFields: prefixed } : prev))
+      setRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              customFields: customPayload,
+              customValues: customPayload,
+            }
+          : prev,
+      )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
     [kind, record, t],

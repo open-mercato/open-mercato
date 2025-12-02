@@ -2,6 +2,16 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { installExampleCatalogData, type CatalogSeedScope } from '@open-mercato/core/modules/catalog/lib/seeds'
 import { seedSalesExamples } from '@open-mercato/core/modules/sales/seed/examples'
+import { reindexModules } from '@open-mercato/core/modules/configs/lib/reindex-helpers'
+import type { VectorIndexService } from '@open-mercato/vector'
+
+function resolveVectorService(container: AwilixContainer): VectorIndexService | null {
+  try {
+    return container.resolve<VectorIndexService>('vectorIndexService')
+  } catch {
+    return null
+  }
+}
 
 export type UpgradeActionContext = CatalogSeedScope & {
   container: AwilixContainer
@@ -28,6 +38,8 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     loadingKey: 'upgrades.v034.loading',
     async run({ container, em, tenantId, organizationId }) {
       await installExampleCatalogData(container, { tenantId, organizationId }, em)
+      const vectorService = resolveVectorService(container)
+      await reindexModules(em, ['catalog'], { tenantId, organizationId, vectorService })
     },
   },
   {
@@ -41,6 +53,8 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       await em.transactional(async (tem) => {
         await seedSalesExamples(tem, container, { tenantId, organizationId })
       })
+      const vectorService = resolveVectorService(container)
+      await reindexModules(em, ['sales', 'catalog'], { tenantId, organizationId, vectorService })
     },
   },
 ]

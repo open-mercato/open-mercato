@@ -59,6 +59,9 @@ export function SalesDocumentItemsSection({
     [kind],
   )
   const documentKey = kind === 'order' ? 'orderId' : 'quoteId'
+  const lineStatusesLoaded = React.useRef(false)
+  const itemsLoadedForDocument = React.useRef<string | null>(null)
+  const shipmentsLoadedForDocument = React.useRef<string | null>(null)
   const loadLineStatuses = React.useCallback(async () => {
     try {
       const params = new URLSearchParams({ page: '1', pageSize: '100' })
@@ -228,16 +231,29 @@ export function SalesDocumentItemsSection({
   }, [documentId, kind])
 
   React.useEffect(() => {
+    if (lineStatusesLoaded.current) return
+    lineStatusesLoaded.current = true
     void loadLineStatuses()
   }, [loadLineStatuses])
 
   React.useEffect(() => {
+    if (!documentId) return
+    if (itemsLoadedForDocument.current === documentId) return
+    itemsLoadedForDocument.current = documentId
     void loadItems()
-  }, [loadItems])
+  }, [documentId, loadItems])
 
   React.useEffect(() => {
+    if (kind !== 'order') {
+      shipmentsLoadedForDocument.current = null
+      setShippedTotals(new Map())
+      return
+    }
+    const key = `${kind}:${documentId}`
+    if (shipmentsLoadedForDocument.current === key) return
+    shipmentsLoadedForDocument.current = key
     void loadShippedTotals()
-  }, [loadShippedTotals])
+  }, [documentId, kind, loadShippedTotals])
 
   const openCreate = React.useCallback(() => {
     setLineForEdit(null)

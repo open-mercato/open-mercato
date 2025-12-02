@@ -276,6 +276,32 @@ export async function run(argv = process.argv) {
         console.log('🧩 Enabling default dashboard widgets...')
         runCommand(`yarn mercato dashboards seed-defaults --tenant ${tenantId}`)
         console.log('✅ Dashboard widgets enabled\n')
+
+        console.log('🗂️  Reindexing catalog and sales entities...')
+        const [{ reindexModules }, { createRequestContainer }] = await Promise.all([
+          import('@open-mercato/core/modules/configs/lib/reindex-helpers'),
+          import('@open-mercato/core/lib/di/container'),
+        ])
+        const reindexContainer = await createRequestContainer()
+        try {
+          const reindexEm = reindexContainer.resolve('em') as any
+          let vectorService: any = null
+          try {
+            vectorService = reindexContainer.resolve('vectorIndexService')
+          } catch {
+            vectorService = null
+          }
+          await reindexModules(reindexEm, ['catalog', 'sales'], {
+            tenantId: tenantId ?? undefined,
+            organizationId: orgId ?? undefined,
+            vectorService,
+          })
+        } finally {
+          if (typeof (reindexContainer as any)?.dispose === 'function') {
+            await (reindexContainer as any).dispose()
+          }
+        }
+        console.log('✅ Catalog and sales entities reindexed\n')
       } else {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding and dashboard widget setup\n')
       }

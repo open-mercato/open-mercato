@@ -379,8 +379,14 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
           createdAt: item.created_at,
           updatedAt: item.updated_at,
         }
-        const customEntries = extractAllCustomFieldEntries(item as Record<string, unknown>)
-        return Object.keys(customEntries).length ? { ...base, customValues: customEntries } : base
+        const customRaw: Record<string, unknown> = {}
+        Object.entries(item as Record<string, unknown>).forEach(([key, value]) => {
+          if (typeof key !== 'string') return
+          if (key.startsWith('cf_') || key.startsWith('cf:')) {
+            customRaw[key] = value
+          }
+        })
+        return Object.keys(customRaw).length ? { ...base, ...customRaw } : base
       },
     },
     actions: {
@@ -389,7 +395,14 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }) => {
           const { translate } = await resolveTranslations()
-          return parseScopedCommandInput(createSchema, raw ?? {}, ctx, translate)
+          const { base, custom } = splitCustomFieldPayload(raw ?? {})
+          const parsed = parseScopedCommandInput(
+            createSchema,
+            Object.keys(custom).length ? { ...base, customFields: custom } : base,
+            ctx,
+            translate,
+          )
+          return parsed
         },
         response: ({ result }) => ({ id: result?.orderId ?? result?.quoteId ?? result?.id ?? null }),
         status: 201,
@@ -399,7 +412,14 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }) => {
           const { translate } = await resolveTranslations()
-          return parseScopedCommandInput(documentUpdateSchema, raw ?? {}, ctx, translate)
+          const { base, custom } = splitCustomFieldPayload(raw ?? {})
+          const parsed = parseScopedCommandInput(
+            documentUpdateSchema,
+            Object.keys(custom).length ? { ...base, customFields: custom } : base,
+            ctx,
+            translate,
+          )
+          return parsed
         },
         response: ({ result }) => mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
       },
@@ -469,6 +489,7 @@ export function buildDocumentOpenApi(binding: DocumentBinding) {
     createdAt: z.string(),
     updatedAt: z.string(),
     customFields: z.record(z.string(), z.unknown()).optional(),
+    customValues: z.record(z.string(), z.unknown()).optional(),
   })
 
   const listResponseSchema = createPagedListResponseSchema(itemSchema)

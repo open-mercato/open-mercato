@@ -129,7 +129,7 @@ export const productFormSchema = z.object({
   channelIds: z.array(z.string().uuid()).optional(),
   tags: z.array(z.string().trim().min(1).max(100)).optional(),
   optionSchemaId: z.string().uuid().nullable().optional(),
-})
+}).passthrough()
 
 export const PRODUCT_FORM_STEPS = ['general', 'organize', 'variants'] as const
 
