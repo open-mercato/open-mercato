@@ -1225,11 +1225,12 @@ export async function seedSalesExamples(
       },
     })
 
+    const quoteNumber = seed.quoteNumber ?? `SQ-${quoteId.slice(0, 8).toUpperCase()}`
     const quote = em.create(SalesQuote, {
       id: quoteId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
-      quoteNumber: seed.quoteNumber,
+      quoteNumber,
       status: seed.status ?? 'draft',
       customerEntityId: customer?.entity.id ?? null,
       customerContactId: customer?.contactId ?? null,
