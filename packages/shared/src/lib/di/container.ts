@@ -1,12 +1,14 @@
 import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
-import { diRegistrars } from '@/generated/di.generated'
+import * as diGenerated from '@/generated/di.generated'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 
 export type AppContainer = AwilixContainer
+
+const diRegistrars = diGenerated.diRegistrars ?? diGenerated.default ?? []
 
 export async function createRequestContainer(): Promise<AppContainer> {
   const orm = await getOrm()
