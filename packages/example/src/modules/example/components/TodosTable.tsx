@@ -7,7 +7,7 @@ import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import { BooleanIcon, EnumBadge, severityPreset } from '@open-mercato/ui/backend/ValueIcons'
+import { BooleanIcon, EnumBadge, useSeverityPreset } from '@open-mercato/ui/backend/ValueIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { fetchCrudList, buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -35,7 +35,7 @@ type OrganizationsResponse = {
 
 const EMPTY_CUSTOM_FIELD_DEFS: CustomFieldDefDto[] = []
 
-function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string): ColumnDef<TodoRow>[] {
+function buildBaseColumns(t: (key: string, params?: Record<string, string | number>) => string, severityPreset: ReturnType<typeof useSeverityPreset>): ColumnDef<TodoRow>[] {
   return [
     { accessorKey: 'title', header: t('example.todos.table.column.title'), meta: { priority: 1 } },
     { accessorKey: 'organization_name', header: t('example.todos.table.column.organization'), enableSorting: false, meta: { priority: 3 } },
@@ -87,6 +87,7 @@ export default function TodosTable() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const severityPreset = useSeverityPreset()
   const [title, setTitle] = React.useState('')
   const [values, setValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
@@ -131,7 +132,7 @@ export default function TodosTable() {
   const [columns, setColumns] = React.useState<ColumnDef<TodoRow>[]>([])
 
   const computedColumns = React.useMemo(() => {
-    const base = buildBaseColumns(t)
+    const base = buildBaseColumns(t, severityPreset)
     if (!cfDefs.length) return base
     return applyCustomFieldVisibility(base, cfDefs)
   }, [cfDefs, t])

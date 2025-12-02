@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 const KEY_ALIASES: Record<string, string[]> = {
   currency: ['currency', 'currencies'],
@@ -74,26 +74,27 @@ const dictionaryEntrySchema = z.object({
   id: z.string().uuid(),
   value: z.string(),
   label: z.string(),
-  color: z.string().nullable().optional(),
-  icon: z.string().nullable().optional(),
+  color: z.string().nullable(),
+  icon: z.string().nullable(),
+})
+
+const dictionaryResponseSchema = z.object({
+  id: z.string().uuid(),
+  entries: z.array(dictionaryEntrySchema),
 })
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Catalog',
-  summary: 'Catalog dictionaries',
-  pathParams: z.object({ key: z.string() }),
+  summary: 'Catalog Dictionary lookup',
   methods: {
     GET: {
-      summary: 'Fetch dictionary entries',
-      description: 'Returns the dictionary matching the provided key (currency, unit, or measurement_units aliases are supported).',
+      summary: 'Get dictionary entries by key',
+      description: 'Returns dictionary entries for a specific key (e.g., currency, unit).',
       responses: [
         {
           status: 200,
           description: 'Dictionary entries',
-          schema: z.object({
-            id: z.string().uuid(),
-            entries: z.array(dictionaryEntrySchema),
-          }),
+          schema: dictionaryResponseSchema,
         },
       ],
     },

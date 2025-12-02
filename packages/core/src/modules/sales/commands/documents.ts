@@ -163,6 +163,7 @@ type QuoteGraphSnapshot = {
     paymentMethodSnapshot: Record<string, unknown> | null
     metadata: Record<string, unknown> | null
     customFieldSetId: string | null
+    customFields: Record<string, unknown> | null
     subtotalNetAmount: string
     subtotalGrossAmount: string
     discountTotalAmount: string
@@ -207,6 +208,7 @@ type QuoteLineSnapshot = {
   promotionSnapshot: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   customFieldSetId: string | null
+  customFields: Record<string, unknown> | null
 }
 
 type QuoteAdjustmentSnapshot = {
@@ -224,6 +226,7 @@ type QuoteAdjustmentSnapshot = {
   metadata: Record<string, unknown> | null
   position: number
   quoteLineId: string | null
+  customFields: Record<string, unknown> | null
 }
 
 type OrderGraphSnapshot = {
@@ -267,6 +270,7 @@ type OrderGraphSnapshot = {
     paymentMethodSnapshot: Record<string, unknown> | null
     metadata: Record<string, unknown> | null
     customFieldSetId: string | null
+    customFields: Record<string, unknown> | null
     subtotalNetAmount: string
     subtotalGrossAmount: string
     discountTotalAmount: string
@@ -323,6 +327,7 @@ type OrderLineSnapshot = {
   promotionSnapshot: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   customFieldSetId: string | null
+  customFields: Record<string, unknown> | null
 }
 
 type OrderAdjustmentSnapshot = {
@@ -340,6 +345,7 @@ type OrderAdjustmentSnapshot = {
   metadata: Record<string, unknown> | null
   position: number
   orderLineId: string | null
+  customFields: Record<string, unknown> | null
 }
 
 type OrderUndoPayload = {
@@ -983,10 +989,35 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
   if (!quote) return null
   const lines = await em.find(SalesQuoteLine, { quote: quote }, { orderBy: { lineNumber: 'asc' } })
   const adjustments = await em.find(SalesQuoteAdjustment, { quote: quote }, { orderBy: { position: 'asc' } })
-  const [addresses, notes, tags] = await Promise.all([
+  const [addresses, notes, tags, quoteCustomFields, lineCustomFields, adjustmentCustomFields] = await Promise.all([
     em.find(SalesDocumentAddress, { documentId: id, documentKind: 'quote' }),
     em.find(SalesNote, { contextType: 'quote', contextId: id }),
     em.find(SalesDocumentTagAssignment, { documentId: id, documentKind: 'quote' }, { populate: ['tag'] }),
+    loadCustomFieldValues({
+      em,
+      entityId: E.sales.sales_quote,
+      recordIds: [quote.id],
+      tenantIdByRecord: { [quote.id]: quote.tenantId },
+      organizationIdByRecord: { [quote.id]: quote.organizationId },
+    }),
+    lines.length
+      ? loadCustomFieldValues({
+          em,
+          entityId: E.sales.sales_quote_line,
+          recordIds: lines.map((line) => line.id),
+          tenantIdByRecord: Object.fromEntries(lines.map((line) => [line.id, quote.tenantId])),
+          organizationIdByRecord: Object.fromEntries(lines.map((line) => [line.id, quote.organizationId])),
+        })
+      : Promise.resolve({}),
+    adjustments.length
+      ? loadCustomFieldValues({
+          em,
+          entityId: E.sales.sales_quote_adjustment,
+          recordIds: adjustments.map((adj) => adj.id),
+          tenantIdByRecord: Object.fromEntries(adjustments.map((adj) => [adj.id, quote.tenantId])),
+          organizationIdByRecord: Object.fromEntries(adjustments.map((adj) => [adj.id, quote.organizationId])),
+        })
+      : Promise.resolve({}),
   ])
   const addressSnapshots: DocumentAddressSnapshot[] = addresses.map((entry) => ({
     id: entry.id,
@@ -1072,6 +1103,7 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       paymentMethodSnapshot: quote.paymentMethodSnapshot ? cloneJson(quote.paymentMethodSnapshot) : null,
       metadata: quote.metadata ? cloneJson(quote.metadata) : null,
       customFieldSetId: quote.customFieldSetId ?? null,
+      customFields: quoteCustomFields[quote.id] ? cloneJson(quoteCustomFields[quote.id]) : null,
       subtotalNetAmount: quote.subtotalNetAmount,
       subtotalGrossAmount: quote.subtotalGrossAmount,
       discountTotalAmount: quote.discountTotalAmount,
@@ -1109,6 +1141,7 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      customFields: lineCustomFields[line.id] ? cloneJson(lineCustomFields[line.id]) : null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -1125,6 +1158,7 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       metadata: adj.metadata ? cloneJson(adj.metadata) : null,
       position: adj.position,
       quoteLineId: typeof adj.quoteLine === 'string' ? adj.quoteLine : adj.quoteLine?.id ?? null,
+      customFields: adjustmentCustomFields[adj.id] ? cloneJson(adjustmentCustomFields[adj.id]) : null,
     })),
     addresses: addressSnapshots,
     notes: noteSnapshots,
@@ -1137,12 +1171,37 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
   if (!order) return null
   const lines = await em.find(SalesOrderLine, { order: order }, { orderBy: { lineNumber: 'asc' } })
   const adjustments = await em.find(SalesOrderAdjustment, { order: order }, { orderBy: { position: 'asc' } })
-  const [addresses, notes, tags, shipments, payments] = await Promise.all([
+  const [addresses, notes, tags, shipments, payments, orderCustomFields, lineCustomFields, adjustmentCustomFields] = await Promise.all([
     em.find(SalesDocumentAddress, { documentId: id, documentKind: 'order' }),
     em.find(SalesNote, { contextType: 'order', contextId: id }),
     em.find(SalesDocumentTagAssignment, { documentId: id, documentKind: 'order' }, { populate: ['tag'] }),
     em.find(SalesShipment, { order: order }),
     em.find(SalesPayment, { order: order }),
+    loadCustomFieldValues({
+      em,
+      entityId: E.sales.sales_order,
+      recordIds: [order.id],
+      tenantIdByRecord: { [order.id]: order.tenantId },
+      organizationIdByRecord: { [order.id]: order.organizationId },
+    }),
+    lines.length
+      ? loadCustomFieldValues({
+          em,
+          entityId: E.sales.sales_order_line,
+          recordIds: lines.map((line) => line.id),
+          tenantIdByRecord: Object.fromEntries(lines.map((line) => [line.id, order.tenantId])),
+          organizationIdByRecord: Object.fromEntries(lines.map((line) => [line.id, order.organizationId])),
+        })
+      : Promise.resolve({}),
+    adjustments.length
+      ? loadCustomFieldValues({
+          em,
+          entityId: E.sales.sales_order_adjustment,
+          recordIds: adjustments.map((adj) => adj.id),
+          tenantIdByRecord: Object.fromEntries(adjustments.map((adj) => [adj.id, order.tenantId])),
+          organizationIdByRecord: Object.fromEntries(adjustments.map((adj) => [adj.id, order.organizationId])),
+        })
+      : Promise.resolve({}),
   ])
   const shipmentSnapshots = (
     await Promise.all(shipments.map((entry) => loadShipmentSnapshot(em, entry.id)))
@@ -1243,6 +1302,7 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       paymentMethodSnapshot: order.paymentMethodSnapshot ? cloneJson(order.paymentMethodSnapshot) : null,
       metadata: order.metadata ? cloneJson(order.metadata) : null,
       customFieldSetId: order.customFieldSetId ?? null,
+      customFields: orderCustomFields[order.id] ? cloneJson(orderCustomFields[order.id]) : null,
       subtotalNetAmount: order.subtotalNetAmount,
       subtotalGrossAmount: order.subtotalGrossAmount,
       discountTotalAmount: order.discountTotalAmount,
@@ -1290,6 +1350,7 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      customFields: lineCustomFields[line.id] ? cloneJson(lineCustomFields[line.id]) : null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -1306,6 +1367,7 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       metadata: adj.metadata ? cloneJson(adj.metadata) : null,
       position: adj.position,
       orderLineId: typeof adj.orderLine === 'string' ? adj.orderLine : adj.orderLine?.id ?? null,
+      customFields: adjustmentCustomFields[adj.id] ? cloneJson(adjustmentCustomFields[adj.id]) : null,
     })),
     addresses: addressSnapshots,
     notes: noteSnapshots,
@@ -2335,6 +2397,21 @@ async function restoreQuoteGraph(
     em.persist(quote)
   }
   applyQuoteSnapshot(quote, snapshot.quote)
+  const existingLines = await em.find(SalesQuoteLine, { quote: quote.id }, { fields: ['id'] })
+  const existingAdjustments = await em.find(SalesQuoteAdjustment, { quote: quote.id }, { fields: ['id'] })
+  await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_quote, recordId: quote.id })
+  if (existingLines.length) {
+    await em.nativeDelete(CustomFieldValue, {
+      entityId: E.sales.sales_quote_line,
+      recordId: { $in: existingLines.map((line) => line.id) },
+    })
+  }
+  if (existingAdjustments.length) {
+    await em.nativeDelete(CustomFieldValue, {
+      entityId: E.sales.sales_quote_adjustment,
+      recordId: { $in: existingAdjustments.map((adj) => adj.id) },
+    })
+  }
   const addressSnapshots = Array.isArray(snapshot.addresses) ? snapshot.addresses : []
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : []
   const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : []
@@ -2470,6 +2547,36 @@ async function restoreQuoteGraph(
     em.persist(assignment)
   })
 
+  if (snapshot.quote.customFields) {
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_quote,
+      recordId: quote.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      values: normalizeCustomFieldValues(snapshot.quote.customFields),
+    })
+  }
+  for (const line of snapshot.lines) {
+    if (!line.customFields) continue
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_quote_line,
+      recordId: line.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      values: normalizeCustomFieldValues(line.customFields),
+    })
+  }
+  for (const adjustment of snapshot.adjustments) {
+    if (!adjustment.customFields) continue
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_quote_adjustment,
+      recordId: adjustment.id,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      values: normalizeCustomFieldValues(adjustment.customFields),
+    })
+  }
+
   return quote
 }
 
@@ -2549,6 +2656,21 @@ async function restoreOrderGraph(
     em.persist(order)
   }
   applyOrderSnapshot(order, snapshot.order)
+  const existingLines = await em.find(SalesOrderLine, { order: order.id }, { fields: ['id'] })
+  const existingAdjustments = await em.find(SalesOrderAdjustment, { order: order.id }, { fields: ['id'] })
+  await em.nativeDelete(CustomFieldValue, { entityId: E.sales.sales_order, recordId: order.id })
+  if (existingLines.length) {
+    await em.nativeDelete(CustomFieldValue, {
+      entityId: E.sales.sales_order_line,
+      recordId: { $in: existingLines.map((line) => line.id) },
+    })
+  }
+  if (existingAdjustments.length) {
+    await em.nativeDelete(CustomFieldValue, {
+      entityId: E.sales.sales_order_adjustment,
+      recordId: { $in: existingAdjustments.map((adj) => adj.id) },
+    })
+  }
   const addressSnapshots = Array.isArray(snapshot.addresses) ? snapshot.addresses : []
   const noteSnapshots = Array.isArray(snapshot.notes) ? snapshot.notes : []
   const tagSnapshots = Array.isArray(snapshot.tags) ? snapshot.tags : []
@@ -2698,6 +2820,36 @@ async function restoreOrderGraph(
     })
     em.persist(assignment)
   })
+
+  if (snapshot.order.customFields) {
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_order,
+      recordId: order.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      values: normalizeCustomFieldValues(snapshot.order.customFields),
+    })
+  }
+  for (const line of snapshot.lines) {
+    if (!line.customFields) continue
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_order_line,
+      recordId: line.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      values: normalizeCustomFieldValues(line.customFields),
+    })
+  }
+  for (const adjustment of snapshot.adjustments) {
+    if (!adjustment.customFields) continue
+    await setRecordCustomFields(em, {
+      entityId: E.sales.sales_order_adjustment,
+      recordId: adjustment.id,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      values: normalizeCustomFieldValues(adjustment.customFields),
+    })
+  }
 
   for (const shipment of shipmentSnapshots) {
     await restoreShipmentSnapshot(em, shipment)

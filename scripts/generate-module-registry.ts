@@ -20,13 +20,18 @@ function calculateChecksum(content: string): string {
 }
 
 function readChecksum(filePath: string): ChecksumRecord | null {
+  if (!fs.existsSync(filePath)) {
+    return null
+  }
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<ChecksumRecord>
     if (parsed && typeof parsed.content === 'string' && typeof parsed.structure === 'string') {
       return { content: parsed.content, structure: parsed.structure }
+    } else {
+      console.warn(`[generate-module-registry] Warning: Checksum file "${filePath}" exists but has invalid structure. This may indicate corruption or a version mismatch.`)
     }
-  } catch {
-    // Ignore parse errors or missing files
+  } catch (err) {
+    console.warn(`[generate-module-registry] Warning: Failed to parse checksum file "${filePath}": ${(err as Error).message}`)
   }
   return null
 }

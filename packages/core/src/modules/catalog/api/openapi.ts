@@ -1,4 +1,4 @@
-import { z, type ZodTypeAny } from 'zod'
+import { type ZodTypeAny } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   createCrudOpenApiFactory,
@@ -12,7 +12,7 @@ export const defaultCreateResponseSchema = sharedDefaultCreateResponseSchema
 export const defaultOkResponseSchema = sharedDefaultOkResponseSchema
 
 export function createPagedListResponseSchema(itemSchema: ZodTypeAny) {
-  return createSharedPagedListResponseSchema(itemSchema)
+  return createSharedPagedListResponseSchema(itemSchema, { paginationMetaOptional: true })
 }
 
 const buildCatalogCrudOpenApi = createCrudOpenApiFactory({

@@ -535,6 +535,14 @@ export default function CustomersPeoplePage() {
       {
         accessorKey: 'nextInteractionAt',
         header: t('customers.people.list.columns.nextInteraction'),
+        meta: {
+          tooltipContent: (row: PersonRow) => {
+            if (!row.nextInteractionAt) return undefined
+            const date = formatDate(row.nextInteractionAt, '')
+            const name = row.nextInteractionName || ''
+            return [date, name].filter(Boolean).join(' - ')
+          },
+        },
         cell: ({ row }) =>
           row.original.nextInteractionAt
             ? (

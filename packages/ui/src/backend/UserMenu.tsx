@@ -1,8 +1,10 @@
 "use client"
 import * as React from 'react'
 import { User, LogOut } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export function UserMenu({ email }: { email?: string }) {
+  const t = useT()
   const [open, setOpen] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
@@ -71,7 +73,7 @@ export function UserMenu({ email }: { email?: string }) {
         aria-controls="user-menu-dropdown"
         id="user-menu-button"
         type="button"
-        title={email || 'User'}
+        title={email || t('ui.userMenu.userFallback', 'User')}
       >
         <User className="size-4" />
       </button>
@@ -86,7 +88,7 @@ export function UserMenu({ email }: { email?: string }) {
         >
           {email && (
             <div className="px-2 py-2 text-xs text-muted-foreground border-b mb-1">
-              <div className="font-medium">Logged in as:</div>
+              <div className="font-medium">{t('ui.userMenu.loggedInAs', 'Logged in as:')}</div>
               <div className="truncate">{email}</div>
             </div>
           )}
@@ -105,7 +107,7 @@ export function UserMenu({ email }: { email?: string }) {
               }}
             >
               <LogOut className="size-4" />
-              <span>Logout</span>
+              <span>{t('ui.userMenu.logout', 'Logout')}</span>
             </button>
           </form>
         </div>

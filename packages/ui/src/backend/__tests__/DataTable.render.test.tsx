@@ -17,28 +17,32 @@ describe('DataTable SSR render', () => {
     const columns: ColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name' },
     ]
-    const queryClient = new QueryClient()
-    const html = renderToString(
-      React.createElement(
-        QueryClientProvider as any,
-        { client: queryClient },
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      const html = renderToString(
         React.createElement(
-          I18nProvider as any,
-          { locale: 'en', dict: {} },
-          React.createElement(DataTable as any, {
-            columns,
-            data: [],
-            title: 'Test',
-            searchValue: 'abc',
-            onSearchChange: () => {},
-            filters: [{ id: 'created_at', label: 'Created', type: 'dateRange' }],
-            filterValues: {},
-            onFiltersApply: () => {},
-          }),
-        ),
+          QueryClientProvider as any,
+          { client: queryClient },
+          React.createElement(
+            I18nProvider as any,
+            { locale: 'en', dict: {} },
+            React.createElement(DataTable as any, {
+              columns,
+              data: [],
+              title: 'Test',
+              searchValue: 'abc',
+              onSearchChange: () => {},
+              filters: [{ id: 'created_at', label: 'Created', type: 'dateRange' }],
+              filterValues: {},
+              onFiltersApply: () => {},
+            }),
+          ),
+        )
       )
-    )
-    expect(html).toContain('Filters')
-    expect(html).toContain('Name')
+      expect(html).toContain('Filters')
+      expect(html).toContain('Name')
+    } finally {
+      queryClient.clear()
+    }
   })
 })

@@ -673,9 +673,11 @@
         "customer.help": "Zum Filtern tippen.",
         "customer.empty": "Keine Kunden gefunden.",
         "customer.selected": "Kunde ausgewählt: {{id}}",
-        "email": {
-          "alreadySelected": "Selected customer"
-        },
+        "customer.quick.error": "Kunde konnte nicht erstellt werden.",
+        "customer.quick.personSuccess": "Kunde erstellt.",
+        "customer.quick.companySuccess": "Unternehmen erstellt.",
+        "customer.quick.dialogDescription": "Kunden hinzufügen, ohne dieses Formular zu verlassen.",
+        "email": "Kunden-E-Mail",
         "email.placeholder": "E-Mail für dieses Dokument",
         "email.selectCustomer": "Kunden auswählen",
         "currency.placeholder": "Währung auswählen",

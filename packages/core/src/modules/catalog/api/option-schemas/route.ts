@@ -151,37 +151,35 @@ const crud = makeCrudRoute({
 
 export const { GET, POST, PUT, DELETE } = crud
 
-const optionSchemaListItem = z
-  .object({
-    id: z.string().uuid(),
-    name: z.string(),
-    code: z.string(),
-    description: z.string().nullable().optional(),
-    schema: z.record(z.string(), z.unknown()).nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-    is_active: z.boolean().nullable().optional(),
-    created_at: z.string(),
-    updated_at: z.string(),
-  })
-  .passthrough()
+const optionSchemaListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  code: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  schema: z.record(z.string(), z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
 
 export const openApi = createCatalogCrudOpenApi({
-  resourceName: 'Option schema',
+  resourceName: 'Option Schema',
+  pluralName: 'Option Schemas',
   querySchema: listSchema,
-  listResponseSchema: createPagedListResponseSchema(optionSchemaListItem),
+  listResponseSchema: createPagedListResponseSchema(optionSchemaListItemSchema),
   create: {
     schema: optionSchemaTemplateCreateSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Creates an option schema template for catalog products.',
+    description: 'Creates a new option schema template for product configurations.',
   },
   update: {
     schema: optionSchemaTemplateUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates an option schema template.',
+    description: 'Updates an existing option schema by id.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes an option schema template by id.',
+    description: 'Deletes an option schema by id.',
   },
 })

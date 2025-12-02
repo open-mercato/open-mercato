@@ -622,109 +622,50 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const decimalValue = z.union([z.number(), z.string()])
-
-const productOfferSchema = z
-  .object({
-    id: z.string().uuid(),
-    channelId: z.string().uuid().nullable().optional(),
-    channelName: z.string().nullable().optional(),
-    channelCode: z.string().nullable().optional(),
-    title: z.string().nullable().optional(),
-    description: z.string().nullable().optional(),
-    isActive: z.boolean().nullable().optional(),
-    localizedContent: z.record(z.string(), z.unknown()).nullable().optional(),
-    defaultMediaId: z.string().nullable().optional(),
-    defaultMediaUrl: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-  })
-  .passthrough()
-
-const productCategorySchema = z
-  .object({
-    id: z.string().uuid(),
-    name: z.string().nullable().optional(),
-    treePath: z.string().nullable().optional(),
-    parentId: z.string().uuid().nullable().optional(),
-    parentName: z.string().nullable().optional(),
-  })
-  .passthrough()
-
-const productPricingSchema = z
-  .object({
-    kind: z.string().nullable().optional(),
-    price_kind_id: z.string().uuid().nullable().optional(),
-    price_kind_code: z.string().nullable().optional(),
-    currency_code: z.string().nullable().optional(),
-    unit_price_net: decimalValue.nullable().optional(),
-    unit_price_gross: decimalValue.nullable().optional(),
-    min_quantity: z.number().nullable().optional(),
-    max_quantity: z.number().nullable().optional(),
-    tax_rate: decimalValue.nullable().optional(),
-    tax_amount: decimalValue.nullable().optional(),
-    scope: z
-      .object({
-        variant_id: z.string().uuid().nullable().optional(),
-        offer_id: z.string().uuid().nullable().optional(),
-        channel_id: z.string().uuid().nullable().optional(),
-        user_id: z.string().uuid().nullable().optional(),
-        user_group_id: z.string().uuid().nullable().optional(),
-        customer_id: z.string().uuid().nullable().optional(),
-        customer_group_id: z.string().uuid().nullable().optional(),
-      })
-      .optional(),
-  })
-  .passthrough()
-
-const productListItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    title: z.string().nullable().optional(),
-    subtitle: z.string().nullable().optional(),
-    description: z.string().nullable().optional(),
-    sku: z.string().nullable().optional(),
-    handle: z.string().nullable().optional(),
-    tax_rate_id: z.string().uuid().nullable().optional(),
-    tax_rate: decimalValue.nullable().optional(),
-    product_type: z.string().nullable().optional(),
-    primary_currency_code: z.string().nullable().optional(),
-    default_unit: z.string().nullable().optional(),
-    default_media_id: z.string().nullable().optional(),
-    default_media_url: z.string().nullable().optional(),
-    weight_value: decimalValue.nullable().optional(),
-    weightValue: decimalValue.nullable().optional(),
-    weight_unit: z.string().nullable().optional(),
-    weightUnit: z.string().nullable().optional(),
-    dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
-    custom_fieldset_code: z.string().nullable().optional(),
-    option_schema_id: z.string().uuid().nullable().optional(),
-    is_configurable: z.boolean().nullable().optional(),
-    is_active: z.boolean().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-    created_at: z.string(),
-    updated_at: z.string(),
-    offers: z.array(productOfferSchema).optional(),
-    channelIds: z.array(z.string().uuid()).optional(),
-    categories: z.array(productCategorySchema).optional(),
-    categoryIds: z.array(z.string().uuid()).optional(),
-    tags: z.array(z.string()).optional(),
-    pricing: productPricingSchema.nullable().optional(),
-  })
-  .passthrough()
+const productListItemSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().nullable().optional(),
+  subtitle: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  sku: z.string().nullable().optional(),
+  handle: z.string().nullable().optional(),
+  product_type: z.string().nullable().optional(),
+  status_entry_id: z.string().uuid().nullable().optional(),
+  primary_currency_code: z.string().nullable().optional(),
+  default_unit: z.string().nullable().optional(),
+  default_media_id: z.string().uuid().nullable().optional(),
+  default_media_url: z.string().nullable().optional(),
+  weight_value: z.number().nullable().optional(),
+  weight_unit: z.string().nullable().optional(),
+  dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
+  is_configurable: z.boolean().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  custom_fieldset_code: z.string().nullable().optional(),
+  option_schema_id: z.string().uuid().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  offers: z.array(z.record(z.string(), z.unknown())).optional(),
+  channelIds: z.array(z.string()).optional(),
+  categories: z.array(z.record(z.string(), z.unknown())).optional(),
+  categoryIds: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+})
 
 export const openApi = createCatalogCrudOpenApi({
   resourceName: 'Product',
+  pluralName: 'Products',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(productListItemSchema),
   create: {
     schema: productCreateSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Creates a catalog product.',
+    description: 'Creates a new product in the catalog.',
   },
   update: {
     schema: productUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates an existing catalog product.',
+    description: 'Updates an existing product by id.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),

@@ -192,53 +192,49 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const decimal = z.union([z.number(), z.string()])
-
-const priceListItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    product_id: z.string().uuid().nullable().optional(),
-    variant_id: z.string().uuid().nullable().optional(),
-    offer_id: z.string().uuid().nullable().optional(),
-    currency_code: z.string(),
-    price_kind_id: z.string().uuid(),
-    kind: z.string(),
-    min_quantity: z.number(),
-    max_quantity: z.number().nullable().optional(),
-    unit_price_net: decimal.nullable().optional(),
-    unit_price_gross: decimal.nullable().optional(),
-    tax_rate: decimal.nullable().optional(),
-    tax_amount: decimal.nullable().optional(),
-    channel_id: z.string().uuid().nullable().optional(),
-    user_id: z.string().uuid().nullable().optional(),
-    user_group_id: z.string().uuid().nullable().optional(),
-    customer_id: z.string().uuid().nullable().optional(),
-    customer_group_id: z.string().uuid().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-    starts_at: z.string().nullable().optional(),
-    ends_at: z.string().nullable().optional(),
-    created_at: z.string(),
-    updated_at: z.string(),
-  })
-  .passthrough()
+const priceListItemSchema = z.object({
+  id: z.string().uuid(),
+  product_id: z.string().uuid().nullable().optional(),
+  variant_id: z.string().uuid().nullable().optional(),
+  offer_id: z.string().uuid().nullable().optional(),
+  currency_code: z.string().nullable().optional(),
+  price_kind_id: z.string().uuid().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  min_quantity: z.number().nullable().optional(),
+  max_quantity: z.number().nullable().optional(),
+  unit_price_net: z.number().nullable().optional(),
+  unit_price_gross: z.number().nullable().optional(),
+  tax_rate: z.number().nullable().optional(),
+  tax_amount: z.number().nullable().optional(),
+  channel_id: z.string().uuid().nullable().optional(),
+  user_id: z.string().uuid().nullable().optional(),
+  user_group_id: z.string().uuid().nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
+  customer_group_id: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  starts_at: z.string().nullable().optional(),
+  ends_at: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
 
 export const openApi = createCatalogCrudOpenApi({
   resourceName: 'Price',
+  pluralName: 'Prices',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(priceListItemSchema),
   create: {
     schema: priceCreateSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Creates a catalog price scoped to a product, variant, or offer.',
+    description: 'Creates a new price entry for a product or variant.',
   },
   update: {
     schema: priceUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates an existing catalog price.',
+    description: 'Updates an existing price by id.',
   },
   del: {
-    schema: z.object({ id: z.string().uuid() }).passthrough(),
+    schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes a price by id. The identifier may be provided via body or query string.',
+    description: 'Deletes a price by id.',
   },
 })

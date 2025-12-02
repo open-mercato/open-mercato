@@ -4,6 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { envDisablesVectorAutoIndexing, resolveVectorAutoIndexingEnabled, VECTOR_AUTO_INDEX_CONFIG_KEY } from '../../lib/auto-indexing'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const updateSchema = z.object({
   autoIndexingEnabled: z.boolean(),
@@ -27,13 +28,19 @@ const openAiConfigured = () => Boolean(process.env.OPENAI_API_KEY && process.env
 
 const toJson = (payload: SettingsResponse, init?: ResponseInit) => NextResponse.json(payload, init)
 
-const unauthorized = () => NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+const unauthorized = async () => {
+  const { t } = await resolveTranslations()
+  return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+}
 
-const configUnavailable = () => NextResponse.json({ error: 'Configuration service unavailable' }, { status: 503 })
+const configUnavailable = async () => {
+  const { t } = await resolveTranslations()
+  return NextResponse.json({ error: t('vector.api.errors.configUnavailable', 'Configuration service unavailable') }, { status: 503 })
+}
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) return unauthorized()
+  if (!auth?.sub) return await unauthorized()
 
   const container = await createRequestContainer()
   try {
@@ -63,12 +70,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
-  if (!auth?.sub) return unauthorized()
+  if (!auth?.sub) return await unauthorized()
 
   if (envDisablesVectorAutoIndexing()) {
     return NextResponse.json(
-      { error: 'Auto-indexing is disabled via DISABLE_VECTOR_SEARCH_AUTOINDEXING.' },
+      { error: t('vector.api.errors.autoIndexingDisabled', 'Auto-indexing is disabled via DISABLE_VECTOR_SEARCH_AUTOINDEXING.') },
       { status: 409 },
     )
   }
@@ -77,11 +85,11 @@ export async function POST(req: Request) {
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON payload.' }, { status: 400 })
+    return NextResponse.json({ error: t('api.errors.invalidJson', 'Invalid JSON payload.') }, { status: 400 })
   }
   const parsed = updateSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload.' }, { status: 400 })
+    return NextResponse.json({ error: t('api.errors.invalidPayload', 'Invalid payload.') }, { status: 400 })
   }
 
   const container = await createRequestContainer()
@@ -90,7 +98,7 @@ export async function POST(req: Request) {
     try {
       service = (container.resolve('moduleConfigService') as ModuleConfigService)
     } catch {
-      return configUnavailable()
+      return await configUnavailable()
     }
 
     await service.setValue('vector', VECTOR_AUTO_INDEX_CONFIG_KEY, parsed.data.autoIndexingEnabled)
@@ -105,7 +113,7 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     console.error('[vector.settings.update] failed', error)
-    return NextResponse.json({ error: 'Failed to update vector settings.' }, { status: 500 })
+    return NextResponse.json({ error: t('vector.api.errors.updateFailed', 'Failed to update vector settings.') }, { status: 500 })
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {

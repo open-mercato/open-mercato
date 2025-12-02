@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { appVersion } from '@open-mercato/shared/lib/version'
 import { UpgradeActionRun } from '../data/entities'
-import { actionsForVersion, findUpgradeAction, type UpgradeActionDefinition } from '../lib/upgrade-actions'
+import { actionsUpToVersion, findUpgradeAction, type UpgradeActionDefinition } from '../lib/upgrade-actions'
 
 export type UpgradeActionStatus = 'completed' | 'already_completed'
 
@@ -24,15 +24,16 @@ export async function listPendingUpgradeActions(
   }: { tenantId: string; organizationId: string; version?: string },
 ): Promise<UpgradeActionDefinition[]> {
   if (!isUpgradeActionsEnabled()) return []
-  const definitions = actionsForVersion(version)
+  const definitions = actionsUpToVersion(version)
   if (!definitions.length) return []
+  const versions = Array.from(new Set(definitions.map((definition) => definition.version)))
   const runs = await em.find(UpgradeActionRun, {
     tenantId,
     organizationId,
-    version,
+    version: { $in: versions },
   })
-  const completed = new Set(runs.map((run) => run.actionId))
-  return definitions.filter((definition) => !completed.has(definition.id))
+  const completed = new Set(runs.map((run) => `${run.version}::${run.actionId}`))
+  return definitions.filter((definition) => !completed.has(`${definition.version}::${definition.id}`))
 }
 
 export async function executeUpgradeAction(
@@ -53,10 +54,16 @@ export async function executeUpgradeAction(
   }
   const em = container.resolve<EntityManager>('em')
   const status = await em.transactional(async (tem) => {
-    console.info('[upgrade-actions] executing', { actionId: definition.id, version, tenantId, organizationId })
+    console.info('[upgrade-actions] executing', {
+      actionId: definition.id,
+      version: definition.version,
+      requestedVersion: version,
+      tenantId,
+      organizationId,
+    })
     const alreadyCompleted = await tem.findOne(UpgradeActionRun, {
       actionId: definition.id,
-      version,
+      version: definition.version,
       tenantId,
       organizationId,
     })
@@ -64,7 +71,7 @@ export async function executeUpgradeAction(
     await definition.run({ container, em: tem, tenantId, organizationId })
     const record = tem.create(UpgradeActionRun, {
       actionId: definition.id,
-      version,
+      version: definition.version,
       tenantId,
       organizationId,
     })

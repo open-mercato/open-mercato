@@ -127,35 +127,33 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const priceKindListItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    organization_id: z.string().uuid().nullable().optional(),
-    tenant_id: z.string().uuid().nullable().optional(),
-    code: z.string(),
-    title: z.string(),
-    display_mode: z.string(),
-    currency_code: z.string().nullable().optional(),
-    is_promotion: z.boolean().nullable().optional(),
-    is_active: z.boolean().nullable().optional(),
-    created_at: z.string(),
-    updated_at: z.string(),
-  })
-  .passthrough()
+const priceKindListItemSchema = z.object({
+  id: z.string().uuid(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  code: z.string(),
+  title: z.string(),
+  display_mode: z.string().nullable().optional(),
+  currency_code: z.string().nullable().optional(),
+  is_promotion: z.boolean().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
 
 export const openApi = createCatalogCrudOpenApi({
-  resourceName: 'Price kind',
+  resourceName: 'Price Kind',
+  pluralName: 'Price Kinds',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(priceKindListItemSchema),
   create: {
     schema: priceKindCreateSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Creates a catalog price kind.',
+    description: 'Creates a new price kind for categorizing product prices.',
   },
   update: {
     schema: priceKindUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates a catalog price kind.',
+    description: 'Updates an existing price kind by id.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),

@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductTag } from '../../data/entities'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createPagedListResponseSchema } from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -91,7 +92,7 @@ export async function GET(req: Request) {
   })
 }
 
-const tagItemSchema = z.object({
+const tagListItemSchema = z.object({
   id: z.string().uuid(),
   label: z.string(),
   slug: z.string().nullable().optional(),
@@ -99,20 +100,21 @@ const tagItemSchema = z.object({
   updatedAt: z.string(),
 })
 
-const tagListResponseSchema = z.object({
-  items: z.array(tagItemSchema),
-  total: z.number(),
-})
-
 export const openApi: OpenApiRouteDoc = {
   tag: 'Catalog',
-  summary: 'Product tags',
+  summary: 'Product Tag management',
   methods: {
     GET: {
-      summary: 'List tags',
-      description: 'Returns catalog tags scoped to the authenticated organization.',
+      summary: 'List product tags',
+      description: 'Returns a paginated collection of product tags scoped to the authenticated organization.',
       query: querySchema,
-      responses: [{ status: 200, description: 'Tag list', schema: tagListResponseSchema }],
+      responses: [
+        {
+          status: 200,
+          description: 'Paginated product tags',
+          schema: createPagedListResponseSchema(tagListItemSchema),
+        },
+      ],
     },
   },
 }

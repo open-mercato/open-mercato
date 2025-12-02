@@ -7,6 +7,8 @@ import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle } from 'l
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
+import { TooltipProvider } from '../primitives/tooltip'
+import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
@@ -16,6 +18,7 @@ import { serializeExport, defaultExportFilename, type PreparedExport } from '@op
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type {
   PerspectiveDto,
   RolePerspectiveDto,
@@ -344,9 +347,52 @@ function normalizeLabel(input: string): string {
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
+// Column width configuration based on column type
+type ColumnTruncateConfig = {
+  maxWidth: string
+  truncate: boolean
+}
+
+function getColumnTruncateConfig(columnId: string, accessorKey?: string): ColumnTruncateConfig {
+  const key = accessorKey || columnId
+
+  // Custom fields get narrower width
+  if (key.startsWith('cf_') || key.startsWith('cf:')) {
+    return { maxWidth: '120px', truncate: true }
+  }
+
+  // Core informative columns get wider width
+  const wideColumns = ['title', 'name', 'description', 'source', 'companies', 'people']
+  if (wideColumns.includes(key)) {
+    return { maxWidth: '250px', truncate: true }
+  }
+
+  // Medium width for status-like columns
+  const mediumColumns = ['status', 'pipelineStage', 'pipeline_stage', 'type', 'category']
+  if (mediumColumns.includes(key)) {
+    return { maxWidth: '180px', truncate: true }
+  }
+
+  // Date columns
+  if (key.endsWith('_at') || key.endsWith('At') || key.includes('date') || key.includes('Date')) {
+    return { maxWidth: '120px', truncate: true }
+  }
+
+  // Default for other columns
+  return { maxWidth: '150px', truncate: true }
+}
+
+// Check if a column should skip truncation (e.g., actions column)
+function shouldSkipTruncation(columnId: string): boolean {
+  const skipColumns = ['actions', 'select', 'checkbox', 'expand']
+  return skipColumns.includes(columnId.toLowerCase())
+}
+
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
+  const t = useT()
   if (!sections.length) return null
-  const { label = 'Export' } = config
+  const { label } = config
+  const defaultLabel = label ?? t('ui.dataTable.export.label', 'Export')
   const disabled = Boolean(config.disabled)
   const [open, setOpen] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
@@ -425,7 +471,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
         aria-expanded={open}
         disabled={disabled}
       >
-        {label}
+        {defaultLabel}
       </Button>
       {open ? (
         <div
@@ -494,6 +540,7 @@ export function DataTable<T>({
   onCustomFieldFilterFieldsetChange,
   customFieldFilterKeyExtras,
 }: DataTableProps<T>) {
+  const t = useT()
   const router = useRouter()
   const lastScopeRef = React.useRef<OrganizationScopeChangedDetail | null>(null)
   const hasInitializedScopeRef = React.useRef(false)
@@ -620,11 +667,11 @@ export function DataTable<T>({
         }
       }
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to load perspectives')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
       }
       setPerspectiveApiMissing(false)
       const payload = call.result
-      if (!payload) throw new Error('Failed to load perspectives')
+      if (!payload) throw new Error(t('ui.dataTable.perspectives.error.load', 'Failed to load perspectives'))
       return payload
     },
     enabled: canUsePerspectives,
@@ -883,13 +930,13 @@ export function DataTable<T>({
         },
       )
       if (call.status === 404) {
-        throw new Error('Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.')
+        throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` to regenerate module routes and restart the dev server.'))
       }
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to save perspective')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
       }
       const result = call.result
-      if (!result) throw new Error('Failed to save perspective')
+      if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
       return result
     },
     onSuccess: (data) => {
@@ -947,9 +994,9 @@ export function DataTable<T>({
         `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
         { method: 'DELETE' },
       )
-      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.'))
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to delete perspective')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
       }
     },
     onMutate: ({ perspectiveId }) => {
@@ -983,9 +1030,9 @@ export function DataTable<T>({
         `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
         { method: 'DELETE' },
       )
-      if (call.status === 404) throw new Error('Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.')
+      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `npm run modules:prepare` and restart the dev server.'))
       if (!call.ok) {
-        await raiseCrudError(call.response, 'Failed to clear role perspectives')
+        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
       }
     },
     onMutate: ({ roleId }) => {
@@ -1064,7 +1111,7 @@ export function DataTable<T>({
   }, [table])
 
   const perspectiveApiWarning = perspectiveApiMissing && canUsePerspectives
-    ? 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.'
+    ? t('ui.dataTable.perspectives.warning.apiUnavailable', 'Perspectives API is not available yet. Run `npm run modules:prepare` to regenerate module routes, then restart the server.')
     : null
 
   const loadStartRef = React.useRef<number | null>(null)
@@ -1139,14 +1186,14 @@ export function DataTable<T>({
     const cacheBadge = normalizedCacheStatus ? (
       <span
         className="inline-flex items-center justify-center"
-        aria-label={`Cache ${normalizedCacheStatus.toUpperCase()}`}
-        title={`Cache ${normalizedCacheStatus.toUpperCase()}`}
+        aria-label={t('ui.dataTable.pagination.cache.ariaLabel', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
+        title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
       >
         <Circle
           className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
           strokeWidth={3}
         />
-        <span className="sr-only">{`Cache ${normalizedCacheStatus.toUpperCase()}`}</span>
+        <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
       </span>
     ) : null
 
@@ -1154,7 +1201,10 @@ export function DataTable<T>({
       <div className="flex items-center justify-between px-4 py-3 border-t">
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <span>
-            Showing {startItem} to {endItem} of {pagination.total} results{durationLabel ? ` in ${durationLabel}` : ''}
+            {durationLabel 
+              ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
+              : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
+            }
           </span>
           {cacheBadge}
         </div>
@@ -1165,10 +1215,10 @@ export function DataTable<T>({
             onClick={() => onPageChange(page - 1)}
             disabled={page <= 1}
           >
-            Previous
+            {t('ui.dataTable.pagination.previous', 'Previous')}
           </Button>
           <span className="text-sm">
-            Page {page} of {totalPages}
+            {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
           </span>
           <Button
             variant="outline"
@@ -1176,7 +1226,7 @@ export function DataTable<T>({
             onClick={() => onPageChange(page + 1)}
             disabled={page >= totalPages}
           >
-            Next
+            {t('ui.dataTable.pagination.next', 'Next')}
           </Button>
         </div>
       </div>
@@ -1309,7 +1359,7 @@ export function DataTable<T>({
     const perspectiveButton = canUsePerspectives ? (
       <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
         <SlidersHorizontal className="mr-2 h-4 w-4" />
-        Perspectives
+        {t('ui.dataTable.perspectives.button', 'Perspectives')}
       </Button>
     ) : null
     const fieldsetSelector =
@@ -1395,6 +1445,7 @@ export function DataTable<T>({
   ) : <div className="min-h-[2.25rem]" />
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className={containerClassName}>
       {shouldRenderHeader && (
         <div className={headerWrapperClassName}>
@@ -1429,11 +1480,11 @@ export function DataTable<T>({
                       variant="ghost"
                       size="icon"
                       onClick={() => setPerspectiveOpen(true)}
-                      aria-label="Customize columns"
-                      title="Customize columns"
+                      aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
+                      title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
                     >
                       <MoreHorizontal className="h-4 w-4" />
-                      <span className="sr-only">Customize columns</span>
+                      <span className="sr-only">{t('ui.dataTable.customizeColumns.srOnly', 'Customize columns')}</span>
                     </Button>
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
@@ -1534,6 +1585,7 @@ export function DataTable<T>({
                       const priority = resolvePriority(cell.column)
                       const hasCustomCell = Boolean(cell.column.columnDef.cell)
                       const columnId = String((cell.column as any).id || '')
+                      const accessorKey = String((cell.column.columnDef as any)?.accessorKey || '')
                       const isDateCol = dateColumnIds ? dateColumnIds.has(columnId) : false
 
                       let content: React.ReactNode
@@ -1545,9 +1597,35 @@ export function DataTable<T>({
                         content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       }
 
+                      // Get truncation configuration for this column
+                      const skipTruncation = shouldSkipTruncation(columnId)
+                      const metaTruncate = columnMeta?.truncate
+                      const metaMaxWidth = columnMeta?.maxWidth
+                      const shouldTruncate = metaTruncate !== false && !skipTruncation
+
+                      // Get default config based on column type
+                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey)
+                      const maxWidth = metaMaxWidth || truncateConfig.maxWidth
+
+                      // Wrap content with TruncatedCell if truncation is enabled
+                      // Get raw cell value for tooltip - flexRender returns React elements
+                      // that cannot have their text extracted, so we pass the raw value directly
+                      // Check for custom tooltip content function in column meta for complex cells
+                      const cellValue = cell.getValue()
+                      const metaTooltipContent = columnMeta?.tooltipContent as ((row: unknown) => string | undefined) | undefined
+                      const tooltipText = metaTooltipContent
+                        ? metaTooltipContent(row.original)
+                        : (cellValue != null ? String(cellValue) : undefined)
+
+                      const wrappedContent = shouldTruncate ? (
+                        <TruncatedCell maxWidth={maxWidth} tooltipContent={tooltipText}>
+                          {content}
+                        </TruncatedCell>
+                      ) : content
+
                       return (
                         <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden)}>
-                          {content}
+                          {wrappedContent}
                         </TableCell>
                       )
                     })}
@@ -1562,7 +1640,7 @@ export function DataTable<T>({
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (rowActions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
-                  {emptyState ?? 'No results.'}
+                  {emptyState ?? t('ui.dataTable.emptyState.default', 'No results.')}
                 </TableCell>
               </TableRow>
             )}
@@ -1594,5 +1672,6 @@ export function DataTable<T>({
         />
       ) : null}
     </div>
+    </TooltipProvider>
   )
 }

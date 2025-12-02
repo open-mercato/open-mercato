@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import type { VectorIndexService } from '@open-mercato/vector'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['vector.search'] },
@@ -25,9 +26,10 @@ function parseOffset(value: string | null): number {
 }
 
 export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const url = new URL(req.url)
@@ -40,7 +42,7 @@ export async function GET(req: Request) {
   try {
     service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
-    return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
+    return NextResponse.json({ error: t('vector.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
   }
 
   try {
@@ -53,7 +55,7 @@ export async function GET(req: Request) {
     })
     return NextResponse.json({ entries, limit, offset })
   } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : 'Vector index fetch failed'
+    const message = typeof error?.message === 'string' ? error.message : t('vector.api.errors.indexFetchFailed', 'Vector index fetch failed')
     const status = typeof error?.status === 'number'
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
@@ -63,9 +65,10 @@ export async function GET(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
   const url = new URL(req.url)
@@ -76,7 +79,7 @@ export async function DELETE(req: Request) {
   try {
     service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
-    return NextResponse.json({ error: 'Vector index unavailable' }, { status: 503 })
+    return NextResponse.json({ error: t('vector.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
   }
 
   let em: any | null = null
@@ -176,7 +179,7 @@ export async function DELETE(req: Request) {
     ).catch(() => undefined)
     return NextResponse.json({ ok: true })
   } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : 'Vector index purge failed'
+    const message = typeof error?.message === 'string' ? error.message : t('vector.api.errors.purgeFailed', 'Vector index purge failed')
     const status = typeof error?.status === 'number'
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)

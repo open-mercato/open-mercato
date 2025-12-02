@@ -418,68 +418,40 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const offerPriceAmount = z.union([z.number(), z.string()])
-
-const offerPriceSchema = z
-  .object({
-    id: z.string().uuid(),
-    priceKindId: z.string().uuid().nullable().optional(),
-    priceKindCode: z.string().nullable().optional(),
-    priceKindTitle: z.string().nullable().optional(),
-    currencyCode: z.string().nullable().optional(),
-    unitPriceNet: offerPriceAmount.nullable().optional(),
-    unitPriceGross: offerPriceAmount.nullable().optional(),
-    displayMode: z.string().nullable().optional(),
-    minQuantity: z.number().nullable().optional(),
-    maxQuantity: z.number().nullable().optional(),
-  })
-  .passthrough()
-
-const offerListItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    productId: z.string().uuid().nullable().optional(),
-    organizationId: z.string().uuid().nullable().optional(),
-    tenantId: z.string().uuid().nullable().optional(),
-    channelId: z.string().uuid().nullable().optional(),
-    title: z.string(),
-    description: z.string().nullable().optional(),
-    defaultMediaId: z.string().nullable().optional(),
-    defaultMediaUrl: z.string().nullable().optional(),
-    localizedContent: z.record(z.string(), z.unknown()).nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-    isActive: z.boolean(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-    product: z
-      .object({
-        id: z.string().uuid(),
-        title: z.string().nullable().optional(),
-        defaultMediaId: z.string().nullable().optional(),
-        defaultMediaUrl: z.string().nullable().optional(),
-        sku: z.string().nullable().optional(),
-      })
-      .nullable()
-      .optional(),
-    prices: z.array(offerPriceSchema).optional(),
-    productChannelPrice: offerPriceSchema.nullable().optional(),
-    productDefaultPrices: z.array(offerPriceSchema).optional(),
-  })
-  .passthrough()
+const offerListItemSchema = z.object({
+  id: z.string().uuid(),
+  productId: z.string().uuid().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  tenantId: z.string().uuid().nullable().optional(),
+  channelId: z.string().uuid().nullable().optional(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  defaultMediaId: z.string().uuid().nullable().optional(),
+  defaultMediaUrl: z.string().nullable().optional(),
+  localizedContent: z.record(z.string(), z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  isActive: z.boolean().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  product: z.record(z.string(), z.unknown()).nullable().optional(),
+  prices: z.array(z.record(z.string(), z.unknown())).optional(),
+  productChannelPrice: z.record(z.string(), z.unknown()).nullable().optional(),
+  productDefaultPrices: z.array(z.record(z.string(), z.unknown())).optional(),
+})
 
 export const openApi = createCatalogCrudOpenApi({
   resourceName: 'Offer',
+  pluralName: 'Offers',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(offerListItemSchema),
   create: {
     schema: offerCreateSchema,
-    responseSchema: z.object({ id: z.string().uuid().nullable() }),
-    description: 'Creates a channel offer for a catalog product.',
+    description: 'Creates a new offer linking a product to a sales channel.',
   },
   update: {
     schema: offerUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates offer content, channel binding, or metadata.',
+    description: 'Updates an existing offer by id.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),

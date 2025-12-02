@@ -51,6 +51,7 @@ import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDt
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
+import { ComboboxInput } from './inputs/ComboboxInput'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
@@ -85,6 +86,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'tags'
     | 'richtext'
     | 'relation'
+    | 'combobox'
   placeholder?: string
   options?: CrudFieldOption[]
   multiple?: boolean
@@ -93,6 +95,10 @@ export type CrudBuiltinField = CrudFieldBase & {
   loadOptions?: (query?: string) => Promise<CrudFieldOption[]>
   // when type === 'richtext', choose editor implementation
   editor?: 'simple' | 'uiw' | 'html'
+  // for text fields; provides datalist suggestions while allowing free-text input
+  suggestions?: string[]
+  // for combobox fields; allow custom values or restrict to suggestions only
+  allowCustomValues?: boolean
 }
 
 export type CrudCustomFieldRenderProps = {
@@ -1577,6 +1583,7 @@ function RelationSelect({
   placeholder?: string
   autoFocus?: boolean
 }) {
+  const t = useT()
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -1591,7 +1598,7 @@ function RelationSelect({
       <input
         ref={inputRef}
         className="w-full h-9 rounded border px-2 text-sm"
-        placeholder={placeholder || 'Search...'}
+        placeholder={placeholder || t('ui.forms.listbox.searchPlaceholder', 'Search...')}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         autoFocus={autoFocus}
@@ -1629,6 +1636,7 @@ function TextInput({
   autoFocus,
   onSubmit,
   disabled,
+  suggestions,
 }: {
   value: string
   onChange: (v: string) => void
@@ -1636,18 +1644,20 @@ function TextInput({
   autoFocus?: boolean
   onSubmit?: () => void
   disabled?: boolean
+  suggestions?: string[]
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
   const userTypingRef = React.useRef(false)
-  
+  const datalistId = React.useId()
+
   React.useEffect(() => {
     // Sync from props whenever the input is unfocused or the user hasn't typed yet.
     if (!isFocusedRef.current || !userTypingRef.current) {
       setLocal(value)
     }
   }, [value])
-  
+
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (disabled) return
     const next = e.target.value
@@ -1664,32 +1674,42 @@ function TextInput({
       onSubmit?.()
     }
   }, [disabled, local, onChange, onSubmit])
-  
+
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
   }, [])
-  
+
   const handleBlur = React.useCallback(() => {
     isFocusedRef.current = false
     userTypingRef.current = false
     onChange(local)
   }, [local, onChange])
-  
+
   return (
-    <input
-      type="text"
-      className="w-full h-9 rounded border px-2 text-sm"
-      placeholder={placeholder}
-      value={local}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      spellCheck={false}
-      autoFocus={autoFocus}
-      data-crud-focus-target=""
-      disabled={disabled}
-    />
+    <>
+      <input
+        type="text"
+        className="w-full h-9 rounded border px-2 text-sm"
+        placeholder={placeholder}
+        value={local}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        data-crud-focus-target=""
+        disabled={disabled}
+        list={suggestions && suggestions.length > 0 ? datalistId : undefined}
+      />
+      {suggestions && suggestions.length > 0 && (
+        <datalist id={datalistId}>
+          {suggestions.map((suggestion) => (
+            <option key={suggestion} value={suggestion} />
+          ))}
+        </datalist>
+      )}
+    </>
   )
 }
 
@@ -2085,6 +2105,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   entityIdForField,
   recordId,
 }: FieldControlProps) {
+  const t = useT()
   const fieldSetValue = React.useCallback(
     (nextValue: unknown) => setValue(field.id, nextValue),
     [setValue, field.id]
@@ -2122,6 +2143,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
           disabled={disabled}
+          suggestions={field.type === 'text' ? field.suggestions : undefined}
         />
       )}
       {field.type === 'number' && (
@@ -2178,6 +2200,29 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         />
       )}
+      {field.type === 'combobox' && (
+        <ComboboxInput
+          value={typeof value === 'string' ? value : String(value ?? '')}
+          onChange={(next) => fieldSetValue(next)}
+          placeholder={placeholder}
+          autoFocus={autoFocusField}
+          suggestions={
+            builtin?.suggestions
+              ? builtin.suggestions
+              : options.map((opt) => ({ value: opt.value, label: opt.label }))
+          }
+          loadSuggestions={
+            typeof builtin?.loadOptions === 'function'
+              ? async (query?: string) => {
+                  const opts = await loadFieldOptions(field, query)
+                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
+                }
+              : undefined
+          }
+          allowCustomValues={builtin?.allowCustomValues ?? true}
+          disabled={disabled}
+        />
+      )}
       {field.type === 'checkbox' && (
         <label className="inline-flex items-center gap-2">
           <input
@@ -2205,7 +2250,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           data-crud-focus-target=""
           disabled={disabled}
         >
-          <option value="">—</option>
+          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
           {options.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}

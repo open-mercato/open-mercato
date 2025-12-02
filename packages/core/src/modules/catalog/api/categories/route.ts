@@ -3,7 +3,6 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -14,7 +13,11 @@ import { CatalogProductCategory } from '../../data/entities'
 import { categoryCreateSchema, categoryUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { computeHierarchyForCategories } from '../../lib/categoryHierarchy'
-import { createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.categories.view'] },
@@ -281,82 +284,40 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const categoryManageItemSchema = z
-  .object({
-    id: z.string().uuid(),
-    name: z.string(),
-    slug: z.string().nullable().optional(),
-    description: z.string().nullable().optional(),
-    parentId: z.string().uuid().nullable().optional(),
-    parentName: z.string().nullable().optional(),
-    depth: z.number(),
-    treePath: z.string().nullable().optional(),
-    pathLabel: z.string(),
-    childCount: z.number(),
-    descendantCount: z.number(),
-    isActive: z.boolean(),
-    organizationId: z.string().uuid().nullable().optional(),
-    tenantId: z.string().uuid().nullable().optional(),
-  })
-  .passthrough()
-
-const categoryTreeNodeSchema: z.ZodType<TreeNode> = z.lazy(() =>
-  z.object({
-    id: z.string().uuid(),
-    name: z.string(),
-    parentId: z.string().uuid().nullable(),
-    depth: z.number(),
-    pathLabel: z.string(),
-    ancestorIds: z.array(z.string().uuid()),
-    childIds: z.array(z.string().uuid()),
-    descendantIds: z.array(z.string().uuid()),
-    isActive: z.boolean(),
-    children: z.array(categoryTreeNodeSchema),
-  }),
-)
-
-const categoryManageResponseSchema = createPagedListResponseSchema(categoryManageItemSchema).extend({
-  organizationId: z.string().uuid().nullable().optional(),
-  tenantId: z.string().uuid().nullable().optional(),
+const categoryListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  parentId: z.string().uuid().nullable().optional(),
+  parentName: z.string().nullable().optional(),
+  depth: z.number(),
+  treePath: z.string(),
+  pathLabel: z.string(),
+  childCount: z.number(),
+  descendantCount: z.number(),
+  isActive: z.boolean(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
 })
 
-const categoryTreeResponseSchema = z.object({
-  items: z.array(categoryTreeNodeSchema),
-})
-
-export const openApi: OpenApiRouteDoc = {
-  tag: 'Catalog',
-  summary: 'Category management',
-  methods: {
-    GET: {
-      summary: 'List categories',
-      description: 'Returns a paginated flat list (`view=manage`) or a nested tree (`view=tree`).',
-      query: viewSchema,
-      responses: [
-        { status: 200, description: 'Manage view', schema: categoryManageResponseSchema },
-        { status: 200, description: 'Tree view', schema: categoryTreeResponseSchema },
-      ],
-    },
-    POST: {
-      summary: 'Create category',
-      description: 'Creates a catalog category.',
-      requestBody: { schema: categoryCreateSchema, description: 'Category fields.' },
-      responses: [{ status: 201, description: 'Category created', schema: z.object({ id: z.string().uuid().nullable() }) }],
-    },
-    PUT: {
-      summary: 'Update category',
-      description: 'Updates a catalog category.',
-      requestBody: { schema: categoryUpdateSchema, description: 'Fields to update.' },
-      responses: [{ status: 200, description: 'Category updated', schema: defaultOkResponseSchema }],
-    },
-    DELETE: {
-      summary: 'Delete category',
-      description: 'Deletes a category by id.',
-      requestBody: {
-        schema: z.object({ id: z.string().uuid() }).passthrough(),
-        description: 'Identifier payload; may also be provided via query string.',
-      },
-      responses: [{ status: 200, description: 'Category deleted', schema: defaultOkResponseSchema }],
-    },
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Category',
+  pluralName: 'Categories',
+  querySchema: viewSchema,
+  listResponseSchema: createPagedListResponseSchema(categoryListItemSchema),
+  create: {
+    schema: categoryCreateSchema,
+    description: 'Creates a new product category.',
   },
-}
+  update: {
+    schema: categoryUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing category by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a category by id.',
+  },
+})

@@ -1,0 +1,569 @@
+---
+title: Logs API
+description: API reference for querying and managing business rule execution logs.
+---
+
+# Logs API
+
+The Logs API provides programmatic access to business rule execution logs for monitoring, debugging, and audit purposes.
+
+## Base URL
+
+```
+/api/business_rules/logs
+```
+
+## Authentication
+
+All endpoints require authentication. Include your API key in the Authorization header:
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "$BASE_URL/api/business_rules/logs"
+```
+
+## Endpoints
+
+### List Logs
+
+Retrieve execution logs with optional filtering.
+
+```http
+GET /api/business_rules/logs
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | number | Number of logs to return (default: 50, max: 500) |
+| `offset` | number | Number of logs to skip (pagination) |
+| `ruleId` | string | Filter by specific rule ID |
+| `entityType` | string | Filter by entity type (WorkOrder, Order, etc.) |
+| `entityId` | string | Filter by specific entity ID |
+| `eventType` | string | Filter by event type (beforeCreate, afterUpdate, etc.) |
+| `result` | string | Filter by result: `SUCCESS`, `FAILURE`, `ERROR` |
+| `userId` | string | Filter by user who triggered the rule |
+| `from` | string | Start date (ISO 8601 or relative: "2025-01-01" or "7d") |
+| `to` | string | End date (ISO 8601) |
+| `sort` | string | Sort field and direction: `timestamp:desc`, `executionTimeMs:desc` |
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs?ruleId=MATERIAL_CHECK&result=FAILURE&limit=20" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "data": [
+    {
+      "id": "log-abc123",
+      "timestamp": "2025-01-23T10:30:00Z",
+      "ruleId": "MATERIAL_CHECK",
+      "ruleName": "Check Material Availability",
+      "entityType": "WorkOrder",
+      "entityId": "wo-12345",
+      "eventType": "onStatusChange",
+      "result": "FAILURE",
+      "executionTimeMs": 42,
+      "conditionResult": true,
+      "actionsExecuted": 3,
+      "context": {
+        "userId": "user-xyz",
+        "tenantId": "tenant-1",
+        "organizationId": "org-1"
+      }
+    }
+  ],
+  "pagination": {
+    "total": 1247,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+### Get Log Details
+
+Retrieve detailed execution trace for a specific log entry.
+
+```http
+GET /api/business_rules/logs/:logId
+```
+
+**Path Parameters**:
+- `logId` (string, required) - Log entry ID
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs/log-abc123" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "id": "log-abc123",
+  "timestamp": "2025-01-23T10:30:00Z",
+  "ruleId": "MATERIAL_CHECK",
+  "ruleName": "Check Material Availability",
+  "entityType": "WorkOrder",
+  "entityId": "wo-12345",
+  "eventType": "onStatusChange",
+  "result": "FAILURE",
+  "executionTimeMs": 42,
+  "conditionResult": true,
+  "actionsExecuted": 3,
+  "context": {
+    "userId": "user-xyz",
+    "tenantId": "tenant-1",
+    "organizationId": "org-1",
+    "metadata": {
+      "source": "web-ui",
+      "ipAddress": "192.168.1.100"
+    }
+  },
+  "trace": {
+    "conditions": [
+      {
+        "path": "newStatus",
+        "operator": "=",
+        "expectedValue": "RELEASED",
+        "actualValue": "RELEASED",
+        "result": true
+      },
+      {
+        "path": "materialsAvailable",
+        "operator": "=",
+        "expectedValue": false,
+        "actualValue": false,
+        "result": true
+      }
+    ],
+    "actions": [
+      {
+        "type": "BLOCK_TRANSITION",
+        "config": {},
+        "result": "SUCCESS",
+        "executionTimeMs": 2,
+        "output": null
+      },
+      {
+        "type": "SHOW_ERROR",
+        "config": {
+          "message": "Cannot release work order. Materials not available."
+        },
+        "result": "SUCCESS",
+        "executionTimeMs": 1,
+        "output": {
+          "displayed": true
+        }
+      },
+      {
+        "type": "NOTIFY",
+        "config": {
+          "recipients": ["planner@company.com"],
+          "message": "WO wo-12345 blocked: materials unavailable"
+        },
+        "result": "SUCCESS",
+        "executionTimeMs": 35,
+        "output": {
+          "notificationId": "notif-xyz",
+          "sent": true
+        }
+      }
+    ]
+  }
+}
+```
+
+**Error Response**: `404 Not Found`
+
+```json
+{
+  "error": "Log not found",
+  "code": "LOG_NOT_FOUND"
+}
+```
+
+### Get Log Statistics
+
+Retrieve aggregated statistics about rule executions.
+
+```http
+GET /api/business_rules/logs/stats
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `metric` | string | Metric to compute: `volume`, `successRate`, `avgExecutionTime` |
+| `groupBy` | string | Group by: `rule`, `entityType`, `result`, `hour`, `day` |
+| `ruleId` | string | Filter by specific rule |
+| `from` | string | Start date |
+| `to` | string | End date |
+
+**Example: Execution Volume by Hour**
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs/stats?metric=volume&groupBy=hour&from=2025-01-20" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "metric": "volume",
+  "groupBy": "hour",
+  "from": "2025-01-20T00:00:00Z",
+  "to": "2025-01-23T23:59:59Z",
+  "data": [
+    {
+      "timestamp": "2025-01-20T00:00:00Z",
+      "count": 1247
+    },
+    {
+      "timestamp": "2025-01-20T01:00:00Z",
+      "count": 892
+    },
+    {
+      "timestamp": "2025-01-20T02:00:00Z",
+      "count": 456
+    }
+  ]
+}
+```
+
+**Example: Success Rate by Rule**
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs/stats?metric=successRate&groupBy=rule" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "metric": "successRate",
+  "groupBy": "rule",
+  "data": [
+    {
+      "ruleId": "MATERIAL_CHECK",
+      "ruleName": "Check Material Availability",
+      "total": 5000,
+      "success": 4850,
+      "failure": 100,
+      "error": 50,
+      "successRate": 0.97
+    },
+    {
+      "ruleId": "CALCULATE_DISCOUNT",
+      "ruleName": "Calculate Volume Discount",
+      "total": 8500,
+      "success": 8450,
+      "failure": 30,
+      "error": 20,
+      "successRate": 0.994
+    }
+  ]
+}
+```
+
+**Example: Average Execution Time**
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs/stats?metric=avgExecutionTime&groupBy=rule" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "metric": "avgExecutionTime",
+  "groupBy": "rule",
+  "data": [
+    {
+      "ruleId": "MATERIAL_CHECK",
+      "ruleName": "Check Material Availability",
+      "avgMs": 15.3,
+      "minMs": 8,
+      "maxMs": 156,
+      "p50Ms": 12,
+      "p95Ms": 35,
+      "p99Ms": 98
+    },
+    {
+      "ruleId": "SEND_NOTIFICATION",
+      "ruleName": "Send Order Confirmation",
+      "avgMs": 156.2,
+      "minMs": 45,
+      "maxMs": 2340,
+      "p50Ms": 120,
+      "p95Ms": 450,
+      "p99Ms": 1200
+    }
+  ]
+}
+```
+
+### Delete Old Logs
+
+Delete logs older than a specified date or age.
+
+```http
+DELETE /api/business_rules/logs
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `olderThan` | string | Delete logs older than this (e.g., "30d", "90d", "2024-01-01") |
+| `ruleId` | string | Optional: Only delete logs for specific rule |
+
+**Example Request**:
+
+```bash
+curl -X DELETE "$BASE_URL/api/business_rules/logs?olderThan=90d" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+**Response**: `200 OK`
+
+```json
+{
+  "deleted": 12847,
+  "message": "Deleted 12847 log entries older than 90 days"
+}
+```
+
+**Permissions**: Requires `business_rules.logs.delete` permission.
+
+### Export Logs
+
+Export logs to CSV or JSON format.
+
+```http
+GET /api/business_rules/logs/export
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `format` | string | Export format: `csv` or `json` (default: `csv`) |
+| All list filters | - | Same filters as list endpoint |
+
+**Example Request**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs/export?format=csv&ruleId=MATERIAL_CHECK&from=2024-01-01&to=2024-12-31" \
+  -H "Authorization: Bearer $API_KEY" \
+  -o logs.csv
+```
+
+**Response**: `200 OK`
+
+```csv
+id,timestamp,ruleId,ruleName,entityType,entityId,eventType,result,executionTimeMs,conditionResult,actionsExecuted
+log-abc123,2025-01-23T10:30:00Z,MATERIAL_CHECK,Check Material Availability,WorkOrder,wo-12345,onStatusChange,FAILURE,42,true,3
+log-def456,2025-01-23T11:00:00Z,MATERIAL_CHECK,Check Material Availability,WorkOrder,wo-67890,onStatusChange,SUCCESS,15,false,0
+```
+
+**JSON format**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/logs/export?format=json&ruleId=MATERIAL_CHECK" \
+  -H "Authorization: Bearer $API_KEY" \
+  -o logs.json
+```
+
+**Response**: Array of log objects (same structure as list endpoint).
+
+## Data Models
+
+### ExecutionLog
+
+```typescript
+interface ExecutionLog {
+  id: string                              // Unique log ID
+  timestamp: string                       // ISO 8601 timestamp
+  ruleId: string                          // Rule that executed
+  ruleName: string                        // Human-readable rule name
+  entityType: string                      // Entity type
+  entityId: string                        // Entity ID
+  eventType: string                       // Event that triggered
+  result: 'SUCCESS' | 'FAILURE' | 'ERROR' // Execution result
+  executionTimeMs: number                 // Total execution time
+  conditionResult: boolean                // Did conditions match?
+  actionsExecuted: number                 // Number of actions executed
+  error?: string                          // Error message if ERROR
+  context: ExecutionContext               // Execution context
+  trace?: ExecutionTrace                  // Detailed trace (only in detail view)
+}
+```
+
+### ExecutionContext
+
+```typescript
+interface ExecutionContext {
+  userId?: string                         // User who triggered
+  tenantId: string                        // Tenant ID
+  organizationId: string                  // Organization ID
+  metadata?: Record<string, any>          // Additional context
+}
+```
+
+### ExecutionTrace
+
+```typescript
+interface ExecutionTrace {
+  conditions: ConditionTrace[]            // Condition evaluation trace
+  actions: ActionTrace[]                  // Action execution trace
+}
+```
+
+### ConditionTrace
+
+```typescript
+interface ConditionTrace {
+  path: string                            // Field path evaluated
+  operator: string                        // Operator used
+  expectedValue: any                      // Expected value
+  actualValue: any                        // Actual value from entity
+  result: boolean                         // Did condition pass?
+}
+```
+
+### ActionTrace
+
+```typescript
+interface ActionTrace {
+  type: string                            // Action type
+  config: Record<string, any>             // Action configuration
+  result: 'SUCCESS' | 'FAILURE' | 'SKIPPED'
+  executionTimeMs: number                 // Action execution time
+  output?: any                            // Action output
+  error?: string                          // Error message if failed
+}
+```
+
+## Error Codes
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `LOG_NOT_FOUND` | 404 | Log entry not found |
+| `INVALID_FILTER` | 400 | Invalid filter parameters |
+| `INVALID_DATE_RANGE` | 400 | Invalid date range |
+| `UNAUTHORIZED` | 401 | Missing or invalid authentication |
+| `FORBIDDEN` | 403 | Insufficient permissions |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests |
+
+## Rate Limiting
+
+- **List/Stats**: 100 requests per minute per tenant
+- **Detail**: 200 requests per minute per tenant
+- **Export**: 10 requests per minute per tenant (large responses)
+- **Delete**: 5 requests per minute per tenant (destructive operation)
+
+Exceeded limits return `429 Too Many Requests` with `Retry-After` header.
+
+## Common Workflows
+
+### Monitor Rule Health
+
+Check success rate and error rate:
+
+```bash
+# Get success rate for all rules
+curl -X GET "$BASE_URL/api/business_rules/logs/stats?metric=successRate&groupBy=rule" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Alert if any rule has <95% success rate or >1% error rate
+```
+
+### Debug Failed Execution
+
+Find and analyze failures:
+
+```bash
+# List recent failures
+curl -X GET "$BASE_URL/api/business_rules/logs?result=FAILURE&limit=10" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Get detailed trace for specific failure
+curl -X GET "$BASE_URL/api/business_rules/logs/{logId}" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Review trace.conditions to understand why conditions matched
+# Review trace.actions to see what was executed
+```
+
+### Performance Analysis
+
+Identify slow rules:
+
+```bash
+# Get average execution time by rule
+curl -X GET "$BASE_URL/api/business_rules/logs/stats?metric=avgExecutionTime&groupBy=rule" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Get slowest individual executions
+curl -X GET "$BASE_URL/api/business_rules/logs?sort=executionTimeMs:desc&limit=20" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+### Audit Compliance
+
+Export logs for audit:
+
+```bash
+# Export all executions for specific rule in date range
+curl -X GET "$BASE_URL/api/business_rules/logs/export?format=csv&ruleId=COMPLIANCE_CHECK&from=2024-01-01&to=2024-12-31" \
+  -H "Authorization: Bearer $API_KEY" \
+  -o compliance-audit-2024.csv
+```
+
+### Cleanup Old Logs
+
+Maintain database performance:
+
+```bash
+# Delete logs older than 90 days (keep last 3 months)
+curl -X DELETE "$BASE_URL/api/business_rules/logs?olderThan=90d" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+## Best Practices
+
+**Monitor continuously**: Set up automated monitoring for error rates and performance
+
+**Alert on anomalies**: Create alerts for sudden spikes in failures or slow executions
+
+**Retain appropriately**: Balance compliance requirements with storage costs
+
+**Export for audits**: Regularly export and archive logs for compliance
+
+**Analyze patterns**: Look for trends in execution volume, failure rates, performance
+
+**Correlate with events**: Connect log patterns to business events or system changes
+
+**Index efficiently**: When self-hosting, ensure proper database indexes on frequently filtered fields
+
+## Next Steps
+
+- [**Execution Logs Guide**](../../user-guide/business-rules/execution-logs) - User guide for execution logs
+- [**Rules API**](./rules) - Create and manage rules
+- [**Execute API**](./execute) - Execute rules programmatically
+- [**Performance Optimization**](../../framework/business-rules/architecture#performance-optimization) - Improve rule execution speed

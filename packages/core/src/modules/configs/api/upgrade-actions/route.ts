@@ -58,26 +58,29 @@ export async function GET(req: Request) {
   const version = getCurrentVersion()
   try {
     const actions = await listPendingUpgradeActions(em, { ...scopeResult.scope, version })
-    const payload = actions.map((action) => ({
-      id: action.id,
-      version: action.version,
-      message: translate(
-        action.messageKey,
-        'The version {{version}} has been installed. To fully use all the features from this edition please do "Install example catalog products and categories".',
-        { version }
-      ),
-      ctaLabel: translate(
-        action.ctaKey,
-        'Install example catalog products and categories'
-      ),
-      successMessage: translate(
-        action.successKey,
-        'Example catalog products and categories installed.'
-      ),
-      loadingLabel: action.loadingKey
-        ? translate(action.loadingKey, 'Installing…')
-        : translate('upgrades.loading', 'Installing…'),
-    }))
+    const nextAction = actions[0]
+    const payload = nextAction
+      ? [{
+        id: nextAction.id,
+        version: nextAction.version,
+        message: translate(
+          nextAction.messageKey,
+          'The version {{version}} has been installed. To fully use all the features from this edition please do "Install example catalog products and categories".',
+          { version: nextAction.version }
+        ),
+        ctaLabel: translate(
+          nextAction.ctaKey,
+          'Install example catalog products and categories'
+        ),
+        successMessage: translate(
+          nextAction.successKey,
+          'Example catalog products and categories installed.'
+        ),
+        loadingLabel: nextAction.loadingKey
+          ? translate(nextAction.loadingKey, 'Installing…')
+          : translate('upgrades.loading', 'Installing…'),
+      }]
+      : []
     return NextResponse.json({ version, actions: payload })
   } catch (error) {
     console.error('[configs.upgrade-actions] failed to load upgrade actions', error)
@@ -87,7 +90,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!isUpgradeActionsEnabled()) {
-    return NextResponse.json({ error: 'Upgrade actions are disabled' }, { status: 404 })
+    return NextResponse.json({ error: 'Upgrade actions are disabled' }, { status: 403 })
   }
   const { translate } = await resolveTranslations()
   const scopedTranslate = (key: string, fallback?: string, params?: Record<string, unknown>) =>

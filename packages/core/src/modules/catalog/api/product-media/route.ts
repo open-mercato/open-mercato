@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -9,6 +8,7 @@ import { Attachment } from '@open-mercato/core/modules/attachments/data/entities
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { CatalogProduct } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -71,22 +71,32 @@ export async function GET(request: Request) {
   return NextResponse.json({ items })
 }
 
-const productMediaItemSchema = z.object({
+const mediaItemSchema = z.object({
   id: z.string().uuid(),
   fileName: z.string(),
   url: z.string(),
   thumbnailUrl: z.string(),
 })
 
+const mediaListResponseSchema = z.object({
+  items: z.array(mediaItemSchema),
+})
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Catalog',
-  summary: 'Product media',
+  summary: 'Product Media management',
   methods: {
     GET: {
       summary: 'List product media',
-      description: 'Returns media attachments for the given product.',
+      description: 'Returns a list of media attachments for a specific product.',
       query: querySchema,
-      responses: [{ status: 200, description: 'Product media list', schema: z.object({ items: z.array(productMediaItemSchema) }) }],
+      responses: [
+        {
+          status: 200,
+          description: 'List of product media',
+          schema: mediaListResponseSchema,
+        },
+      ],
     },
   },
 }
