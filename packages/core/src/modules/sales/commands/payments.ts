@@ -31,6 +31,7 @@ import {
   toNumericString,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 export type PaymentAllocationSnapshot = {
   id: string
@@ -78,6 +79,19 @@ const toNumber = (value: unknown): number => {
 
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+
+const ORDER_RESOURCE = 'sales.order'
+
+async function invalidateOrderCache(container: any, order: SalesOrder | null | undefined, tenantId: string | null) {
+  if (!order) return
+  await invalidateCrudCache(
+    container,
+    ORDER_RESOURCE,
+    { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+    tenantId,
+    'updated'
+  )
+}
 
 export async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<PaymentSnapshot | null> {
   const payment = await em.findOne(
@@ -358,6 +372,7 @@ const createPaymentCommand: CommandHandler<
     await em.flush()
     const totals = await recomputeOrderPaymentTotals(em, order)
     await em.flush()
+    await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
     return { paymentId: payment.id, orderTotals: totals }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -584,10 +599,12 @@ const updatePaymentCommand: CommandHandler<
     if (nextOrder) {
       totals = await recomputeOrderPaymentTotals(em, nextOrder)
       await em.flush()
+      await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
     }
     if (previousOrder && (!nextOrder || previousOrder.id !== nextOrder.id)) {
       await recomputeOrderPaymentTotals(em, previousOrder)
       await em.flush()
+      await invalidateOrderCache(ctx.container, previousOrder, ctx.auth?.tenantId ?? null)
     }
 
     return { paymentId: payment.id, orderTotals: totals }
@@ -685,6 +702,7 @@ const deletePaymentCommand: CommandHandler<
         totals = recomputed
       }
       await em.flush()
+      await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
     }
     return { paymentId: payment.id, orderTotals: totals }
   },

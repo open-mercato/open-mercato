@@ -2552,6 +2552,7 @@ async function restoreOrderGraph(
   if (shipmentIds.length) {
     await em.nativeDelete(SalesShipmentItem, { shipment: { $in: shipmentIds } })
     await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } })
+    existingShipments.forEach((entry) => em.getUnitOfWork().unsetIdentity(entry))
   }
   await em.nativeDelete(SalesPaymentAllocation, { order: order.id })
   await em.nativeDelete(SalesPayment, { order: order.id })

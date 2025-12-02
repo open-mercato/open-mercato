@@ -24,6 +24,16 @@ import { seedSalesDictionaries } from '../lib/dictionaries'
 import { toNumericString } from '../commands/shared'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import { ensureExamplePaymentMethods, ensureExampleShippingMethods, type SeedScope } from './examples-data'
+import {
+  CatalogProduct,
+  CatalogProductPrice,
+  CatalogProductVariant,
+} from '@open-mercato/core/modules/catalog/data/entities'
+import {
+  CustomerAddress,
+  CustomerEntity,
+  CustomerPersonProfile,
+} from '@open-mercato/core/modules/customers/data/entities'
 
 type ExampleAddress = {
   role: 'billing' | 'shipping'
@@ -37,6 +47,7 @@ type ExampleAddress = {
   country?: string
   latitude?: number
   longitude?: number
+  customerAddressId?: string | null
 }
 
 type ExampleLine = {
@@ -50,6 +61,8 @@ type ExampleLine = {
   discountPercent?: number
   quantityUnit?: string
   comment?: string
+  productHandle?: string
+  variantSku?: string
 }
 
 type ExampleAdjustment = {
@@ -109,6 +122,7 @@ type ExampleQuote = {
   notes?: ExampleNote[]
   metadata?: Record<string, unknown>
   channelCode?: string
+  customerKey?: string
 }
 
 type ExampleOrder = {
@@ -131,6 +145,7 @@ type ExampleOrder = {
   shipments?: ExampleShipment[]
   payments?: ExamplePayment[]
   metadata?: Record<string, unknown>
+  customerKey?: string
 }
 
 const CHANNEL_SEEDS = [
@@ -140,6 +155,12 @@ const CHANNEL_SEEDS = [
     name: 'Field Sales',
     description: 'Quotes negotiated by the sales team and converted offline.',
   },
+] as const
+
+const CUSTOMER_LINKS: CustomerLookup[] = [
+  { key: 'brightside', displayName: 'Brightside Solar' },
+  { key: 'harborview', displayName: 'Harborview Analytics' },
+  { key: 'copperleaf', displayName: 'Copperleaf Design Co.' },
 ] as const
 
 const QUOTE_SEEDS: ExampleQuote[] = [
@@ -216,6 +237,220 @@ const QUOTE_SEEDS: ExampleQuote[] = [
         createdAt: daysFromNow(0),
         appearanceIcon: 'lucide:receipt',
         appearanceColor: '#f97316',
+      },
+    ],
+    metadata: { seed: 'sales.examples' },
+  },
+  {
+    quoteNumber: 'SQ-DEMO-1002',
+    status: 'draft',
+    comments: 'Footwear replenishment and event outfits pulled from catalog offers.',
+    validFrom: daysFromNow(-1),
+    validUntil: daysFromNow(21),
+    currencyCode: 'USD',
+    shippingMethodCode: 'standard-ground',
+    paymentMethodCode: 'card',
+    channelCode: 'online',
+    customerKey: 'brightside',
+    lines: [
+      {
+        name: 'Atlas Runner Sneaker',
+        quantity: 3,
+        taxRate: 10,
+        variantSku: 'ATLAS-RUN-NAVY-8',
+      },
+      {
+        name: 'Aurora Wrap Dress',
+        quantity: 1,
+        taxRate: 10,
+        variantSku: 'AURORA-ROSE-M',
+        discountPercent: 5,
+      },
+    ],
+    adjustments: [
+      { scope: 'order', kind: 'discount', label: 'Preferred customer', amountNet: 35, position: 1 },
+    ],
+    notes: [
+      {
+        body: 'Requested quick turn on delivery dates for press shoot.',
+        createdAt: daysFromNow(-1),
+        appearanceIcon: 'lucide:camera',
+        appearanceColor: '#0ea5e9',
+      },
+    ],
+    metadata: { seed: 'sales.examples' },
+  },
+  {
+    quoteNumber: 'SQ-DEMO-1003',
+    status: 'sent',
+    comments: 'Bundle of apparel and on-site styling block for the studio launch.',
+    validFrom: daysFromNow(-3),
+    validUntil: daysFromNow(10),
+    currencyCode: 'USD',
+    shippingMethodCode: 'express-air',
+    paymentMethodCode: 'bank-transfer',
+    channelCode: 'field-sales',
+    customerKey: 'copperleaf',
+    lines: [
+      {
+        name: 'Aurora Wrap Dress',
+        quantity: 2,
+        taxRate: 10,
+        variantSku: 'AURORA-CELESTIAL-L',
+        comment: 'Alternate colorway accepted if Celestial runs out.',
+      },
+      {
+        name: 'Signature Haircut & Finish',
+        quantity: 4,
+        taxRate: 0,
+        variantSku: 'SERV-HAIR-60',
+        quantityUnit: 'hour',
+        comment: 'Styling sessions during opening week.',
+      },
+    ],
+    adjustments: [
+      {
+        scope: 'order',
+        kind: 'discount',
+        label: 'Launch partner credit',
+        amountNet: 60,
+        position: 1,
+      },
+    ],
+    notes: [
+      {
+        body: 'Prefers consolidated invoicing after the event.',
+        createdAt: daysFromNow(-2),
+        appearanceIcon: 'lucide:file-text',
+        appearanceColor: '#f97316',
+      },
+    ],
+    metadata: { seed: 'sales.examples' },
+  },
+  {
+    orderNumber: 'SO-DEMO-2003',
+    status: 'confirmed',
+    fulfillmentStatus: 'in_fulfillment',
+    paymentStatus: 'partial',
+    comments: 'Equipment refresh for analytics field team with matching footwear.',
+    internalNotes: 'Coordinate delivery around team offsite schedule.',
+    placedAt: daysFromNow(-2),
+    expectedDeliveryAt: daysFromNow(5),
+    currencyCode: 'USD',
+    shippingMethodCode: 'standard-ground',
+    paymentMethodCode: 'card',
+    channelCode: 'online',
+    customerKey: 'harborview',
+    lines: [
+      {
+        name: 'Atlas Runner Sneaker',
+        quantity: 4,
+        taxRate: 10,
+        variantSku: 'ATLAS-RUN-GLACIER-10',
+        comment: 'Size mix handled via catalog variants.',
+      },
+      {
+        name: 'Aurora Wrap Dress',
+        quantity: 1,
+        taxRate: 10,
+        variantSku: 'AURORA-ROSE-M',
+        discountPercent: 10,
+      },
+    ],
+    adjustments: [
+      {
+        scope: 'order',
+        kind: 'shipping',
+        label: 'Ground shipping',
+        amountNet: 25,
+        amountGross: 27.5,
+        position: 1,
+      },
+    ],
+    shipments: [
+      {
+        shipmentNumber: 'SHIP-2003-1',
+        methodCode: 'standard-ground',
+        status: 'pending',
+        shippedAt: null,
+        trackingNumbers: [],
+        weightKg: 12,
+        declaredValue: 0,
+        currencyCode: 'USD',
+        notes: 'Bundle footwear and apparel together.',
+        items: [
+          { lineIndex: 0, quantity: 4 },
+          { lineIndex: 1, quantity: 1 },
+        ],
+      },
+    ],
+    payments: [
+      {
+        reference: 'CARD-2003',
+        methodCode: 'card',
+        status: 'authorized',
+        amount: 300,
+        currencyCode: 'USD',
+        receivedAt: daysFromNow(-1),
+      },
+    ],
+    notes: [
+      {
+        body: 'Leadership wants tracking shared in Slack channel.',
+        createdAt: daysFromNow(-1),
+        appearanceIcon: 'lucide:message-circle',
+        appearanceColor: '#22c55e',
+      },
+    ],
+    metadata: { seed: 'sales.examples' },
+  },
+  {
+    orderNumber: 'SO-DEMO-2004',
+    status: 'confirmed',
+    fulfillmentStatus: 'pending',
+    paymentStatus: 'unpaid',
+    comments: 'On-site styling block for studio launch week.',
+    placedAt: daysFromNow(-4),
+    expectedDeliveryAt: daysFromNow(1),
+    currencyCode: 'USD',
+    shippingMethodCode: 'express-air',
+    paymentMethodCode: 'bank-transfer',
+    channelCode: 'field-sales',
+    customerKey: 'copperleaf',
+    lines: [
+      {
+        name: 'Signature Haircut & Finish',
+        quantity: 6,
+        taxRate: 0,
+        variantSku: 'SERV-HAIR-60',
+        quantityUnit: 'hour',
+        comment: 'Block book stylists for staggered sessions.',
+      },
+    ],
+    adjustments: [
+      {
+        scope: 'order',
+        kind: 'discount',
+        label: 'Launch week courtesy',
+        amountNet: 45,
+        position: 1,
+      },
+    ],
+    payments: [
+      {
+        reference: 'WIRE-2004',
+        methodCode: 'bank-transfer',
+        status: 'pending',
+        amount: 0,
+        currencyCode: 'USD',
+      },
+    ],
+    notes: [
+      {
+        body: 'Confirm stylist roster by Friday.',
+        createdAt: daysFromNow(-2),
+        appearanceIcon: 'lucide:check-circle',
+        appearanceColor: '#0ea5e9',
       },
     ],
     metadata: { seed: 'sales.examples' },
@@ -484,6 +719,256 @@ function toSnapshot<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+function normalizeKey(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase()
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+type CatalogLookup = {
+  productsByHandle: Map<string, CatalogProduct>
+  variantsBySku: Map<string, CatalogProductVariant>
+  variantPrices: Map<string, { net: number; gross: number; currency: string }>
+}
+
+async function loadCatalogLookups(em: EntityManager, scope: SeedScope): Promise<CatalogLookup> {
+  const [products, variants, prices] = await Promise.all([
+    em.find(CatalogProduct, {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    }),
+    em.find(
+      CatalogProductVariant,
+      { organizationId: scope.organizationId, tenantId: scope.tenantId, deletedAt: null },
+      { populate: ['product'] }
+    ),
+    em.find(CatalogProductPrice, {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }),
+  ])
+
+  const productsByHandle = new Map<string, CatalogProduct>()
+  products.forEach((product) => {
+    const key = normalizeKey(product.handle ?? product.sku ?? product.title)
+    if (key) productsByHandle.set(key, product)
+  })
+
+  const variantsBySku = new Map<string, CatalogProductVariant>()
+  variants.forEach((variant) => {
+    const key = normalizeKey(variant.sku)
+    if (key) variantsBySku.set(key, variant)
+  })
+
+  const variantPrices = new Map<string, { net: number; gross: number; currency: string }>()
+  for (const price of prices) {
+    const variantId =
+      typeof price.variant === 'string' ? price.variant : price.variant?.id ?? (price as any)?.variant_id ?? null
+    if (!variantId) continue
+    const gross = asNumber((price as any).unitPriceGross ?? price.unitPriceGross)
+    const net = asNumber((price as any).unitPriceNet ?? price.unitPriceNet ?? gross)
+    const currency = typeof price.currencyCode === 'string' ? price.currencyCode : 'USD'
+    const isSale = normalizeKey((price as any).kind) === 'sale' || normalizeKey((price as any)?.priceKind?.code) === 'sale'
+    const existing = variantPrices.get(variantId)
+    if (!existing || isSale) {
+      variantPrices.set(variantId, { net, gross, currency })
+    }
+  }
+
+  return { productsByHandle, variantsBySku, variantPrices }
+}
+
+function buildCatalogSnapshot(
+  product: CatalogProduct | null,
+  variant: CatalogProductVariant | null,
+  price: { net: number; gross: number; currency: string } | null
+): Record<string, unknown> | null {
+  if (!product) return null
+  return {
+    product: {
+      id: product.id,
+      title: product.title,
+      handle: product.handle ?? null,
+      sku: product.sku ?? null,
+    },
+    variant: variant
+      ? {
+          id: variant.id,
+          name: variant.name ?? product.title,
+          sku: variant.sku ?? null,
+          optionValues: variant.optionValues ?? null,
+        }
+      : null,
+    price: price
+      ? {
+          currencyCode: price.currency,
+          unitPriceNet: price.net,
+          unitPriceGross: price.gross,
+        }
+      : null,
+  }
+}
+
+function resolveCatalogLine(
+  line: ExampleLine,
+  catalog: CatalogLookup
+): {
+  productId: string | null
+  variantId: string | null
+  unitPriceNet: number | null
+  unitPriceGross: number | null
+  currencyCode: string | null
+  snapshot: Record<string, unknown> | null
+} {
+  const variant =
+    line.variantSku && catalog.variantsBySku.size
+      ? catalog.variantsBySku.get(normalizeKey(line.variantSku))
+      : null
+  const product =
+    variant?.product ??
+    (line.productHandle ? catalog.productsByHandle.get(normalizeKey(line.productHandle)) ?? null : null)
+  const price = variant ? catalog.variantPrices.get(variant.id) ?? null : null
+  return {
+    productId: product ? product.id : null,
+    variantId: variant ? variant.id : null,
+    unitPriceNet: price?.net ?? null,
+    unitPriceGross: price?.gross ?? null,
+    currencyCode: price?.currency ?? null,
+    snapshot: buildCatalogSnapshot(product ?? null, variant ?? null, price ?? null),
+  }
+}
+
+type CustomerLookup = {
+  key: string
+  displayName: string
+}
+
+type CustomerContext = {
+  entity: CustomerEntity
+  contact: CustomerPersonProfile | null
+  contactId: string | null
+  snapshot: Record<string, unknown> | null
+  addresses: ExampleAddress[]
+}
+
+function buildCustomerSnapshot(
+  entity: CustomerEntity,
+  contact: CustomerPersonProfile | null
+): Record<string, unknown> | null {
+  const base = {
+    id: entity.id,
+    kind: entity.kind,
+    displayName: entity.displayName,
+    primaryEmail: entity.primaryEmail ?? null,
+    primaryPhone: entity.primaryPhone ?? null,
+    personProfile: entity.personProfile
+      ? {
+          id: entity.personProfile.id,
+          firstName: entity.personProfile.firstName ?? null,
+          lastName: entity.personProfile.lastName ?? null,
+          preferredName: entity.personProfile.preferredName ?? null,
+          jobTitle: entity.personProfile.jobTitle ?? null,
+          department: entity.personProfile.department ?? null,
+          seniority: entity.personProfile.seniority ?? null,
+          timezone: entity.personProfile.timezone ?? null,
+        }
+      : null,
+    companyProfile: entity.companyProfile
+      ? {
+          id: entity.companyProfile.id,
+          legalName: entity.companyProfile.legalName ?? null,
+          brandName: entity.companyProfile.brandName ?? null,
+          domain: entity.companyProfile.domain ?? null,
+          websiteUrl: entity.companyProfile.websiteUrl ?? null,
+        }
+      : null,
+  }
+  const contactSnapshot = contact
+    ? {
+        id: contact.id,
+        firstName: contact.firstName ?? null,
+        lastName: contact.lastName ?? null,
+        email: contact.entity?.primaryEmail ?? null,
+        phone: contact.entity?.primaryPhone ?? null,
+        companyId: contact.company ? (typeof contact.company === 'string' ? contact.company : contact.company.id) : null,
+      }
+    : null
+  return { customer: base, contact: contactSnapshot }
+}
+
+function toExampleAddresses(customer: CustomerEntity, address: CustomerAddress | null): ExampleAddress[] {
+  if (!address) return []
+  const base = {
+    companyName: address.companyName ?? customer.displayName ?? null,
+    name: address.name ?? address.companyName ?? customer.displayName ?? null,
+    addressLine1: address.addressLine1,
+    addressLine2: address.addressLine2 ?? null,
+    city: address.city ?? null,
+    region: address.region ?? null,
+    postalCode: address.postalCode ?? null,
+    country: address.country ?? null,
+    latitude: address.latitude ?? null,
+    longitude: address.longitude ?? null,
+    customerAddressId: address.id,
+  }
+  return [
+    { role: 'billing', ...base },
+    { role: 'shipping', ...base },
+  ]
+}
+
+async function loadCustomerLookups(
+  em: EntityManager,
+  scope: SeedScope,
+  lookups: CustomerLookup[]
+): Promise<Map<string, CustomerContext>> {
+  const map = new Map<string, CustomerContext>()
+  for (const lookup of lookups) {
+    const entity = await em.findOne(
+      CustomerEntity,
+      {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        displayName: lookup.displayName,
+        deletedAt: null,
+      },
+      { populate: ['personProfile', 'companyProfile'] }
+    )
+    if (!entity) {
+      console.warn(`[sales.examples] Customer "${lookup.displayName}" not found; skipping seeded linkage.`)
+      continue
+    }
+    const address = await em.findOne(
+      CustomerAddress,
+      { entity, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any }
+    )
+    const contact = await em.findOne(
+      CustomerPersonProfile,
+      { company: entity, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      { populate: ['entity'] }
+    )
+    const snapshot = buildCustomerSnapshot(entity, contact)
+    const addresses = toExampleAddresses(entity, address)
+    map.set(lookup.key, {
+      entity,
+      contact,
+      contactId: contact?.id ?? null,
+      snapshot,
+      addresses,
+    })
+  }
+  return map
+}
+
 async function ensureChannels(
   em: EntityManager,
   scope: SeedScope
@@ -578,7 +1063,7 @@ function attachDocumentAddresses(
       tenantId: scope.tenantId,
       documentId,
       documentKind,
-      customerAddressId: null,
+      customerAddressId: entry.customerAddressId ?? null,
       name: entry.name ?? null,
       companyName: entry.companyName ?? null,
       purpose: entry.role,
@@ -669,11 +1154,18 @@ export async function seedSalesExamples(
     ensureChannels(em, scope),
   ])
   await em.flush()
+  const catalogLookups = await loadCatalogLookups(em, scope)
+  const customerLookups = await loadCustomerLookups(em, scope, [...CUSTOMER_LINKS])
 
   const calculationService = container.resolve<SalesCalculationService>('salesCalculationService')
 
   for (const seed of QUOTE_SEEDS) {
     const quoteId = randomUUID()
+    const customer = seed.customerKey ? customerLookups.get(seed.customerKey) ?? null : null
+    if (seed.customerKey && !customer) {
+      console.warn(`[sales.examples] Skipping quote ${seed.quoteNumber} because customer "${seed.customerKey}" is missing.`)
+      continue
+    }
     const shippingMethod = seed.shippingMethodCode
       ? shippingMethods.get(seed.shippingMethodCode.toLowerCase()) ?? null
       : null
@@ -682,20 +1174,29 @@ export async function seedSalesExamples(
       : null
     const channel = seed.channelCode ? channels.get(seed.channelCode.toLowerCase()) ?? null : null
 
-    const lineSnapshots = seed.lines.map((line) => ({
-      id: randomUUID(),
-      kind: line.kind ?? 'product',
-      name: line.name,
-      description: line.description ?? null,
-      comment: line.comment ?? null,
-      quantity: line.quantity,
-      quantityUnit: line.quantityUnit ?? null,
-      currencyCode: seed.currencyCode,
-      unitPriceNet: line.unitPriceNet,
-      unitPriceGross: line.unitPriceGross ?? null,
-      taxRate: line.taxRate ?? 0,
-      discountPercent: line.discountPercent ?? null,
-    }))
+    const lineSnapshots = seed.lines.map((line) => {
+      const catalogRef = resolveCatalogLine(line, catalogLookups)
+      const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
+      const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet
+      const currencyCode = catalogRef.currencyCode ?? seed.currencyCode
+      return {
+        id: randomUUID(),
+        kind: line.kind ?? 'product',
+        name: line.name,
+        description: line.description ?? null,
+        comment: line.comment ?? null,
+        quantity: line.quantity,
+        quantityUnit: line.quantityUnit ?? null,
+        currencyCode,
+        unitPriceNet,
+        unitPriceGross,
+        taxRate: line.taxRate ?? 0,
+        discountPercent: line.discountPercent ?? null,
+        productId: catalogRef.productId,
+        productVariantId: catalogRef.variantId,
+        catalogSnapshot: catalogRef.snapshot,
+      }
+    })
 
     const adjustmentDrafts =
       seed.adjustments?.map((adj) => ({
@@ -729,8 +1230,9 @@ export async function seedSalesExamples(
       tenantId: scope.tenantId,
       quoteNumber: seed.quoteNumber,
       status: seed.status ?? 'draft',
-      customerEntityId: null,
-      customerContactId: null,
+      customerEntityId: customer?.entity.id ?? null,
+      customerContactId: customer?.contactId ?? null,
+      customerSnapshot: customer?.snapshot ? toSnapshot(customer.snapshot) : null,
       currencyCode: seed.currencyCode,
       validFrom: seed.validFrom ?? null,
       validUntil: seed.validUntil ?? null,
@@ -774,6 +1276,9 @@ export async function seedSalesExamples(
         taxAmount: toAmount(lineResult.taxAmount),
         totalNetAmount: toAmount(lineResult.netAmount),
         totalGrossAmount: toAmount(lineResult.grossAmount),
+        productId: source.productId ?? null,
+        productVariantId: source.productVariantId ?? null,
+        catalogSnapshot: source.catalogSnapshot ? toSnapshot(source.catalogSnapshot) : null,
         metadata: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -820,15 +1325,18 @@ export async function seedSalesExamples(
     quote.totalsSnapshot = toSnapshot(calculation.totals)
     quote.lineItemCount = seed.lines.length
 
-    if (seed.addresses?.length) {
+    const quoteAddresses = seed.addresses ?? customer?.addresses ?? []
+    if (quoteAddresses.length) {
       attachDocumentAddresses(em, scope, {
         documentId: quoteId,
         documentKind: 'quote',
-        addresses: seed.addresses,
+        addresses: quoteAddresses,
         quote,
       })
-      const billing = seed.addresses.find((a) => a.role === 'billing')
-      const shipping = seed.addresses.find((a) => a.role === 'shipping')
+      const billing = quoteAddresses.find((a) => a.role === 'billing')
+      const shipping = quoteAddresses.find((a) => a.role === 'shipping')
+      quote.billingAddressId = billing?.customerAddressId ?? null
+      quote.shippingAddressId = shipping?.customerAddressId ?? null
       quote.billingAddressSnapshot = billing ? buildAddressSnapshot(billing) : null
       quote.shippingAddressSnapshot = shipping ? buildAddressSnapshot(shipping) : null
     }
@@ -844,6 +1352,11 @@ export async function seedSalesExamples(
 
   for (const seed of ORDER_SEEDS) {
     const orderId = randomUUID()
+    const customer = seed.customerKey ? customerLookups.get(seed.customerKey) ?? null : null
+    if (seed.customerKey && !customer) {
+      console.warn(`[sales.examples] Skipping order ${seed.orderNumber} because customer "${seed.customerKey}" is missing.`)
+      continue
+    }
     const shippingMethod = seed.shippingMethodCode
       ? shippingMethods.get(seed.shippingMethodCode.toLowerCase()) ?? null
       : null
@@ -852,20 +1365,29 @@ export async function seedSalesExamples(
       : null
     const channel = seed.channelCode ? channels.get(seed.channelCode.toLowerCase()) ?? null : null
 
-    const lineSnapshots = seed.lines.map((line) => ({
-      id: randomUUID(),
-      kind: line.kind ?? 'product',
-      name: line.name,
-      description: line.description ?? null,
-      comment: line.comment ?? null,
-      quantity: line.quantity,
-      quantityUnit: line.quantityUnit ?? null,
-      currencyCode: seed.currencyCode,
-      unitPriceNet: line.unitPriceNet,
-      unitPriceGross: line.unitPriceGross ?? null,
-      taxRate: line.taxRate ?? 0,
-      discountPercent: line.discountPercent ?? null,
-    }))
+    const lineSnapshots = seed.lines.map((line) => {
+      const catalogRef = resolveCatalogLine(line, catalogLookups)
+      const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
+      const unitPriceGross = line.unitPriceGross ?? catalogRef.unitPriceGross ?? unitPriceNet
+      const currencyCode = catalogRef.currencyCode ?? seed.currencyCode
+      return {
+        id: randomUUID(),
+        kind: line.kind ?? 'product',
+        name: line.name,
+        description: line.description ?? null,
+        comment: line.comment ?? null,
+        quantity: line.quantity,
+        quantityUnit: line.quantityUnit ?? null,
+        currencyCode,
+        unitPriceNet,
+        unitPriceGross,
+        taxRate: line.taxRate ?? 0,
+        discountPercent: line.discountPercent ?? null,
+        productId: catalogRef.productId,
+        productVariantId: catalogRef.variantId,
+        catalogSnapshot: catalogRef.snapshot,
+      }
+    })
 
     const adjustmentDrafts =
       seed.adjustments?.map((adj) => ({
@@ -901,8 +1423,9 @@ export async function seedSalesExamples(
       status: seed.status ?? 'confirmed',
       fulfillmentStatus: seed.fulfillmentStatus ?? null,
       paymentStatus: seed.paymentStatus ?? null,
-      customerEntityId: null,
-      customerContactId: null,
+      customerEntityId: customer?.entity.id ?? null,
+      customerContactId: customer?.contactId ?? null,
+      customerSnapshot: customer?.snapshot ? toSnapshot(customer.snapshot) : null,
       currencyCode: seed.currencyCode,
       placedAt: seed.placedAt ?? null,
       expectedDeliveryAt: seed.expectedDeliveryAt ?? null,
@@ -952,6 +1475,9 @@ export async function seedSalesExamples(
         taxAmount: toAmount(lineResult.taxAmount),
         totalNetAmount: toAmount(lineResult.netAmount),
         totalGrossAmount: toAmount(lineResult.grossAmount),
+        productId: source.productId ?? null,
+        productVariantId: source.productVariantId ?? null,
+        catalogSnapshot: source.catalogSnapshot ? toSnapshot(source.catalogSnapshot) : null,
         metadata: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -1093,15 +1619,18 @@ export async function seedSalesExamples(
       }
     }
 
-    if (seed.addresses?.length) {
+    const orderAddresses = seed.addresses ?? customer?.addresses ?? []
+    if (orderAddresses.length) {
       attachDocumentAddresses(em, scope, {
         documentId: orderId,
         documentKind: 'order',
-        addresses: seed.addresses,
+        addresses: orderAddresses,
         order,
       })
-      const billing = seed.addresses.find((a) => a.role === 'billing')
-      const shipping = seed.addresses.find((a) => a.role === 'shipping')
+      const billing = orderAddresses.find((a) => a.role === 'billing')
+      const shipping = orderAddresses.find((a) => a.role === 'shipping')
+      order.billingAddressId = billing?.customerAddressId ?? null
+      order.shippingAddressId = shipping?.customerAddressId ?? null
       order.billingAddressSnapshot = billing ? buildAddressSnapshot(billing) : null
       order.shippingAddressSnapshot = shipping ? buildAddressSnapshot(shipping) : null
     }

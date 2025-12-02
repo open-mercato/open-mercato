@@ -69,6 +69,7 @@ type StatusOption = {
 }
 
 type LineFormState = {
+  lineMode: 'catalog' | 'custom'
   productId: string | null
   variantId: string | null
   quantity: string
@@ -97,6 +98,7 @@ type SalesLineDialogProps = {
 }
 
 const defaultForm = (currencyCode?: string | null): LineFormState => ({
+  lineMode: 'catalog',
   productId: null,
   variantId: null,
   quantity: '1',
@@ -183,6 +185,7 @@ export function LineItemDialog({
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null
   const [initialValues, setInitialValues] = React.useState<LineFormState>(() => defaultForm(currencyCode))
+  const [lineMode, setLineMode] = React.useState<'catalog' | 'custom'>(defaultForm(currencyCode).lineMode)
   const [productOption, setProductOption] = React.useState<ProductOption | null>(null)
   const [variantOption, setVariantOption] = React.useState<VariantOption | null>(null)
   const [priceOptions, setPriceOptions] = React.useState<PriceOption[]>([])
@@ -267,6 +270,7 @@ export function LineItemDialog({
           : base.taxRate
       }
       setInitialValues(base)
+      setLineMode(base.lineMode)
       setProductOption(null)
       setVariantOption(null)
       setPriceOptions([])
@@ -675,13 +679,16 @@ export function LineItemDialog({
           t('sales.documents.items.errorScope', 'Organization and tenant are required.'),
         )
       }
-      if (!values.productId) {
+      const lineMode = values.lineMode === 'custom' ? 'custom' : 'catalog'
+      const isCustomLine = lineMode === 'custom'
+
+      if (!isCustomLine && !values.productId) {
         throw createCrudFormError(
           t('sales.documents.items.errorProductRequired', 'Select a product to continue.'),
           { productId: t('sales.documents.items.errorProductRequired', 'Select a product to continue.') },
         )
       }
-      if (!values.variantId) {
+      if (!isCustomLine && !values.variantId) {
         throw createCrudFormError(
           t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.'),
           { variantId: t('sales.documents.items.errorVariantRequired', 'Select a variant to continue.') },
@@ -706,7 +713,7 @@ export function LineItemDialog({
         )
       }
 
-      const selectedPrice = values.priceId
+      const selectedPrice = !isCustomLine && values.priceId
         ? priceOptions.find((price) => price.id === values.priceId) ?? null
         : null
       const resolvedCurrency =
@@ -721,14 +728,19 @@ export function LineItemDialog({
         )
       }
 
-      const resolvedName =
-        (values.name ?? '').toString().trim() ||
-        variantOption?.title ||
-        productOption?.title ||
-        undefined
+      const resolvedNameRaw = (values.name ?? '').toString().trim()
+      const resolvedName = isCustomLine
+        ? resolvedNameRaw
+        : resolvedNameRaw || variantOption?.title || productOption?.title || undefined
+      if (isCustomLine && !resolvedName) {
+        throw createCrudFormError(
+          t('sales.documents.items.errorNameRequired', 'Name is required for custom lines.'),
+          { name: t('sales.documents.items.errorNameRequired', 'Name is required for custom lines.') },
+        )
+      }
       const resolvedPriceMode = values.priceMode === 'net' ? 'net' : 'gross'
       const catalogSnapshot =
-        typeof values.catalogSnapshot === 'object' && values.catalogSnapshot ? values.catalogSnapshot : null
+        !isCustomLine && typeof values.catalogSnapshot === 'object' && values.catalogSnapshot ? values.catalogSnapshot : null
       const selectedTaxRateId =
         typeof values.taxRateId === 'string' && values.taxRateId.trim().length
           ? values.taxRateId
@@ -748,34 +760,36 @@ export function LineItemDialog({
 
       const metadata = {
         ...(catalogSnapshot ?? {}),
-        ...(values.priceId ? { priceId: values.priceId } : {}),
+        ...(!isCustomLine && values.priceId ? { priceId: values.priceId } : {}),
         priceMode: resolvedPriceMode,
         ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
-        ...(productOption
+        ...(!isCustomLine && productOption
           ? {
               productTitle: productOption.title,
               productSku: productOption.sku ?? null,
               productThumbnail: productOption.thumbnailUrl ?? null,
             }
           : {}),
-        ...(variantOption
+        ...(!isCustomLine && variantOption
           ? {
               variantTitle: variantOption.title,
               variantSku: variantOption.sku ?? null,
               variantThumbnail: variantOption.thumbnailUrl ?? productOption?.thumbnailUrl ?? null,
             }
           : {}),
+        ...(isCustomLine ? { customLine: true } : {}),
+        lineMode,
       }
 
       const payload: Record<string, unknown> = {
         [documentKey]: String(resolvedDocumentId),
         organizationId: String(resolvedOrg),
         tenantId: String(resolvedTenant),
-        productId: values.productId ? String(values.productId) : null,
-        productVariantId: values.variantId ? String(values.variantId) : null,
+        productId: isCustomLine ? null : values.productId ? String(values.productId) : null,
+        productVariantId: isCustomLine ? null : values.variantId ? String(values.variantId) : null,
         quantity: qtyNumber,
         currencyCode: String(resolvedCurrency),
-        priceId: values.priceId ? String(values.priceId) : undefined,
+        priceId: !isCustomLine && values.priceId ? String(values.priceId) : undefined,
         priceMode: resolvedPriceMode,
         taxRate: Number.isFinite(resolvedTaxRate) ? resolvedTaxRate : undefined,
         unitPriceNet: safeUnitPriceNet,
@@ -841,199 +855,258 @@ export function LineItemDialog({
   )
 
   const fields = React.useMemo<CrudField[]>(() => {
+    const isCustomLine = lineMode === 'custom'
     return [
       {
-        id: 'productId',
-        label: t('sales.documents.items.product', 'Product'),
+        id: 'lineMode',
+        label: t('sales.documents.items.lineMode.label', 'Line type'),
         type: 'custom',
-        required: true,
-        layout: 'half',
-        component: ({ value, setValue, setFormValue, values }) => (
-          <LookupSelect
-            value={typeof value === 'string' ? value : null}
-            onChange={(next) => {
-              const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
-              setProductOption(selectedOption)
+        layout: 'full',
+        component: ({ value, setValue, setFormValue }) => {
+          const mode = value === 'custom' ? 'custom' : 'catalog'
+          const switchMode = (next: 'catalog' | 'custom') => {
+            if (next === mode) return
+            setValue(next)
+            setLineMode(next)
+            if (next === 'custom') {
+              setProductOption(null)
               setVariantOption(null)
               setPriceOptions([])
-              setValue(next ?? null)
+              setFormValue?.('productId', null)
               setFormValue?.('variantId', null)
               setFormValue?.('priceId', null)
+              setFormValue?.('catalogSnapshot', null)
+            } else {
               setFormValue?.('unitPrice', '')
               setFormValue?.('priceMode', 'gross')
-              const taxSelection = selectedOption ? resolveTaxSelection(selectedOption) : { taxRate: null, taxRateId: null }
-              setFormValue?.('taxRate', taxSelection.taxRate ?? null)
-              setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
-              const existingName = typeof values?.name === 'string' ? values.name : ''
-              if (!existingName.trim() && selectedOption?.title) {
-                setFormValue?.('name', selectedOption.title)
-              }
-              setFormValue?.(
-                'catalogSnapshot',
-                next
-                  ? {
-                      product: {
-                        id: next,
-                        title: selectedOption?.title ?? null,
-                        sku: selectedOption?.sku ?? null,
-                        thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
-                      },
+            }
+          }
+          return (
+            <div className="flex flex-col gap-2">
+              <div className="inline-flex w-fit gap-1 rounded-md border bg-muted/50 p-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mode === 'catalog' ? 'default' : 'ghost'}
+                  onClick={() => switchMode('catalog')}
+                >
+                  {t('sales.documents.items.lineMode.catalog', 'Catalog item')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={mode === 'custom' ? 'default' : 'ghost'}
+                  onClick={() => switchMode('custom')}
+                >
+                  {t('sales.documents.items.lineMode.custom', 'Custom line')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  'sales.documents.items.lineMode.helper',
+                  'Use catalog products or create a freeform line with your own price.',
+                )}
+              </p>
+            </div>
+          )
+        },
+      },
+      ...(!isCustomLine
+        ? [
+            {
+              id: 'productId',
+              label: t('sales.documents.items.product', 'Product'),
+              type: 'custom',
+              required: true,
+              layout: 'half',
+              component: ({ value, setValue, setFormValue, values }) => (
+                <LookupSelect
+                  value={typeof value === 'string' ? value : null}
+                  onChange={(next) => {
+                    const selectedOption = next ? productOptionsRef.current.get(next) ?? null : null
+                    setProductOption(selectedOption)
+                    setVariantOption(null)
+                    setPriceOptions([])
+                    setValue(next ?? null)
+                    setFormValue?.('variantId', null)
+                    setFormValue?.('priceId', null)
+                    setFormValue?.('unitPrice', '')
+                    setFormValue?.('priceMode', 'gross')
+                    const taxSelection = selectedOption ? resolveTaxSelection(selectedOption) : { taxRate: null, taxRateId: null }
+                    setFormValue?.('taxRate', taxSelection.taxRate ?? null)
+                    setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
+                    const existingName = typeof values?.name === 'string' ? values.name : ''
+                    if (!existingName.trim() && selectedOption?.title) {
+                      setFormValue?.('name', selectedOption.title)
                     }
-                  : null,
-              )
-              if (next) {
-                void loadPrices(next, null)
-              }
-            }}
-            fetchItems={loadProductOptions}
-            minQuery={1}
-            searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
-            selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
-          />
-        ),
-      },
-      {
-        id: 'variantId',
-        label: t('sales.documents.items.variant', 'Variant'),
-        type: 'custom',
-        required: true,
-        layout: 'half',
-        component: ({ value, setValue, setFormValue, values }) => {
-          const productId = typeof values?.productId === 'string' ? values.productId : null
-          return (
-            <LookupSelect
-              key={productId ?? 'no-product'}
-              value={typeof value === 'string' ? value : null}
-              onChange={(next) => {
-                const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
-                setVariantOption(selectedOption)
-                setValue(next ?? null)
-                const existingName = typeof values?.name === 'string' ? values.name : ''
-                if (!existingName.trim()) {
-                  setFormValue?.('name', selectedOption?.title ?? productOption?.title ?? existingName)
-                }
-                const taxSource = hasTaxMetadata(selectedOption)
-                  ? selectedOption
-                  : hasTaxMetadata(productOption)
-                    ? productOption
-                    : null
-                if (taxSource) {
-                  const taxSelection = resolveTaxSelection(taxSource)
-                  setFormValue?.('taxRate', taxSelection.taxRate ?? null)
-                  setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
-                }
-                const prevSnapshot =
-                  typeof values?.catalogSnapshot === 'object' && values.catalogSnapshot
-                    ? (values.catalogSnapshot as Record<string, unknown>)
-                    : null
-                if (next) {
-                  setFormValue?.('catalogSnapshot', {
-                    ...(prevSnapshot ?? {}),
-                    variant: {
-                      id: next,
-                      title: selectedOption?.title ?? null,
-                      sku: selectedOption?.sku ?? null,
-                      thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
-                    },
-                  })
-                } else if (prevSnapshot) {
-                  const snapshot = { ...prevSnapshot }
-                  if ('variant' in snapshot) delete (snapshot as any).variant
-                  setFormValue?.('catalogSnapshot', Object.keys(snapshot).length ? snapshot : null)
-                } else {
-                  setFormValue?.('catalogSnapshot', null)
-                }
-                if (productId) {
-                  void loadPrices(productId, next)
-                }
-              }}
-              fetchItems={async (query) => {
-                if (!productId) return []
-                const productThumb = productId ? productOptionsRef.current.get(productId)?.thumbnailUrl : null
-                const options = await loadVariantOptions(productId, productThumb)
-                const needle = query?.trim().toLowerCase() ?? ''
-                return needle.length
-                  ? options.filter((option) => option.title.toLowerCase().includes(needle))
-                  : options
-              }}
-              searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
-              minQuery={0}
-              disabled={!productId}
-            />
-          )
-        },
-      },
-      {
-        id: 'priceId',
-        label: t('sales.documents.items.price', 'Price'),
-        type: 'custom',
-        layout: 'half',
-        component: ({ value, setValue, setFormValue, values }) => {
-          const productId = typeof values?.productId === 'string' ? values.productId : null
-          const variantId = typeof values?.variantId === 'string' ? values.variantId : null
-          return (
-            <LookupSelect
-              key={productId ? `${productId}-${variantId ?? 'no-variant'}` : 'price'}
-              value={typeof value === 'string' ? value : null}
-              onChange={(next) => {
-                setValue(next ?? null)
-                const selected = next ? priceOptions.find((entry) => entry.id === next) ?? null : null
-                if (selected) {
-                  const mode = selected.displayMode === 'excluding-tax' ? 'net' : 'gross'
-                  const amount =
-                    mode === 'net'
-                      ? selected.amountNet ?? selected.amountGross ?? 0
-                      : selected.amountGross ?? selected.amountNet ?? 0
-                  setFormValue?.('priceMode', mode)
-                  setFormValue?.('unitPrice', amount.toString())
-                  setFormValue?.('taxRate', selected.taxRate ?? null)
-                  const matchedRateId = findTaxRateIdByValue(selected.taxRate)
-                  setFormValue?.('taxRateId', matchedRateId)
-                  setFormValue?.(
-                    'currencyCode',
-                    selected.currencyCode ?? values?.currencyCode ?? currencyCode ?? null,
-                  )
-                } else {
-                  const fallbackTax = resolveTaxSelection(variantOption ?? productOption ?? null)
-                  setFormValue?.('taxRate', fallbackTax.taxRate ?? null)
-                  setFormValue?.('taxRateId', fallbackTax.taxRateId ?? null)
-                }
-              }}
-              fetchItems={async (query) => {
-                const prices = await loadPrices(productId, variantId)
-                const needle = query?.trim().toLowerCase() ?? ''
-                return prices
-                  .filter((price) => {
-                    if (!needle.length) return true
-                    const haystack = [
-                      price.label,
-                      price.priceKindTitle,
-                      price.priceKindCode,
-                      price.currencyCode,
-                      ...(price.scopeTags ?? []),
-                    ]
-                      .filter(Boolean)
-                      .join(' ')
-                      .toLowerCase()
-                    return haystack.includes(needle)
-                  })
-                  .map<LookupSelectItem>((price) => ({
-                    id: price.id,
-                    title: price.label,
-                    subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
-                    description: price.scopeReason ?? undefined,
-                    rightLabel: price.currencyCode ?? undefined,
-                    icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
-                  }))
-              }}
-              minQuery={0}
-              loading={priceLoading}
-              searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
-              disabled={!productId}
-            />
-          )
-        },
-      },
+                    setFormValue?.(
+                      'catalogSnapshot',
+                      next
+                        ? {
+                            product: {
+                              id: next,
+                              title: selectedOption?.title ?? null,
+                              sku: selectedOption?.sku ?? null,
+                              thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                            },
+                          }
+                        : null,
+                    )
+                    if (next) {
+                      void loadPrices(next, null)
+                    }
+                  }}
+                  fetchItems={loadProductOptions}
+                  minQuery={1}
+                  searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
+                  selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
+                />
+              ),
+            },
+            {
+              id: 'variantId',
+              label: t('sales.documents.items.variant', 'Variant'),
+              type: 'custom',
+              required: true,
+              layout: 'half',
+              component: ({ value, setValue, setFormValue, values }) => {
+                const productId = typeof values?.productId === 'string' ? values.productId : null
+                return (
+                  <LookupSelect
+                    key={productId ?? 'no-product'}
+                    value={typeof value === 'string' ? value : null}
+                    onChange={(next) => {
+                      const selectedOption = next ? variantOptionsRef.current.get(next) ?? null : null
+                      setVariantOption(selectedOption)
+                      setValue(next ?? null)
+                      const existingName = typeof values?.name === 'string' ? values.name : ''
+                      if (!existingName.trim()) {
+                        setFormValue?.('name', selectedOption?.title ?? productOption?.title ?? existingName)
+                      }
+                      const taxSource = hasTaxMetadata(selectedOption)
+                        ? selectedOption
+                        : hasTaxMetadata(productOption)
+                          ? productOption
+                          : null
+                      if (taxSource) {
+                        const taxSelection = resolveTaxSelection(taxSource)
+                        setFormValue?.('taxRate', taxSelection.taxRate ?? null)
+                        setFormValue?.('taxRateId', taxSelection.taxRateId ?? null)
+                      }
+                      const prevSnapshot =
+                        typeof values?.catalogSnapshot === 'object' && values.catalogSnapshot
+                          ? (values.catalogSnapshot as Record<string, unknown>)
+                          : null
+                      if (next) {
+                        setFormValue?.('catalogSnapshot', {
+                          ...(prevSnapshot ?? {}),
+                          variant: {
+                            id: next,
+                            title: selectedOption?.title ?? null,
+                            sku: selectedOption?.sku ?? null,
+                            thumbnailUrl: selectedOption?.thumbnailUrl ?? null,
+                          },
+                        })
+                      } else if (prevSnapshot) {
+                        const snapshot = { ...prevSnapshot }
+                        if ('variant' in snapshot) delete (snapshot as any).variant
+                        setFormValue?.('catalogSnapshot', Object.keys(snapshot).length ? snapshot : null)
+                      } else {
+                        setFormValue?.('catalogSnapshot', null)
+                      }
+                      if (productId) {
+                        void loadPrices(productId, next)
+                      }
+                    }}
+                    fetchItems={async (query) => {
+                      if (!productId) return []
+                      const productThumb = productId ? productOptionsRef.current.get(productId)?.thumbnailUrl : null
+                      const options = await loadVariantOptions(productId, productThumb)
+                      const needle = query?.trim().toLowerCase() ?? ''
+                      return needle.length
+                        ? options.filter((option) => option.title.toLowerCase().includes(needle))
+                        : options
+                    }}
+                    searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
+                    minQuery={0}
+                    disabled={!productId}
+                  />
+                )
+              },
+            },
+            {
+              id: 'priceId',
+              label: t('sales.documents.items.price', 'Price'),
+              type: 'custom',
+              layout: 'half',
+              component: ({ value, setValue, setFormValue, values }) => {
+                const productId = typeof values?.productId === 'string' ? values.productId : null
+                const variantId = typeof values?.variantId === 'string' ? values.variantId : null
+                return (
+                  <LookupSelect
+                    key={productId ? `${productId}-${variantId ?? 'no-variant'}` : 'price'}
+                    value={typeof value === 'string' ? value : null}
+                    onChange={(next) => {
+                      setValue(next ?? null)
+                      const selected = next ? priceOptions.find((entry) => entry.id === next) ?? null : null
+                      if (selected) {
+                        const mode = selected.displayMode === 'excluding-tax' ? 'net' : 'gross'
+                        const amount =
+                          mode === 'net'
+                            ? selected.amountNet ?? selected.amountGross ?? 0
+                            : selected.amountGross ?? selected.amountNet ?? 0
+                        setFormValue?.('priceMode', mode)
+                        setFormValue?.('unitPrice', amount.toString())
+                        setFormValue?.('taxRate', selected.taxRate ?? null)
+                        const matchedRateId = findTaxRateIdByValue(selected.taxRate)
+                        setFormValue?.('taxRateId', matchedRateId)
+                        setFormValue?.(
+                          'currencyCode',
+                          selected.currencyCode ?? values?.currencyCode ?? currencyCode ?? null,
+                        )
+                      } else {
+                        const fallbackTax = resolveTaxSelection(variantOption ?? productOption ?? null)
+                        setFormValue?.('taxRate', fallbackTax.taxRate ?? null)
+                        setFormValue?.('taxRateId', fallbackTax.taxRateId ?? null)
+                      }
+                    }}
+                    fetchItems={async (query) => {
+                      const prices = await loadPrices(productId, variantId)
+                      const needle = query?.trim().toLowerCase() ?? ''
+                      return prices
+                        .filter((price) => {
+                          if (!needle.length) return true
+                          const haystack = [
+                            price.label,
+                            price.priceKindTitle,
+                            price.priceKindCode,
+                            price.currencyCode,
+                            ...(price.scopeTags ?? []),
+                          ]
+                            .filter(Boolean)
+                            .join(' ')
+                            .toLowerCase()
+                          return haystack.includes(needle)
+                        })
+                        .map<LookupSelectItem>((price) => ({
+                          id: price.id,
+                          title: price.label,
+                          subtitle: price.priceKindTitle ?? price.priceKindCode ?? undefined,
+                          description: price.scopeReason ?? undefined,
+                          rightLabel: price.currencyCode ?? undefined,
+                          icon: <DollarSign className="h-5 w-5 text-muted-foreground" />,
+                        }))
+                    }}
+                    minQuery={0}
+                    loading={priceLoading}
+                    searchPlaceholder={t('sales.documents.items.priceSearch', 'Select price')}
+                    disabled={!productId}
+                  />
+                )
+              },
+            },
+          ]
+        : []),
       {
         id: 'unitPrice',
         label: t('sales.documents.items.unitPrice', 'Unit price'),
@@ -1154,6 +1227,7 @@ export function LineItemDialog({
         type: 'text',
         placeholder: t('sales.documents.items.namePlaceholder', 'Optional line name'),
         layout: 'full',
+        required: isCustomLine,
       },
     ]
   }, [
@@ -1166,6 +1240,7 @@ export function LineItemDialog({
     priceLoading,
     priceOptions,
     productOption,
+    lineMode,
     variantOption,
     t,
     taxRateMap,
@@ -1194,10 +1269,16 @@ export function LineItemDialog({
     }
     setEditingId(initialLine.id)
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode)
+    const meta = initialLine.metadata ?? {}
+    const metaLineMode =
+      typeof (meta as any)?.lineMode === 'string' && ((meta as any).lineMode === 'custom' || (meta as any).lineMode === 'catalog')
+        ? ((meta as any).lineMode as 'custom' | 'catalog')
+        : (meta as any)?.customLine
+          ? 'custom'
+          : undefined
     nextForm.productId = initialLine.productId
     nextForm.variantId = initialLine.productVariantId
     nextForm.quantity = initialLine.quantity.toString()
-    const meta = initialLine.metadata ?? {}
     const metaMode = (meta as any)?.priceMode
     const resolvedPriceMode =
       metaMode === 'net' || metaMode === 'gross' ? metaMode : initialLine.priceMode ?? 'gross'
@@ -1209,6 +1290,9 @@ export function LineItemDialog({
     nextForm.catalogSnapshot = initialLine.catalogSnapshot ?? null
     nextForm.customFieldSetId = initialLine.customFieldSetId ?? null
     nextForm.statusEntryId = initialLine.statusEntryId ?? null
+    nextForm.lineMode =
+      metaLineMode ??
+      (initialLine.productId || initialLine.productVariantId ? 'catalog' : 'custom')
     const metaTaxRateId =
       typeof (meta as any).taxRateId === 'string' ? ((meta as any).taxRateId as string) : null
     const fallbackTaxRateId = findTaxRateIdByValue(nextForm.taxRate)
@@ -1257,7 +1341,9 @@ export function LineItemDialog({
       }
     }
     const customValues = prefixCustomFieldValues(normalizeCustomFieldResponse(initialLine.customFields) ?? {})
-    setInitialValues({ ...nextForm, ...customValues })
+    const merged = { ...nextForm, ...customValues }
+    setInitialValues(merged)
+    setLineMode(merged.lineMode)
     setFormResetKey((prev) => prev + 1)
     if (initialLine.productId) {
       void loadPrices(initialLine.productId, initialLine.productVariantId)

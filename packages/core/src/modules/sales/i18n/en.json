@@ -109,7 +109,8 @@
           "duplicateProduct": "This product already has an offer in this channel.",
           "requiredFields": "Choose a channel and product.",
           "priceKindRequired": "Select a price kind for each price override.",
-          "priceKindDuplicate": "Each price kind can only be overridden once."
+          "priceKindDuplicate": "Each price kind can only be overridden once.",
+          "removePrice": "Failed to remove price override."
         },
         "messages": {
           "deleted": "Offer deleted.",
@@ -179,7 +180,8 @@
             "associations": "Associations",
             "content": "Content",
             "pricing": "Price overrides"
-          }
+          },
+          "mediaSelectProduct": "Select a product to load its media."
         },
         "pricing": {
           "help": "Provide overrides for price kinds when this offer is active.",
@@ -194,7 +196,9 @@
           "basePriceHelp": "Shown to shoppers when no override is configured.",
           "overrideHint": "Overrides take precedence over the original product price.",
           "allKindsUsed": "Each price kind already has an override.",
-          "noKindsAvailable": "Define a price kind before adding overrides."
+          "noKindsAvailable": "Define a price kind before adding overrides.",
+          "includingTax": "Including tax",
+          "excludingTax": "Excluding tax"
         }
       }
     },
@@ -502,7 +506,8 @@
         "note": "Changing the customer clears assigned addresses to avoid mixing contact data.",
         "actions": {
           "refresh": "Refresh",
-          "save": "Save settings"
+          "save": "Save settings",
+          "refreshing": "Refreshing…"
         },
         "errors": {
           "load": "Failed to load order editing settings.",
@@ -663,7 +668,14 @@
         "numberRefresh": "Generate",
         "numberHintOrder": "Format applies to orders and uses the configured counter.",
         "numberHintQuote": "Format applies to quotes and uses the configured counter.",
-        "customer": "Customer",
+        "customer": {
+          "quick": {
+            "error": "Failed to create customer.",
+            "personSuccess": "Customer created.",
+            "companySuccess": "Customer created.",
+            "dialogDescription": "Add a person without leaving this form."
+          }
+        },
         "customer.placeholder": "Search customers…",
         "customer.addPerson": "New person",
         "customer.addCompany": "New company",
@@ -672,7 +684,9 @@
         "customer.help": "Start typing to filter.",
         "customer.empty": "No customers found.",
         "customer.selected": "Selected customer: {{id}}",
-        "email": "Customer email",
+        "email": {
+          "alreadySelected": "Selected customer"
+        },
         "email.placeholder": "Email used for the document",
         "email.selectCustomer": "Select customer",
         "currency.placeholder": "Select currency",
@@ -720,7 +734,14 @@
         "errors.numberGenerate": "Could not generate a document number.",
         "errors.numberRequired": "Document number is required.",
         "success": "Sales document created.",
-        "nextStep": "After creation you will add items, prices, and fulfillment details."
+        "nextStep": "After creation you will add items, prices, and fulfillment details.",
+        "shipping": {
+          "hint": "Select an address or define a new one."
+        },
+        "billing": {
+          "hint": "Select an address or define a new one."
+        },
+        "kind.hint": "Please select which kind of sales document you want to create. When creating Quotes - it's kind of Shopping cart or Request for negotiation and could be converted to regular order later"
       },
       "payments": {
         "add": "Add payment",
@@ -750,7 +771,87 @@
         "methodPlaceholder": "Search payment method",
         "currency": "Currency",
         "referencePlaceholder": "External reference or note",
-        "saveShortcut": "Save ⌘⏎ / Ctrl+Enter"
+        "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+        "form": {
+          "title": "Payment details"
+        }
+      },
+      "items": {
+        "lineMode": {
+          "label": "Line type",
+          "catalog": "Catalog item",
+          "custom": "Custom line",
+          "helper": "Use catalog products or create a freeform line with your own price."
+        },
+        "errorNameRequired": "Name is required for custom lines.",
+        "title": "Items",
+        "subtitle": "Add products and prices to this document.",
+        "add": "Add item",
+        "loading": "Loading items…",
+        "empty": "No items yet.",
+        "errorLoad": "Failed to load items.",
+        "errorSave": "Failed to save line.",
+        "errorProductRequired": "Select a product to continue.",
+        "errorVariantRequired": "Select a variant to continue.",
+        "errorQuantity": "Quantity must be greater than 0.",
+        "errorUnitPrice": "Unit price must be greater than 0.",
+        "errorDelete": "Failed to delete line.",
+        "deleteConfirm": "Delete this line item?",
+        "errorDeleteShipped": "You cannot delete a line that has shipped items.",
+        "created": "Line added.",
+        "updated": "Line updated.",
+        "deleted": "Line removed.",
+        "addTitle": "Add line",
+        "editTitle": "Edit line",
+        "product": "Product",
+        "productSearch": "Search product",
+        "selectedProduct": "Selected {{id}}",
+        "variant": "Variant",
+        "variantSearch": "Search variant",
+        "price": "Price",
+        "priceSearch": "Select price",
+        "priceGross": "Gross",
+        "priceNet": "Net",
+        "priceScope": {
+          "channel": "Channel",
+          "offer": "Offer",
+          "variant": "Variant",
+          "customerGroup": "Customer group",
+          "customer": "Customer",
+          "userGroup": "User group",
+          "user": "User",
+          "quantity": "Quantity",
+          "schedule": "Scheduled"
+        },
+        "unitPrice": "Unit price",
+        "quantity": "Quantity",
+        "taxRate": "Tax class",
+        "taxRate.none": "No tax class selected",
+        "taxRate.empty": "No tax classes available",
+        "name": "Name",
+        "namePlaceholder": "Optional line name",
+        "status": "Status",
+        "statusPlaceholder": "Select status",
+        "statusLoading": "Loading statuses…",
+        "statusEmpty": "No status",
+        "cancel": "Cancel",
+        "addLine": "Add item",
+        "save": "Save changes",
+        "untitled": "Untitled",
+        "table": {
+          "product": "Product",
+          "status": "Status",
+          "quantity": "Qty",
+          "shipped": "{{shipped}} / {{total}} shipped",
+          "unit": "Unit price",
+          "total": "Total",
+          "actions": "Actions",
+          "gross": "gross",
+          "statusEmpty": "No status",
+          "net": "net"
+        },
+        "errorScope": "Organization and tenant are required.",
+        "errorCurrency": "Currency is required."
       },
       "detail": {
         "title": "Sales document",
@@ -797,29 +898,7 @@
           "empty": "No payment methods found.",
           "selected": "Selected payment method: {{id}}"
         },
-        "empty": {
-          "comments": {
-            "title": "No comments yet.",
-            "description": "Notes from teammates will appear here.",
-            "action": "Add comment"
-          },
-          "items": {
-            "title": "No items yet.",
-            "description": "Add products to this document to calculate totals."
-          },
-          "shipments": {
-            "title": "No shipments yet.",
-            "description": "Add shipments for this document to let the user track the order."
-          },
-          "payments": {
-            "title": "No payments yet.",
-            "description": "Track received payments to keep outstanding balances up to date."
-          },
-          "adjustments": {
-            "title": "No adjustments yet.",
-            "description": "Add discounts, fees, or taxes to this document."
-          }
-        },
+        "empty": "Not set",
         "items": {
           "title": "Items",
           "subtitle": "Add products and prices to this document.",
@@ -876,24 +955,19 @@
           "save": "Save changes",
           "untitled": "Untitled",
           "table": {
-        "product": "Product",
-        "status": "Status",
-        "quantity": "Qty",
-        "shipped": "{{shipped}} / {{total}} shipped",
-        "unit": "Unit price",
-        "total": "Total",
-        "actions": "Actions",
-        "gross": "gross",
-        "statusEmpty": "No status"
+            "product": "Product",
+            "status": "Status",
+            "quantity": "Qty",
+            "shipped": "{{shipped}} / {{total}} shipped",
+            "unit": "Unit price",
+            "total": "Total",
+            "actions": "Actions",
+            "gross": "gross",
+            "statusEmpty": "No status",
+            "net": "net"
           }
         },
-        "status": {
-          "changeDocument": "Change order/quote status",
-          "changeLine": "Change order/quote item status",
-          "documentPlaceholder": "Select new order/quote status",
-          "linePlaceholder": "Select item status",
-          "sectionTitle": "Status changes"
-        },
+        "status": "Status",
         "shipments": {
           "title": "Shipments",
           "subtitle": "Track packages and fulfillment for this order.",
@@ -1063,35 +1137,209 @@
         "customData": "Custom data",
         "customDataLoading": "Loading custom data…",
         "customDataDefine": "Define custom fields first.",
-        "tags": {
-          "loading": "Loading tags…",
-          "loadError": "Failed to load tags.",
-          "createError": "Failed to create tag.",
-          "updateError": "Failed to update tags.",
-          "labelRequired": "Tag name is required.",
-          "saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
-          "cancelShortcut": "Cancel (Esc)",
-          "success": "Tags updated.",
-          "placeholder": "No tags yet. Add labels to keep documents organized."
-        },
-        "status": {
-          "placeholder": "Select status",
-          "dialogTitle": "Add status",
-          "valueLabel": "Value",
-          "valuePlaceholder": "e.g. confirmed",
-          "labelLabel": "Label",
-          "labelPlaceholder": "Display label",
-          "emptyError": "Status value is required.",
-          "cancel": "Cancel",
-          "save": "Save",
-          "created": "Status saved.",
-          "errorLoad": "Failed to load statuses.",
-          "errorSave": "Failed to save status.",
-          "loading": "Loading statuses…",
-          "manage": "Manage statuses"
-        },
+        "tags": "Tags",
         "statusInvalid": "Selected status could not be found.",
-        "channelInvalid": "Selected channel could not be found."
+        "channelInvalid": "Selected channel could not be found.",
+        "empty.comments.title": "No comments yet.",
+        "empty.comments.description": "Notes from teammates will appear here.",
+        "empty.comments.action": "Add comment",
+        "empty.items.title": "No items yet.",
+        "empty.items.description": "Add products to this document to calculate totals.",
+        "empty.shipments.title": "No shipments yet.",
+        "empty.shipments.description": "Add shipments for this document to let the user track the order.",
+        "empty.payments.title": "No payments yet.",
+        "empty.payments.description": "Track received payments to keep outstanding balances up to date.",
+        "empty.adjustments.title": "No adjustments yet.",
+        "empty.adjustments.description": "Add discounts, fees, or taxes to this document.",
+        "status.placeholder": "Select status",
+        "status.dialogTitle": "Add status",
+        "status.valueLabel": "Value",
+        "status.valuePlaceholder": "e.g. confirmed",
+        "status.labelLabel": "Label",
+        "status.labelPlaceholder": "Display label",
+        "status.emptyError": "Status value is required.",
+        "status.cancel": "Cancel",
+        "status.save": "Save",
+        "status.created": "Status saved.",
+        "status.errorLoad": "Failed to load statuses.",
+        "status.errorSave": "Failed to save status.",
+        "status.loading": "Loading statuses…",
+        "status.manage": "Manage statuses",
+        "tags.loading": "Loading tags…",
+        "tags.loadError": "Failed to load tags.",
+        "tags.createError": "Failed to create tag.",
+        "tags.updateError": "Failed to update tags.",
+        "tags.labelRequired": "Tag name is required.",
+        "tags.saveShortcut": "Save ⌘⏎ / Ctrl+Enter",
+        "tags.cancelShortcut": "Cancel (Esc)",
+        "tags.success": "Tags updated.",
+        "tags.placeholder": "No tags yet. Add labels to keep documents organized.",
+        "numberGenerated": "New number generated.",
+        "numberGenerateError": "Could not generate number.",
+        "deleteConfirm": "Delete this document? This cannot be undone.",
+        "deleted": "Document deleted.",
+        "deleteFailed": "Could not delete document.",
+        "externalRef": "External reference",
+        "customerRef": "Customer reference",
+        "email": "Primary email",
+        "channel": "Channel",
+        "tabs": {
+          "comments": "Comments",
+          "addresses": "Addresses",
+          "items": "Items",
+          "shipments": "Shipments",
+          "payments": "Payments",
+          "adjustments": "Adjustments"
+        },
+        "comments": {
+          "add": "Add comment"
+        },
+        "number": "Document number",
+        "numberEmpty": "No number yet",
+        "saveStub": "Saving number will land soon.",
+        "generateNumber": "Generate number",
+        "delete": "Delete",
+        "details": "Details",
+        "customerRef.placeholder": "Customer PO or note",
+        "email.placeholder": "Add email",
+        "externalRef.placeholder": "Add external reference"
+      },
+      "adjustments": {
+        "title": "Adjustments",
+        "subtitle": "Add discounts, surcharges, taxes, or shipping fees.",
+        "add": "Add adjustment",
+        "addTitle": "Add adjustment",
+        "editTitle": "Edit adjustment",
+        "loading": "Loading adjustments…",
+        "empty": "No adjustments yet.",
+        "search": "Search adjustments",
+        "errorLoad": "Failed to load adjustments.",
+        "errorSave": "Failed to save adjustment.",
+        "errorDelete": "Failed to delete adjustment.",
+        "errorAmount": "Provide at least one amount.",
+        "errorCurrency": "Currency is required.",
+        "errorScope": "Organization and tenant are required.",
+        "created": "Adjustment added.",
+        "updated": "Adjustment updated.",
+        "deleted": "Adjustment removed.",
+        "refresh": "Refresh",
+        "label": "Label",
+        "labelPlaceholder": "e.g. Shipping fee",
+        "code": "Code",
+        "codePlaceholder": "PROMO10",
+        "kind": "Kind",
+        "calculatorKey": "Calculator key",
+        "rate": "Rate",
+        "amountNet": "Net amount",
+        "amountGross": "Gross amount",
+        "taxRate": "Tax class",
+        "taxRate.placeholder": "No tax class selected",
+        "taxRate.empty": "No tax classes available",
+        "taxRate.manage": "Manage",
+        "currency": "Currency",
+        "currencyPlaceholder": "e.g. USD",
+        "position": "Position",
+        "untitled": "Untitled",
+        "kindLabel": "Kind",
+        "kindSelect": {
+          "placeholder": "Select adjustment kind…"
+        },
+        "kindLabels": {
+          "discount": "Discount",
+          "tax": "Tax",
+          "shipping": "Shipping",
+          "surcharge": "Surcharge",
+          "custom": "Custom"
+        },
+        "submitCreate": "Add adjustment",
+        "submitUpdate": "Save changes",
+        "amountMode": "Calculation mode",
+        "mode": {
+          "rate": "Percentage",
+          "amount": "Fixed amount"
+        },
+        "labelRequired": "Label is required.",
+        "errorRate": "Enter a percentage rate."
+      },
+      "shipments": {
+        "title": "Shipments",
+        "subtitle": "Track packages and fulfillment for this order.",
+        "add": "Add shipment",
+        "addTitle": "Add shipment",
+        "editTitle": "Edit shipment",
+        "created": "Shipment created.",
+        "updated": "Shipment updated.",
+        "deleted": "Shipment deleted.",
+        "loading": "Loading shipments…",
+        "errorLoad": "Failed to load shipments.",
+        "errorSave": "Failed to save shipment.",
+        "errorDelete": "Failed to delete shipment.",
+        "errorItems": "Ship at least one line item.",
+        "errorQuantity": "Quantity exceeds remaining available.",
+        "number": "Shipment number",
+        "numberLabel": "Shipment {{number}}",
+        "fallbackNumber": "Shipment {{id}}",
+        "carrier": "Carrier",
+        "shippingMethod": "Shipping method",
+        "shippingMethodPlaceholder": "Select method",
+        "shippingMethodAvg": "Avg {{price}}",
+        "shippingMethodMin": "Min {{price}}",
+        "address": "Ship to",
+        "addressPlaceholder": "Select address",
+        "addressSearch": "Search address",
+        "addressMissing": "Add an address to this document before creating a shipment.",
+        "addressLoadError": "Failed to load addresses.",
+        "shippingAddressLabel": "Shipping address",
+        "shipmentAddressLabel": "Shipment address",
+        "addressFallback": "Document address",
+        "errorNumber": "Shipment number is required.",
+        "errorShippingMethod": "Select a shipping method.",
+        "errorAddress": "Select an address to ship to.",
+        "saveShortcut": "Save (⌘/Ctrl+Enter)",
+        "tracking": "Tracking",
+        "trackingNumbers": "Tracking numbers",
+        "trackingPlaceholder": "One per line or comma separated",
+        "shippedAt": "Shipped date",
+        "deliveredAt": "Delivered date",
+        "notes": "Notes",
+        "items": "Items to ship",
+        "noLines": "No order lines available.",
+        "available": "{{count}} available",
+        "shippedOn": "Shipped on {{date}}",
+        "deliveredOn": "Delivered on {{date}}",
+        "statusMissing": "Status pending",
+        "addressSnapshot": "Address snapshot saved.",
+        "attachAddress": "Attach address snapshot",
+        "addComment": "Add note to comments",
+        "addShippingAdjustment": "Add shipping cost adjustment for this shipment",
+        "addShippingAdjustmentHelp": "Create a shipping adjustment using this carrier’s calculated cost.",
+        "shippingAdjustmentLabel": "Shipping cost",
+        "shippingAdjustmentError": "Failed to add shipping cost adjustment.",
+        "shippingAdjustmentScope": "Organization and tenant are required to add a shipping adjustment.",
+        "comment": "Shipment {{number}} updated: {{summary}}",
+        "commentNotes": "Notes: {{notes}}",
+        "confirmDelete": "Delete this shipment?",
+        "cancel": "Cancel",
+        "save": "Save changes",
+        "create": "Create shipment",
+        "empty": {
+          "title": "No shipments yet.",
+          "description": "Add shipments for this document to let the user track the order."
+        },
+        "trackingGroup": "Tracking information"
+      },
+      "status": {
+        "changeDocument": "Change order/quote status",
+        "documentPlaceholder": "Select new order/quote status",
+        "changeLine": "Change order/quote item status",
+        "linePlaceholder": "Select item status",
+        "sectionTitle": "Status changes"
+      },
+      "empty": {
+        "adjustments": {
+          "title": "No adjustments yet.",
+          "description": "Add discounts, fees, or taxes to refine totals."
+        }
       }
     },
     "order-statuses": {
@@ -1130,6 +1378,7 @@
   "sales.orders.create": "Create sales order",
   "sales.orders.update": "Update sales order",
   "sales.orders.delete": "Delete sales order",
+  "sales.orders.lines.delete": "Delete order line",
   "sales.orders.adjustments.upsert": "Update order adjustment",
   "sales.orders.adjustments.delete": "Delete order adjustment",
   "sales.audit.orders.create": "Create sales order",
