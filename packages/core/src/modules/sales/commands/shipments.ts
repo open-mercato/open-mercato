@@ -236,8 +236,20 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
   existingItems.forEach((item) => em.remove(item))
-  snapshot.items.forEach((item) => {
-    const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
+  const items = Array.isArray(snapshot.items) ? snapshot.items : []
+  const lineIds = items
+    .map((item) => item.orderLineId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const lines = lineIds.length
+    ? await em.find(SalesOrderLine, { id: { $in: lineIds }, order: order.id })
+    : []
+  const lineMap = new Map(lines.map((line) => [line.id, line]))
+  const restoredItems: ShipmentItemSnapshot[] = []
+  items.forEach((item) => {
+    const line = lineMap.get(item.orderLineId)
+    if (!line) return
+    restoredItems.push(item)
+    const lineRef = em.getReference(SalesOrderLine, line.id)
     const shipmentItem = em.create(SalesShipmentItem, {
       id: item.id ?? randomUUID(),
       shipment: entity,
@@ -249,7 +261,9 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
     })
     em.persist(shipmentItem)
   })
-  const snapshotItems = snapshot.itemsSnapshot ?? snapshot.items
+  const snapshotItems = (snapshot.itemsSnapshot ?? restoredItems).filter((entry) =>
+    entry?.orderLineId ? lineMap.has(entry.orderLineId) : false
+  )
   entity.itemsSnapshot = snapshotItems && snapshotItems.length ? cloneJson(snapshotItems) : null
   if (!entity.itemsSnapshot) {
     await refreshShipmentItemsSnapshot(em, entity)
