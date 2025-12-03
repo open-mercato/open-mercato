@@ -511,14 +511,18 @@ function generateExample(schema?: ZodTypeAny, ctx?: ExampleGenerationContext): u
         const values = Object.values(def?.values || [])
         return values[0]
       }
-      case 'ZodLiteral':
-      case 'literal':
-        return def?.value ?? (Array.isArray(def?.values) ? def.values[0] : undefined)
-      case 'ZodArray':
-      case 'array': {
-        const child = generateExample(def?.type ?? def?.element, context)
-        return child === undefined ? [] : [child]
-      }
+    case 'ZodLiteral':
+    case 'literal':
+      return def?.value ?? (Array.isArray(def?.values) ? def.values[0] : undefined)
+    case 'ZodArray':
+    case 'array': {
+      const elementSchema =
+        def?.type && typeof def.type === 'object'
+          ? def.type
+          : (def?.element && typeof def.element === 'object' ? def.element : undefined)
+      const child = generateExample(elementSchema, context)
+      return child === undefined ? [] : [child]
+    }
       case 'ZodTuple':
       case 'tuple': {
         const items = def?.items || []

@@ -7,6 +7,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EventBus } from '@open-mercato/events'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { deriveResourceFromCommandId, invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -1375,6 +1376,37 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
     shipments: shipmentSnapshots,
     payments: paymentSnapshots,
   }
+}
+
+type DeletableEntity = { id?: string; organizationId?: string | null; tenantId?: string | null }
+
+async function queueDeletionSideEffects(
+  dataEngine: DataEngine,
+  entities: DeletableEntity[] | DeletableEntity | null | undefined,
+  entityType: string
+): Promise<void> {
+  if (!entities) return
+  const list = Array.isArray(entities) ? entities : [entities]
+  const tasks: Array<Promise<void>> = []
+  for (const entity of list) {
+    if (!entity) continue
+    const id = typeof entity.id === 'string' ? entity.id : null
+    if (!id) continue
+    tasks.push(
+      emitCrudSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity,
+        identifiers: {
+          id,
+          organizationId: entity.organizationId ?? null,
+          tenantId: entity.tenantId ?? null,
+        },
+        indexer: { entityType },
+      })
+    )
+  }
+  if (tasks.length) await Promise.all(tasks)
 }
 
 function toNumeric(value: string | number | null | undefined): number {
@@ -3123,6 +3155,13 @@ const deleteQuoteCommand: CommandHandler<
     const quote = await em.findOne(SalesQuote, { id })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
+    const [addresses, notes, tags, adjustments, lines] = await Promise.all([
+      em.find(SalesDocumentAddress, { documentId: quote.id, documentKind: 'quote' }),
+      em.find(SalesNote, { contextType: 'quote', contextId: quote.id }),
+      em.find(SalesDocumentTagAssignment, { documentId: quote.id, documentKind: 'quote' }),
+      em.find(SalesQuoteAdjustment, { quote: quote.id }),
+      em.find(SalesQuoteLine, { quote: quote.id }),
+    ])
     await em.nativeDelete(SalesDocumentAddress, { documentId: quote.id, documentKind: 'quote' })
     await em.nativeDelete(SalesNote, { contextType: 'quote', contextId: quote.id })
     await em.nativeDelete(SalesDocumentTagAssignment, { documentId: quote.id, documentKind: 'quote' })
@@ -3130,6 +3169,15 @@ const deleteQuoteCommand: CommandHandler<
     await em.nativeDelete(SalesQuoteLine, { quote: quote.id })
     em.remove(quote)
     await em.flush()
+    const dataEngine = ctx.container.resolve<DataEngine>('dataEngine')
+    await Promise.all([
+      queueDeletionSideEffects(dataEngine, quote, E.sales.sales_quote),
+      queueDeletionSideEffects(dataEngine, lines, E.sales.sales_quote_line),
+      queueDeletionSideEffects(dataEngine, adjustments, E.sales.sales_quote_adjustment),
+      queueDeletionSideEffects(dataEngine, addresses, E.sales.sales_document_address),
+      queueDeletionSideEffects(dataEngine, notes, E.sales.sales_note),
+      queueDeletionSideEffects(dataEngine, tags, E.sales.sales_document_tag_assignment),
+    ])
     return { quoteId: id }
   },
   buildLog: async ({ snapshots }) => {
@@ -3767,6 +3815,16 @@ const deleteOrderCommand: CommandHandler<
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
     const shipments = await em.find(SalesShipment, { order: order.id })
     const shipmentIds = shipments.map((entry) => entry.id)
+    const [shipmentItems, payments, paymentAllocations, addresses, notes, tags, adjustments, lines] = await Promise.all([
+      shipmentIds.length ? em.find(SalesShipmentItem, { shipment: { $in: shipmentIds } }) : Promise.resolve([]),
+      em.find(SalesPayment, { order: order.id }),
+      em.find(SalesPaymentAllocation, { order: order.id }),
+      em.find(SalesDocumentAddress, { documentId: order.id, documentKind: 'order' }),
+      em.find(SalesNote, { contextType: 'order', contextId: order.id }),
+      em.find(SalesDocumentTagAssignment, { documentId: order.id, documentKind: 'order' }),
+      em.find(SalesOrderAdjustment, { order: order.id }),
+      em.find(SalesOrderLine, { order: order.id }),
+    ])
     if (shipmentIds.length) {
       await em.nativeDelete(SalesShipmentItem, { shipment: { $in: shipmentIds } })
       await em.nativeDelete(SalesShipment, { id: { $in: shipmentIds } })
@@ -3780,6 +3838,19 @@ const deleteOrderCommand: CommandHandler<
     await em.nativeDelete(SalesOrderLine, { order: order.id })
     em.remove(order)
     await em.flush()
+    const dataEngine = ctx.container.resolve<DataEngine>('dataEngine')
+    await Promise.all([
+      queueDeletionSideEffects(dataEngine, order, E.sales.sales_order),
+      queueDeletionSideEffects(dataEngine, lines, E.sales.sales_order_line),
+      queueDeletionSideEffects(dataEngine, adjustments, E.sales.sales_order_adjustment),
+      queueDeletionSideEffects(dataEngine, shipments, E.sales.sales_shipment),
+      queueDeletionSideEffects(dataEngine, shipmentItems, E.sales.sales_shipment_item),
+      queueDeletionSideEffects(dataEngine, payments, E.sales.sales_payment),
+      queueDeletionSideEffects(dataEngine, paymentAllocations, E.sales.sales_payment_allocation),
+      queueDeletionSideEffects(dataEngine, addresses, E.sales.sales_document_address),
+      queueDeletionSideEffects(dataEngine, notes, E.sales.sales_note),
+      queueDeletionSideEffects(dataEngine, tags, E.sales.sales_document_tag_assignment),
+    ])
     return { orderId: id }
   },
   buildLog: async ({ snapshots }) => {

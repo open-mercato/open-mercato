@@ -663,6 +663,36 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   const indexerConfig = opts.indexer as CrudIndexerConfig | undefined
   const eventsConfig = opts.events as CrudEventsConfig | undefined
 
+  const pickNormalizedIdentifier = (...values: Array<string | number | null | undefined>): string | null => {
+    for (const value of values) {
+      const normalized = normalizeIdentifierValue(value)
+      if (normalized) return normalized
+    }
+    return null
+  }
+
+  const extractIdentifierFrom = (...payloads: Array<any>): string | null => {
+    const candidates: Array<string | number | null | undefined> = []
+    for (const payload of payloads) {
+      if (!payload || typeof payload !== 'object') {
+        candidates.push(payload as any)
+        continue
+      }
+      candidates.push(
+        (payload as any)?.id,
+        (payload as any)?.shipmentId,
+        (payload as any)?.paymentId,
+        (payload as any)?.lineId,
+        (payload as any)?.adjustmentId,
+        (payload as any)?.itemId,
+        (payload as any)?.orderAdjustmentId,
+        (payload as any)?.orderId,
+        (payload as any)?.quoteId,
+      )
+    }
+    return pickNormalizedIdentifier(...candidates)
+  }
+
   const markCommandResultForIndexing = async (
     id: string | null,
     action: CrudEventAction,
@@ -1312,14 +1342,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 201
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        const indexedId =
-          normalizeIdentifierValue(
-            (resolvedPayload as any)?.id ??
-            (result as any)?.id ??
-            (result as any)?.orderId ??
-            (result as any)?.quoteId ??
-            (parsed as any)?.id
-          )
+        const indexedId = extractIdentifierFrom(resolvedPayload, result, parsed)
         await markCommandResultForIndexing(indexedId, 'created', ctx)
         return response
       }
@@ -1422,14 +1445,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        const indexedId =
-          normalizeIdentifierValue(
-            (resolvedPayload as any)?.id ??
-            (result as any)?.id ??
-            (result as any)?.orderId ??
-            (result as any)?.quoteId ??
-            (parsed as any)?.id
-          )
+        const indexedId = extractIdentifierFrom(resolvedPayload, result, parsed)
         await markCommandResultForIndexing(indexedId, 'updated', ctx)
         return response
       }
@@ -1547,15 +1563,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        const indexedId =
-          normalizeIdentifierValue(
-            (resolvedPayload as any)?.id ??
-            (result as any)?.id ??
-            (result as any)?.orderId ??
-            (result as any)?.quoteId ??
-            (parsed as any)?.body?.id ??
-            (parsed as any)?.id
-          )
+        const indexedId = extractIdentifierFrom(resolvedPayload, result, (parsed as any)?.body, parsed)
         await markCommandResultForIndexing(indexedId, 'deleted', ctx)
         return response
       }
