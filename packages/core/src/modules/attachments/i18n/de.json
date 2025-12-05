@@ -89,7 +89,11 @@
           "label": "Label",
           "add": "Add assignment",
           "remove": "Remove"
-        }
+        },
+        "extractedTitle": "Extracted text",
+        "noContent": "No text extracted",
+        "showMore": "Show more",
+        "showLess": "Show less"
       },
       "messages": {
         "deleted": "Attachment removed."
@@ -124,6 +128,7 @@
         "visibility": "Visibility",
         "public": "Public",
         "private": "Private",
+        "ocr": "OCR",
         "envKey": "Env variable",
         "search": "Search partitions…",
         "empty": "No partitions configured."
@@ -133,6 +138,7 @@
         "titleLabel": "Title",
         "descriptionLabel": "Description",
         "publicLabel": "Publicly accessible",
+        "ocrLabel": "Require OCR/text extraction",
         "codePlaceholder": "e.g. marketingAssets",
         "titlePlaceholder": "e.g. Marketing assets",
         "descriptionPlaceholder": "Explain how this partition is used.",

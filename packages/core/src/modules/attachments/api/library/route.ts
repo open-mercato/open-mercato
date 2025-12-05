@@ -124,6 +124,7 @@ export async function GET(req: Request) {
       tags: metadata.tags ?? [],
       assignments: metadata.assignments ?? [],
       thumbnailUrl,
+      content: record.content ?? null,
     }
   })
 

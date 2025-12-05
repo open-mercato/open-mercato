@@ -27,6 +27,7 @@ type Partition = {
   title: string
   description: string | null
   isPublic: boolean
+  requiresOcr: boolean
   envKey: string
   createdAt: string | null
 }
@@ -40,6 +41,7 @@ const DEFAULT_FORM = {
   title: '',
   description: '',
   isPublic: false,
+  requiresOcr: true,
 }
 
 export function AttachmentPartitionSettings() {
@@ -63,7 +65,11 @@ export function AttachmentPartitionSettings() {
         { errorMessage: loadErrorMessage },
       )
       const normalized = Array.isArray(payload.items) ? payload.items : []
-      setItems(normalized)
+      const withDefaults = normalized.map((entry) => ({
+        ...entry,
+        requiresOcr: typeof entry.requiresOcr === 'boolean' ? entry.requiresOcr : true,
+      }))
+      setItems(withDefaults)
     } catch (err) {
       console.error('[attachments.partitions] list failed', err)
       flash(loadErrorMessage, 'error')
@@ -94,6 +100,7 @@ export function AttachmentPartitionSettings() {
         title: state.entry.title,
         description: state.entry.description ?? '',
         isPublic: state.entry.isPublic,
+        requiresOcr: state.entry.requiresOcr,
       })
     } else {
       setForm(DEFAULT_FORM)
@@ -125,6 +132,7 @@ export function AttachmentPartitionSettings() {
         title: trimmedTitle,
         description: form.description.trim() || undefined,
         isPublic: form.isPublic,
+        requiresOcr: form.requiresOcr,
       }
       const method = dialog.mode === 'create' ? 'POST' : 'PUT'
       const body =
@@ -214,6 +222,17 @@ export function AttachmentPartitionSettings() {
             {row.original.isPublic
               ? t('attachments.partitions.table.public', 'Public')
               : t('attachments.partitions.table.private', 'Private')}
+          </span>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.ocr', 'OCR'),
+        accessorKey: 'requiresOcr',
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.requiresOcr
+              ? t('common.enabled', 'Enabled')
+              : t('common.disabled', 'Disabled')}
           </span>
         ),
       },
@@ -348,6 +367,15 @@ export function AttachmentPartitionSettings() {
                 onChange={(event) => setForm((prev) => ({ ...prev, isPublic: event.target.checked }))}
               />
               {t('attachments.partitions.form.publicLabel', 'Publicly accessible')}
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border"
+                checked={form.requiresOcr}
+                onChange={(event) => setForm((prev) => ({ ...prev, requiresOcr: event.target.checked }))}
+              />
+              {t('attachments.partitions.form.ocrLabel', 'Require OCR/text extraction')}
             </label>
             {dialog ? (
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">

@@ -3327,6 +3327,7 @@ export interface components {
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItems: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems"][];
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItems: {
             assignments?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignments"];
+            content?: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContent"];
             createdAt: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt"];
             fileName: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileName"];
             fileSize: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileSize"];
@@ -3351,6 +3352,9 @@ export interface components {
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabelAnyOf0: null;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesLabelAnyOf1: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesAssignmentsItemsPropertiesType: string;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContent: components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContentAnyOf0"] | components["schemas"]["DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContentAnyOf1"];
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContentAnyOf0: null;
+        DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesContentAnyOf1: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesCreatedAt: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileName: string;
         DocPathsAttachmentsAttachmentsGetResponses200ContentApplicationJsonSchemaPropertiesItemsItemsPropertiesFileSize: number;
@@ -3393,6 +3397,7 @@ export interface components {
         };
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItem: {
             assignments?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignments"];
+            content?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesContent"];
             customFields?: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesCustomFields"];
             fileName: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileName"];
             fileSize: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesFileSize"];
@@ -3416,6 +3421,9 @@ export interface components {
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf0: null;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesLabelAnyOf1: string;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesAssignmentsItemsPropertiesType: string;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesContent: components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesContentAnyOf0"] | components["schemas"]["DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesContentAnyOf1"];
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesContentAnyOf0: null;
+        DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesContentAnyOf1: string;
         DocPathsAttachmentsAttachmentsPostResponses200ContentApplicationJsonSchemaPropertiesItemPropertiesCustomFields: {
             [key: string]: unknown;
         };
@@ -12849,7 +12857,8 @@ export interface operations {
                      *         "id": "string",
                      *         "url": "string",
                      *         "fileName": "string",
-                     *         "fileSize": 1
+                     *         "fileSize": 1,
+                     *         "content": null
                      *       }
                      *     }
                      */
