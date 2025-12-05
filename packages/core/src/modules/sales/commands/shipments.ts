@@ -30,6 +30,8 @@ import {
   extractUndoPayload,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
@@ -813,9 +815,28 @@ const deleteShipmentCommand: CommandHandler<
     if (order.id !== payload.orderId) {
       throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
     }
+    const shipmentItems = await em.find(SalesShipmentItem, { shipment })
     await deleteShipmentWithItems(em, shipment)
     await recomputeFulfilledQuantities(em, order)
     await em.flush()
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    if (shipmentItems.length) {
+      await Promise.all(
+        shipmentItems.map((item) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'deleted',
+            entity: item,
+            identifiers: {
+              id: item.id,
+              organizationId: item.organizationId ?? null,
+              tenantId: item.tenantId ?? null,
+            },
+            indexer: { entityType: E.sales.sales_shipment_item },
+          })
+        )
+      )
+    }
     return { shipmentId: shipment.id }
   },
   undo: async ({ logEntry, ctx }) => {
