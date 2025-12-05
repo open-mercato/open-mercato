@@ -125,6 +125,28 @@ export async function run(argv = process.argv) {
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
+      const baseEnv = {
+        ...process.env,
+        OM_CLI_QUIET: '1',
+        YARN_SILENT: '1',
+        npm_config_loglevel: 'silent',
+      }
+      const runCommand = (command: string, { quiet, label }: { quiet?: boolean; label?: string } = {}) => {
+        try {
+          return execSync(command, { stdio: quiet ? 'pipe' : 'inherit', env: baseEnv })
+        } catch (error) {
+          const err = error as { stdout?: Buffer | string; stderr?: Buffer | string }
+          const output = `${err.stdout ? err.stdout.toString() : ''}${err.stderr ? err.stderr.toString() : ''}`.trim()
+          if (label) {
+            console.error(`${label} failed.`)
+          }
+          if (output) {
+            console.error(output)
+          }
+          throw error
+        }
+      }
+
       // Step 1: Install dependencies
       console.log('📦 Installing dependencies...')
       execSync('yarn install', { stdio: 'inherit' })
@@ -132,7 +154,7 @@ export async function run(argv = process.argv) {
       
       // Step 2: Prepare modules
       console.log('🔧 Preparing modules (registry, entities, DI)...')
-      execSync('yarn modules:prepare', { stdio: 'inherit' })
+      runCommand('yarn modules:prepare', { quiet: true, label: 'Module preparation' })
       console.log('✅ Modules prepared\n')
       
       // Step 3: Generate migrations
@@ -142,12 +164,12 @@ export async function run(argv = process.argv) {
       
       // Step 3: Apply migrations
       console.log('📊 Applying database migrations...')
-      execSync('yarn db:migrate', { stdio: 'inherit' })
+      runCommand('yarn db:migrate', { label: 'Database migrations' })
       console.log('✅ Migrations applied\n')
 
       // Step 3.5: Restore configuration defaults
       console.log('⚙️  Restoring module defaults...')
-      execSync('yarn mercato configs restore-defaults', { stdio: 'inherit' })
+      runCommand('yarn mercato configs restore-defaults')
       console.log('✅ Module defaults restored\n')
 
       // Step 4: Setup RBAC (tenant/org, users, ACLs)
@@ -167,7 +189,10 @@ export async function run(argv = process.argv) {
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       
       console.log('🔐 Setting up RBAC and users...')
-      const setupOutput = execSync(`yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`, { stdio: 'pipe' }).toString()
+      const setupOutput = runCommand(
+        `yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`,
+        { quiet: true, label: 'Auth setup' }
+      ).toString()
       console.log('✅ RBAC setup complete\n')
       
 
@@ -179,61 +204,79 @@ export async function run(argv = process.argv) {
       
       if (tenantId) {
         console.log('👥 Seeding tenant-scoped roles...')
-        execSync(`yarn mercato auth seed-roles --tenant ${tenantId}`, { stdio: 'inherit' })
-        console.log('✅ Roles seeded\n')
+        runCommand(`yarn mercato auth seed-roles --tenant ${tenantId}`)
+        console.log('🛡️ ✅ Roles seeded\n')
       } else {
         console.log('⚠️  Skipping role seeding because tenant ID was not detected in setup output.\n')
       }
       
       if (orgId && tenantId) {
         console.log('📚 Seeding customer dictionaries...')
-        execSync(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
-        console.log('✅ Customer dictionaries seeded\n')
+        runCommand(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`)
+        console.log('📚 ✅ Customer dictionaries seeded\n')
 
         console.log('📏 Seeding catalog units...')
-        execSync(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
-        console.log('✅ Catalog units seeded\n')
+        runCommand(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`)
+        console.log('📏 ✅ Catalog units seeded\n')
 
         console.log('🏷️  Seeding catalog price kinds...')
-        execSync(`yarn mercato catalog seed-price-kinds --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
-        console.log('✅ Catalog price kinds seeded\n')
+        runCommand(`yarn mercato catalog seed-price-kinds --tenant ${tenantId} --org ${orgId}`)
+        console.log('🏷️ ✅ Catalog price kinds seeded\n')
 
         console.log('💶 Seeding default tax rates...')
-        execSync(`yarn mercato sales seed-tax-rates --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
-        console.log('✅ Tax rates seeded\n')
+        runCommand(`yarn mercato sales seed-tax-rates --tenant ${tenantId} --org ${orgId}`)
+        console.log('🧾 ✅ Tax rates seeded\n')
+
+        console.log('🚦 Seeding sales statuses...')
+        runCommand(`yarn mercato sales seed-statuses --tenant ${tenantId} --org ${orgId}`)
+        console.log('🚦 ✅ Sales statuses seeded\n')
+
+        console.log('⚙️  Seeding adjustment kinds...')
+        runCommand(`yarn mercato sales seed-adjustment-kinds --tenant ${tenantId} --org ${orgId}`)
+        console.log('⚙️  ✅ Adjustment kinds seeded\n')
+
+        console.log('🚚 Seeding shipping methods...')
+        runCommand(`yarn mercato sales seed-shipping-methods --tenant ${tenantId} --org ${orgId}`)
+        console.log('🚚 ✅ Shipping methods seeded\n')
+
+        console.log('💳 Seeding payment methods...')
+        runCommand(`yarn mercato sales seed-payment-methods --tenant ${tenantId} --org ${orgId}`)
+        console.log('💳 ✅ Payment methods seeded\n')
 
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
           console.log('🛍️  Seeding catalog examples...')
-          execSync(`yarn mercato catalog seed-examples --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
-          console.log('✅ Catalog examples seeded\n')
+          runCommand(`yarn mercato catalog seed-examples --tenant ${tenantId} --org ${orgId}`)
+          console.log('🛍️ ✅ Catalog examples seeded\n')
 
           console.log('🏢 Seeding customer examples...')
-          execSync(`yarn mercato customers seed-examples --tenant ${tenantId} --org ${orgId}`, { stdio: 'inherit' })
-          console.log('✅ Customer examples seeded\n')
+          runCommand(`yarn mercato customers seed-examples --tenant ${tenantId} --org ${orgId}`)
+          console.log('🏢 ✅ Customer examples seeded\n')
+
+          console.log('🧾 Seeding sales examples...')
+          runCommand(`yarn mercato sales seed-examples --tenant ${tenantId} --org ${orgId}`)
+          console.log('🧾 ✅ Sales examples seeded\n')
 
           console.log('📝 Seeding example todos...')
-          execSync(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`, { stdio: 'inherit' })
-          console.log('✅ Example todos seeded\n')
+          runCommand(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`)
+          console.log('📝 ✅ Example todos seeded\n')
         }
 
         if (stressTestEnabled) {
           console.log(
             `🏋️  Seeding stress test customers${stressTestLite ? ' (lite payload)' : ''}...`
           )
-          execSync(
-            `yarn mercato customers seed-stresstest --tenant ${tenantId} --org ${orgId} --count ${stressTestCount}${
-              stressTestLite ? ' --lite' : ''
-            }`,
-            { stdio: 'inherit' }
+          runCommand(
+            `yarn mercato customers seed-stresstest --tenant ${tenantId} --org ${orgId} --count ${stressTestCount}${stressTestLite ? ' --lite' : ''}`
           )
           console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
         }
 
         console.log('🧩 Enabling default dashboard widgets...')
-        execSync(`yarn mercato dashboards seed-defaults --tenant ${tenantId}`, { stdio: 'inherit' })
+        runCommand(`yarn mercato dashboards seed-defaults --tenant ${tenantId}`)
         console.log('✅ Dashboard widgets enabled\n')
+
       } else {
         console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding and dashboard widget setup\n')
       }
@@ -248,7 +291,7 @@ export async function run(argv = process.argv) {
       } else {
         vectorCommandParts.push('--purgeFirst=false')
       }
-      execSync(vectorCommandParts.join(' '), { stdio: 'inherit' })
+      runCommand(vectorCommandParts.join(' '))
       console.log('✅ Vector indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
@@ -256,7 +299,7 @@ export async function run(argv = process.argv) {
       if (tenantId) {
         queryIndexCommandParts.push(`--tenant ${tenantId}`)
       }
-      execSync(queryIndexCommandParts.join(' '), { stdio: 'inherit' })
+      runCommand(queryIndexCommandParts.join(' '))
       console.log('✅ Query indexes rebuilt\n')
       
       // Derive admin/employee only when the provided email is a superadmin email
@@ -498,13 +541,16 @@ export async function run(argv = process.argv) {
   } as any)
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
+  const quietBanner = process.env.OM_CLI_QUIET === '1'
   const banner = '🧩 Open Mercato CLI'
-  const header = [
-    '╔═══════════════════════╗',
-    `║  ${banner.padEnd(21)}║`,
-    '╚═══════════════════════╝',
-  ].join('\n')
-  console.log(header)
+  if (!quietBanner) {
+    const header = [
+      '╔═══════════════════════╗',
+      `║  ${banner.padEnd(21)}║`,
+      '╚═══════════════════════╝',
+    ].join('\n')
+    console.log(header)
+  }
   const pad = (s: string) => `  ${s}`
 
   if (!modName || modName === 'help' || modName === '--help' || modName === '-h') {
@@ -540,12 +586,13 @@ export async function run(argv = process.argv) {
     return 1
   }
 
+  console.log('')
   const started = Date.now()
   console.log(`🚀 Running ${modName}:${cmdName} ${rest.join(' ')}`)
   try {
     await cmd.run(rest)
     const ms = Date.now() - started
-    console.log(`✅ Done in ${ms}ms`)
+    console.log(`⏱️ Done in ${ms}ms`)
     return 0
   } catch (e: any) {
     console.error(`💥 Failed: ${e?.message || e}`)

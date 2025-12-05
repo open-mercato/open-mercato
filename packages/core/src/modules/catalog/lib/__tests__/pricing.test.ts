@@ -16,6 +16,7 @@ describe('catalog pricing helpers', () => {
     organizationId: 'org-1',
     tenantId: 'tenant-1',
     currencyCode: 'USD',
+    priceKind: { id: 'pk-regular', code: 'regular', isPromotion: false } as any,
     kind: 'regular',
     minQuantity: 1,
     unitPriceNet: '10.00',

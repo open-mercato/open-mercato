@@ -15,9 +15,25 @@ export async function getOrm() {
   
   // Parse connection pool settings from environment
   const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
-  const poolMax = parseInt(process.env.DB_POOL_MAX || '10')
-  const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '30000')
-  const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '60000')
+  const poolMax = parseInt(process.env.DB_POOL_MAX || '50')
+  const poolIdleTimeout = parseInt(process.env.DB_POOL_IDLE_TIMEOUT || '3000')
+  const poolAcquireTimeout = parseInt(process.env.DB_POOL_ACQUIRE_TIMEOUT || '6000')
+  const idleSessionTimeoutEnv = parseInt(process.env.DB_IDLE_SESSION_TIMEOUT_MS || '')
+  const idleInTxTimeoutEnv = parseInt(process.env.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS || '')
+  const idleSessionTimeoutMs = Number.isFinite(idleSessionTimeoutEnv)
+    ? idleSessionTimeoutEnv
+    : process.env.NODE_ENV === 'production'
+      ? undefined
+      : 600_000
+  const idleInTransactionTimeoutMs = Number.isFinite(idleInTxTimeoutEnv)
+    ? idleInTxTimeoutEnv
+    : process.env.NODE_ENV === 'production'
+      ? undefined
+      : 120_000
+  const connectionOptions =
+    idleSessionTimeoutMs && idleSessionTimeoutMs > 0
+      ? `-c idle_session_timeout=${idleSessionTimeoutMs}`
+      : undefined
   
   ormInstance = await MikroORM.init<PostgreSqlDriver>({
     driver: PostgreSqlDriver,
@@ -31,7 +47,7 @@ export async function getOrm() {
       idleTimeoutMillis: poolIdleTimeout,
       acquireTimeoutMillis: poolAcquireTimeout,
       // Close idle connections after 30 seconds
-      destroyTimeoutMillis: 30000,
+      destroyTimeoutMillis: process.env.NODE_ENV === 'production' ? 30000 : 3000,
     },
     // Connection options
     driverOptions: {
@@ -45,6 +61,8 @@ export async function getOrm() {
         idleTimeoutMillis: poolIdleTimeout,
         // Maximum time to wait for a connection from the pool
         acquireTimeoutMillis: poolAcquireTimeout,
+        idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
+        options: connectionOptions,
       },
     },
   })
@@ -54,13 +72,6 @@ export async function getOrm() {
 export async function getEm() {
   const orm = await getOrm()
   return orm.em.fork({ clear: true })
-}
-
-export async function closeOrm() {
-  if (ormInstance) {
-    await ormInstance.close(true)
-    ormInstance = null
-  }
 }
 
 async function closeOrmIfLoaded(): Promise<void> {

@@ -41,6 +41,9 @@ This repository is designed for extensibility. Agents should leverage the module
   - `src/modules/entities.generated.ts` (MikroORM entities)
   - `src/modules/di.generated.ts` (DI registrars)
   - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+- Query index coverage:
+  - Every CRUD route that should emit index/refresh events must configure `indexer: { entityType }` in `makeCrudRoute` (see sales orders/lines/payments/shipments, catalog products, customer deals).
+  - Partial coverage warnings in the UI mean the index is missing records—ensure the route has `indexer` enabled and rerun a reindex task if needed.
 - Migrations (module-scoped with MikroORM):
   - Generate all modules: `npm run db:generate` (iterates modules, writes to `src/modules/<module>/migrations`)
   - Apply all modules: `npm run db:migrate` (ordered, directory first)
@@ -105,6 +108,7 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ### HTTP calls in UI
 - In client components and utilities, call the higher-level helpers from `@open-mercato/ui/backend/utils/apiCall` (e.g., `apiCall`, `apiCallOrThrow`, `readApiResultOrThrow`) instead of the global `fetch`. They automatically wrap `apiFetch` so headers, auth, and error handling stay consistent—reach for `apiFetch` directly only when you truly need the raw `Response`.
+- When showing fetch states in backend pages, use the shared `LoadingMessage` and `ErrorMessage` components from `@open-mercato/ui/backend/detail` so loading and failure cases stay consistent.
 - For CRUD form submissions, call `createCrud` / `updateCrud` / `deleteCrud`; these already delegate to `raiseCrudError`, so you always get a structured error object with `message`, `details`, and `fieldErrors`.
 - When you need to call ad-hoc endpoints, use `apiCall()` (or `apiCallOrThrow` / `readApiResultOrThrow`) which return `{ ok, status, result, response }`. They handle JSON parsing (via `readJsonSafe(res, fallback)`) and keep the `Response` instance intact for error propagation.
 - The CRUD helpers now expose the parsed response (`const { result } = await createCrud<Payload>('module/resource', body)`); read data from the `result` field instead of cloning the response or calling `res.json()` yourself.
@@ -149,6 +153,8 @@ This repository is designed for extensibility. Agents should leverage the module
 
 ## UI Interaction
 - Every new dialog must support `Cmd/Ctrl + Enter` as a primary action shortcut and `Escape` to cancel, mirroring the shared UX patterns used across modules.
+- Default to `CrudForm` for new forms and `DataTable` for tables displaying information unless a different component is explicitly required.
+- Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.

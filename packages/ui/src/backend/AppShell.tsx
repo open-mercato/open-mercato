@@ -887,7 +887,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       {/* Desktop sidebar */}
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
-      <div className="flex min-h-svh flex-col">
+      <div className="flex min-h-svh flex-col min-w-0">
         <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Mobile menu button */}

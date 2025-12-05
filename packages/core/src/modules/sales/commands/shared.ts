@@ -53,6 +53,14 @@ export function extractUndoPayload<T>(logEntry: ActionLog | null | undefined): T
       return (value as { undo?: T }).undo ?? null
     }
   }
+  const snapshotBefore = (logEntry as any)?.snapshotBefore
+  if (snapshotBefore !== undefined && snapshotBefore !== null) {
+    return { before: snapshotBefore } as T
+  }
+  const snapshotAfter = (logEntry as any)?.snapshotAfter
+  if (snapshotAfter !== undefined && snapshotAfter !== null) {
+    return { after: snapshotAfter } as T
+  }
   return null
 }
 

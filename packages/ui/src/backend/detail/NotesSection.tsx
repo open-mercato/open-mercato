@@ -2,25 +2,67 @@
 
 import * as React from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { PluggableList } from 'unified'
+import type { AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
+import { AppearanceDialog } from '@open-mercato/core/modules/customers/components/detail/AppearanceDialog'
+import type { IconOption } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ArrowUpRightSquare, FileCode, Loader2, Palette, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { formatDateTime } from './utils'
-import type { CommentSummary, Translator, SectionAction, TabEmptyState } from './types'
-import { ICON_SUGGESTIONS } from '../../lib/dictionaries'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { useT } from '@/lib/i18n/context'
-import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../lib/markdownPreference'
-import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { flash } from '../FlashMessages'
+import { ErrorMessage } from './ErrorMessage'
 import { LoadingMessage } from './LoadingMessage'
-import { TimelineItemHeader } from './TimelineItemHeader'
-import { AppearanceDialog } from './AppearanceDialog'
-import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { TabEmptyState } from './TabEmptyState'
+
+type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
+
+export type SectionAction = {
+  label: string
+  onClick: () => void
+  disabled?: boolean
+}
+
+export type TabEmptyStateConfig = {
+  title: string
+  actionLabel: string
+  description?: string
+}
+
+export type CommentSummary = {
+  id: string
+  body: string
+  createdAt: string
+  authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+  dealId?: string | null
+  dealTitle?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+export type NotesCreatePayload = {
+  entityId: string
+  body: string
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  dealId?: string | null
+}
+
+export type NotesUpdatePayload = {
+  body?: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+export type NotesDataAdapter<C = unknown> = {
+  list: (params: { entityId: string | null; dealId: string | null; context?: C }) => Promise<CommentSummary[]>
+  create: (params: NotesCreatePayload & { context?: C }) => Promise<Partial<CommentSummary> | void>
+  update: (params: { id: string; patch: NotesUpdatePayload; context?: C }) => Promise<void>
+  delete: (params: { id: string; context?: C }) => Promise<void>
+}
+
+type RenderIconFn = (icon: string, className?: string) => React.ReactNode
+type RenderColorFn = (color: string, className?: string) => React.ReactNode
 
 type UiMarkdownEditorProps = {
   value?: string
@@ -29,26 +71,145 @@ type UiMarkdownEditorProps = {
   previewOptions?: { remarkPlugins?: unknown[] }
 }
 
-function MarkdownEditorFallback() {
-  const t = useT()
-  return (
+const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
+  ssr: false,
+  loading: () => (
     <LoadingMessage
-      label={t('customers.people.detail.notes.editorLoading', 'Loading editor…')}
-      className="min-h-[220px]"
+      label="Loading editor…"
+      className="min-h-[220px] justify-center"
     />
+  ),
+}) as unknown as React.ComponentType<UiMarkdownEditorProps>
+
+type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
+
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+
+const MarkdownPreviewComponent: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
+
+function generateTempId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `tmp_${Math.random().toString(36).slice(2)}`
+}
+
+function formatDateTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return date.toLocaleString()
+}
+
+function formatRelativeTime(value?: string | null): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const now = Date.now()
+  const diffSeconds = (date.getTime() - now) / 1000
+  const absSeconds = Math.abs(diffSeconds)
+  const rtf =
+    typeof Intl !== 'undefined' && typeof Intl.RelativeTimeFormat === 'function'
+      ? new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+      : null
+  const format = (unit: Intl.RelativeTimeFormatUnit, divisor: number) => {
+    const valueToFormat = Math.round(diffSeconds / divisor)
+    if (rtf) return rtf.format(valueToFormat, unit)
+    const suffix = valueToFormat <= 0 ? 'ago' : 'from now'
+    const magnitude = Math.abs(valueToFormat)
+    return `${magnitude} ${unit}${magnitude === 1 ? '' : 's'} ${suffix}`
+  }
+  if (absSeconds < 45) return format('second', 1)
+  if (absSeconds < 45 * 60) return format('minute', 60)
+  if (absSeconds < 24 * 60 * 60) return format('hour', 60 * 60)
+  if (absSeconds < 7 * 24 * 60 * 60) return format('day', 24 * 60 * 60)
+  if (absSeconds < 30 * 24 * 60 * 60) return format('week', 7 * 24 * 60 * 60)
+  if (absSeconds < 365 * 24 * 60 * 60) return format('month', 30 * 24 * 60 * 60)
+  return format('year', 365 * 24 * 60 * 60)
+}
+
+type TimelineItemHeaderProps = {
+  title: React.ReactNode
+  subtitle?: React.ReactNode
+  timestamp?: string | Date | null
+  fallbackTimestampLabel?: React.ReactNode
+  icon?: string | null
+  color?: string | null
+  iconSize?: 'sm' | 'md'
+  className?: string
+  renderIcon?: RenderIconFn
+  renderColor?: RenderColorFn
+}
+
+function TimelineItemHeader({
+  title,
+  subtitle,
+  timestamp,
+  fallbackTimestampLabel,
+  icon,
+  color,
+  iconSize = 'md',
+  className,
+  renderIcon,
+  renderColor,
+}: TimelineItemHeaderProps) {
+  const wrapperSize = iconSize === 'sm' ? 'h-6 w-6' : 'h-8 w-8'
+  const iconSizeClass = iconSize === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
+  const resolvedTimestamp = React.useMemo(() => {
+    if (subtitle) return subtitle
+    if (!timestamp) return fallbackTimestampLabel ?? null
+    const value = typeof timestamp === 'string' ? timestamp : timestamp.toISOString()
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return fallbackTimestampLabel ?? null
+    const now = Date.now()
+    const diff = Math.abs(now - date.getTime())
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+    const relativeLabel = diff <= THIRTY_DAYS_MS ? formatRelativeTime(value) : null
+    const absoluteLabel = formatDateTime(value)
+    if (relativeLabel) {
+      return (
+        <span title={absoluteLabel ?? undefined}>
+          {relativeLabel}
+        </span>
+      )
+    }
+    return absoluteLabel ?? fallbackTimestampLabel ?? null
+  }, [fallbackTimestampLabel, subtitle, timestamp])
+
+  return (
+    <div className={['flex items-start gap-3', className].filter(Boolean).join(' ')}>
+      {icon && renderIcon ? (
+        <span className={['inline-flex items-center justify-center rounded border border-border bg-muted/40', wrapperSize].join(' ')}>
+          {renderIcon(icon, iconSizeClass)}
+        </span>
+      ) : null}
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-foreground">{title}</span>
+          {color && renderColor ? renderColor(color, 'h-3 w-3 rounded-full border border-border') : null}
+        </div>
+        {resolvedTimestamp ? <div className="text-xs text-muted-foreground">{resolvedTimestamp}</div> : null}
+      </div>
+    </div>
   )
 }
 
-const UiMarkdownEditor = dynamic(() => import('@uiw/react-md-editor'), {
-  ssr: false,
-  loading: () => <MarkdownEditorFallback />,
-}) as unknown as React.ComponentType<UiMarkdownEditorProps>
-
-type AppearanceDialogState =
-  | { mode: 'create'; icon: string | null; color: string | null }
-  | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
-
-export type NotesSectionProps = {
+export type NotesSectionProps<C = unknown> = {
   entityId: string | null
   dealId?: string | null
   emptyLabel: string
@@ -56,21 +217,29 @@ export type NotesSectionProps = {
   viewerName?: string | null
   viewerEmail?: string | null
   addActionLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
+  dataAdapter: NotesDataAdapter<C>
+  dataContext?: C
+  renderIcon?: RenderIconFn
+  renderColor?: RenderColorFn
+  iconSuggestions?: IconOption[]
+  readMarkdownPreference?: () => boolean | null
+  writeMarkdownPreference?: (value: boolean) => void
+  disableMarkdown?: boolean
 }
 
-function sanitizeHexColor(value: string | null): string | null {
+export function sanitizeHexColor(value: string | null): string | null {
   if (!value) return null
   const trimmed = value.trim()
   return /^#([0-9a-f]{6})$/i.test(trimmed) ? trimmed.toLowerCase() : null
 }
 
-function mapComment(input: unknown): CommentSummary {
+export function mapCommentSummary(input: unknown): CommentSummary {
   const data = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>
   const id = typeof data.id === 'string' ? data.id : generateTempId()
   const body = typeof data.body === 'string' ? data.body : ''
@@ -136,7 +305,7 @@ function mapComment(input: unknown): CommentSummary {
   }
 }
 
-export function NotesSection({
+export function NotesSection<C = unknown>({
   entityId,
   dealId,
   emptyLabel,
@@ -150,10 +319,28 @@ export function NotesSection({
   onLoadingChange,
   dealOptions,
   entityOptions,
-}: NotesSectionProps) {
-  const tHook = useT()
-  const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
-  const t = translator ?? fallbackTranslator
+  dataAdapter,
+  dataContext,
+  renderIcon,
+  renderColor,
+  iconSuggestions,
+  readMarkdownPreference,
+  writeMarkdownPreference,
+  disableMarkdown,
+}: NotesSectionProps<C>) {
+  const t = React.useMemo<Translator>(() => translator ?? ((key, fallback) => fallback ?? key), [translator])
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  React.useEffect(() => {
+    if (isTestEnv) return
+    let mounted = true
+    void loadMarkdownPlugins().then((plugins) => {
+      if (!mounted) return
+      setMarkdownPlugins(plugins)
+    })
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const normalizedDealOptions = React.useMemo(() => {
     if (!Array.isArray(dealOptions)) return []
@@ -240,7 +427,7 @@ export function NotesSection({
   const hasEntity = resolvedEntityId.length > 0
 
   const [notes, setNotes] = React.useState<CommentSummary[]>([])
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(entityId || dealId))
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const pendingCounterRef = React.useRef(0)
@@ -284,7 +471,11 @@ export function NotesSection({
       element.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
   }, [formRef, hasEntity, isMarkdownEnabled])
-  const [appearanceDialogState, setAppearanceDialogState] = React.useState<AppearanceDialogState | null>(null)
+  const [appearanceDialogState, setAppearanceDialogState] = React.useState<
+    | { mode: 'create'; icon: string | null; color: string | null }
+    | { mode: 'edit'; noteId: string; icon: string | null; color: string | null }
+    | null
+  >(null)
   const [appearanceDialogSaving, setAppearanceDialogSaving] = React.useState(false)
   const [appearanceDialogError, setAppearanceDialogError] = React.useState<string | null>(null)
   const [contentEditor, setContentEditor] = React.useState<{ id: string; value: string }>({ id: '', value: '' })
@@ -309,17 +500,12 @@ export function NotesSection({
     pushLoading()
     async function loadNotes() {
       try {
-        const params = new URLSearchParams()
-        if (queryEntityId) params.set('entityId', queryEntityId)
-        if (queryDealId) params.set('dealId', queryDealId)
-        const payload = await readApiResultOrThrow<Record<string, unknown>>(
-          `/api/customers/comments?${params.toString()}`,
-          undefined,
-          { errorMessage: t('customers.people.detail.notes.loadError', 'Failed to load notes.') },
-        )
+        const mapped = await dataAdapter.list({
+          entityId: queryEntityId || null,
+          dealId: queryDealId || null,
+          context: dataContext,
+        })
         if (cancelled) return
-        const items = Array.isArray(payload?.items) ? payload.items : []
-        const mapped = items.map(mapComment)
         setNotes(mapped)
       } catch (err) {
         if (cancelled) return
@@ -337,27 +523,34 @@ export function NotesSection({
     return () => {
       cancelled = true
     }
-  }, [dealId, entityId, popLoading, pushLoading, t])
+  }, [dataAdapter, dataContext, dealId, entityId, popLoading, pushLoading, t])
 
+  const youLabel = t('customers.people.detail.notes.you', 'You')
   const viewerLabel = React.useMemo(() => viewerName ?? viewerEmail ?? null, [viewerEmail, viewerName])
 
   const handleMarkdownToggle = React.useCallback(() => {
     setIsMarkdownEnabled((prev) => {
       const next = !prev
-      writeMarkdownPreferenceCookie(next)
+      if (writeMarkdownPreference) {
+        writeMarkdownPreference(next)
+      }
       return next
     })
-  }, [])
+  }, [writeMarkdownPreference])
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!notes.length) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: addActionLabel,
       onClick: focusComposer,
       disabled: isSubmitting || isLoading || !hasEntity,
     })
     return () => onActionChange(null)
-  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting])
+  }, [onActionChange, addActionLabel, focusComposer, hasEntity, isLoading, isSubmitting, notes.length])
 
   const adjustTextareaSize = React.useCallback((element: HTMLTextAreaElement | null) => {
     if (!element) return
@@ -370,11 +563,11 @@ export function NotesSection({
   }, [adjustTextareaSize, draftBody, isMarkdownEnabled, composerOpen])
 
   React.useEffect(() => {
-    const preference = readMarkdownPreferenceCookie()
+    const preference = readMarkdownPreference ? readMarkdownPreference() : null
     if (preference !== null) {
       setIsMarkdownEnabled(preference)
     }
-  }, [])
+  }, [readMarkdownPreference])
 
   React.useEffect(() => {
     if (!notes.length) {
@@ -419,31 +612,24 @@ export function NotesSection({
       setIsSubmitting(true)
       pushLoading()
       try {
-        const response = await apiCallOrThrow<Record<string, unknown>>(
-          '/api/customers/comments',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              entityId: resolvedEntityId,
-              body,
-              appearanceIcon: icon ?? undefined,
-              appearanceColor: color ?? undefined,
-              dealId: targetDealId ?? undefined,
-            }),
-          },
-          { errorMessage: t('customers.people.detail.notes.error') },
-        )
-        const responseBody = response.result ?? {}
+        const responseBody =
+          (await dataAdapter.create({
+            entityId: resolvedEntityId,
+            body,
+            appearanceIcon: icon,
+            appearanceColor: color,
+            dealId: targetDealId,
+            context: dataContext,
+          })) ?? {}
         setNotes((prev) => {
           const viewerId = viewerUserId ?? null
           const resolvedAuthorId =
             typeof responseBody?.authorUserId === 'string' ? responseBody.authorUserId : viewerId ?? null
           const resolvedAuthorName = (() => {
             if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
-              return viewerName ?? viewerEmail ?? null
+              return youLabel
             }
-            return typeof responseBody?.authorName === 'string' ? responseBody.authorName : null
+            return typeof responseBody?.authorName === 'string' ? responseBody.authorName : viewerLabel
           })()
           const resolvedAuthorEmail = (() => {
             if (resolvedAuthorId && viewerId && resolvedAuthorId === viewerId) {
@@ -476,7 +662,7 @@ export function NotesSection({
         popLoading()
       }
     },
-    [dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerName, viewerUserId],
+    [dataAdapter, dataContext, dealLabelMap, focusComposer, hasEntity, popLoading, pushLoading, resolvedDealId, resolvedEntityId, t, viewerEmail, viewerLabel, viewerUserId, youLabel],
   )
 
   const handleUpdateNote = React.useCallback(
@@ -491,19 +677,15 @@ export function NotesSection({
       const sanitizedColor =
         patch.appearanceColor !== undefined ? sanitizeHexColor(patch.appearanceColor ?? null) : undefined
       try {
-        const payload: Record<string, unknown> = { id: noteId }
-        if (sanitizedBody !== undefined) payload.body = sanitizedBody
-        if (sanitizedIcon !== undefined) payload.appearanceIcon = sanitizedIcon
-        if (sanitizedColor !== undefined) payload.appearanceColor = sanitizedColor
-        await apiCallOrThrow(
-          '/api/customers/comments',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
+        await dataAdapter.update({
+          id: noteId,
+          patch: {
+            body: sanitizedBody,
+            appearanceIcon: sanitizedIcon,
+            appearanceColor: sanitizedColor,
           },
-          { errorMessage: t('customers.people.detail.notes.updateError') },
-        )
+          context: dataContext,
+        })
         setNotes((prev) => {
           const nextComments = prev.map((comment) => {
             if (comment.id !== noteId) return comment
@@ -522,7 +704,7 @@ export function NotesSection({
         throw error instanceof Error ? error : new Error(message)
       }
     },
-    [t],
+    [dataAdapter, dataContext, t],
   )
 
   const handleDeleteNote = React.useCallback(
@@ -535,14 +717,7 @@ export function NotesSection({
       setDeletingNoteId(note.id)
       pushLoading()
       try {
-        await apiCallOrThrow(
-          `/api/customers/comments?id=${encodeURIComponent(note.id)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('customers.people.detail.notes.deleteError', 'Failed to delete note') },
-        )
+        await dataAdapter.delete({ id: note.id, context: dataContext })
         setNotes((prev) => prev.filter((existing) => existing.id !== note.id))
         flash(t('customers.people.detail.notes.deleteSuccess', 'Note deleted'), 'success')
       } catch (err) {
@@ -553,7 +728,7 @@ export function NotesSection({
         popLoading()
       }
     },
-    [popLoading, pushLoading, t],
+    [dataAdapter, dataContext, popLoading, pushLoading, t],
   )
 
   const handleSubmit = React.useCallback(
@@ -679,14 +854,14 @@ export function NotesSection({
   const noteAuthorLabel = React.useCallback(
     (note: CommentSummary) => {
       if (note.authorUserId && viewerUserId && note.authorUserId === viewerUserId) {
-        return viewerLabel ?? t('customers.people.detail.notes.you')
+        return youLabel
       }
-      return note.authorName ?? note.authorEmail ?? t('customers.people.detail.notes.unknownAuthor', 'Unknown author')
+      return note.authorName ?? note.authorEmail ?? youLabel
     },
-    [t, viewerLabel, viewerUserId],
+    [viewerUserId, youLabel],
   )
 
-  const noteAppearanceLabels = React.useMemo(
+  const noteAppearanceLabels = React.useMemo<AppearanceSelectorLabels>(
     () => ({
       colorLabel: t('customers.people.detail.notes.appearance.colorLabel'),
       colorHelp: t('customers.people.detail.notes.appearance.colorHelp'),
@@ -704,8 +879,8 @@ export function NotesSection({
   )
 
   const composerAuthor = React.useMemo(
-    () => viewerLabel ?? t('customers.people.detail.notes.you'),
-    [t, viewerLabel],
+    () => youLabel,
+    [youLabel],
   )
   const composerHasAppearance = Boolean(draftIcon) || Boolean(draftColor)
   const appearanceDialogOpen = appearanceDialogState !== null
@@ -755,16 +930,18 @@ export function NotesSection({
                   <span className="sr-only">{t('customers.people.detail.notes.appearance.toggleOpen', 'Customize appearance')}</span>
                   <Palette className="h-4 w-4" />
                 </Button>
-                <Button
-                  type="button"
-                  variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
-                  size="icon"
-                  onClick={handleMarkdownToggle}
-                  aria-pressed={isMarkdownEnabled}
-                  disabled={isSubmitting || isLoading}
-                >
-                  <FileCode className="h-4 w-4" />
-                </Button>
+                {disableMarkdown ? null : (
+                  <Button
+                    type="button"
+                    variant={isMarkdownEnabled ? 'secondary' : 'ghost'}
+                    size="icon"
+                    onClick={handleMarkdownToggle}
+                    aria-pressed={isMarkdownEnabled}
+                    disabled={isSubmitting || isLoading}
+                  >
+                    <FileCode className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -834,14 +1011,14 @@ export function NotesSection({
                 ) : null}
               </div>
             ) : null}
-            {isMarkdownEnabled ? (
+            {isMarkdownEnabled && !disableMarkdown ? (
               <div className="w-full rounded-lg border border-muted-foreground/20 bg-background p-2">
                 <div data-color-mode="light" className="w-full">
                   <UiMarkdownEditor
                     value={draftBody}
                     height={220}
                     onChange={(value) => setDraftBody(typeof value === 'string' ? value : '')}
-                    previewOptions={{ remarkPlugins: [remarkGfm] }}
+                    previewOptions={{ remarkPlugins: markdownPlugins }}
                   />
                 </div>
               </div>
@@ -861,15 +1038,15 @@ export function NotesSection({
             {composerHasAppearance ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-muted-foreground/40 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
-                  {draftIcon ? (
+                  {draftIcon && renderIcon ? (
                     <span className="inline-flex h-7 w-7 items-center justify-center rounded border border-border bg-muted/40">
-                      {renderDictionaryIcon(draftIcon, 'h-4 w-4')}
+                      {renderIcon(draftIcon, 'h-4 w-4')}
                     </span>
                   ) : null}
                   <span className="font-semibold text-foreground">{composerAuthor}</span>
-                  {draftColor ? (
+                  {draftColor && renderColor ? (
                     <span className="flex items-center gap-2">
-                      {renderDictionaryColor(draftColor, 'h-3.5 w-3.5 rounded-full border border-border')}
+                      {renderColor(draftColor, 'h-3.5 w-3.5 rounded-full border border-border')}
                       <span className="text-xs font-medium uppercase text-muted-foreground">{draftColor}</span>
                     </span>
                   ) : null}
@@ -902,11 +1079,14 @@ export function NotesSection({
         ) : null}
       </div>
 
-      {loadError ? <p className="mt-3 text-xs text-red-600">{loadError}</p> : null}
+      {loadError ? <ErrorMessage label={loadError} className="mt-3" /> : null}
 
       <div className="space-y-3">
         {isLoading ? (
-          <LoadingMessage label={t('customers.people.detail.notes.loading', 'Loading notes…')} className="py-8" />
+          <LoadingMessage
+            label={t('customers.people.detail.notes.loading', 'Loading notes…')}
+            className="border-0 bg-transparent p-0 py-8 justify-center"
+          />
         ) : hasVisibleNotes ? (
           visibleNotes.map((note) => {
             const author = noteAuthorLabel(note)
@@ -926,18 +1106,20 @@ export function NotesSection({
                       fallbackTimestampLabel={fallbackTimestampLabel}
                       icon={displayIcon}
                       color={displayColor}
+                      renderIcon={renderIcon}
+                      renderColor={renderColor}
                     />
                     {note.dealId ? (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <ArrowUpRightSquare className="h-3.5 w-3.5" />
-                        <Link
+                        <a
                           href={`/backend/customers/deals/${encodeURIComponent(note.dealId)}`}
                           className="font-medium text-foreground hover:underline"
                         >
                           {note.dealTitle && note.dealTitle.length
                             ? note.dealTitle
                             : t('customers.people.detail.notes.linkedDeal', 'Linked deal')}
-                        </Link>
+                        </a>
                       </div>
                     ) : null}
                   </div>
@@ -994,7 +1176,7 @@ export function NotesSection({
                 </div>
                 {isEditingContent ? (
                   <div className="space-y-2" onKeyDown={handleContentEditorKeyDown}>
-                    {isMarkdownEnabled ? (
+                    {isMarkdownEnabled && !disableMarkdown ? (
                       <div className="w-full rounded-md border border-muted-foreground/20 bg-background p-2">
                         <div data-color-mode="light" className="w-full">
                           <UiMarkdownEditor
@@ -1003,7 +1185,7 @@ export function NotesSection({
                             onChange={(value) =>
                               setContentEditor((prev) => ({ ...prev, value: typeof value === 'string' ? value : '' }))
                             }
-                            previewOptions={{ remarkPlugins: [remarkGfm] }}
+                            previewOptions={{ remarkPlugins: markdownPlugins }}
                           />
                         </div>
                       </div>
@@ -1031,17 +1213,19 @@ export function NotesSection({
                           t('customers.people.detail.inline.saveShortcut')
                         )}
                       </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={handleMarkdownToggle}
-                        aria-pressed={isMarkdownEnabled}
-                        className={isMarkdownEnabled ? 'text-primary' : undefined}
-                        disabled={contentSavingId === note.id}
-                      >
-                        <FileCode className="h-4 w-4" />
-                      </Button>
+                      {disableMarkdown ? null : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleMarkdownToggle}
+                          aria-pressed={isMarkdownEnabled}
+                          className={isMarkdownEnabled ? 'text-primary' : undefined}
+                          disabled={contentSavingId === note.id}
+                        >
+                          <FileCode className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         size="sm"
@@ -1061,28 +1245,27 @@ export function NotesSection({
                     onClick={() => setContentEditor({ id: note.id, value: note.body })}
                     onKeyDown={(event) => handleContentKeyDown(event, note)}
                   >
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
+                    <MarkdownPreviewComponent
+                      remarkPlugins={markdownPlugins}
                       className="break-words text-foreground [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs"
                     >
                       {note.body}
-                    </ReactMarkdown>
+                    </MarkdownPreviewComponent>
                   </div>
                 )}
               </div>
             )
           })
-        ) : (
-          <div className="rounded-xl bg-background p-6">
-            <EmptyState
-              title={emptyState.title}
-              action={{
-                label: emptyState.actionLabel,
-                onClick: focusComposer,
-                disabled: isSubmitting || !hasEntity,
-              }}
-            />
-          </div>
+        ) : composerOpen ? null : (
+          <TabEmptyState
+            title={emptyState.title}
+            description={emptyState.description}
+            action={{
+              label: emptyState.actionLabel,
+              onClick: focusComposer,
+              disabled: isSubmitting || !hasEntity,
+            }}
+          />
         )}
         {isLoading || visibleCount >= notes.length ? null : (
           <div className="flex justify-center">
@@ -1102,7 +1285,7 @@ export function NotesSection({
         icon={appearanceDialogState?.icon ?? null}
         color={appearanceDialogState?.color ?? null}
         labels={noteAppearanceLabels}
-        iconSuggestions={ICON_SUGGESTIONS}
+        iconSuggestions={iconSuggestions}
         onIconChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, icon: value ?? null } : prev))}
         onColorChange={(value) => setAppearanceDialogState((prev) => (prev ? { ...prev, color: value ?? null } : prev))}
         onSubmit={() => {

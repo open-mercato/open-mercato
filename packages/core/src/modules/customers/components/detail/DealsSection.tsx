@@ -4,14 +4,14 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowUpRightSquare, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyState, Translator } from './types'
+import type { DealCustomFieldEntry, DealSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
@@ -300,7 +300,7 @@ export type DealsSectionProps = {
   scope: DealsScope | null
   addActionLabel: string
   emptyLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   translator?: Translator
@@ -325,7 +325,7 @@ export function DealsSection({
   const customFieldResources = useCustomFieldDisplay(E.customers.customer_deal)
 
   const [deals, setDeals] = React.useState<NormalizedDeal[]>([])
-  const [isLoading, setIsLoading] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(scope))
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [pendingAction, setPendingAction] = React.useState<PendingAction | null>(null)
   const [hasMore, setHasMore] = React.useState(false)
@@ -362,6 +362,9 @@ export function DealsSection({
       setDeals([])
       setLoadError(null)
       setHasMore(false)
+      setIsLoading(false)
+      pendingCounterRef.current = 0
+      onLoadingChange?.(false)
       pageRef.current = 0
       hasMoreRef.current = false
       return
@@ -784,18 +787,25 @@ export function DealsSection({
           {loadError}
         </div>
       ) : null}
-      {!isLoading && sortedDeals.length === 0 ? (
-        <EmptyState
-          title={emptyState.title}
-          action={{
-            label: emptyState.actionLabel,
-            onClick: openCreateDialog,
-            disabled: !scope || pendingAction !== null,
-          }}
+      {isLoading && sortedDeals.length === 0 ? (
+        <LoadingMessage
+          label={t('customers.people.detail.deals.loading', 'Loading deals…')}
+          className="border-0 bg-transparent p-0 py-8 justify-center"
         />
-      ) : null}
-      <div className="space-y-4">
-        {sortedDeals.map((deal) => {
+      ) : (
+        <>
+          {!isLoading && sortedDeals.length === 0 ? (
+            <TabEmptyState
+              title={emptyState.title}
+              action={{
+                label: emptyState.actionLabel,
+                onClick: openCreateDialog,
+                disabled: !scope || pendingAction !== null,
+              }}
+            />
+          ) : null}
+          <div className="space-y-4">
+            {sortedDeals.map((deal) => {
           const valueLabel = formatValueLabel(deal.valueAmount, deal.valueCurrency ?? null, emptyLabel)
           const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
           const probabilityLabel =
@@ -906,27 +916,32 @@ export function DealsSection({
               </div>
             </article>
           )
-        })}
-        {isLoading && deals.length > 0 ? (
-          <div className="flex justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            })}
+            {isLoading && deals.length > 0 ? (
+              <div className="flex justify-center">
+                <LoadingMessage
+                  label={t('customers.people.detail.deals.loading', 'Loading deals…')}
+                  className="border-0 bg-transparent p-0 justify-center [&_span[role='status']]:h-5 [&_span[role='status']]:w-5"
+                />
+              </div>
+            ) : null}
+            {!isLoading && hasMore ? (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    loadDeals({ append: true }).catch(() => {})
+                  }}
+                  disabled={pendingAction !== null || isLoading}
+                >
+                  {t('customers.people.detail.deals.loadMore', 'Load more deals')}
+                </Button>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        {!isLoading && hasMore ? (
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                loadDeals({ append: true }).catch(() => {})
-              }}
-              disabled={pendingAction !== null || isLoading}
-            >
-              {t('customers.people.detail.deals.loadMore', 'Load more deals')}
-            </Button>
-          </div>
-        ) : null}
-      </div>
+        </>
+      )}
 
       <DealDialog
         open={dialogOpen}

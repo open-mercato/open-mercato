@@ -116,6 +116,8 @@ const crud = makeCrudRoute({
       FV.is_active,
       FV.weight_value,
       FV.weight_unit,
+      'tax_rate_id',
+      'tax_rate',
       FV.dimensions,
       FV.metadata,
       FV.option_values,

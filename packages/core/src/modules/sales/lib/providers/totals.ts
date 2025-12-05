@@ -1,0 +1,372 @@
+import { registerSalesTotalsCalculator, rebuildDocumentResult } from '../calculations'
+import type { SalesAdjustmentDraft, SalesDocumentCalculationResult } from '../types'
+import {
+  getPaymentProvider,
+  getShippingProvider,
+  normalizeProviderSettings,
+} from './registry'
+import type {
+  PaymentMethodContext,
+  ProviderAdjustment,
+  ProviderAdjustmentResult,
+  ShippingMethodContext,
+  ShippingMetrics,
+} from './types'
+
+const SHIPPING_PREFIX = 'shipping-provider:'
+const PAYMENT_PREFIX = 'payment-provider:'
+
+let totalsRegistered = false
+
+function toNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
+    return Number(value)
+  }
+  return fallback
+}
+
+function isProviderAdjustment(adjustment: SalesAdjustmentDraft): boolean {
+  const key = adjustment.calculatorKey ?? ''
+  return typeof key === 'string' && (key.startsWith(SHIPPING_PREFIX) || key.startsWith(PAYMENT_PREFIX))
+}
+
+function isManualOverride(adjustment: SalesAdjustmentDraft): boolean {
+  const metadata = adjustment.metadata
+  if (!metadata || typeof metadata !== 'object') return false
+  const manual =
+    (metadata as Record<string, unknown>).manualOverride ??
+    (metadata as Record<string, unknown>).manual_override
+  return manual === true
+}
+
+function withoutPrefix(adjustments: SalesAdjustmentDraft[], prefix: string) {
+  return adjustments.filter((adj) => {
+    if (!(adj.calculatorKey ?? '').startsWith(prefix)) return true
+    return isManualOverride(adj)
+  })
+}
+
+function extractProviderSettings(
+  method: ShippingMethodContext | PaymentMethodContext | null | undefined
+): Record<string, unknown> | null {
+  if (!method) return null
+  if (method.providerSettings && typeof method.providerSettings === 'object') {
+    return method.providerSettings as Record<string, unknown>
+  }
+  if (method.metadata && typeof method.metadata === 'object') {
+    const meta = method.metadata as Record<string, unknown>
+    if (meta.providerSettings && typeof meta.providerSettings === 'object') {
+      return meta.providerSettings as Record<string, unknown>
+    }
+  }
+  return null
+}
+
+function computeMetrics(lines: SalesDocumentCalculationResult['lines']): ShippingMetrics {
+  let itemCount = 0
+  let totalWeight = 0
+  let totalVolume = 0
+  let subtotalNet = 0
+  let subtotalGross = 0
+
+  for (const entry of lines) {
+    const { line } = entry
+    const qty = toNumber(line.quantity, 0)
+    itemCount += qty
+    subtotalNet += toNumber(entry.netAmount, 0)
+    subtotalGross += toNumber(entry.grossAmount, 0)
+
+    const meta = (line.metadata ?? {}) as Record<string, unknown>
+    const configuration = (line.configuration ?? {}) as Record<string, unknown>
+    const weight =
+      toNumber((meta.weight as number | string | undefined) ?? (configuration.weight as number | string | undefined), 0) *
+      qty
+    const volume =
+      toNumber(
+        (meta.volume as number | string | undefined) ??
+          (configuration.volume as number | string | undefined),
+        0
+      ) * qty
+
+    totalWeight += weight
+    totalVolume += volume
+  }
+
+  return {
+    itemCount,
+    totalWeight,
+    totalVolume,
+    subtotalNet,
+    subtotalGross,
+  }
+}
+
+function normalizeAdjustments(params: {
+  providerKey: string
+  calculatorKey: string
+  adjustments: ProviderAdjustment[]
+  currencyCode: string
+  defaultKind: SalesAdjustmentDraft['kind']
+}) {
+  return params.adjustments.map<SalesAdjustmentDraft>((adj, index) => ({
+    scope: 'order',
+    kind: adj.kind ?? params.defaultKind,
+    code: adj.code ?? params.providerKey,
+    label: adj.label ?? params.providerKey,
+    calculatorKey: params.calculatorKey,
+    promotionId: null,
+    rate: null,
+    amountNet: toNumber(adj.amountNet, 0),
+    amountGross:
+      adj.amountGross === undefined || adj.amountGross === null
+        ? toNumber(adj.amountNet, 0)
+        : toNumber(adj.amountGross, 0),
+    currencyCode: (adj.currencyCode || params.currencyCode || '').toUpperCase() || params.currencyCode,
+    metadata: adj.metadata ?? null,
+    position: 10_000 + index,
+  }))
+}
+
+function mergeMetadata(
+  base: Record<string, unknown> | undefined,
+  key: string,
+  value: unknown
+): Record<string, unknown> {
+  const next = { ...(base ?? {}) }
+  next[key] = value
+  return next
+}
+
+function applyProviderResult(
+  current: SalesDocumentCalculationResult,
+  adjustments: SalesAdjustmentDraft[],
+  providerKey: string,
+  calculatorKey: string,
+  result: ProviderAdjustmentResult | null | undefined,
+  defaultKind: SalesAdjustmentDraft['kind']
+): SalesDocumentCalculationResult {
+  if (!result?.adjustments?.length) {
+    return rebuildDocumentResult({
+      documentKind: current.kind,
+      currencyCode: current.currencyCode,
+      lines: current.lines,
+      adjustments,
+      metadata: current.metadata,
+    })
+  }
+  const normalized = normalizeAdjustments({
+    providerKey,
+    calculatorKey,
+    adjustments: result.adjustments,
+    currencyCode: current.currencyCode,
+    defaultKind,
+  })
+  const nextAdjustments = [...adjustments, ...normalized]
+  const next = rebuildDocumentResult({
+    documentKind: current.kind,
+    currencyCode: current.currencyCode,
+    lines: current.lines,
+    adjustments: nextAdjustments,
+    metadata: current.metadata,
+  })
+  if (result.metadata) {
+    next.metadata = mergeMetadata(next.metadata, calculatorKey, result.metadata)
+  }
+  return next
+}
+
+export function ensureProviderTotalsCalculator() {
+  if (totalsRegistered) return
+  totalsRegistered = true
+
+  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus }) => {
+    const metadata = (context.metadata ?? {}) as Record<string, unknown>
+    const shippingMethod = (metadata.shippingMethod ?? null) as ShippingMethodContext | null
+    const paymentMethod = (metadata.paymentMethod ?? null) as PaymentMethodContext | null
+
+    let runningAdjustments = (current.adjustments ?? []).filter(
+      (adj) => !isProviderAdjustment(adj) || isManualOverride(adj)
+    )
+    let working = rebuildDocumentResult({
+      documentKind,
+      currencyCode: current.currencyCode,
+      lines,
+      adjustments: runningAdjustments,
+      metadata: current.metadata,
+    })
+
+    if (shippingMethod?.providerKey) {
+      const provider = getShippingProvider(shippingMethod.providerKey)
+      if (provider?.calculate) {
+        const calculatorKey = `${SHIPPING_PREFIX}${provider.key}`
+        const hasManualOverride = runningAdjustments.some(
+          (adj) => (adj.calculatorKey ?? '').startsWith(calculatorKey) && isManualOverride(adj)
+        )
+        if (hasManualOverride) {
+          // Respect user overrides: keep existing provider-tagged adjustments and skip regeneration.
+          working = rebuildDocumentResult({
+            documentKind,
+            currencyCode: working.currencyCode,
+            lines: working.lines,
+            adjustments: runningAdjustments,
+            metadata: working.metadata,
+          })
+        } else {
+          const rawSettings = extractProviderSettings(shippingMethod)
+          const settings =
+            normalizeProviderSettings('shipping', provider.key, rawSettings) ?? rawSettings ?? {}
+          const metrics = computeMetrics(working.lines)
+          let result = await provider.calculate({
+            method: shippingMethod,
+            settings,
+            document: working,
+            lines: working.lines,
+            context,
+            metrics,
+          })
+          if (eventBus) {
+            await eventBus.emitEvent('sales.shipping.adjustments.apply.before', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: shippingMethod,
+              settings,
+              document: working,
+              result,
+              setResult(next: ProviderAdjustmentResult | null | undefined) {
+                result = next ?? null
+              },
+            })
+          }
+          working = applyProviderResult(working, runningAdjustments, provider.key, calculatorKey, result, 'shipping')
+          runningAdjustments = working.adjustments
+          if (eventBus) {
+            let nextDocument = working
+            await eventBus.emitEvent('sales.shipping.adjustments.apply.after', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: shippingMethod,
+              settings,
+              document: nextDocument,
+              adjustments: nextDocument.adjustments.filter((adj) =>
+                (adj.calculatorKey ?? '').startsWith(calculatorKey)
+              ),
+              setDocument(next: SalesDocumentCalculationResult | null | undefined) {
+                if (next) {
+                  nextDocument = next
+                }
+              },
+              setAdjustments(next: SalesAdjustmentDraft[] | null | undefined) {
+                if (!next) return
+                const preserved = nextDocument.adjustments.filter(
+                  (adj) => !(adj.calculatorKey ?? '').startsWith(calculatorKey)
+                )
+                nextDocument = rebuildDocumentResult({
+                  documentKind,
+                  currencyCode: nextDocument.currencyCode,
+                  lines: nextDocument.lines,
+                  adjustments: [...preserved, ...next],
+                  metadata: nextDocument.metadata,
+                })
+              },
+            })
+            working = nextDocument
+            runningAdjustments = working.adjustments
+          }
+        }
+      }
+    }
+
+    if (paymentMethod?.providerKey) {
+      const provider = getPaymentProvider(paymentMethod.providerKey)
+      if (provider?.calculate) {
+        const calculatorKey = `${PAYMENT_PREFIX}${provider.key}`
+        const hasManualOverride = runningAdjustments.some(
+          (adj) => (adj.calculatorKey ?? '').startsWith(calculatorKey) && isManualOverride(adj)
+        )
+        if (hasManualOverride) {
+          working = rebuildDocumentResult({
+            documentKind,
+            currencyCode: working.currencyCode,
+            lines: working.lines,
+            adjustments: runningAdjustments,
+            metadata: working.metadata,
+          })
+        } else {
+          runningAdjustments = withoutPrefix(runningAdjustments, PAYMENT_PREFIX)
+          const rawSettings = extractProviderSettings(paymentMethod)
+          const settings =
+            normalizeProviderSettings('payment', provider.key, rawSettings) ?? rawSettings ?? {}
+          let result = await provider.calculate({
+            method: paymentMethod,
+            settings,
+            document: working,
+            lines: working.lines,
+            context,
+          })
+          if (eventBus) {
+            await eventBus.emitEvent('sales.payment.adjustments.apply.before', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: paymentMethod,
+              settings,
+              document: working,
+              result,
+              setResult(next: ProviderAdjustmentResult | null | undefined) {
+                result = next ?? null
+              },
+            })
+          }
+          working = applyProviderResult(
+            working,
+            runningAdjustments,
+            provider.key,
+            calculatorKey,
+            result,
+            'surcharge'
+          )
+          runningAdjustments = working.adjustments
+          if (eventBus) {
+            let nextDocument = working
+            await eventBus.emitEvent('sales.payment.adjustments.apply.after', {
+              documentKind,
+              providerKey: provider.key,
+              calculatorKey,
+              method: paymentMethod,
+              settings,
+              document: nextDocument,
+              adjustments: nextDocument.adjustments.filter((adj) =>
+                (adj.calculatorKey ?? '').startsWith(calculatorKey)
+              ),
+              setDocument(next: SalesDocumentCalculationResult | null | undefined) {
+                if (next) {
+                  nextDocument = next
+                }
+              },
+              setAdjustments(next: SalesAdjustmentDraft[] | null | undefined) {
+                if (!next) return
+                const preserved = nextDocument.adjustments.filter(
+                  (adj) => !(adj.calculatorKey ?? '').startsWith(calculatorKey)
+                )
+                nextDocument = rebuildDocumentResult({
+                  documentKind,
+                  currencyCode: nextDocument.currencyCode,
+                  lines: nextDocument.lines,
+                  adjustments: [...preserved, ...next],
+                  metadata: nextDocument.metadata,
+                })
+              },
+            })
+            working = nextDocument
+            runningAdjustments = working.adjustments
+          }
+        }
+      }
+    }
+
+    return working
+  })
+}

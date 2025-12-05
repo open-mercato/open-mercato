@@ -24,6 +24,8 @@ const saveSalesSettingsCommand: CommandHandler<
     quoteNumberFormat: string
     nextOrderNumber: number
     nextQuoteNumber: number
+    orderCustomerEditableStatuses: string[] | null
+    orderAddressEditableStatuses: string[] | null
   }
 > = {
   id: 'sales.settings.save',
@@ -47,11 +49,19 @@ const saveSalesSettingsCommand: CommandHandler<
         organizationId: input.organizationId,
         orderNumberFormat: orderFormat,
         quoteNumberFormat: quoteFormat,
+        orderCustomerEditableStatuses: input.orderCustomerEditableStatuses ?? null,
+        orderAddressEditableStatuses: input.orderAddressEditableStatuses ?? null,
       })
       em.persist(settings)
     } else {
       settings.orderNumberFormat = orderFormat
       settings.quoteNumberFormat = quoteFormat
+      if (input.orderCustomerEditableStatuses !== undefined) {
+        settings.orderCustomerEditableStatuses = input.orderCustomerEditableStatuses ?? null
+      }
+      if (input.orderAddressEditableStatuses !== undefined) {
+        settings.orderAddressEditableStatuses = input.orderAddressEditableStatuses ?? null
+      }
       settings.updatedAt = new Date()
     }
 
@@ -72,6 +82,8 @@ const saveSalesSettingsCommand: CommandHandler<
       quoteNumberFormat: settings.quoteNumberFormat,
       nextOrderNumber: sequences.order,
       nextQuoteNumber: sequences.quote,
+      orderCustomerEditableStatuses: settings.orderCustomerEditableStatuses ?? null,
+      orderAddressEditableStatuses: settings.orderAddressEditableStatuses ?? null,
     }
   },
 }

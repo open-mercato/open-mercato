@@ -7,6 +7,8 @@ import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle } from 'l
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Spinner } from '../primitives/spinner'
+import { TooltipProvider } from '../primitives/tooltip'
+import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
@@ -343,6 +345,47 @@ function normalizeLabel(input: string): string {
     .replace(/^cf[_:]/, '')
     .replace(/[_:\-]+/g, ' ')
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+// Column width configuration based on column type
+type ColumnTruncateConfig = {
+  maxWidth: string
+  truncate: boolean
+}
+
+function getColumnTruncateConfig(columnId: string, accessorKey?: string): ColumnTruncateConfig {
+  const key = accessorKey || columnId
+
+  // Custom fields get narrower width
+  if (key.startsWith('cf_') || key.startsWith('cf:')) {
+    return { maxWidth: '120px', truncate: true }
+  }
+
+  // Core informative columns get wider width
+  const wideColumns = ['title', 'name', 'description', 'source', 'companies', 'people']
+  if (wideColumns.includes(key)) {
+    return { maxWidth: '250px', truncate: true }
+  }
+
+  // Medium width for status-like columns
+  const mediumColumns = ['status', 'pipelineStage', 'pipeline_stage', 'type', 'category']
+  if (mediumColumns.includes(key)) {
+    return { maxWidth: '180px', truncate: true }
+  }
+
+  // Date columns
+  if (key.endsWith('_at') || key.endsWith('At') || key.includes('date') || key.includes('Date')) {
+    return { maxWidth: '120px', truncate: true }
+  }
+
+  // Default for other columns
+  return { maxWidth: '150px', truncate: true }
+}
+
+// Check if a column should skip truncation (e.g., actions column)
+function shouldSkipTruncation(columnId: string): boolean {
+  const skipColumns = ['actions', 'select', 'checkbox', 'expand']
+  return skipColumns.includes(columnId.toLowerCase())
 }
 
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
@@ -1402,6 +1445,7 @@ export function DataTable<T>({
   ) : <div className="min-h-[2.25rem]" />
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className={containerClassName}>
       {shouldRenderHeader && (
         <div className={headerWrapperClassName}>
@@ -1541,6 +1585,7 @@ export function DataTable<T>({
                       const priority = resolvePriority(cell.column)
                       const hasCustomCell = Boolean(cell.column.columnDef.cell)
                       const columnId = String((cell.column as any).id || '')
+                      const accessorKey = String((cell.column.columnDef as any)?.accessorKey || '')
                       const isDateCol = dateColumnIds ? dateColumnIds.has(columnId) : false
 
                       let content: React.ReactNode
@@ -1552,9 +1597,35 @@ export function DataTable<T>({
                         content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       }
 
+                      // Get truncation configuration for this column
+                      const skipTruncation = shouldSkipTruncation(columnId)
+                      const metaTruncate = columnMeta?.truncate
+                      const metaMaxWidth = columnMeta?.maxWidth
+                      const shouldTruncate = metaTruncate !== false && !skipTruncation
+
+                      // Get default config based on column type
+                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey)
+                      const maxWidth = metaMaxWidth || truncateConfig.maxWidth
+
+                      // Wrap content with TruncatedCell if truncation is enabled
+                      // Get raw cell value for tooltip - flexRender returns React elements
+                      // that cannot have their text extracted, so we pass the raw value directly
+                      // Check for custom tooltip content function in column meta for complex cells
+                      const cellValue = cell.getValue()
+                      const metaTooltipContent = columnMeta?.tooltipContent as ((row: unknown) => string | undefined) | undefined
+                      const tooltipText = metaTooltipContent
+                        ? metaTooltipContent(row.original)
+                        : (cellValue != null ? String(cellValue) : undefined)
+
+                      const wrappedContent = shouldTruncate ? (
+                        <TruncatedCell maxWidth={maxWidth} tooltipContent={tooltipText}>
+                          {content}
+                        </TruncatedCell>
+                      ) : content
+
                       return (
                         <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden)}>
-                          {content}
+                          {wrappedContent}
                         </TableCell>
                       )
                     })}
@@ -1601,5 +1672,6 @@ export function DataTable<T>({
         />
       ) : null}
     </div>
+    </TooltipProvider>
   )
 }

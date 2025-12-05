@@ -7,10 +7,12 @@ const mockEventBus = { emitEvent: jest.fn() }
 type Rec = { id: string; organizationId: string; tenantId: string; title?: string; isDone?: boolean; deletedAt?: Date | null }
 let db: Record<string, Rec>
 let idSeq = 1
+let commandBus: { execute: jest.Mock }
 
 const em = {
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
   persistAndFlush: async (entity: Rec) => { db[entity.id] = { ...(db[entity.id] || {} as any), ...entity } },
+  findOne: async (_entity: any, where: any) => (em.getRepository(_entity).findOne(where) as any),
   getRepository: (_cls: any) => ({
     find: async (where: any) => Object.values(db).filter((r) => {
       const orgClause = where.organizationId
@@ -91,6 +93,7 @@ jest.mock('@/lib/di/container', () => ({
       eventBus: mockEventBus,
       dataEngine: mockDataEngine,
       accessLogService,
+      commandBus,
     } as any)[name],
   })
 }))
@@ -118,6 +121,9 @@ describe('CRUD Factory', () => {
     jest.clearAllMocks()
     accessLogService.log.mockClear()
     mockDataEngine.__pendingSideEffects = []
+    commandBus = {
+      execute: jest.fn(async () => ({ result: {}, logEntry: { id: 'log-1' } })),
+    }
   })
 
   const querySchema = z.object({
@@ -295,5 +301,33 @@ describe('CRUD Factory', () => {
     expect(deletedArgs.identifiers.id).toBe(created.id)
     expect(deletedArgs.indexer?.entityType).toBe('example.todo')
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('DELETE command route uses domain-specific ids from result when emitting events', async () => {
+    const indexedId = 'line-999'
+    commandBus.execute.mockResolvedValue({
+      result: { lineId: indexedId, orderId: 'order-1' },
+      logEntry: { id: 'log-1' },
+    })
+    const commandRoute = makeCrudRoute({
+      metadata: { DELETE: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        delete: {
+          commandId: 'example.todo.delete',
+          schema: z.any(),
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+    const res = await commandRoute.DELETE(new Request('http://x/api/example/todos/command', { method: 'DELETE', body: JSON.stringify({}), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(200)
+    expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
+    expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
+    const [deletedArgs] = mockDataEngine.emitOrmEntityEvent.mock.calls[0]!
+    expect(deletedArgs.action).toBe('deleted')
+    expect(deletedArgs.identifiers.id).toBe(indexedId)
+    expect(deletedArgs.indexer?.entityType).toBe('example.todo')
   })
 })

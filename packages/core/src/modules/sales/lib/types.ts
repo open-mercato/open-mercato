@@ -28,6 +28,8 @@ export type SalesLineSnapshot = {
   configuration?: Record<string, unknown> | null
   promotionCode?: string | null
   metadata?: Record<string, unknown> | null
+  customFieldSetId?: string | null
+  customFields?: Record<string, unknown> | null
 }
 
 export type SalesAdjustmentDraft = {
@@ -43,6 +45,7 @@ export type SalesAdjustmentDraft = {
   amountGross?: number | null
   currencyCode?: string | null
   metadata?: Record<string, unknown> | null
+  customFields?: Record<string, unknown> | null
   position?: number | null
 }
 
@@ -92,6 +95,7 @@ export type SalesTotalsCalculationHook = (params: {
   existingAdjustments: SalesAdjustmentDraft[]
   context: SalesCalculationContext
   current: SalesDocumentCalculationResult
+  eventBus?: EventBus | null
 }) => SalesDocumentCalculationResult | Promise<SalesDocumentCalculationResult>
 
 export type SalesCalculationContext = {
@@ -114,5 +118,9 @@ export type CalculateDocumentOptions = {
   lines: SalesLineSnapshot[]
   adjustments?: SalesAdjustmentDraft[]
   context: SalesCalculationContext
+  existingTotals?: {
+    paidTotalAmount?: number | null
+    refundedTotalAmount?: number | null
+  }
   eventBus?: EventBus | null
 }

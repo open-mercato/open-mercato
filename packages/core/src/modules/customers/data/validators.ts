@@ -51,7 +51,7 @@ const personDetailsSchema = {
   timezone: z.string().trim().max(120).optional(),
   linkedInUrl: z.string().trim().url().max(300).optional(),
   twitterUrl: z.string().trim().url().max(300).optional(),
-  companyEntityId: uuid().optional(),
+  companyEntityId: uuid().nullable().optional(),
 }
 
 const personFirstNameSchema = z.string().trim().min(1).max(120)

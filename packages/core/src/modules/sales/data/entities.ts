@@ -10,10 +10,12 @@ import {
   Unique,
 } from '@mikro-orm/core'
 import { DEFAULT_ORDER_NUMBER_FORMAT, DEFAULT_QUOTE_NUMBER_FORMAT } from '../lib/documentNumberTokens'
+import type { ShipmentItemSnapshot } from '../lib/shipments/types'
 
 export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
-export type SalesAdjustmentKind = 'tax' | 'discount' | 'surcharge' | 'shipping' | 'custom'
+export const DEFAULT_SALES_ADJUSTMENT_KINDS = ['discount', 'tax', 'shipping', 'surcharge', 'custom'] as const
+export type SalesAdjustmentKind = (typeof DEFAULT_SALES_ADJUSTMENT_KINDS)[number] | string
 
 @Entity({ tableName: 'sales_channels' })
 @Index({ name: 'sales_channels_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
@@ -120,6 +122,9 @@ export class SalesShippingMethod {
 
   @Property({ name: 'carrier_code', type: 'text', nullable: true })
   carrierCode?: string | null
+
+  @Property({ name: 'provider_key', type: 'text', nullable: true })
+  providerKey?: string | null
 
   @Property({ name: 'service_level', type: 'text', nullable: true })
   serviceLevel?: string | null
@@ -457,6 +462,9 @@ export class SalesOrder {
   @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   grandTotalGrossAmount: string = '0'
 
+  @Property({ name: 'totals_snapshot', type: 'jsonb', nullable: true })
+  totalsSnapshot?: Record<string, unknown> | null
+
   @Property({ name: 'paid_total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   paidTotalAmount: string = '0'
 
@@ -537,6 +545,12 @@ export class SalesOrder {
 
   @OneToMany(() => SalesNote, (note) => note.order)
   notes = new Collection<SalesNote>(this)
+
+  @OneToMany(() => SalesDocumentAddress, (entry) => entry.order)
+  addresses = new Collection<SalesDocumentAddress>(this)
+
+  @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.order)
+  tagAssignments = new Collection<SalesDocumentTagAssignment>(this)
 }
 
 @Entity({ tableName: 'sales_order_lines' })
@@ -726,6 +740,9 @@ export class SalesOrderAdjustment {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_settings' })
@@ -748,11 +765,20 @@ export class SalesSettings {
   @Property({ name: 'quote_number_format', type: 'text', default: DEFAULT_QUOTE_NUMBER_FORMAT })
   quoteNumberFormat: string = DEFAULT_QUOTE_NUMBER_FORMAT
 
+  @Property({ name: 'order_customer_editable_statuses', type: 'jsonb', nullable: true })
+  orderCustomerEditableStatuses?: string[] | null
+
+  @Property({ name: 'order_address_editable_statuses', type: 'jsonb', nullable: true })
+  orderAddressEditableStatuses?: string[] | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'sales_document_sequences' })
@@ -802,6 +828,12 @@ export class SalesQuote {
   @Property({ name: 'quote_number', type: 'text' })
   quoteNumber!: string
 
+  @Property({ name: 'external_reference', type: 'text', nullable: true })
+  externalReference?: string | null
+
+  @Property({ name: 'customer_reference', type: 'text', nullable: true })
+  customerReference?: string | null
+
   @Property({ name: 'status_entry_id', type: 'uuid', nullable: true })
   statusEntryId?: string | null
 
@@ -837,6 +869,9 @@ export class SalesQuote {
 
   @Property({ name: 'valid_until', type: Date, nullable: true })
   validUntil?: Date | null
+
+  @Property({ name: 'placed_at', type: Date, nullable: true })
+  placedAt?: Date | null
 
   @Property({ name: 'comments', type: 'text', nullable: true })
   comments?: string | null
@@ -904,6 +939,9 @@ export class SalesQuote {
   @Property({ name: 'grand_total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   grandTotalGrossAmount: string = '0'
 
+  @Property({ name: 'totals_snapshot', type: 'jsonb', nullable: true })
+  totalsSnapshot?: Record<string, unknown> | null
+
   @Property({ name: 'line_item_count', type: 'integer', default: 0 })
   lineItemCount: number = 0
 
@@ -933,6 +971,12 @@ export class SalesQuote {
 
   @OneToMany(() => SalesNote, (note) => note.quote)
   notes = new Collection<SalesNote>(this)
+
+  @OneToMany(() => SalesDocumentAddress, (entry) => entry.quote)
+  addresses = new Collection<SalesDocumentAddress>(this)
+
+  @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.quote)
+  tagAssignments = new Collection<SalesDocumentTagAssignment>(this)
 }
 
 @Entity({ tableName: 'sales_quote_lines' })
@@ -1163,6 +1207,9 @@ export class SalesShipment {
 
   @Property({ name: 'metadata', type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
+
+  @Property({ name: 'items_snapshot', type: 'jsonb', nullable: true })
+  itemsSnapshot?: ShipmentItemSnapshot[] | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -1600,8 +1647,163 @@ export class SalesNote {
   @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
   authorUserId?: string | null
 
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
   @Property({ name: 'body', type: 'text' })
   body!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'sales_document_addresses' })
+@Index({ name: 'sales_document_addresses_scope_idx', properties: ['organizationId', 'tenantId'] })
+export class SalesDocumentAddress {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'document_id', type: 'uuid' })
+  documentId!: string
+
+  @Property({ name: 'document_kind', type: 'text' })
+  documentKind!: SalesDocumentKind
+
+  @Property({ name: 'customer_address_id', type: 'uuid', nullable: true })
+  customerAddressId?: string | null
+
+  @Property({ name: 'name', type: 'text', nullable: true })
+  name?: string | null
+
+  @Property({ name: 'purpose', type: 'text', nullable: true })
+  purpose?: string | null
+
+  @Property({ name: 'company_name', type: 'text', nullable: true })
+  companyName?: string | null
+
+  @Property({ name: 'address_line1', type: 'text' })
+  addressLine1!: string
+
+  @Property({ name: 'address_line2', type: 'text', nullable: true })
+  addressLine2?: string | null
+
+  @Property({ name: 'city', type: 'text', nullable: true })
+  city?: string | null
+
+  @Property({ name: 'region', type: 'text', nullable: true })
+  region?: string | null
+
+  @Property({ name: 'postal_code', type: 'text', nullable: true })
+  postalCode?: string | null
+
+  @Property({ name: 'country', type: 'text', nullable: true })
+  country?: string | null
+
+  @Property({ name: 'building_number', type: 'text', nullable: true })
+  buildingNumber?: string | null
+
+  @Property({ name: 'flat_number', type: 'text', nullable: true })
+  flatNumber?: string | null
+
+  @Property({ name: 'latitude', type: 'float', nullable: true })
+  latitude?: number | null
+
+  @Property({ name: 'longitude', type: 'float', nullable: true })
+  longitude?: number | null
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id', nullable: true })
+  order?: SalesOrder | null
+
+  @ManyToOne(() => SalesQuote, { fieldName: 'quote_id', nullable: true })
+  quote?: SalesQuote | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'sales_document_tags' })
+@Index({ name: 'sales_document_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'sales_document_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class SalesDocumentTag {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text', nullable: true })
+  color?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @OneToMany(() => SalesDocumentTagAssignment, (assignment) => assignment.tag)
+  assignments = new Collection<SalesDocumentTagAssignment>(this)
+}
+
+@Entity({ tableName: 'sales_document_tag_assignments' })
+@Index({ name: 'sales_document_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'sales_document_tag_assignments_unique',
+  properties: ['tag', 'documentId', 'documentKind'],
+})
+export class SalesDocumentTagAssignment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => SalesDocumentTag, { fieldName: 'tag_id' })
+  tag!: SalesDocumentTag
+
+  @Property({ name: 'document_id', type: 'uuid' })
+  documentId!: string
+
+  @Property({ name: 'document_kind', type: 'text' })
+  documentKind!: SalesDocumentKind
+
+  @ManyToOne(() => SalesOrder, { fieldName: 'order_id', nullable: true })
+  order?: SalesOrder | null
+
+  @ManyToOne(() => SalesQuote, { fieldName: 'quote_id', nullable: true })
+  quote?: SalesQuote | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

@@ -516,7 +516,11 @@ function generateExample(schema?: ZodTypeAny, ctx?: ExampleGenerationContext): u
         return def?.value ?? (Array.isArray(def?.values) ? def.values[0] : undefined)
       case 'ZodArray':
       case 'array': {
-        const child = generateExample(def?.type ?? def?.element, context)
+        const elementSchema =
+          def?.type && typeof def.type === 'object'
+            ? def.type
+            : (def?.element && typeof def.element === 'object' ? def.element : undefined)
+        const child = generateExample(elementSchema, context)
         return child === undefined ? [] : [child]
       }
       case 'ZodTuple':

@@ -682,7 +682,7 @@
   "customers.people.detail.tags.unassignError": "Tag konnte nicht entfernt werden.",
   "customers.people.detail.tags.success": "Tags aktualisiert.",
   "customers.people.detail.tags.error": "Tags konnten nicht aktualisiert werden.",
-  "customers.people.detail.tags.saveShortcut": "Speichern (⌘/Ctrl + Enter)",
+  "customers.people.detail.tags.saveShortcut": "Speichern ⌘⏎ / Ctrl+Enter",
   "customers.people.detail.tags.cancelShortcut": "Abbrechen (Esc)",
   "customers.people.detail.actions.manageTags": "Tags verwalten",
   "customers.people.detail.empty.tags": "Noch keine Tags",

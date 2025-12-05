@@ -4,6 +4,7 @@ import { CatalogPriceKind } from '@open-mercato/core/modules/catalog/data/entiti
 import { sanitizeSearchTerm, parseBooleanFlag } from '@open-mercato/core/modules/catalog/api/helpers'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_price_kind'
+import { createPagedListResponseSchema, createSalesCrudOpenApi } from '../openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['sales.channels.manage'] },
@@ -57,3 +58,20 @@ const crud = makeCrudRoute({
 })
 
 export const GET = crud.GET
+
+const priceKindSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string(),
+  title: z.string(),
+  currency_code: z.string().nullable().optional(),
+  display_mode: z.string(),
+  is_active: z.boolean(),
+})
+
+export const openApi = createSalesCrudOpenApi({
+  resourceName: 'Price kind',
+  pluralName: 'Price kinds',
+  description: 'Lists available price kinds that can be used when pricing sales channels and offers.',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(priceKindSchema),
+})

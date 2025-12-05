@@ -53,7 +53,7 @@ export function EmptyState({
           variant="outline"
           size="sm"
           onClick={resolvedAction.onClick}
-          className={cn('mt-4 inline-flex items-center gap-2', actionLabelClassName)}
+          className={cn('mt-4 inline-flex items-center gap-2 text-foreground', actionLabelClassName)}
           disabled={resolvedAction.disabled}
         >
           {(resolvedAction.icon ?? <Plus className="h-4 w-4" aria-hidden />)}

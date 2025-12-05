@@ -17,6 +17,7 @@ import { CATALOG_PRODUCT_TYPES } from '../../data/types'
 import type { CatalogProductType } from '../../data/types'
 import { productCreateSchema, productUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_product'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
@@ -523,6 +524,9 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: {
+    entityType: E.catalog.catalog_product,
+  },
   list: {
     schema: listSchema,
     entityId: E.catalog.catalog_product,
@@ -533,6 +537,8 @@ const crud = makeCrudRoute({
       F.description,
       F.sku,
       F.handle,
+      'tax_rate_id',
+      'tax_rate',
       F.product_type,
       F.status_entry_id,
       F.primary_currency_code,
@@ -550,6 +556,7 @@ const crud = makeCrudRoute({
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: { entityIds: [E.catalog.catalog_product] },
     sortFieldMap: {
       title: F.title,
       sku: F.sku,
@@ -578,7 +585,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(productCreateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(productCreateSchema, raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(parsed)
+        return Object.keys(custom).length ? { ...base, customFields: custom } : base
       },
       response: ({ result }) => ({ id: result?.productId ?? result?.id ?? null }),
       status: 201,
@@ -588,7 +597,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(productUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(productUpdateSchema, raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(parsed)
+        return Object.keys(custom).length ? { ...base, customFields: custom } : base
       },
       response: () => ({ ok: true }),
     },

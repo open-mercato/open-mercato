@@ -23,6 +23,60 @@ function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1e4) / 1e4
 }
 
+function extractAdjustmentTaxRate(adjustment: SalesAdjustmentDraft): number | null {
+  const metadata = (adjustment.metadata ?? {}) as Record<string, unknown>
+  const candidate =
+    metadata.taxRate ??
+    (metadata as any)?.tax_rate ??
+    (metadata as any)?.taxRateValue ??
+    (metadata as any)?.tax_rate_value ??
+    null
+  const parsed = toNumber(candidate, NaN)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function resolveAdjustmentAmounts(
+  adjustments: SalesAdjustmentDraft[],
+  baseNet: number,
+  baseGross: number
+): SalesAdjustmentDraft[] {
+  return adjustments.map((adj) => {
+    const rate = toNumber(adj.rate, NaN)
+    const taxRate = extractAdjustmentTaxRate(adj)
+    const hasAmountNet = Number.isFinite(toNumber(adj.amountNet, NaN))
+    const hasAmountGross = Number.isFinite(toNumber(adj.amountGross, NaN))
+    const hasRate = Number.isFinite(rate) && !hasAmountNet && !hasAmountGross
+    const hasTaxRate = taxRate !== null
+    let amountNet = toNumber(adj.amountNet, NaN)
+    let amountGross = toNumber(adj.amountGross, NaN)
+
+    if (hasRate) {
+      const multiplier = (rate as number) / 100
+      amountNet = round(Math.max(baseNet, 0) * multiplier)
+      if (adj.kind === 'tax') {
+        amountGross = amountNet
+      } else if (hasTaxRate) {
+        amountGross = round(amountNet * (1 + (taxRate as number) / 100))
+      } else {
+        amountGross = round(Math.max(baseGross, 0) * multiplier)
+      }
+    } else {
+      if (!Number.isFinite(amountNet) && Number.isFinite(amountGross) && hasTaxRate) {
+        amountNet = round((amountGross as number) / (1 + (taxRate as number) / 100))
+      }
+      if (!Number.isFinite(amountGross) && Number.isFinite(amountNet) && hasTaxRate) {
+        amountGross = round((amountNet as number) * (1 + (taxRate as number) / 100))
+      }
+    }
+
+    return {
+      ...adj,
+      amountNet: Number.isFinite(amountNet) ? amountNet : adj.amountNet,
+      amountGross: Number.isFinite(amountGross) ? amountGross : adj.amountGross,
+    }
+  })
+}
+
 function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResult {
   const quantity = Math.max(toNumber(line.quantity, 0), 0)
   const taxRate = toNumber(line.taxRate, 0) / 100
@@ -64,8 +118,14 @@ function buildBaseDocumentResult(params: {
   lines: SalesLineCalculationResult[]
   adjustments: SalesAdjustmentDraft[]
   currencyCode: string
+  existingTotals?: { paidTotalAmount?: number | null; refundedTotalAmount?: number | null }
 }): SalesDocumentCalculationResult {
   const { documentKind, lines, adjustments, currencyCode } = params
+  const orderedAdjustments = [...(adjustments ?? [])].sort(
+    (a, b) => (a.position ?? 0) - (b.position ?? 0)
+  )
+  let baseSubtotalNet = 0
+  let baseSubtotalGross = 0
   let subtotalNet = 0
   let subtotalGross = 0
   let discountTotal = 0
@@ -75,24 +135,34 @@ function buildBaseDocumentResult(params: {
   let surchargeTotal = 0
 
   for (const line of lines) {
-    subtotalNet += toNumber(line.netAmount, 0)
-    subtotalGross += toNumber(line.grossAmount, 0)
+    const net = toNumber(line.netAmount, 0)
+    const gross = toNumber(line.grossAmount, 0)
+    subtotalNet += net
+    subtotalGross += gross
+    baseSubtotalNet += net
+    baseSubtotalGross += gross
     discountTotal += toNumber(line.discountAmount, 0)
     taxTotal += toNumber(line.taxAmount, 0)
   }
 
-  const scopedAdjustments = (adjustments ?? []).filter(
+  const resolvedAdjustments = resolveAdjustmentAmounts(orderedAdjustments, baseSubtotalNet, baseSubtotalGross)
+  const scopedAdjustments = resolvedAdjustments.filter(
     (adj) => !adj.scope || adj.scope === 'order'
   )
 
   for (const adj of scopedAdjustments) {
     const net = toNumber(adj.amountNet, toNumber(adj.amountGross))
     const gross = toNumber(adj.amountGross, net)
+    const taxRate = extractAdjustmentTaxRate(adj)
+    const taxPortion = taxRate !== null ? round(gross - net) : 0
     switch (adj.kind) {
       case 'discount':
         discountTotal += Math.abs(net)
         subtotalNet = Math.max(subtotalNet - net, 0)
         subtotalGross = Math.max(subtotalGross - gross, 0)
+        if (taxPortion) {
+          taxTotal = round(taxTotal - taxPortion)
+        }
         break
       case 'tax':
         taxTotal += gross || net
@@ -103,11 +173,17 @@ function buildBaseDocumentResult(params: {
         shippingGross += gross
         subtotalNet += net
         subtotalGross += gross
+        if (taxPortion) {
+          taxTotal += taxPortion
+        }
         break
       case 'surcharge':
         surchargeTotal += net || gross
         subtotalNet += net || gross
         subtotalGross += gross || net
+        if (taxPortion) {
+          taxTotal += taxPortion
+        }
         break
       default:
         break
@@ -116,12 +192,15 @@ function buildBaseDocumentResult(params: {
 
   const grandTotalNet = round(subtotalNet)
   const grandTotalGross = round(subtotalGross)
+  const paidTotalAmount = Math.max(toNumber(params.existingTotals?.paidTotalAmount, 0), 0)
+  const refundedTotalAmount = Math.max(toNumber(params.existingTotals?.refundedTotalAmount, 0), 0)
+  const outstandingAmount = Math.max(grandTotalGross - paidTotalAmount + refundedTotalAmount, 0)
 
   return {
     kind: documentKind,
     currencyCode,
     lines,
-    adjustments,
+    adjustments: resolvedAdjustments,
     metadata: {},
     totals: {
       subtotalNetAmount: round(subtotalNet),
@@ -133,9 +212,9 @@ function buildBaseDocumentResult(params: {
       surchargeTotalAmount: round(surchargeTotal),
       grandTotalNetAmount: grandTotalNet,
       grandTotalGrossAmount: grandTotalGross,
-      paidTotalAmount: 0,
-      refundedTotalAmount: 0,
-      outstandingAmount: grandTotalGross,
+      paidTotalAmount,
+      refundedTotalAmount,
+      outstandingAmount,
     },
   }
 }
@@ -197,7 +276,7 @@ class SalesCalculationRegistry {
   }
 
   async calculateDocument(opts: CalculateDocumentOptions): Promise<SalesDocumentCalculationResult> {
-    const { documentKind, lines, adjustments = [], context, eventBus } = opts
+    const { documentKind, lines, adjustments = [], context, eventBus, existingTotals } = opts
     const resolvedLines: SalesLineCalculationResult[] = []
 
     for (const line of lines) {
@@ -210,6 +289,7 @@ class SalesCalculationRegistry {
       lines: resolvedLines,
       adjustments,
       currencyCode: context.currencyCode,
+      existingTotals,
     })
 
     if (eventBus) {
@@ -232,6 +312,7 @@ class SalesCalculationRegistry {
         existingAdjustments: adjustments,
         context,
         current,
+        eventBus,
       })
       if (next) current = next
     }
@@ -283,4 +364,21 @@ export function registerSalesTotalsCalculator(
   opts?: { prepend?: boolean }
 ): () => void {
   return salesCalculations.registerTotalsCalculator(hook, opts)
+}
+
+export function rebuildDocumentResult(params: {
+  documentKind: SalesDocumentKind
+  currencyCode: string
+  lines: SalesLineCalculationResult[]
+  adjustments: SalesAdjustmentDraft[]
+  metadata?: Record<string, unknown>
+}): SalesDocumentCalculationResult {
+  const result = buildBaseDocumentResult({
+    documentKind: params.documentKind,
+    lines: params.lines,
+    adjustments: params.adjustments,
+    currencyCode: params.currencyCode,
+  })
+  result.metadata = params.metadata ?? {}
+  return result
 }

@@ -31,6 +31,7 @@
   "ui.forms.confirmDelete": "Delete this record? This action cannot be undone.",
   "ui.forms.flash.deleteSuccess": "Record deleted",
   "ui.forms.flash.deleteError": "Failed to delete record",
+  "ui.forms.flash.saveSuccess": "Saved successfully.",
   "ui.forms.flash.saveError": "Save failed",
   "catalog.products.edit.offers.deleteError": "Failed to remove sales channel offer.",
   "ui.forms.errors.required": "This field is required",
@@ -333,6 +334,14 @@
   "upgrades.v034.cta": "Install example catalog products and categories",
   "upgrades.v034.loading": "Installing…",
   "upgrades.v034.success": "Example catalog products and categories installed.",
+  "upgrades.v036.message": "Version {{version}} has been installed. To try the new sales module, run \"Install example sales quotes and orders\".",
+  "upgrades.v036.cta": "Install example sales quotes and orders",
+  "upgrades.v036.loading": "Installing…",
+  "upgrades.v036.success": "Example sales quotes and orders installed.",
+  "upgrades.v035.message": "Version {{version}} has been installed. Grant the admin role access to Business Rules.",
+  "upgrades.v035.cta": "Grant Business Rules access to admin",
+  "upgrades.v035.loading": "Updating role…",
+  "upgrades.v035.success": "Admin role updated with Business Rules access.",
   "upgrades.runFailed": "We could not run this upgrade action.",
   "upgrades.loading": "Loading upgrade…"
 }

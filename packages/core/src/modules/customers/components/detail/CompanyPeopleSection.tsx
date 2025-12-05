@@ -7,7 +7,7 @@ import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import type { SectionAction, TabEmptyState, Translator } from './types'
+import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate } from './utils'
@@ -30,7 +30,7 @@ export type CompanyPeopleSectionProps = {
   initialPeople: CompanyPersonSummary[]
   addActionLabel: string
   emptyLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onPeopleChange?: (next: CompanyPersonSummary[]) => void
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
