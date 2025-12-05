@@ -1398,7 +1398,7 @@ export class HybridQueryEngine implements QueryEngine {
   private async resolveCoverageGap(
     entity: string,
     opts: QueryOptions,
-    coverageScope?: { tenantId: string | null; organizationId: string | null },
+    coverageScope?: { tenantId: string | null; organizationId: string | null } | null,
     _sourceTable?: string
   ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
     const scope = coverageScope ?? this.resolveCoverageSnapshotScope(opts)
@@ -1427,7 +1427,7 @@ export class HybridQueryEngine implements QueryEngine {
   private async indexCoverageStats(
     entity: string,
     opts: QueryOptions,
-    coverageScope?: { tenantId: string | null; organizationId: string | null },
+    coverageScope?: { tenantId: string | null; organizationId: string | null } | null,
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
     const gap = await this.resolveCoverageGap(entity, opts, coverageScope)
     return gap?.stats ?? null
