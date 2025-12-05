@@ -32,6 +32,8 @@ import {
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 
 export type PaymentAllocationSnapshot = {
   id: string
@@ -746,6 +748,24 @@ const deletePaymentCommand: CommandHandler<
       }
       await em.flush()
       await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+    }
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    if (allocations.length) {
+      await Promise.all(
+        allocations.map((allocation) =>
+          emitCrudSideEffects({
+            dataEngine,
+            action: 'deleted',
+            entity: allocation,
+            identifiers: {
+              id: allocation.id,
+              organizationId: allocation.organizationId ?? null,
+              tenantId: allocation.tenantId ?? null,
+            },
+            indexer: { entityType: E.sales.sales_payment_allocation },
+          })
+        )
+      )
     }
     return { paymentId: payment.id, orderTotals: totals }
   },

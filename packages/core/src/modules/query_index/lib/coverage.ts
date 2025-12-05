@@ -382,11 +382,12 @@ export function createCoverageAdjustments(input: CoverageDeltaInput): CoverageAd
   if (baseDelta === 0 && indexDelta === 0 && vectorDelta === 0) return []
   const withDeleted = input.withDeleted === true
   const tenantId = input.tenantId ?? null
+  const organizationId = input.organizationId ?? null
   return [
     {
       entityType,
       tenantId,
-      organizationId: null,
+      organizationId,
       withDeleted,
       deltaBase: baseDelta,
       deltaIndex: indexDelta,

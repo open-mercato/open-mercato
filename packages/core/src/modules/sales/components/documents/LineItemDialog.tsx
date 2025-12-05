@@ -944,9 +944,27 @@ export function LineItemDialog({
                     }
                   }}
                   fetchItems={loadProductOptions}
+                  options={
+                    productOption
+                      ? [
+                          {
+                            id: productOption.id,
+                            title: productOption.title || productOption.id,
+                            subtitle: productOption.sku ?? undefined,
+                            icon: productOption.thumbnailUrl
+                              ? <img src={productOption.thumbnailUrl} alt={productOption.title ?? productOption.id} className="h-8 w-8 rounded object-cover" />
+                              : buildPlaceholder(productOption.title || productOption.id),
+                          },
+                        ]
+                      : undefined
+                  }
                   minQuery={1}
                   searchPlaceholder={t('sales.documents.items.productSearch', 'Search product')}
-                  selectedHintLabel={(id) => t('sales.documents.items.selectedProduct', 'Selected {{id}}', { id })}
+                  selectedHintLabel={(id) =>
+                    t('sales.documents.items.selectedProduct', 'Selected {{id}}', {
+                      id: productOption?.title ?? id,
+                    })
+                  }
                 />
               ),
             } satisfies CrudField,
@@ -1016,6 +1034,31 @@ export function LineItemDialog({
                     }}
                     searchPlaceholder={t('sales.documents.items.variantSearch', 'Search variant')}
                     minQuery={0}
+                    options={
+                      variantOption
+                        ? [
+                            {
+                              id: variantOption.id,
+                              title: variantOption.title || variantOption.id,
+                              subtitle: variantOption.sku ?? undefined,
+                              icon: variantOption.thumbnailUrl ? (
+                                <img
+                                  src={variantOption.thumbnailUrl}
+                                  alt={variantOption.title ?? variantOption.id}
+                                  className="h-8 w-8 rounded object-cover"
+                                />
+                              ) : (
+                                buildPlaceholder(variantOption.title || variantOption.id)
+                              ),
+                            },
+                          ]
+                        : undefined
+                    }
+                    selectedHintLabel={(id) =>
+                      t('sales.documents.items.selectedVariant', 'Selected {{id}}', {
+                        id: variantOption?.title ?? id,
+                      })
+                    }
                     disabled={!productId}
                   />
                 )
@@ -1257,6 +1300,15 @@ export function LineItemDialog({
     setEditingId(initialLine.id)
     const nextForm = defaultForm(initialLine.currencyCode ?? currencyCode)
     const meta = initialLine.metadata ?? {}
+    const snapshot = (initialLine.catalogSnapshot as Record<string, unknown> | null | undefined) ?? null
+    const snapshotProduct =
+      snapshot && typeof snapshot === 'object' && typeof (snapshot as any).product === 'object' && (snapshot as any).product
+        ? ((snapshot as any).product as Record<string, unknown>)
+        : null
+    const snapshotVariant =
+      snapshot && typeof snapshot === 'object' && typeof (snapshot as any).variant === 'object' && (snapshot as any).variant
+        ? ((snapshot as any).variant as Record<string, unknown>)
+        : null
     const metaLineMode =
       typeof (meta as any)?.lineMode === 'string' && ((meta as any).lineMode === 'custom' || (meta as any).lineMode === 'catalog')
         ? ((meta as any).lineMode as 'custom' | 'catalog')
@@ -1274,7 +1326,7 @@ export function LineItemDialog({
     nextForm.priceMode = resolvedPriceMode
     nextForm.taxRate = Number.isFinite(initialLine.taxRate) ? initialLine.taxRate : null
     nextForm.name = initialLine.name ?? ''
-    nextForm.catalogSnapshot = initialLine.catalogSnapshot ?? null
+    nextForm.catalogSnapshot = snapshot ?? null
     nextForm.customFieldSetId = initialLine.customFieldSetId ?? null
     nextForm.statusEntryId = initialLine.statusEntryId ?? null
     nextForm.lineMode =
@@ -1294,6 +1346,8 @@ export function LineItemDialog({
         nextForm.taxRate = numericRate
       }
     }
+    let resolvedProductOption: ProductOption | null = null
+    let resolvedVariantOption: VariantOption | null = null
     if (typeof meta === 'object' && meta) {
       const mode = (meta as any).priceMode
       if (mode === 'net' || mode === 'gross') {
@@ -1310,7 +1364,7 @@ export function LineItemDialog({
       if (productTitle && initialLine.productId) {
         const option = { id: initialLine.productId, title: productTitle, sku: productSku, thumbnailUrl: productThumbnail }
         productOptionsRef.current.set(initialLine.productId, option)
-        setProductOption(option)
+        resolvedProductOption = option
       }
       const variantTitle = typeof (meta as any).variantTitle === 'string' ? (meta as any).variantTitle : null
       const variantSku = typeof (meta as any).variantSku === 'string' ? (meta as any).variantSku : null
@@ -1324,9 +1378,65 @@ export function LineItemDialog({
           thumbnailUrl: variantThumb ?? null,
         }
         variantOptionsRef.current.set(initialLine.productVariantId, option)
-        setVariantOption(option)
+        resolvedVariantOption = option
       }
     }
+    if (!resolvedProductOption && initialLine.productId && snapshotProduct) {
+      const snapshotTitle =
+        typeof (snapshotProduct as any).title === 'string' && (snapshotProduct as any).title.trim().length
+          ? (snapshotProduct as any).title
+          : initialLine.name ?? initialLine.productId
+      const snapshotSku =
+        typeof (snapshotProduct as any).sku === 'string' && (snapshotProduct as any).sku.trim().length
+          ? (snapshotProduct as any).sku
+          : null
+      const snapshotThumb =
+        typeof (snapshotProduct as any).thumbnailUrl === 'string'
+          ? (snapshotProduct as any).thumbnailUrl
+          : typeof (snapshotProduct as any).thumbnail_url === 'string'
+            ? (snapshotProduct as any).thumbnail_url
+            : null
+      const snapshotTaxRate = normalizeNumber((snapshotProduct as any).taxRate, Number.NaN)
+      const option = {
+        id: initialLine.productId,
+        title: snapshotTitle,
+        sku: snapshotSku,
+        thumbnailUrl: snapshotThumb,
+        taxRateId: typeof (snapshotProduct as any).taxRateId === 'string' ? (snapshotProduct as any).taxRateId : null,
+        taxRate: Number.isFinite(snapshotTaxRate) ? snapshotTaxRate : null,
+      }
+      productOptionsRef.current.set(initialLine.productId, option)
+      resolvedProductOption = option
+    }
+    if (!resolvedVariantOption && initialLine.productVariantId && snapshotVariant) {
+      const snapshotTitle =
+        typeof (snapshotVariant as any).title === 'string' && (snapshotVariant as any).title.trim().length
+          ? (snapshotVariant as any).title
+          : initialLine.name ?? initialLine.productVariantId
+      const snapshotSku =
+        typeof (snapshotVariant as any).sku === 'string' && (snapshotVariant as any).sku.trim().length
+          ? (snapshotVariant as any).sku
+          : null
+      const snapshotThumb =
+        typeof (snapshotVariant as any).thumbnailUrl === 'string'
+          ? (snapshotVariant as any).thumbnailUrl
+          : typeof (snapshotVariant as any).thumbnail_url === 'string'
+            ? (snapshotVariant as any).thumbnail_url
+            : resolvedProductOption?.thumbnailUrl ?? productOptionsRef.current.get(initialLine.productId ?? '')?.thumbnailUrl ?? null
+      const snapshotTaxRate = normalizeNumber((snapshotVariant as any).taxRate, Number.NaN)
+      const option = {
+        id: initialLine.productVariantId,
+        title: snapshotTitle,
+        sku: snapshotSku,
+        thumbnailUrl: snapshotThumb,
+        taxRateId: typeof (snapshotVariant as any).taxRateId === 'string' ? (snapshotVariant as any).taxRateId : null,
+        taxRate: Number.isFinite(snapshotTaxRate) ? snapshotTaxRate : null,
+      }
+      variantOptionsRef.current.set(initialLine.productVariantId, option)
+      resolvedVariantOption = option
+    }
+    if (resolvedProductOption) setProductOption(resolvedProductOption)
+    if (resolvedVariantOption) setVariantOption(resolvedVariantOption)
     const customValues = extractCustomFieldValues(initialLine as Record<string, unknown>)
     const merged = { ...nextForm, ...customValues }
     setInitialValues(merged)

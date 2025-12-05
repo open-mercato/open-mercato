@@ -78,7 +78,8 @@ export function LookupSelect({
     if (onReady) onReady({ setQuery })
   }, [onReady, setQuery])
 
-  const shouldSearch = defaultOpen || query.trim().length >= minQuery
+  const shouldSearch =
+    defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)
   React.useEffect(() => {
     if (disabled) {
       setItems(options ?? [])

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   buildChanges,
   requireId,
@@ -50,6 +50,7 @@ import {
   extractUndoPayload,
   requireOptionSchemaTemplate,
   resolveOptionSchemaCode,
+  emitCatalogQueryIndexEvent,
   randomSuffix,
   toNumericString,
 } from './shared'
@@ -776,8 +777,9 @@ async function deleteProductVariantsAndRelatedData(opts: {
   em: EntityManager
   product: CatalogProduct
   dataEngine: DataEngine
+  ctx: CommandRuntimeContext
 }): Promise<void> {
-  const { em, product, dataEngine } = opts
+  const { em, product, dataEngine, ctx } = opts
   const variants = await em.find(CatalogProductVariant, { product })
   if (!variants.length) return
   const cleanupEntries: VariantCleanupSnapshot[] = await Promise.all(
@@ -815,6 +817,15 @@ async function deleteProductVariantsAndRelatedData(opts: {
       organizationId: cleanup.organizationId,
       tenantId: cleanup.tenantId,
       values: resetValues,
+    })
+  }
+  for (const cleanup of cleanupEntries) {
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: cleanup.id,
+      organizationId: cleanup.organizationId,
+      tenantId: cleanup.tenantId,
+      action: 'deleted',
     })
   }
 }
@@ -1358,7 +1369,7 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await deleteProductVariantsAndRelatedData({ em, product: record, dataEngine })
+    await deleteProductVariantsAndRelatedData({ em, product: record, dataEngine, ctx })
     await em.nativeDelete(CatalogProductPrice, { product: record.id })
     const templateToRemove = await resolveOptionSchemaTemplateForRemoval(em, record)
     if (templateToRemove) {

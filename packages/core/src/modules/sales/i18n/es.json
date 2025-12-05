@@ -1366,6 +1366,8 @@
       }
     }
   },
+  "sales.order-statuses": {},
+  "sales.order-line-statuses": {},
   "sales.order-statuses.create": "Agregar estado de pedido",
   "sales.order-statuses.update": "Actualizar estado de pedido",
   "sales.order-statuses.delete": "Eliminar estado de pedido",
@@ -1388,6 +1390,7 @@
   "sales.orders.create": "Crear pedido de ventas",
   "sales.orders.update": "Actualizar pedido de ventas",
   "sales.orders.delete": "Eliminar pedido de ventas",
+  "sales.orders.lines.upsert": "Actualizar línea de pedido",
   "sales.orders.lines.delete": "Eliminar línea de pedido",
   "sales.orders.adjustments.upsert": "Actualizar ajuste de pedido",
   "sales.orders.adjustments.delete": "Eliminar ajuste de pedido",
