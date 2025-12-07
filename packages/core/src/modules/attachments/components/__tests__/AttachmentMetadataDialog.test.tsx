@@ -25,8 +25,10 @@ jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   DialogTitle: ({ children }: any) => <div>{children}</div>,
 }))
 
+const translate = (_key: string, fallback?: string) => fallback ?? ''
+
 jest.mock('@/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? '',
+  useT: () => translate,
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
