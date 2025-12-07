@@ -21,6 +21,22 @@ export RECORD_ID="<entity record id you want to attach files to>"
 - Required features: `attachments.view` for read-only endpoints, `attachments.manage` for uploads, updates, transfers, partitions, and deletes.
 - Custom fields can be written with either `cf_<slug>` keys or a `customFields` object. Multipart uploads accept a JSON string for `customFields`.
 
+## OCR / text extraction (markitdown)
+
+Prerequisite: the `markitdown` CLI must be on `PATH`. Easiest install:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh           # install uv
+uv tool install markitdown                               # install the CLI
+markitdown --help                                        # verify it works
+```
+
+How it works:
+
+- Non-image files (text, PDF, Office, Outlook) are passed to `markitdown` after upload if the partition opts in.
+- The extracted text is stored on the attachment record and shown in the metadata dialog; empty output is ignored.
+- The default opt-in is controlled by `OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false`. Each partition also has a `requires_ocr` flag; disable it to skip extraction for that partition.
+
 ## Attachments per record
 
 ### List attachments — `GET /attachments?entityId=<id>&recordId=<id>`
