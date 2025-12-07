@@ -35,7 +35,7 @@ export function LastOperationBanner() {
         const message =
           (call.result && typeof call.result.error === 'string' && call.result.error) ||
           ''
-        throw new Error(message || 'Failed to undo')
+        throw new Error(message || t('audit_logs.banner.undo_failed', 'Failed to undo'))
       }
       markUndoSuccess(undoToken)
       flash(t('audit_logs.banner.undo_success'), 'success')

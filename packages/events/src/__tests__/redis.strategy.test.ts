@@ -1,37 +1,43 @@
 jest.mock('ioredis', () => {
-  const MockRedis = class { 
-    constructor() {
-      this.status = 'ready'
-    }
+  const MockRedis = class {
     status = 'ready'
-    async connect(){ 
-      this.status = 'ready'
-      return this
-    } 
-    async incr(){ return 1 } 
-    async zAdd(){ return 1 } 
-    async zRangeByScore(){ return [] } 
-    async set(){} 
-    async get(){ return '0' } 
-    async zRemRangeByScore(){ return 0 } 
+    connect = jest.fn(async () => this)
+    incr = jest.fn(async () => 1)
+    zAdd = jest.fn(async () => 1)
+    zadd = jest.fn(async () => 1)
+    zRangeByScore = jest.fn(async () => [])
+    zrangebyscore = jest.fn(async () => [])
+    set = jest.fn(async () => undefined)
+    get = jest.fn(async () => '0')
+    zRemRangeByScore = jest.fn(async () => 0)
+    zremrangebyscore = jest.fn(async () => 0)
   }
-  
+
   return {
     __esModule: true,
     default: MockRedis,
-    Redis: MockRedis
+    Redis: MockRedis,
   }
-}, { virtual: true })
+})
 
-import { createEventBus } from '@open-mercato/events/index'
+type CreateEventBus = typeof import('@open-mercato/events/index').createEventBus
 
 describe('Event bus - redis strategy (mocked)', () => {
   const prevEnv = { ...process.env }
+  let createEventBus: CreateEventBus
   beforeEach(() => {
+    jest.resetModules()
     process.env.EVENTS_STRATEGY = 'redis'
     process.env.REDIS_URL = 'redis://localhost:6379'
   })
-  afterEach(() => { process.env = { ...prevEnv } })
+  beforeEach(async () => {
+    const mod = await import('@open-mercato/events/index')
+    createEventBus = mod.createEventBus
+  })
+  afterEach(() => {
+    process.env = { ...prevEnv }
+    jest.clearAllMocks()
+  })
 
   test('create and emit non-persistent', async () => {
     const bus = createEventBus({ resolve: ((n: string) => n) as any })

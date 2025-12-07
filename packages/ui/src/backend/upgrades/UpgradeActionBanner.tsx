@@ -6,6 +6,10 @@ import { apiCall } from '../utils/apiCall'
 import { flash } from '../FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
+const upgradeActionsEnabled =
+  process.env.NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED === 'true' ||
+  process.env.UPGRADE_ACTIONS_ENABLED === 'true'
+
 type UpgradeActionPayload = {
   id: string
   version: string
@@ -31,30 +35,32 @@ export function UpgradeActionBanner() {
   const t = useT()
   const [action, setAction] = React.useState<UpgradeActionPayload | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const cancelledRef = React.useRef(false)
 
-  React.useEffect(() => {
+  const loadNextAction = React.useCallback(async () => {
+    if (!upgradeActionsEnabled) return
     if (typeof window === 'undefined' || typeof fetch === 'undefined') return
-    let cancelled = false
-    const load = async () => {
-      const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions')
-      if (!call.ok || !call.result || !Array.isArray(call.result.actions) || !call.result.actions.length) {
-        if (!cancelled) setAction(null)
-        return
-      }
-      if (!cancelled) {
-        setAction(call.result.actions[0]!)
-      }
+    const call = await apiCall<UpgradeActionResponse>('/api/configs/upgrade-actions')
+    if (cancelledRef.current) return
+    if (!call.ok || !call.result || !Array.isArray(call.result.actions) || !call.result.actions.length) {
+      setAction(null)
+      return
     }
-    void load()
-    return () => {
-      cancelled = true
-    }
+    setAction(call.result.actions[0]!)
   }, [])
 
-  if (!action) return null
+  React.useEffect(() => {
+    cancelledRef.current = false
+    void loadNextAction()
+    return () => {
+      cancelledRef.current = true
+    }
+  }, [loadNextAction])
+
+  if (!upgradeActionsEnabled || !action) return null
 
   async function handleRun() {
-    if (!action || loading) return
+    if (!upgradeActionsEnabled || !action || loading) return
     setLoading(true)
     try {
       const response = await apiCall<RunActionResponse>('/api/configs/upgrade-actions', {
@@ -77,6 +83,7 @@ export function UpgradeActionBanner() {
         t('upgrades.v034.success', 'Example catalog products and categories installed.')
       flash(message, 'success')
       setAction(null)
+      await loadNextAction()
     } catch (error) {
       const message = error instanceof Error ? error.message : t('upgrades.runFailed', 'We could not run this upgrade action.')
       flash(message, 'error')

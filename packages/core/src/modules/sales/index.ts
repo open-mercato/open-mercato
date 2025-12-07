@@ -1,5 +1,6 @@
 import type { ModuleInfo } from '@/modules/registry'
 import './commands'
+import './lib/providers'
 
 export const metadata: ModuleInfo = {
   name: 'sales',

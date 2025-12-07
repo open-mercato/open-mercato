@@ -17,6 +17,7 @@ import { CATALOG_PRODUCT_TYPES } from '../../data/types'
 import type { CatalogProductType } from '../../data/types'
 import { productCreateSchema, productUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_product'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
@@ -33,6 +34,11 @@ import {
 import type { CatalogPricingService } from '../../services/catalogPricingService'
 import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -518,6 +524,9 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  indexer: {
+    entityType: E.catalog.catalog_product,
+  },
   list: {
     schema: listSchema,
     entityId: E.catalog.catalog_product,
@@ -528,6 +537,8 @@ const crud = makeCrudRoute({
       F.description,
       F.sku,
       F.handle,
+      'tax_rate_id',
+      'tax_rate',
       F.product_type,
       F.status_entry_id,
       F.primary_currency_code,
@@ -545,6 +556,7 @@ const crud = makeCrudRoute({
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: { entityIds: [E.catalog.catalog_product] },
     sortFieldMap: {
       title: F.title,
       sku: F.sku,
@@ -573,7 +585,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(productCreateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(productCreateSchema, raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(parsed)
+        return Object.keys(custom).length ? { ...base, customFields: custom } : base
       },
       response: ({ result }) => ({ id: result?.productId ?? result?.id ?? null }),
       status: 201,
@@ -583,7 +597,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(productUpdateSchema, raw ?? {}, ctx, translate)
+        const parsed = parseScopedCommandInput(productUpdateSchema, raw ?? {}, ctx, translate)
+        const { base, custom } = splitCustomFieldPayload(parsed)
+        return Object.keys(custom).length ? { ...base, customFields: custom } : base
       },
       response: () => ({ ok: true }),
     },
@@ -605,3 +621,55 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const productListItemSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().nullable().optional(),
+  subtitle: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  sku: z.string().nullable().optional(),
+  handle: z.string().nullable().optional(),
+  product_type: z.string().nullable().optional(),
+  status_entry_id: z.string().uuid().nullable().optional(),
+  primary_currency_code: z.string().nullable().optional(),
+  default_unit: z.string().nullable().optional(),
+  default_media_id: z.string().uuid().nullable().optional(),
+  default_media_url: z.string().nullable().optional(),
+  weight_value: z.number().nullable().optional(),
+  weight_unit: z.string().nullable().optional(),
+  dimensions: z.record(z.string(), z.unknown()).nullable().optional(),
+  is_configurable: z.boolean().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  custom_fieldset_code: z.string().nullable().optional(),
+  option_schema_id: z.string().uuid().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  offers: z.array(z.record(z.string(), z.unknown())).optional(),
+  channelIds: z.array(z.string()).optional(),
+  categories: z.array(z.record(z.string(), z.unknown())).optional(),
+  categoryIds: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  pricing: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Product',
+  pluralName: 'Products',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(productListItemSchema),
+  create: {
+    schema: productCreateSchema,
+    description: 'Creates a new product in the catalog.',
+  },
+  update: {
+    schema: productUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing product by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a product by id.',
+  },
+})

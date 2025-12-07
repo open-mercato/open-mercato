@@ -20,11 +20,20 @@ function flattenDictionary(source: unknown, prefix = ''): Dict {
 }
 
 export async function detectLocale(): Promise<Locale> {
-  const c = (await cookies()).get('locale')?.value
-  if (c && locales.includes(c as Locale)) return c as Locale
-  const accept = (await headers()).get('accept-language') || ''
-  const match = locales.find(l => new RegExp(`(^|,)\s*${l}(-|;|,|$)`, 'i').test(accept))
-  return match ?? defaultLocale
+  try {
+    const c = (await cookies()).get('locale')?.value
+    if (c && locales.includes(c as Locale)) return c as Locale
+  } catch {
+    // cookies() may not be available outside request context (e.g., in tests)
+  }
+  try {
+    const accept = (await headers()).get('accept-language') || ''
+    const match = locales.find(l => new RegExp(`(^|,)\s*${l}(-|;|,|$)`, 'i').test(accept))
+    if (match) return match
+  } catch {
+    // headers() may not be available outside request context (e.g., in tests)
+  }
+  return defaultLocale
 }
 
 export async function loadDictionary(locale: Locale): Promise<Dict> {
@@ -43,4 +52,11 @@ export async function resolveTranslations() {
   const t = createTranslator(dict)
   const translate = createFallbackTranslator(dict)
   return { locale, dict, t, translate }
+}
+// Hint Next.js to keep this server-only; ignore if unavailable when running scripts outside Next.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('server-only')
+} catch {
+  // noop: allows running generator scripts without Next's server-only package
 }

@@ -12,7 +12,7 @@ export function flash(message: string, type: FlashKind = 'info') {
   window.dispatchEvent(evt)
 }
 
-export function FlashMessages() {
+function FlashMessagesInner() {
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
   const pathname = usePathname()
@@ -70,5 +70,13 @@ export function FlashMessages() {
         </div>
       </div>
     </div>
+  )
+}
+
+export function FlashMessages() {
+  return (
+    <React.Suspense fallback={null}>
+      <FlashMessagesInner />
+    </React.Suspense>
   )
 }

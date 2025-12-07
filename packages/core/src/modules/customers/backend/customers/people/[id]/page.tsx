@@ -19,7 +19,9 @@ import {
 } from '../../../../components/detail/ActivitiesSection'
 import {
   NotesSection,
-} from '../../../../components/detail/NotesSection'
+  type CommentSummary,
+  type SectionAction,
+} from '@open-mercato/ui/backend/detail'
 import {
   TagsSection,
   type TagOption,
@@ -32,21 +34,18 @@ import {
   renderLinkedInDisplay,
   renderTwitterDisplay,
   renderMultilineMarkdownDisplay,
+  InlineDictionaryEditor,
 } from '../../../../components/detail/InlineEditors'
-import { DetailFieldsSection, type DetailFieldConfig } from '../../../../components/detail/DetailFieldsSection'
-import { LoadingMessage } from '../../../../components/detail/LoadingMessage'
+import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
-import type {
-  ActivitySummary,
-  CommentSummary,
-  DealSummary,
-  TagSummary,
-  TodoLinkSummary,
-  SectionAction,
-} from '../../../../components/detail/types'
+import type { ActivitySummary, DealSummary, TagSummary, TodoLinkSummary } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { normalizeCustomFieldSubmitValue } from '../../../../components/detail/customFieldUtils'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
+import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 
 type PersonOverview = {
   person: {
@@ -96,18 +95,11 @@ type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
 
-
-type SectionLoaderProps = { isLoading: boolean; label?: string }
-
-function SectionLoader({ isLoading, label = 'Loading…' }: SectionLoaderProps) {
-  if (!isLoading) return null
-  return <LoadingMessage label={label} className="mb-4 mt-4 min-h-[160px]" />
-}
-
 export default function CustomerPersonDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
+  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialTab = React.useMemo(() => {
@@ -121,21 +113,8 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [activeTab, setActiveTab] = React.useState<SectionKey>(initialTab)
-  const [sectionPending, setSectionPending] = React.useState<Record<SectionKey, boolean>>({
-    notes: false,
-    activities: false,
-    deals: false,
-    addresses: false,
-    tasks: false,
-  })
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
-  const sectionLoaderLabel =
-    activeTab === 'activities'
-      ? t('customers.people.detail.activities.loading', 'Loading activities…')
-      : activeTab === 'deals'
-        ? t('customers.people.detail.deals.loading', 'Loading deals…')
-        : t('customers.people.detail.sectionLoading', 'Loading…')
 
   const handleSectionActionChange = React.useCallback((action: SectionAction | null) => {
     setSectionAction(action)
@@ -217,25 +196,15 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
         : [],
     [data?.deals],
   )
-  const handleNotesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, notes: loading }))
-  }, [])
+  const handleNotesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleActivitiesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, activities: loading }))
-  }, [])
+  const handleActivitiesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleDealsLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, deals: loading }))
-  }, [])
+  const handleDealsLoadingChange = React.useCallback(() => {}, [])
 
-  const handleAddressesLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, addresses: loading }))
-  }, [])
+  const handleAddressesLoadingChange = React.useCallback(() => {}, [])
 
-  const handleTasksLoadingChange = React.useCallback((loading: boolean) => {
-    setSectionPending((prev) => ({ ...prev, tasks: loading }))
-  }, [])
+  const handleTasksLoadingChange = React.useCallback(() => {}, [])
 
   React.useEffect(() => {
     if (!id) {
@@ -474,51 +443,75 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       },
       {
         key: 'jobTitle',
-        kind: 'dictionary',
+        kind: 'custom',
         label: t('customers.people.form.jobTitle'),
-        value: profile?.jobTitle ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
-        dictionaryKind: 'job-titles',
-        onSave: async (next) => updateProfileField('jobTitle', next),
-        selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+        render: () => (
+          <InlineDictionaryEditor
+            label={t('customers.people.form.jobTitle')}
+            value={profile?.jobTitle ?? null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            kind="job-titles"
+            onSave={async (next) => updateProfileField('jobTitle', next)}
+            selectClassName="h-9 w-full rounded border px-3 text-sm"
+            variant="muted"
+            activateOnClick
+          />
+        ),
       },
       {
         key: 'lifecycleStage',
-        kind: 'dictionary',
+        kind: 'custom',
         label: t('customers.people.detail.fields.lifecycleStage'),
-        value: person.lifecycleStage ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
-        dictionaryKind: 'lifecycle-stages',
-        onSave: async (next) => {
-          const send = typeof next === 'string' ? next : ''
-          await savePerson(
-            { lifecycleStage: send },
-            (prev) => ({
-              ...prev,
-              person: { ...prev.person, lifecycleStage: next && next.length ? next : null },
-            })
-          )
-        },
-        selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+        render: () => (
+          <InlineDictionaryEditor
+            label={t('customers.people.detail.fields.lifecycleStage')}
+            value={person.lifecycleStage ?? null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            kind="lifecycle-stages"
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { lifecycleStage: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, lifecycleStage: next && next.length ? next : null },
+                })
+              )
+            }}
+            selectClassName="h-9 w-full rounded border px-3 text-sm"
+            variant="muted"
+            activateOnClick
+          />
+        ),
       },
       {
         key: 'source',
-        kind: 'dictionary',
+        kind: 'custom',
         label: t('customers.people.form.source'),
-        value: person.source ?? null,
         emptyLabel: t('customers.people.detail.noValue'),
-        dictionaryKind: 'sources',
-        onSave: async (next) => {
-          const send = typeof next === 'string' ? next : ''
-          await savePerson(
-            { source: send },
-            (prev) => ({
-              ...prev,
-              person: { ...prev.person, source: next && next.length ? next : null },
-            })
-          )
-        },
-        selectClassName: 'h-9 w-full rounded border px-3 text-sm',
+        render: () => (
+          <InlineDictionaryEditor
+            label={t('customers.people.form.source')}
+            value={person.source ?? null}
+            emptyLabel={t('customers.people.detail.noValue')}
+            kind="sources"
+            onSave={async (next) => {
+              const send = typeof next === 'string' ? next : ''
+              await savePerson(
+                { source: send },
+                (prev) => ({
+                  ...prev,
+                  person: { ...prev.person, source: next && next.length ? next : null },
+                })
+              )
+            }}
+            selectClassName="h-9 w-full rounded border px-3 text-sm"
+            variant="muted"
+            activateOnClick
+          />
+        ),
       },
       {
         key: 'description',
@@ -710,12 +703,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              {activeTab !== 'notes' ? (
-                <SectionLoader
-                  isLoading={sectionPending[activeTab as SectionKey]}
-                  label={sectionLoaderLabel}
-                />
-              ) : null}
               {activeTab === 'notes' && (
                 <NotesSection
                   entityId={personId}
@@ -732,6 +719,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   onActionChange={handleSectionActionChange}
                   translator={detailTranslator}
                   onLoadingChange={handleNotesLoadingChange}
+                  dataAdapter={notesAdapter}
+                  renderIcon={renderDictionaryIcon}
+                  renderColor={renderDictionaryColor}
+                  iconSuggestions={ICON_SUGGESTIONS}
+                  readMarkdownPreference={readMarkdownPreferenceCookie}
+                  writeMarkdownPreference={writeMarkdownPreferenceCookie}
                 />
               )}
               {activeTab === 'activities' && (

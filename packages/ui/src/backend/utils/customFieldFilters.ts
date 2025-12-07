@@ -42,6 +42,23 @@ async function loadRemoteOptions(url: string): Promise<Array<{ value: string; la
   }
 }
 
+type RawOption = string | number | { value?: unknown; label?: unknown }
+
+function normalizeOptions(options?: RawOption[]): Array<{ value: string; label: string }> {
+  if (!Array.isArray(options)) return []
+  return options.map((option) => {
+    if (option && typeof option === 'object' && 'value' in option) {
+      const rawValue = (option as any).value
+      const rawLabel = (option as any).label ?? rawValue
+      const value = String(rawValue)
+      const label = typeof rawLabel === 'string' ? rawLabel : String(rawLabel)
+      return { value, label }
+    }
+    const value = String(option)
+    return { value, label: value.charAt(0).toUpperCase() + value.slice(1) }
+  })
+}
+
 export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): FilterDef[] {
   const f: FilterDef[] = []
   const visible = filterCustomFieldDefs(defs, 'filter')
@@ -55,7 +72,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
     if (d.kind === 'boolean') {
       f.push({ id, label, type: 'checkbox' })
     } else if (d.kind === 'select' || d.kind === 'relation' || d.kind === 'dictionary') {
-      const options = (d.options || []).map((o) => ({ value: String(o), label: String(o).charAt(0).toUpperCase() + String(o).slice(1) }))
+      const options = normalizeOptions(d.options)
       const base: FilterDef = { id: d.multi ? `${id}In` : id, label, type: 'select', multiple: !!d.multi, options }
       // When optionsUrl is provided, allow async options loading for filters too
       if (d.optionsUrl) {
@@ -72,7 +89,7 @@ export function buildFilterDefsFromCustomFields(defs: CustomFieldDefDto[]): Filt
         label,
         type: 'tags',
         // If static options provided, pass them for suggestions
-        options: (d.options || []).map((o) => ({ value: String(o), label: String(o) })),
+        options: normalizeOptions(d.options),
       } as any
       // Enable async suggestions when optionsUrl provided
       if (d.optionsUrl) {

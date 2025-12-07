@@ -67,7 +67,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
           await bus.emitEvent('query_index.coverage.refresh', {
             entityType,
             tenantId: tenantId ?? null,
-            organizationId: null,
+            organizationId: organizationId ?? null,
             delayMs: coverageDelayMs,
           })
         } catch {}

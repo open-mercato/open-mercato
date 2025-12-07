@@ -503,13 +503,10 @@ export function DictionaryValue({
     return <span className={className}>{value}</span>
   }
   const classes = ['inline-flex items-center gap-2', className].filter(Boolean).join(' ')
+  const renderedIcon = renderDictionaryIcon(entry.icon, iconClassName)
   return (
     <span className={classes}>
-      {entry.icon ? (
-        <span className={[iconWrapperClassName].filter(Boolean).join(' ')}>
-          {renderDictionaryIcon(entry.icon, iconClassName)}
-        </span>
-      ) : null}
+      {renderedIcon ? <span className={[iconWrapperClassName].filter(Boolean).join(' ')}>{renderedIcon}</span> : null}
       <span>{entry.label}</span>
       {entry.color ? renderDictionaryColor(entry.color, colorClassName) : null}
     </span>

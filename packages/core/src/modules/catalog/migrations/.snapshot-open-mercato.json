@@ -393,6 +393,26 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "tax_rate_id": {
+          "name": "tax_rate_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tax_rate": {
+          "name": "tax_rate",
+          "type": "numeric(7,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 7,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
         "product_type": {
           "name": "product_type",
           "type": "text",
@@ -1566,6 +1586,26 @@
           "primary": false,
           "nullable": true,
           "mappedType": "json"
+        },
+        "tax_rate_id": {
+          "name": "tax_rate_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tax_rate": {
+          "name": "tax_rate",
+          "type": "numeric(7,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 7,
+          "scale": 4,
+          "mappedType": "decimal"
         },
         "option_values": {
           "name": "option_values",

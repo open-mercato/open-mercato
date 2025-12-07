@@ -12,6 +12,7 @@ export type AddressSummary = {
   id: string
   name?: string | null
   purpose?: string | null
+  companyName?: string | null
   addressLine1: string
   addressLine2?: string | null
   buildingNumber?: string | null
@@ -115,7 +116,8 @@ export type SectionAction = {
   disabled?: boolean
 }
 
-export type TabEmptyState = {
+export type TabEmptyStateConfig = {
   title: string
   actionLabel: string
+  description?: string
 }

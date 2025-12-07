@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
   buildChanges,
   requireId,
@@ -17,6 +17,7 @@ import type { CrudEventAction, CrudEventsConfig, CrudIndexerConfig } from '@open
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import {
   CatalogOffer,
   CatalogProduct,
@@ -28,6 +29,7 @@ import {
   CatalogProductTag,
   CatalogProductTagAssignment,
 } from '../data/entities'
+import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 import {
   productCreateSchema,
   productUpdateSchema,
@@ -48,6 +50,7 @@ import {
   extractUndoPayload,
   requireOptionSchemaTemplate,
   resolveOptionSchemaCode,
+  emitCatalogQueryIndexEvent,
   randomSuffix,
   toNumericString,
 } from './shared'
@@ -61,6 +64,8 @@ type ProductSnapshot = {
   description: string | null
   sku: string | null
   handle: string | null
+  taxRateId: string | null
+  taxRate: string | null
   productType: CatalogProductType
   statusEntryId: string | null
   primaryCurrencyCode: string | null
@@ -174,6 +179,8 @@ const PRODUCT_CHANGE_KEYS = [
   'description',
   'sku',
   'handle',
+  'taxRateId',
+  'taxRate',
   'productType',
   'statusEntryId',
   'primaryCurrencyCode',
@@ -189,6 +196,35 @@ const PRODUCT_CHANGE_KEYS = [
   'isConfigurable',
   'isActive',
 ] as const satisfies readonly string[]
+
+async function resolveScopedTaxRate(
+  em: EntityManager,
+  taxRateId: string | null | undefined,
+  taxRateInput: number | string | null | undefined,
+  organizationId: string,
+  tenantId: string
+): Promise<{ taxRateId: string | null; taxRate: string | null }> {
+  const normalizedRate =
+    taxRateInput === null || taxRateInput === undefined
+      ? null
+      : (() => {
+          const numeric = typeof taxRateInput === 'string' ? Number(taxRateInput) : taxRateInput
+          return Number.isFinite(numeric) ? toNumericString(numeric) : null
+        })()
+  if (!taxRateId) {
+    return { taxRateId: null, taxRate: normalizedRate }
+  }
+  const record = await em.findOne(SalesTaxRate, {
+    id: taxRateId,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+  })
+  if (!record) {
+    throw new CrudHttpError(400, { error: 'Tax class not found' })
+  }
+  return { taxRateId, taxRate: record.rate ?? normalizedRate }
+}
 
 function slugifyCode(input: string): string {
   return input
@@ -649,17 +685,6 @@ async function syncCategoryAssignments(
   }
 }
 
-function slugifyTagLabel(label: string): string {
-  return (
-    label
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 80) || `tag-${Math.random().toString(36).slice(2, 10)}`
-  )
-}
-
 async function syncProductTags(
   em: EntityManager,
   product: CatalogProduct,
@@ -752,8 +777,9 @@ async function deleteProductVariantsAndRelatedData(opts: {
   em: EntityManager
   product: CatalogProduct
   dataEngine: DataEngine
+  ctx: CommandRuntimeContext
 }): Promise<void> {
-  const { em, product, dataEngine } = opts
+  const { em, product, dataEngine, ctx } = opts
   const variants = await em.find(CatalogProductVariant, { product })
   if (!variants.length) return
   const cleanupEntries: VariantCleanupSnapshot[] = await Promise.all(
@@ -791,6 +817,15 @@ async function deleteProductVariantsAndRelatedData(opts: {
       organizationId: cleanup.organizationId,
       tenantId: cleanup.tenantId,
       values: resetValues,
+    })
+  }
+  for (const cleanup of cleanupEntries) {
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: cleanup.id,
+      organizationId: cleanup.organizationId,
+      tenantId: cleanup.tenantId,
+      action: 'deleted',
     })
   }
 }
@@ -865,6 +900,8 @@ async function loadProductSnapshot(
     description: record.description ?? null,
     sku: record.sku ?? null,
     handle: record.handle ?? null,
+    taxRateId: record.taxRateId ?? null,
+    taxRate: record.taxRate ?? null,
     productType: record.productType,
     statusEntryId: record.statusEntryId ?? null,
     primaryCurrencyCode: record.primaryCurrencyCode ?? null,
@@ -898,6 +935,8 @@ function applyProductSnapshot(
   record.description = snapshot.description ?? null
   record.sku = snapshot.sku ?? null
   record.handle = snapshot.handle ?? null
+  record.taxRateId = snapshot.taxRateId ?? null
+  record.taxRate = snapshot.taxRate ?? null
   record.productType = snapshot.productType
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.primaryCurrencyCode = snapshot.primaryCurrencyCode ?? null
@@ -926,6 +965,13 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    const { taxRateId, taxRate } = await resolveScopedTaxRate(
+      em,
+      parsed.taxRateId ?? null,
+      parsed.taxRate,
+      parsed.organizationId,
+      parsed.tenantId
+    )
     const { schema: optionSchemaDefinition, metadata: sanitizedMetadata } = extractOptionSchemaInput(parsed)
     const measurements = extractMeasurementsFromMetadata(sanitizedMetadata)
     const dimensions = normalizeDimensionsInput(parsed.dimensions) ?? measurements.dimensions
@@ -948,6 +994,8 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
       description: parsed.description ?? null,
       sku: parsed.sku ?? null,
       handle: parsed.handle ?? null,
+      taxRateId,
+      taxRate,
       productType: parsed.productType ?? 'simple',
       statusEntryId: parsed.statusEntryId ?? null,
       primaryCurrencyCode: parsed.primaryCurrencyCode ?? null,
@@ -1091,11 +1139,20 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     record.organizationId = organizationId
     record.tenantId = tenantId
 
+    const taxRateProvided = parsed.taxRateId !== undefined || parsed.taxRate !== undefined
+    const resolvedTaxRate = taxRateProvided
+      ? await resolveScopedTaxRate(em, parsed.taxRateId ?? null, parsed.taxRate, organizationId, tenantId)
+      : null
+
     if (parsed.title !== undefined) record.title = parsed.title
     if (parsed.subtitle !== undefined) record.subtitle = parsed.subtitle ?? null
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
     if (parsed.handle !== undefined) record.handle = parsed.handle ?? null
+    if (taxRateProvided) {
+      record.taxRateId = resolvedTaxRate?.taxRateId ?? null
+      record.taxRate = resolvedTaxRate?.taxRate ?? null
+    }
     if (parsed.productType !== undefined) record.productType = parsed.productType
     if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
     if (parsed.primaryCurrencyCode !== undefined) {
@@ -1237,6 +1294,8 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
         description: before.description ?? null,
         sku: before.sku ?? null,
         handle: before.handle ?? null,
+        taxRateId: before.taxRateId ?? null,
+        taxRate: before.taxRate ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,
@@ -1310,7 +1369,7 @@ const deleteProductCommand: CommandHandler<
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    await deleteProductVariantsAndRelatedData({ em, product: record, dataEngine })
+    await deleteProductVariantsAndRelatedData({ em, product: record, dataEngine, ctx })
     await em.nativeDelete(CatalogProductPrice, { product: record.id })
     const templateToRemove = await resolveOptionSchemaTemplateForRemoval(em, record)
     if (templateToRemove) {
@@ -1373,6 +1432,8 @@ const deleteProductCommand: CommandHandler<
         description: before.description ?? null,
         sku: before.sku ?? null,
         handle: before.handle ?? null,
+        taxRateId: before.taxRateId ?? null,
+        taxRate: before.taxRate ?? null,
         statusEntryId: before.statusEntryId ?? null,
         primaryCurrencyCode: before.primaryCurrencyCode ?? null,
         defaultUnit: before.defaultUnit ?? null,

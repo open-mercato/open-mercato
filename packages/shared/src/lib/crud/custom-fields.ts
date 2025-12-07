@@ -239,7 +239,9 @@ export function splitCustomFieldPayload(raw: unknown): SplitCustomFieldPayload {
       }
       if (value && typeof value === 'object') {
         for (const [ck, cv] of Object.entries(value as Record<string, unknown>)) {
-          custom[String(ck)] = cv
+          const normalizedKey = typeof ck === 'string' ? ck.trim() : ''
+          if (!normalizedKey) continue
+          custom[normalizedKey] = cv
         }
         continue
       }

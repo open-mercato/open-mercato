@@ -2,12 +2,40 @@
 import 'dotenv/config'
 import path from 'node:path'
 import fs from 'node:fs'
-import { MikroORM } from '@mikro-orm/core'
+import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase, type ModuleEntry } from './shared/modules-config'
 
 type Cmd = 'generate' | 'apply' | 'greenfield'
+const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
+const PROGRESS_EMOJI = '🗄️'
+
+function formatResult(modId: string, message: string, emoji = '•') {
+  return `${emoji} ${modId}: ${message}`
+}
+
+function createProgressRenderer(total: number) {
+  const width = 20
+  const normalizedTotal = total > 0 ? total : 1
+  return (current: number) => {
+    const clamped = Math.min(Math.max(current, 0), normalizedTotal)
+    const filled = Math.round((clamped / normalizedTotal) * width)
+    const bar = `${'='.repeat(filled)}${'.'.repeat(Math.max(width - filled, 0))}`
+    return `[${bar}] ${clamped}/${normalizedTotal}`
+  }
+}
+
+function createMinimalLogger(): Logger {
+  return {
+    log: () => {},
+    error: (_namespace, message) => console.error(message),
+    warn: (_namespace, message) => { if (!QUIET_MODE) console.warn(message) },
+    logQuery: () => {},
+    setDebugMode: () => {},
+    isEnabled: () => false,
+  }
+}
 
 async function loadModuleEntities(entry: ModuleEntry) {
   const modId = entry.id
@@ -88,6 +116,7 @@ async function run(cmd: Cmd) {
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
+      loggerFactory: () => createMinimalLogger(),
       entities,
       migrations: {
         path: migrationsPath,
@@ -120,23 +149,44 @@ async function run(cmd: Cmd) {
           const stem = base.replace(ext, '')
           const suffix = `_${modId}`
           const newBase = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
-          const newPath = path.join(dir, newBase)
-          let content = fs.readFileSync(orig, 'utf8')
-          // Rename class to ensure uniqueness as well
-          content = content.replace(/export class (Migration\d+)/, `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`)
-          fs.writeFileSync(newPath, content, 'utf8')
-          if (newPath !== orig) fs.unlinkSync(orig)
-          results.push(`${modId}: generated ${newBase}`)
-        } catch (e) {
-          results.push(`${modId}: generated ${path.basename(diff.fileName)} (rename failed)`)  
-        }
-      } else {
-        results.push(`${modId}: no changes`)
+        const newPath = path.join(dir, newBase)
+        let content = fs.readFileSync(orig, 'utf8')
+        // Rename class to ensure uniqueness as well
+        content = content.replace(/export class (Migration\d+)/, `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`)
+        fs.writeFileSync(newPath, content, 'utf8')
+        if (newPath !== orig) fs.unlinkSync(orig)
+        results.push(formatResult(modId, `generated ${newBase}`, '✨'))
+      } catch (e) {
+        results.push(formatResult(modId, `generated ${path.basename(diff.fileName)} (rename failed)`, '✨'))  
       }
-    } else if (cmd === 'apply') {
-      await migrator.up()
-      results.push(`${modId}: applied`)
+    } else {
+      results.push(formatResult(modId, 'no changes', 'ℹ️'))
     }
+  } else if (cmd === 'apply') {
+    const pending = await migrator.getPendingMigrations()
+    if (!pending.length) {
+      results.push(formatResult(modId, 'no pending migrations', 'ℹ️'))
+    } else {
+      const renderProgress = createProgressRenderer(pending.length)
+      let applied = 0
+      if (!QUIET_MODE) {
+        process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+      }
+      for (const migration of pending) {
+        const migrationName =
+          typeof migration === 'string'
+            ? migration
+            : (migration as any).name ?? (migration as any).fileName
+        await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
+        applied += 1
+        if (!QUIET_MODE) {
+          process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+        }
+      }
+      if (!QUIET_MODE) process.stdout.write('\n')
+      results.push(formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '✅'))
+    }
+  }
     await orm.close(true)
   }
   console.log(results.join('\n'))
@@ -191,28 +241,28 @@ async function runGreenfield() {
       }
       
       if (migrationFiles.length > 0 || snapshotFiles.length > 0) {
-        results.push(`${modId}: cleaned ${migrationFiles.length} migrations, ${snapshotFiles.length} snapshots`)
+        results.push(formatResult(modId, `cleaned ${migrationFiles.length} migrations, ${snapshotFiles.length} snapshots`, '🧹'))
       } else {
-        results.push(`${modId}: already clean`)
+        results.push(formatResult(modId, 'already clean', 'ℹ️'))
       }
-      } else {
-        results.push(`${modId}: no migrations directory`)
+    } else {
+      results.push(formatResult(modId, 'no migrations directory', 'ℹ️'))
+    }
+    
+    // Clean up checksum files using glob pattern
+    const generatedDir = 'generated'
+    if (fs.existsSync(generatedDir)) {
+      const files = fs.readdirSync(generatedDir)
+      const checksumFiles = files.filter(file => file.endsWith('.checksum'))
+      
+      for (const file of checksumFiles) {
+        fs.unlinkSync(path.join(generatedDir, file))
       }
-            
-            // Clean up checksum files using glob pattern
-            const generatedDir = 'generated'
-            if (fs.existsSync(generatedDir)) {
-              const files = fs.readdirSync(generatedDir)
-              const checksumFiles = files.filter(file => file.endsWith('.checksum'))
-              
-              for (const file of checksumFiles) {
-                fs.unlinkSync(path.join(generatedDir, file))
-              }
-              
-              if (checksumFiles.length > 0) {
-                results.push(`${modId}: cleaned ${checksumFiles.length} checksum files`)
-              }
-            }
+      
+      if (checksumFiles.length > 0) {
+        results.push(formatResult(modId, `cleaned ${checksumFiles.length} checksum files`, '🧹'))
+      }
+    }
   }
   
   console.log(results.join('\n'))

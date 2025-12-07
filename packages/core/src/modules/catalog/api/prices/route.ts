@@ -9,6 +9,11 @@ import { priceCreateSchema, priceUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FP from '@open-mercato/core/generated/entities/catalog_product_price'
+import {
+  createCatalogCrudOpenApi,
+  createPagedListResponseSchema,
+  defaultOkResponseSchema,
+} from '../openapi'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -186,3 +191,50 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const priceListItemSchema = z.object({
+  id: z.string().uuid(),
+  product_id: z.string().uuid().nullable().optional(),
+  variant_id: z.string().uuid().nullable().optional(),
+  offer_id: z.string().uuid().nullable().optional(),
+  currency_code: z.string().nullable().optional(),
+  price_kind_id: z.string().uuid().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  min_quantity: z.number().nullable().optional(),
+  max_quantity: z.number().nullable().optional(),
+  unit_price_net: z.number().nullable().optional(),
+  unit_price_gross: z.number().nullable().optional(),
+  tax_rate: z.number().nullable().optional(),
+  tax_amount: z.number().nullable().optional(),
+  channel_id: z.string().uuid().nullable().optional(),
+  user_id: z.string().uuid().nullable().optional(),
+  user_group_id: z.string().uuid().nullable().optional(),
+  customer_id: z.string().uuid().nullable().optional(),
+  customer_group_id: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  starts_at: z.string().nullable().optional(),
+  ends_at: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+
+export const openApi = createCatalogCrudOpenApi({
+  resourceName: 'Price',
+  pluralName: 'Prices',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(priceListItemSchema),
+  create: {
+    schema: priceCreateSchema,
+    description: 'Creates a new price entry for a product or variant.',
+  },
+  update: {
+    schema: priceUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an existing price by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a price by id.',
+  },
+})

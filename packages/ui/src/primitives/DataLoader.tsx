@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Spinner } from './spinner'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export interface DataLoaderProps {
   isLoading: boolean
@@ -16,13 +17,15 @@ export interface DataLoaderProps {
 export function DataLoader({
   isLoading,
   children,
-  loadingMessage = 'Loading...',
+  loadingMessage,
   spinnerSize = 'md',
   className = '',
   loadingClassName = '',
   showSkeleton = false,
   skeletonComponent
 }: DataLoaderProps) {
+  const t = useT()
+  const resolvedLoadingMessage = loadingMessage ?? t('ui.dataLoader.loading', 'Loading...')
   if (isLoading) {
     if (showSkeleton && skeletonComponent) {
       return <div className={className}>{skeletonComponent}</div>
@@ -31,7 +34,7 @@ export function DataLoader({
     return (
       <div className={`flex items-center justify-center gap-2 py-4 ${loadingClassName} ${className}`}>
         <Spinner size={spinnerSize} />
-        <span className="text-sm text-muted-foreground">{loadingMessage}</span>
+        <span className="text-sm text-muted-foreground">{resolvedLoadingMessage}</span>
       </div>
     )
   }
@@ -43,7 +46,7 @@ export function DataLoader({
 export function InlineLoader({
   isLoading,
   children,
-  loadingMessage = 'Loading...',
+  loadingMessage,
   spinnerSize = 'sm'
 }: {
   isLoading: boolean
@@ -68,7 +71,7 @@ export function InlineLoader({
 export function PageLoader({
   isLoading,
   children,
-  loadingMessage = 'Loading...',
+  loadingMessage,
   spinnerSize = 'lg'
 }: {
   isLoading: boolean

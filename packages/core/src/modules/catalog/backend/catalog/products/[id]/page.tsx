@@ -242,6 +242,12 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
             : typeof (record as any).optionSchemaId === 'string'
               ? (record as any).optionSchemaId
               : null
+        const taxRateId =
+          typeof (record as any).tax_rate_id === 'string'
+            ? (record as any).tax_rate_id
+            : typeof (record as any).taxRateId === 'string'
+              ? (record as any).taxRateId
+              : null
         const optionSchemaTemplate = optionSchemaId ? await fetchOptionSchemaTemplate(optionSchemaId) : null
         const normalizedSchema = normalizeOptionSchemaRecord(optionSchemaTemplate?.schema)
         let optionInputs = normalizedSchema ? convertSchemaToProductOptions(normalizedSchema) : []
@@ -264,7 +270,7 @@ export default function EditCatalogProductPage({ params }: { params?: { id?: str
           handle: typeof record.handle === 'string' ? record.handle : '',
           description: typeof record.description === 'string' ? record.description : '',
           useMarkdown: Boolean(metadata.__useMarkdown),
-          taxRateId: null,
+          taxRateId,
           mediaDraftId: productId!,
           mediaItems: attachments,
           defaultMediaId,
@@ -593,6 +599,12 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
     const metadata = buildMetadataPayload(values)
     const dimensions = sanitizeProductDimensions(values.dimensions ?? null)
     const weight = sanitizeProductWeight(values.weight ?? null)
+    const resolveTaxRateValue = (taxRateId?: string | null) => {
+      if (!taxRateId) return null
+      const match = taxRates.find((rate) => rate.id === taxRateId)
+      return typeof match?.rate === 'number' && Number.isFinite(match.rate) ? match.rate : null
+    }
+    const productTaxRateValue = resolveTaxRateValue(values.taxRateId ?? null)
     const defaultMediaId = typeof values.defaultMediaId === 'string' && values.defaultMediaId.trim().length
       ? values.defaultMediaId
       : null
@@ -608,6 +620,8 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
       subtitle: values.subtitle?.trim() || undefined,
       description,
       handle,
+      taxRateId: values.taxRateId ?? null,
+      taxRate: productTaxRateValue ?? null,
       isConfigurable: Boolean(values.hasVariants),
       metadata,
       dimensions,

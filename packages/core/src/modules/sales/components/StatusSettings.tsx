@@ -22,7 +22,7 @@ import {
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
-type SalesStatusKind = 'order-statuses' | 'order-line-statuses'
+type SalesStatusKind = 'order-statuses' | 'order-line-statuses' | 'shipment-statuses' | 'payment-statuses'
 
 type SectionDefinition = {
   kind: SalesStatusKind
@@ -59,15 +59,29 @@ export function StatusSettings() {
       title: translate('sales.config.statuses.lines.title', 'Order line statuses'),
       description: translate('sales.config.statuses.lines.description', 'Configure the status values available for sales order lines.'),
     },
+    {
+      kind: 'shipment-statuses',
+      title: translate('sales.config.statuses.shipments.title', 'Shipment statuses'),
+      description: translate('sales.config.statuses.shipments.description', 'Configure the status values available for shipments.'),
+    },
+    {
+      kind: 'payment-statuses',
+      title: translate('sales.config.statuses.payments.title', 'Payment statuses'),
+      description: translate('sales.config.statuses.payments.description', 'Configure the status values available for payments.'),
+    },
   ], [translate])
 
   const [entriesByKind, setEntriesByKind] = React.useState<Record<SalesStatusKind, DictionaryTableEntry[]>>({
     'order-statuses': [],
     'order-line-statuses': [],
+    'shipment-statuses': [],
+    'payment-statuses': [],
   })
   const [loadingKind, setLoadingKind] = React.useState<Record<SalesStatusKind, boolean>>({
     'order-statuses': false,
     'order-line-statuses': false,
+    'shipment-statuses': false,
+    'payment-statuses': false,
   })
   const [dialog, setDialog] = React.useState<DialogState | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
@@ -77,6 +91,8 @@ export function StatusSettings() {
     () => ({
       'order-statuses': '/api/sales/order-statuses',
       'order-line-statuses': '/api/sales/order-line-statuses',
+      'shipment-statuses': '/api/sales/shipment-statuses',
+      'payment-statuses': '/api/sales/payment-statuses',
     }),
     []
   )
@@ -119,6 +135,8 @@ export function StatusSettings() {
   React.useEffect(() => {
     void loadEntries('order-statuses')
     void loadEntries('order-line-statuses')
+    void loadEntries('shipment-statuses')
+    void loadEntries('payment-statuses')
   }, [loadEntries, scopeVersion])
 
   const closeDialog = React.useCallback(() => {

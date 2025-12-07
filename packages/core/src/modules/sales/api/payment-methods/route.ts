@@ -45,6 +45,7 @@ const paymentMethodItemSchema = z.object({
   terms: z.string().nullable(),
   isActive: z.boolean(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
+  providerSettings: z.record(z.string(), z.unknown()).nullable().optional(),
   organizationId: z.string().uuid().nullable(),
   tenantId: z.string().uuid().nullable(),
   createdAt: z.string(),
@@ -115,6 +116,10 @@ const crud = makeCrudRoute({
         terms: item.terms ?? null,
         isActive: item.is_active ?? false,
         metadata: item.metadata ?? null,
+        providerSettings:
+          item.metadata && typeof item.metadata === 'object'
+            ? (item.metadata as any).providerSettings ?? null
+            : null,
         organizationId: item.organization_id ?? null,
         tenantId: item.tenant_id ?? null,
         createdAt: item.created_at,

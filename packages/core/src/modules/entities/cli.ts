@@ -61,7 +61,7 @@ const seedDefs: ModuleCli = {
       logger,
     })
     const label = dry ? 'Dry-run' : 'Sync'
-    console.log(`${label} complete: processed=${result.processed}, updated=${result.synchronized}, fieldsChanged=${result.fieldChanges}, skipped=${result.skipped}`)
+    console.log(`✅ ${label} complete: processed=${result.processed}, updated=${result.synchronized}, fieldsChanged=${result.fieldChanges}, skipped=${result.skipped}`)
   },
 }
 
@@ -139,7 +139,7 @@ const reinstallDefs: ModuleCli = {
       logger,
     })
     const label = dry ? 'Dry-run' : 'Reinstall'
-    console.log(`${label} complete: processed=${result.processed}, updated=${result.synchronized}, fieldsChanged=${result.fieldChanges}, skipped=${result.skipped}`)
+    console.log(`✅ ${label} complete: processed=${result.processed}, updated=${result.synchronized}, fieldsChanged=${result.fieldChanges}, skipped=${result.skipped}`)
   },
 }
 

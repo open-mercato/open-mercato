@@ -4,8 +4,26 @@ describe('buildFilterDefsFromCustomFields', () => {
   it('maps boolean/select/text and respects filterable/multi', () => {
     const defs: CustomFieldDefDto[] = [
       { key: 'blocked', kind: 'boolean', filterable: true },
-      { key: 'severity', kind: 'select', filterable: true, options: ['low','medium','high'] },
-      { key: 'labels', kind: 'select', filterable: true, options: ['bug','feature'], multi: true },
+      {
+        key: 'severity',
+        kind: 'select',
+        filterable: true,
+        options: [
+          { value: 'low', label: 'low' },
+          { value: 'medium', label: 'medium' },
+          { value: 'high', label: 'high' },
+        ],
+      },
+      {
+        key: 'labels',
+        kind: 'select',
+        filterable: true,
+        options: [
+          { value: 'bug', label: 'bug' },
+          { value: 'feature', label: 'feature' },
+        ],
+        multi: true,
+      },
       { key: 'notes', kind: 'multiline', filterable: true },
       { key: 'hidden', kind: 'text', filterable: false },
     ]
@@ -34,7 +52,16 @@ describe('buildFilterDefsFromCustomFields', () => {
 
   it('maps multi text to tags with async suggestions support', () => {
     const defs: CustomFieldDefDto[] = [
-      { key: 'labels', kind: 'text', filterable: true, multi: true, options: ['bug','feature'] },
+      {
+        key: 'labels',
+        kind: 'text',
+        filterable: true,
+        multi: true,
+        options: [
+          { value: 'bug', label: 'bug' },
+          { value: 'feature', label: 'feature' },
+        ],
+      },
     ]
     const out = buildFilterDefsFromCustomFields(defs)
     const labels = out.find(f => f.id === 'cf_labelsIn')!

@@ -1,7 +1,7 @@
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { z } from 'zod'
 
 export type ScopedContext = (CommandRuntimeContext | CrudCtx) & {
@@ -109,13 +109,32 @@ export function parseScopedCommandInput<TSchema extends z.ZodTypeAny>(
       throw new CrudHttpError(403, { error: translate(msg.key, msg.fallback) })
     }
   }
-  const { parsed, custom } = parseWithCustomFields(schema, scoped)
-  if (custom && Object.keys(custom).length > 0) {
-    return Object.assign({}, parsed, {
-      customFields: custom,
-    }) as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+  const { base, custom } = splitCustomFieldPayload(scoped)
+  const hasCustomFields = custom && Object.keys(custom).length > 0
+  const candidates: Array<Record<string, unknown>> = hasCustomFields
+    ? [base, { ...base, customFields: custom }]
+    : [base]
+
+  let parsed: z.infer<TSchema> | undefined
+  let lastError: unknown
+  for (const candidate of candidates) {
+    try {
+      parsed = schema.parse(candidate) as z.infer<TSchema>
+      break
+    } catch (err) {
+      lastError = err
+    }
   }
-  return parsed as z.infer<TSchema> & { customFields?: Record<string, unknown> }
+  if (!parsed) {
+    if (lastError instanceof Error) throw lastError
+    throw new CrudHttpError(400, { error: translate('errors.invalid_input', 'Invalid input') })
+  }
+
+  const parsedWithCustom = hasCustomFields
+    ? Object.assign({}, parsed, { customFields: custom })
+    : parsed
+
+  return parsedWithCustom as z.infer<TSchema> & { customFields?: Record<string, unknown> }
 }
 
 function normalizeTenant(candidate: unknown): string | null {

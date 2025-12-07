@@ -51,7 +51,7 @@ const personDetailsSchema = {
   timezone: z.string().trim().max(120).optional(),
   linkedInUrl: z.string().trim().url().max(300).optional(),
   twitterUrl: z.string().trim().url().max(300).optional(),
-  companyEntityId: uuid().optional(),
+  companyEntityId: uuid().nullable().optional(),
 }
 
 const personFirstNameSchema = z.string().trim().min(1).max(120)
@@ -168,6 +168,7 @@ export const addressCreateSchema = scopedSchema.extend({
   entityId: uuid(),
   name: z.string().max(150).optional(),
   purpose: z.string().max(150).optional(),
+  companyName: z.string().max(200).optional(),
   addressLine1: z.string().min(1).max(300),
   addressLine2: z.string().max(300).optional(),
   buildingNumber: z.string().max(50).optional(),

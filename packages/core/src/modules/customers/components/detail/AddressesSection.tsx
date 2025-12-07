@@ -3,9 +3,10 @@
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import { CustomerAddressTiles, type CustomerAddressInput, type CustomerAddressValue } from '../AddressTiles'
-import type { AddressSummary, SectionAction, TabEmptyState, Translator } from './types'
+import type { AddressSummary, SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { useT } from '@/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -13,7 +14,7 @@ export type AddressesSectionProps = {
   entityId: string | null
   emptyLabel: string
   addActionLabel: string
-  emptyState: TabEmptyState
+  emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   translator?: Translator
   onLoadingChange?: (isLoading: boolean) => void
@@ -63,6 +64,7 @@ function mapAddress(input: unknown): AddressSummary | null {
     id,
     name: readString(record, 'name'),
     purpose: readString(record, 'purpose'),
+    companyName: readString(record, 'company_name', 'companyName'),
     addressLine1,
     addressLine2: readString(record, 'address_line2', 'addressLine2'),
     buildingNumber: readString(record, 'building_number', 'buildingNumber'),
@@ -88,13 +90,14 @@ export function AddressesSection({
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
 
-  const [addresses, setAddresses] = React.useState<AddressSummary[]>([])
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
   const normalizedEntityId = React.useMemo(() => {
     if (typeof entityId !== 'string') return null
     const trimmed = entityId.trim()
     return trimmed.length ? trimmed : null
   }, [entityId])
+  const [addresses, setAddresses] = React.useState<AddressSummary[]>([])
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [isLoading, setIsLoading] = React.useState<boolean>(() => Boolean(normalizedEntityId))
 
   const loadingCounterRef = React.useRef(0)
   const pushLoading = React.useCallback(() => {
@@ -113,8 +116,10 @@ export function AddressesSection({
   const loadAddresses = React.useCallback(async () => {
     if (!normalizedEntityId) {
       setAddresses([])
+      setIsLoading(false)
       return
     }
+    setIsLoading(true)
     pushLoading()
     try {
       const params = new URLSearchParams({ entityId: normalizedEntityId, pageSize: '100' })
@@ -136,6 +141,7 @@ export function AddressesSection({
       flash(message, 'error')
       setAddresses([])
     } finally {
+      setIsLoading(false)
       popLoading()
     }
   }, [normalizedEntityId, pushLoading, popLoading, t])
@@ -155,6 +161,7 @@ export function AddressesSection({
         if (normalizedEntityId && !base.id) bodyPayload.entityId = normalizedEntityId
         if (typeof payload.name === 'string') bodyPayload.name = payload.name
         if (typeof payload.purpose === 'string') bodyPayload.purpose = payload.purpose
+        if (typeof payload.companyName === 'string') bodyPayload.companyName = payload.companyName
         if (typeof payload.addressLine2 === 'string') bodyPayload.addressLine2 = payload.addressLine2
         if (typeof payload.buildingNumber === 'string') bodyPayload.buildingNumber = payload.buildingNumber
         if (typeof payload.flatNumber === 'string') bodyPayload.flatNumber = payload.flatNumber
@@ -190,6 +197,7 @@ export function AddressesSection({
           id: typeof body?.id === 'string' ? body.id : generateTempId(),
           name: payload.name ?? null,
           purpose: payload.purpose ?? null,
+          companyName: payload.companyName ?? null,
           addressLine1: payload.addressLine1,
           addressLine2: payload.addressLine2 ?? null,
           buildingNumber: payload.buildingNumber ?? null,
@@ -247,6 +255,7 @@ export function AddressesSection({
               ...address,
               name: payload.name ?? null,
               purpose: payload.purpose ?? null,
+              companyName: payload.companyName ?? null,
               addressLine1: payload.addressLine1,
               addressLine2: payload.addressLine2 ?? null,
               buildingNumber: payload.buildingNumber ?? null,
@@ -313,6 +322,7 @@ export function AddressesSection({
       id: address.id,
       name: address.name ?? undefined,
       purpose: address.purpose ?? undefined,
+      companyName: address.companyName ?? undefined,
       addressLine1: address.addressLine1,
       addressLine2: address.addressLine2 ?? undefined,
       buildingNumber: address.buildingNumber ?? undefined,
@@ -343,19 +353,28 @@ export function AddressesSection({
 
   return (
     <div className="mt-4">
-      <CustomerAddressTiles
-        addresses={displayAddresses}
-        onCreate={handleCreate}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
-        isSubmitting={isSubmitting}
-        emptyLabel={emptyLabel}
-        t={t}
-        hideAddButton
-        onAddActionChange={handleAddActionChange}
-        emptyStateTitle={emptyState.title}
-        emptyStateActionLabel={emptyState.actionLabel}
-      />
+      {isLoading ? (
+        <div className="flex justify-center">
+          <LoadingMessage
+            label={t('customers.people.detail.addresses.loading', 'Loading addresses…')}
+            className="min-h-[120px] w-full justify-center border-0 bg-transparent p-0"
+          />
+        </div>
+      ) : (
+        <CustomerAddressTiles
+          addresses={displayAddresses}
+          onCreate={handleCreate}
+          onUpdate={handleUpdate}
+          onDelete={handleDelete}
+          isSubmitting={isSubmitting}
+          emptyLabel={emptyLabel}
+          t={t}
+          hideAddButton
+          onAddActionChange={handleAddActionChange}
+          emptyStateTitle={emptyState.title}
+          emptyStateActionLabel={emptyState.actionLabel}
+        />
+      )}
     </div>
   )
 }

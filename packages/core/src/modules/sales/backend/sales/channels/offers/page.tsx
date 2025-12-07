@@ -28,6 +28,7 @@ export default function SalesChannelOffersListPage() {
   const t = useT()
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
+  const channelOptionsRef = React.useRef<Map<string, FilterOption>>(new Map())
   const [rows, setRows] = React.useState<OfferRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -37,7 +38,7 @@ export default function SalesChannelOffersListPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
-  const [channelOptions, setChannelOptions] = React.useState<Map<string, FilterOption>>(new Map())
+  const [channelOptions, setChannelOptions] = React.useState<Map<string, FilterOption>>(channelOptionsRef.current)
 
   const selectedChannelIds = React.useMemo(() => {
     if (!Array.isArray(filterValues.channelIds)) return []
@@ -54,6 +55,7 @@ export default function SalesChannelOffersListPage() {
         if (!option.value) return
         next.set(option.value, option)
       })
+      channelOptionsRef.current = next
       return next
     })
   }, [])
@@ -96,7 +98,7 @@ export default function SalesChannelOffersListPage() {
   }, [t, upsertChannelOptions])
 
   const ensureChannelMetadata = React.useCallback(async (ids: string[]) => {
-    const missing = ids.filter((id) => !channelOptions.has(id))
+    const missing = ids.filter((id) => !channelOptionsRef.current.has(id))
     if (!missing.length) return
     try {
       const params = new URLSearchParams({
@@ -132,7 +134,7 @@ export default function SalesChannelOffersListPage() {
     } catch (err) {
       console.warn('[sales.channels.offers] failed to hydrate channel metadata', err)
     }
-  }, [channelOptions, t, upsertChannelOptions])
+  }, [t, upsertChannelOptions])
 
   const columns = React.useMemo<ColumnDef<OfferRow>[]>(() => [
     {

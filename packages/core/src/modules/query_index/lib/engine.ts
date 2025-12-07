@@ -140,6 +140,7 @@ export class HybridQueryEngine implements QueryEngine {
       const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:'))
       const orgScope = this.resolveOrganizationScope(opts)
+      const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
         cfFilters.length > 0 ||
@@ -175,7 +176,7 @@ export class HybridQueryEngine implements QueryEngine {
         if (entityHasActiveCustomFields) {
           const gap = await profiler.measure(
             'resolve_coverage_gap',
-            () => this.resolveCoverageGap(entity, opts),
+            () => this.resolveCoverageGap(entity, opts, coverageScope),
             (value) => (value
               ? {
                   scope: value.scope,
@@ -185,7 +186,7 @@ export class HybridQueryEngine implements QueryEngine {
               : { scope: null })
           )
           if (gap) {
-            this.scheduleAutoReindex(entity, opts, gap.stats)
+            this.scheduleAutoReindex(entity, opts, gap.stats, coverageScope?.organizationId ?? null)
             const force = this.isForcePartialIndexEnabled()
             if (!force) {
               if (gap.stats) {
@@ -341,7 +342,7 @@ export class HybridQueryEngine implements QueryEngine {
         try {
           const gap = await profiler.measure(
             'resolve_coverage_gap',
-            () => this.resolveCoverageGap(targetEntity, opts, sourceTable),
+            () => this.resolveCoverageGap(targetEntity, opts, coverageScope, sourceTable),
             (value) => (value
               ? {
                   entity: targetEntity,
@@ -352,7 +353,7 @@ export class HybridQueryEngine implements QueryEngine {
               : { entity: targetEntity, scope: null })
           )
           if (!gap) continue
-          this.scheduleAutoReindex(targetEntity, opts, gap.stats)
+          this.scheduleAutoReindex(targetEntity, opts, gap.stats, coverageScope?.organizationId ?? null)
           partialIndexWarning = {
             entity: targetEntity,
             entityLabel: this.resolveEntityLabel(targetEntity),
@@ -379,8 +380,8 @@ export class HybridQueryEngine implements QueryEngine {
       opts.tenantId
     ) {
       try {
-        await this.indexCoverageStats(entity, opts)
-        const globalStats = await this.indexCoverageStats(entity, opts)
+        await this.indexCoverageStats(entity, opts, coverageScope)
+        const globalStats = await this.indexCoverageStats(entity, opts, coverageScope)
         if (globalStats) {
           const globalBase = globalStats.baseCount
           const globalIndexed = globalStats.indexedCount
@@ -1059,14 +1060,19 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
-  private scheduleAutoReindex(entity: string, opts: QueryOptions, stats?: { baseCount: number; indexedCount: number }) {
+  private scheduleAutoReindex(
+    entity: string,
+    opts: QueryOptions,
+    stats?: { baseCount: number; indexedCount: number },
+    organizationIdOverride?: string | null
+  ) {
     if (!this.isAutoReindexEnabled()) return
     const bus = this.resolveEventBus()
     if (!bus) return
     const payload = {
       entityType: entity,
       tenantId: opts.tenantId ?? null,
-      organizationId: opts.organizationId ?? null,
+      organizationId: organizationIdOverride ?? opts.organizationId ?? null,
       force: false,
     }
     const context = stats
@@ -1224,6 +1230,21 @@ export class HybridQueryEngine implements QueryEngine {
     return null
   }
 
+  private resolveCoverageSnapshotScope(
+    opts: QueryOptions
+  ): { tenantId: string | null; organizationId: string | null } | null {
+    const tenantId = opts.tenantId ?? null
+    const orgScope = this.resolveOrganizationScope(opts)
+    if (!orgScope) return { tenantId, organizationId: null }
+    if (orgScope.includeNull) {
+      if (orgScope.ids.length === 0) return { tenantId, organizationId: null }
+      return null
+    }
+    if (orgScope.ids.length === 1) return { tenantId, organizationId: orgScope.ids[0] }
+    if (orgScope.ids.length === 0) return { tenantId, organizationId: null }
+    return null
+  }
+
   private applyOrganizationScope<TRecord extends ResultRow, TResult>(
     q: Knex.QueryBuilder<TRecord, TResult>,
     column: string,
@@ -1377,14 +1398,18 @@ export class HybridQueryEngine implements QueryEngine {
   private async resolveCoverageGap(
     entity: string,
     opts: QueryOptions,
+    coverageScope?: { tenantId: string | null; organizationId: string | null } | null,
     _sourceTable?: string
   ): Promise<{ stats?: { baseCount: number; indexedCount: number }; scope: 'scoped' | 'global' } | null> {
-    const tenantId = opts.tenantId ?? null
+    const scope = coverageScope ?? this.resolveCoverageSnapshotScope(opts)
+    if (!scope) return null
+    const tenantId = scope.tenantId
+    const organizationId = scope.organizationId
     const withDeleted = !!opts.withDeleted
 
-    const snapshot = await this.getStoredCoverageSnapshot(entity, tenantId, null, withDeleted)
+    const snapshot = await this.getStoredCoverageSnapshot(entity, tenantId, organizationId, withDeleted)
     if (!snapshot) {
-      this.scheduleCoverageRefresh(entity, tenantId, null, withDeleted)
+      this.scheduleCoverageRefresh(entity, tenantId, organizationId, withDeleted)
       return { stats: undefined, scope: 'scoped' }
     }
 
@@ -1402,8 +1427,9 @@ export class HybridQueryEngine implements QueryEngine {
   private async indexCoverageStats(
     entity: string,
     opts: QueryOptions,
+    coverageScope?: { tenantId: string | null; organizationId: string | null } | null,
   ): Promise<{ baseCount: number; indexedCount: number } | null> {
-    const gap = await this.resolveCoverageGap(entity, opts)
+    const gap = await this.resolveCoverageGap(entity, opts, coverageScope)
     return gap?.stats ?? null
   }
 

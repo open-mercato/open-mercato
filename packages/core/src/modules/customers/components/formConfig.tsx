@@ -60,7 +60,7 @@ export type PersonFormValues = {
   firstName: string
   lastName: string
   jobTitle?: string
-  companyEntityId?: string
+  companyEntityId?: string | null
   primaryEmail?: string
   primaryPhone?: string
   status?: string
@@ -406,7 +406,7 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
   },
 })
 
-const blankToUndefined = (value?: string): string | undefined => {
+const blankToUndefined = (value?: string | null): string | undefined => {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed.length ? trimmed : undefined
@@ -859,6 +859,7 @@ const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition
                 id: nextId,
                 name: payload.name ?? undefined,
                 purpose: payload.purpose ?? undefined,
+                companyName: payload.companyName ?? undefined,
                 addressLine1: payload.addressLine1,
                 addressLine2: payload.addressLine2 ?? undefined,
                 buildingNumber: payload.buildingNumber ?? undefined,
@@ -886,6 +887,7 @@ const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition
                   ...item,
                   name: payload.name ?? null,
                   purpose: payload.purpose ?? null,
+                  companyName: payload.companyName ?? null,
                   addressLine1: payload.addressLine1,
                   addressLine2: payload.addressLine2 ?? null,
                   buildingNumber: payload.buildingNumber ?? null,
@@ -961,7 +963,11 @@ export function buildPersonPayload(values: PersonFormValues, organizationId?: st
   payload.firstName = typeof values.firstName === 'string' ? values.firstName.trim() : ''
   payload.lastName = typeof values.lastName === 'string' ? values.lastName.trim() : ''
 
-  const assign = (key: string, val?: string) => {
+  const assign = (key: string, val?: string | null) => {
+    if (val === null) {
+      payload[key] = null
+      return
+    }
     const normalized = blankToUndefined(val)
     if (normalized !== undefined) payload[key] = normalized
   }
@@ -972,7 +978,14 @@ export function buildPersonPayload(values: PersonFormValues, organizationId?: st
   assign('status', typeof values.status === 'string' ? values.status : undefined)
   assign('lifecycleStage', typeof values.lifecycleStage === 'string' ? values.lifecycleStage : undefined)
   assign('source', typeof values.source === 'string' ? values.source : undefined)
-  assign('companyEntityId', typeof values.companyEntityId === 'string' ? values.companyEntityId : undefined)
+  assign(
+    'companyEntityId',
+    typeof values.companyEntityId === 'string'
+      ? values.companyEntityId
+      : values.companyEntityId === null
+        ? null
+        : undefined,
+  )
   assign('description', typeof values.description === 'string' ? values.description : undefined)
 
   const customFields = collectCustomFieldValues(values, {
@@ -1189,6 +1202,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                 id: nextId,
                 name: payload.name ?? undefined,
                 purpose: payload.purpose ?? undefined,
+                companyName: payload.companyName ?? undefined,
                 addressLine1: payload.addressLine1,
                 addressLine2: payload.addressLine2 ?? undefined,
                 buildingNumber: payload.buildingNumber ?? undefined,
@@ -1216,6 +1230,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                   ...item,
                   name: payload.name ?? null,
                   purpose: payload.purpose ?? null,
+                  companyName: payload.companyName ?? null,
                   addressLine1: payload.addressLine1,
                   addressLine2: payload.addressLine2 ?? null,
                   buildingNumber: payload.buildingNumber ?? null,

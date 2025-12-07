@@ -120,6 +120,8 @@ export const productCreateSchema = scoped.extend({
   description: z.string().trim().max(4000).optional(),
   sku: skuSchema.optional(),
   handle: handleSchema.optional(),
+  taxRateId: uuid().nullable().optional(),
+  taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
   productType: productTypeSchema.default('simple'),
   statusEntryId: uuid().optional(),
   primaryCurrencyCode: currencyCodeSchema.optional(),
@@ -174,6 +176,8 @@ export const variantCreateSchema = scoped.extend({
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   weightValue: z.coerce.number().min(0).optional(),
   weightUnit: z.string().trim().max(25).optional(),
+  taxRateId: uuid().nullable().optional(),
+  taxRate: z.coerce.number().min(0).max(100).optional().nullable(),
   dimensions: z
     .object({
       width: z.coerce.number().min(0).optional(),
