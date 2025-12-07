@@ -17,7 +17,6 @@ async function writeTempFile(name: string, content: string): Promise<string> {
 describe('extractAttachmentContent', () => {
   afterEach(() => {
     mockExecFile.mockReset()
-    jest.resetModules()
   })
 
   it('runs markitdown for non-image files and returns text', async () => {

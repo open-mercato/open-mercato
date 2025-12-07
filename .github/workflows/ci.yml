@@ -19,6 +19,9 @@ jobs:
           node-version: 20
           cache: yarn
 
+      - name: Install markitdown CLI
+        run: python3 -m pip install --upgrade pip markitdown
+
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 

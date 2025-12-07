@@ -50,7 +50,8 @@ export async function extractAttachmentContent(params: ExtractParams): Promise<s
   if (isImage(mimeType, filePath)) return null
   if (!isConvertibleMimeType(mimeType, filePath)) return null
   try {
-    const { stdout } = await execFileAsync('markitdown', [filePath])
+    const result = await execFileAsync('markitdown', [filePath])
+    const stdout = typeof result === 'string' || Buffer.isBuffer(result) ? result : result?.stdout
     const text = typeof stdout === 'string' ? stdout : stdout?.toString() ?? ''
     const trimmed = text.trim()
     if (!trimmed) return null
