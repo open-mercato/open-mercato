@@ -146,11 +146,11 @@ Assignments pointing at `fromRecordId` are rewritten to `toRecordId`.
 Partition endpoints let you route uploads to different buckets or visibility tiers.
 
 - List partitions — `GET /attachments/partitions` (`attachments.manage`)  
-  Ensures default partitions exist and returns `code`, `title`, `description`, `isPublic`, `envKey`.
+  Ensures default partitions exist and returns `code`, `title`, `description`, `isPublic`, `requiresOcr`, `envKey`.
 - Create partition — `POST /attachments/partitions` (`attachments.manage`)  
-  Body: `code`, `title`, optional `description`, `isPublic`. Fails when the environment locks partition management (demo/onboarding).
+  Body: `code`, `title`, optional `description`, `isPublic`, `requiresOcr`. Fails when the environment locks partition management (demo/onboarding).
 - Update partition — `PUT /attachments/partitions` (`attachments.manage`)  
-  Body: `id`, `code` (immutable), `title`, optional `description`, `isPublic`.
+  Body: `id`, `code` (immutable), `title`, optional `description`, `isPublic`, `requiresOcr`.
 - Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
   Default partitions cannot be removed; partitions in use return `409`.
 
