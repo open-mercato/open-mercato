@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const nrExternals = require('newrelic/load-externals')
+
 const nextConfig: NextConfig = {
   experimental: {
     serverMinification: false,
