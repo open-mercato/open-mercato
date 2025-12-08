@@ -485,8 +485,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         ? payload.totalPages
         : Math.max(1, Math.ceil(count / PAGE_SIZE))
       setTotalPages(pages)
-      const cacheHeader = call.response?.headers?.get?.('x-cache-status') ?? null
-      setCacheStatus(cacheHeader === 'hit' ? 'hit' : cacheHeader === 'miss' ? 'miss' : null)
+      setCacheStatus(call.cacheStatus ?? null)
     } catch (err) {
       console.error('sales.documents.list', err)
       flash(t('sales.documents.list.errors.load', 'Failed to load documents.'), 'error')
