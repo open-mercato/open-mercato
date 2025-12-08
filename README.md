@@ -39,12 +39,12 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 
 <table>
   <tr>
-    <td><a href="docs/static/screenshots/open-mercato-dashboard.png"><img src="docs/static/screenshots/open-mercato-dashboard.png" alt="Open Mercato dashboard" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
     <td><a href="docs/static/screenshots/open-mercato-edit-organization.png"><img src="docs/static/screenshots/open-mercato-edit-organization.png" alt="Editing an organization" width="260"/></a></td>
     <td><a href="docs/static/screenshots/open-mercato-users-management.png"><img src="docs/static/screenshots/open-mercato-users-management.png" alt="Users management view" width="260"/></a></td>
   </tr>
   <tr>
-    <td style="text-align:center;">Dashboard</td>
+    <td style="text-align:center;">Order Shipments</td>
     <td style="text-align:center;">Organizations</td>
     <td style="text-align:center;">Users</td>
   </tr>
@@ -67,6 +67,16 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
     <td style="text-align:center;">Add New Customer</td>
     <td style="text-align:center;">Deals Pipeline</td>
     <td style="text-align:center;">Customer Notes</td>
+  </tr>
+  <tr>
+    <td><a href="docs/static/screenshots/open-mercato-sales-pipeline.png"><img src="docs/static/screenshots/open-mercato-sales-pipeline.png" alt="Sales pipeline board view" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-orders-order-shipments.png"><img src="docs/static/screenshots/open-mercato-orders-order-shipments.png" alt="Order shipments timeline" width="260"/></a></td>
+    <td><a href="docs/static/screenshots/open-mercato-orders-order-totals.png"><img src="docs/static/screenshots/open-mercato-orders-order-totals.png" alt="Order totals breakdown" width="260"/></a></td>
+  </tr>
+  <tr>
+    <td style="text-align:center;">Sales Pipeline</td>
+    <td style="text-align:center;">Order Shipments</td>
+    <td style="text-align:center;">Order Totals</td>
   </tr>
   <tr>
     <td><a href="docs/static/screenshots/open-mercato-catalog-products.png"><img src="docs/static/screenshots/open-mercato-catalog-products.png" alt="Catalog products list" width="260"/></a></td>
