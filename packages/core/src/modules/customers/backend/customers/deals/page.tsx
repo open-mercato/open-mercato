@@ -612,8 +612,6 @@ export default function CustomersDealsPage() {
       try {
         const fallback: DealsResponse = { items: [], total: 0, totalPages: 1 }
         const call = await apiCall<DealsResponse>(`/api/customers/deals?${queryParams}`, undefined, { fallback })
-        const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
-        const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!call.ok) {
           const message =
             typeof (call.result as { error?: string } | undefined)?.error === 'string'
@@ -625,7 +623,7 @@ export default function CustomersDealsPage() {
         }
         const payload = call.result ?? fallback
         if (cancelled) return
-        setCacheStatus(normalizedCacheStatus)
+        setCacheStatus(call.cacheStatus ?? null)
         const items = Array.isArray(payload.items) ? payload.items : []
         const mapped = items
           .map((item) => mapDeal(item as Record<string, unknown>))

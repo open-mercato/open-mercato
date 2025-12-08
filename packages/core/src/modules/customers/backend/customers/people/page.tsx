@@ -385,8 +385,6 @@ export default function CustomersPeoplePage() {
       try {
         const fallback: PeopleResponse = { items: [], total: 0, totalPages: 1 }
         const call = await apiCall<PeopleResponse>(`/api/customers/people?${queryParams}`, undefined, { fallback })
-        const rawCacheStatus = call.response.headers?.get?.('x-om-cache')
-        const normalizedCacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
         if (!call.ok) {
           const errorPayload = call.result as { error?: string } | undefined
           const message = typeof errorPayload?.error === 'string' ? errorPayload.error : t('customers.people.list.error.load')
@@ -396,7 +394,7 @@ export default function CustomersPeoplePage() {
         }
         const payload = call.result ?? fallback
         if (cancelled) return
-        setCacheStatus(normalizedCacheStatus)
+        setCacheStatus(call.cacheStatus ?? null)
         const items = Array.isArray(payload.items) ? payload.items : []
         setRows(items.map((item) => mapApiItem(item as Record<string, unknown>)).filter((row): row is PersonRow => !!row))
         setTotal(typeof payload.total === 'number' ? payload.total : items.length)

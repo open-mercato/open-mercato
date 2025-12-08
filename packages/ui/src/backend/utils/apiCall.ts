@@ -13,6 +13,7 @@ export type ApiCallResult<TReturn> = {
   status: number
   result: TReturn | null
   response: Response
+  cacheStatus: 'hit' | 'miss' | null
 }
 
 export async function apiCall<TReturn = Record<string, unknown>>(
@@ -24,6 +25,11 @@ export async function apiCall<TReturn = Record<string, unknown>>(
   const parser = options?.parse
   const fallback = options?.fallback ?? null
   let result: TReturn | null = null
+  const rawCacheStatus =
+    response.headers?.get?.('x-om-cache') ??
+    response.headers?.get?.('x-cache-status') ??
+    null
+  const cacheStatus = rawCacheStatus === 'hit' || rawCacheStatus === 'miss' ? rawCacheStatus : null
   try {
     const source = typeof (response as Response & { clone?: () => Response }).clone === 'function'
       ? response.clone()
@@ -38,6 +44,7 @@ export async function apiCall<TReturn = Record<string, unknown>>(
     status: response.status,
     result,
     response,
+    cacheStatus,
   }
 }
 
