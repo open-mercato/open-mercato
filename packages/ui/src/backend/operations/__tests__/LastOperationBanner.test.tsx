@@ -47,33 +47,9 @@ const dict = {
 }
 
 describe('LastOperationBanner', () => {
-  beforeAll(() => {
-    // JSDOM's location.reload is non-writable in some environments; redefine on a clone
-    const descriptor = Object.getOwnPropertyDescriptor(window, 'location')
-
-    // Only redefine if not already configured as writable
-    if (!descriptor || !descriptor.writable) {
-      const orig = window.location
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (window as any).location
-      Object.defineProperty(window, 'location', {
-        configurable: true,
-        enumerable: true,
-        writable: true,
-        value: { ...orig, reload: jest.fn() },
-      })
-    }
-  })
-
   beforeEach(() => {
     jest.resetAllMocks()
     ;(useLastOperation as jest.Mock).mockReturnValue(mockOperation)
-  })
-
-  afterAll(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    delete (window as any).location
-    // fallback: JSDOM will recreate location on next access; nothing else needed
   })
 
   it('renders nothing when there is no operation', () => {

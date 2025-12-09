@@ -44,6 +44,7 @@
         "error": "Failed to update metadata.",
         "success": "Attachment updated.",
         "preview": "Preview",
+        "source": "Source",
         "resizeTool": {
           "title": "Generate resized URL",
           "width": "Width (px)",
