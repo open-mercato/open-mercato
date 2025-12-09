@@ -47,16 +47,29 @@ const dict = {
 }
 
 describe('LastOperationBanner', () => {
+  const originalLocation = window.location
+
   beforeAll(() => {
+    // JSDOM marks location as non-configurable; delete before redefining for tests
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).location
     Object.defineProperty(window, 'location', {
       value: { reload: jest.fn() },
-      writable: true,
+      configurable: true,
     })
   })
 
   beforeEach(() => {
     jest.resetAllMocks()
     ;(useLastOperation as jest.Mock).mockReturnValue(mockOperation)
+  })
+
+  afterAll(() => {
+    Object.defineProperty(window, 'location', {
+      value: originalLocation,
+      configurable: true,
+      writable: false,
+    })
   })
 
   it('renders nothing when there is no operation', () => {
