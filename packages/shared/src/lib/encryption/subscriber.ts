@@ -32,6 +32,24 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     return [] // listen to all entities
   }
 
+  private resolveMeta(
+    meta: EntityMetadata<any> | undefined,
+    entity: Record<string, unknown>,
+    em?: { getMetadata?: () => any },
+  ): EntityMetadata<any> | undefined {
+    if (meta) return meta
+    try {
+      const registry = em?.getMetadata?.()
+      const name = (entity as any)?.constructor?.name
+      if (registry && name) {
+        return registry.find?.(name) ?? registry.get?.(name)
+      }
+    } catch {
+      // best-effort
+    }
+    return meta
+  }
+
   private resolveEntityId(meta: EntityMetadata<any> | undefined): string | null {
     try {
       return resolveEntityIdFromMetadata(meta)
@@ -40,12 +58,17 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
   }
 
-  private async encrypt(target: Record<string, unknown>, meta: EntityMetadata<any> | undefined) {
+  private async encrypt(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+    em?: { getMetadata?: () => any },
+  ) {
     if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
       return
     }
-    const entityId = this.resolveEntityId(meta)
+    const resolvedMeta = this.resolveMeta(meta, target, em)
+    const entityId = this.resolveEntityId(resolvedMeta)
     if (!entityId) return
     const { tenantId, organizationId } = resolveScope(target)
     if (!tenantId) {
@@ -56,12 +79,17 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     Object.assign(target, encrypted)
   }
 
-  private async decrypt(target: Record<string, unknown>, meta: EntityMetadata<any> | undefined) {
+  private async decrypt(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+    em?: { getMetadata?: () => any },
+  ) {
     if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
       return
     }
-    const entityId = this.resolveEntityId(meta)
+    const resolvedMeta = this.resolveMeta(meta, target, em)
+    const entityId = this.resolveEntityId(resolvedMeta)
     if (!entityId) return
     const { tenantId, organizationId } = resolveScope(target)
     if (!tenantId) {
@@ -73,22 +101,37 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   }
 
   async beforeCreate(args: EventArgs<any>) {
-    await this.encrypt(args.entity as Record<string, unknown>, args.meta)
+    await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
   async beforeUpdate(args: EventArgs<any>) {
-    await this.encrypt(args.entity as Record<string, unknown>, args.meta)
+    await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
   async afterCreate(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
   async afterUpdate(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
   async afterLoad(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+  }
+
+  async afterFind(args: any) {
+    const entities = Array.isArray(args?.entities) ? args.entities : []
+    for (const entity of entities) {
+      await this.decrypt(entity as Record<string, unknown>, args?.meta, args?.em)
+    }
+  }
+
+  async afterUpsert(args: any) {
+    const payload = args?.result
+    const entities = Array.isArray(payload) ? payload : payload ? [payload] : []
+    for (const entity of entities) {
+      await this.decrypt(entity as Record<string, unknown>, args?.meta, args?.em)
+    }
   }
 }

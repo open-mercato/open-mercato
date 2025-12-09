@@ -12,7 +12,8 @@ const diRegistrars = diGenerated.diRegistrars ?? diGenerated.default ?? []
 
 export async function createRequestContainer(): Promise<AppContainer> {
   const orm = await getOrm()
-  const em = orm.em.fork({ clear: true }) as unknown as EntityManager
+  // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
+  const em = orm.em.fork({ clear: true, freshEventManager: true }) as unknown as EntityManager
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   // Core registrations
   container.register({
