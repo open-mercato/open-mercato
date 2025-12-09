@@ -75,7 +75,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview"],
+      items: ["architecture/system-overview", "architecture/data-encryption"],
     },
     {
       type: "category",

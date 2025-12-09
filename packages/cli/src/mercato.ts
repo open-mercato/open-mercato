@@ -189,10 +189,13 @@ export async function run(argv = process.argv) {
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
       
       console.log('🔐 Setting up RBAC and users...')
-      const setupOutput = runCommand(
+      const setupResult = runCommand(
         `yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`,
-        { quiet: true, label: 'Auth setup' }
-      ).toString()
+        { quiet: false, label: 'Auth setup' }
+      )
+      const setupOutput = typeof setupResult === 'string' || Buffer.isBuffer(setupResult)
+        ? setupResult.toString()
+        : ''
       console.log('✅ RBAC setup complete\n')
       
 
@@ -218,6 +221,16 @@ export async function run(argv = process.argv) {
         console.log('📏 Seeding catalog units...')
         runCommand(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`)
         console.log('📏 ✅ Catalog units seeded\n')
+
+        const encryptionEnv = String(process.env.TENANT_DATA_ENCRYPTION ?? 'yes').toLowerCase()
+        const encryptionEnabled = encryptionEnv === 'yes' || encryptionEnv === 'true' || encryptionEnv === '1' || encryptionEnv === ''
+        if (encryptionEnabled) {
+          console.log('🔒 Seeding encryption defaults...')
+          runCommand(`yarn mercato entities seed-encryption --tenant ${tenantId} --org ${orgId}`)
+          console.log('🔒 ✅ Encryption defaults seeded\n')
+        } else {
+          console.log('⚠️  TENANT_DATA_ENCRYPTION disabled; skipping encryption defaults.\n')
+        }
 
         console.log('🏷️  Seeding catalog price kinds...')
         runCommand(`yarn mercato catalog seed-price-kinds --tenant ${tenantId} --org ${orgId}`)

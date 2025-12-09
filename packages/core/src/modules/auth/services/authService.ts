@@ -2,12 +2,19 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import crypto from 'node:crypto'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
 
   async findUserByEmail(email: string) {
-    return this.em.findOne(User, { email })
+    const emailHash = computeEmailHash(email)
+    return this.em.findOne(User, {
+      $or: [
+        { email },
+        { emailHash },
+      ],
+    } as any)
   }
 
   async verifyPassword(user: User, password: string) {

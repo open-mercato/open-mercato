@@ -114,7 +114,6 @@ export interface DataEngine {
 
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
-
   constructor(private em: EntityManager, private container: AwilixContainer) {}
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {

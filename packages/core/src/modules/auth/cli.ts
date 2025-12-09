@@ -7,6 +7,7 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
+import { computeEmailHash } from './lib/emailHash'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -30,7 +31,14 @@ const addUser: ModuleCli = {
     const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
+    const u = em.create(User, {
+      email,
+      emailHash: computeEmailHash(email),
+      passwordHash: await hash(password, 10),
+      isConfirmed: true,
+      organizationId: org.id,
+      tenantId: org.tenant.id,
+    })
     await em.persistAndFlush(u)
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
@@ -309,8 +317,8 @@ const setPassword: ModuleCli = {
     
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    
-    const user = await em.findOne(User, { email })
+    const emailHash = computeEmailHash(email)
+    const user = await em.findOne(User, { $or: [{ email }, { emailHash }] })
     
     if (!user) {
       console.error(`User with email "${email}" not found`)

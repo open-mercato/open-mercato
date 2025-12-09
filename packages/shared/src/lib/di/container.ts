@@ -26,6 +26,17 @@ export async function createRequestContainer(): Promise<AppContainer> {
   for (const reg of diRegistrars) {
     try { reg?.(container) } catch {}
   }
+  // Core bootstrap (cache, event bus, encryption subscriber/KMS, module subscribers)
+  try {
+    const { bootstrap } = await import('@open-mercato/core/bootstrap') as any
+    if (bootstrap && typeof bootstrap === 'function') {
+      // Avoid double bootstrap if caller already wired it
+      const alreadyBootstrapped = !!container.registrations?.eventBus
+      if (!alreadyBootstrapped) {
+        await bootstrap(container)
+      }
+    }
+  } catch { /* optional */ }
   // App-level DI override (last chance)
   try {
     const appDi = await import('@/di') as any

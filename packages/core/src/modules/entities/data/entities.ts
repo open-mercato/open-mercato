@@ -241,3 +241,38 @@ export class CustomFieldValue {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+// Encryption maps declared per entity/tenant/organization
+@Entity({ tableName: 'encryption_maps' })
+@Index({
+  name: 'encryption_maps_entity_scope_idx',
+  properties: ['entityId', 'tenantId', 'organizationId'],
+})
+export class EncryptionMap {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_id', type: 'text' })
+  entityId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'fields_json', type: 'jsonb', nullable: true })
+  fieldsJson?: Array<{ field: string; hashField?: string | null }> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
