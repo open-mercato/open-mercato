@@ -4,15 +4,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { AttachmentContentPreview } from '../AttachmentContentPreview'
 
-jest.mock('react-markdown', () => ({
-  __esModule: true,
-  default: (props: any) => <div data-testid="markdown-preview">{props.children}</div>,
-}))
-
-jest.mock('remark-gfm', () => ({
-  __esModule: true,
-  default: 'remark-gfm',
-}))
 
 describe('AttachmentContentPreview', () => {
   it('shows placeholder when content is missing', () => {
