@@ -47,15 +47,16 @@ const dict = {
 }
 
 describe('LastOperationBanner', () => {
-  const originalLocation = window.location
-
   beforeAll(() => {
-    // JSDOM marks location as non-configurable; delete before redefining for tests
+    // JSDOM’s location.reload is non-writable in some environments; redefine on a clone
+    const orig = window.location
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     delete (window as any).location
     Object.defineProperty(window, 'location', {
-      value: { reload: jest.fn() },
       configurable: true,
+      enumerable: true,
+      writable: true,
+      value: { ...orig, reload: jest.fn() },
     })
   })
 
@@ -65,11 +66,9 @@ describe('LastOperationBanner', () => {
   })
 
   afterAll(() => {
-    Object.defineProperty(window, 'location', {
-      value: originalLocation,
-      configurable: true,
-      writable: false,
-    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).location
+    // fallback: JSDOM will recreate location on next access; nothing else needed
   })
 
   it('renders nothing when there is no operation', () => {
