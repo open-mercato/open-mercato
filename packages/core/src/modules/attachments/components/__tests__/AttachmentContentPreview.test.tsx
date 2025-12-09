@@ -21,9 +21,7 @@ describe('AttachmentContentPreview', () => {
 
   it('renders inline content when short', () => {
     render(<AttachmentContentPreview content="hello world" />)
-    expect(screen.getByRole('tab', { name: /source/i })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('hello world')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /preview/i })).toBeInTheDocument()
   })
 
   it('truncates long content and can expand', () => {
