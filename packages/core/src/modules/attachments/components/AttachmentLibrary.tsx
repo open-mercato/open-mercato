@@ -1137,6 +1137,8 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
                 emptyLabel={t('attachments.library.metadata.noContent', 'No text extracted')}
                 showMoreLabel={t('attachments.library.metadata.showMore', 'Show more')}
                 showLessLabel={t('attachments.library.metadata.showLess', 'Show less')}
+                sourceLabel={t('attachments.library.metadata.source', 'Source')}
+                previewLabel={t('attachments.library.metadata.preview', 'Preview')}
               />
             </div>
             <CrudForm<AttachmentMetadataFormValues>

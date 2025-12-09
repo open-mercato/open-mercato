@@ -12,7 +12,9 @@ describe('AttachmentContentPreview', () => {
 
   it('renders inline content when short', () => {
     render(<AttachmentContentPreview content="hello world" />)
+    expect(screen.getByRole('tab', { name: /source/i })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('hello world')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /preview/i })).toBeInTheDocument()
   })
 
   it('truncates long content and can expand', () => {
@@ -24,5 +26,13 @@ describe('AttachmentContentPreview', () => {
     const toggle = screen.getByRole('button', { name: /show more/i })
     fireEvent.click(toggle)
     expect(preview.textContent).toContain(longText.trim())
+  })
+
+  it('renders markdown preview when tab is selected', () => {
+    const { container } = render(<AttachmentContentPreview content="**bold** text" />)
+    const previewTab = screen.getByRole('tab', { name: /preview/i })
+    fireEvent.click(previewTab)
+    expect(previewTab).toHaveAttribute('aria-selected', 'true')
+    expect(container.querySelector('strong')?.textContent).toBe('bold')
   })
 })
