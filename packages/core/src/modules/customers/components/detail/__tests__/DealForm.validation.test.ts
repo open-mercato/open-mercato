@@ -15,7 +15,7 @@ describe('buildDealValidationError', () => {
       path: ['title'],
     }
     const thrower = () => buildDealValidationError([issue], t)
-    expect(thrower).toThrowError('Title is required')
+    expect(thrower).toThrow('Title is required')
     try {
       thrower()
     } catch (error) {
@@ -32,6 +32,6 @@ describe('buildDealValidationError', () => {
       message: undefined as unknown as string,
       path: [],
     }
-    expect(() => buildDealValidationError([issue], t)).toThrowError('Failed to save deal.')
+    expect(() => buildDealValidationError([issue], t)).toThrow('Failed to save deal.')
   })
 })

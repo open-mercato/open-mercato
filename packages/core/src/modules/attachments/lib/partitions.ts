@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AttachmentPartition } from '../data/entities'
+import { resolveDefaultAttachmentOcrEnabled } from './ocrConfig'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 export type AttachmentPartitionSeed = {
@@ -49,6 +50,7 @@ export async function ensureDefaultPartitions(em: EntityManager): Promise<void> 
       description: seed.description ?? null,
       storageDriver: 'local',
       isPublic: seed.isPublic ?? false,
+      requiresOcr: resolveDefaultAttachmentOcrEnabled(),
     })
     em.persist(record)
   }

@@ -2,8 +2,8 @@
 import { GET as list, POST as upload } from '@open-mercato/core/modules/attachments/api/attachments'
 
 const partitions = [
-  { id: 'p-private', code: 'privateAttachments', title: 'Private', isPublic: false, storageDriver: 'local' },
-  { id: 'p-products', code: 'productsMedia', title: 'Products', isPublic: true, storageDriver: 'local' },
+  { id: 'p-private', code: 'privateAttachments', title: 'Private', isPublic: false, storageDriver: 'local', requiresOcr: true },
+  { id: 'p-products', code: 'productsMedia', title: 'Products', isPublic: true, storageDriver: 'local', requiresOcr: false },
 ]
 
 const mockEm = {
@@ -50,6 +50,12 @@ import { promises as fsp } from 'fs'
 jest.spyOn(fsp, 'mkdir').mockResolvedValue(undefined as any)
 jest.spyOn(fsp, 'writeFile').mockResolvedValue(undefined as any)
 
+jest.mock('@open-mercato/core/modules/attachments/lib/textExtraction', () => ({
+  extractAttachmentContent: jest.fn(),
+}))
+const mockExtractAttachmentContent = jest.requireMock('@open-mercato/core/modules/attachments/lib/textExtraction')
+  .extractAttachmentContent as jest.Mock
+
 // Avoid loading MikroORM decorators in tests
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
@@ -71,6 +77,8 @@ describe('attachments API', () => {
     jest.clearAllMocks()
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
+    mockExtractAttachmentContent.mockReset()
+    delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
   })
 
   it('rejects disallowed extension', async () => {
@@ -112,6 +120,54 @@ describe('attachments API', () => {
     expect(res.status).toBe(400)
     const payload = await res.json()
     expect(payload.error).toMatch(/exceeds/i)
+  })
+
+  it('extracts content when partition requires OCR', async () => {
+    mockExtractAttachmentContent.mockResolvedValue('extracted text')
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(200)
+    expect(mockExtractAttachmentContent).toHaveBeenCalled()
+    const payload = mockEm.create.mock.calls.find((call) => call[0].name === 'Attachment')?.[1]
+    expect(payload?.content).toBe('extracted text')
+  })
+
+  it('skips OCR when partition disables it', async () => {
+    const disabledPartition = { ...partitions[0], requiresOcr: false }
+    mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
+      if (entity?.name === 'AttachmentPartition') return disabledPartition
+      if (entity?.name === 'CustomFieldDef') {
+        return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf'] } }
+      }
+      return null
+    })
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(200)
+    expect(mockExtractAttachmentContent).not.toHaveBeenCalled()
+    const payload = mockEm.create.mock.calls.find((call) => call[0].name === 'Attachment')?.[1]
+    expect(payload?.content ?? null).toBeNull()
+  })
+
+  it('uses env default when partition flag is undefined', async () => {
+    delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
+    mockExtractAttachmentContent.mockResolvedValue('default text')
+    const partitionWithoutFlag = { ...partitions[0] }
+    delete (partitionWithoutFlag as any).requiresOcr
+    mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
+      if (entity?.name === 'AttachmentPartition') return partitionWithoutFlag
+      if (entity?.name === 'CustomFieldDef') {
+        return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf'] } }
+      }
+      return null
+    })
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(200)
+    expect(mockExtractAttachmentContent).toHaveBeenCalled()
   })
 
   it('applies normalized tags and assignments from form payload', async () => {

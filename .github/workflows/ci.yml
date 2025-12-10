@@ -16,8 +16,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 25
           cache: yarn
+
+      - name: Install markitdown CLI
+        run: python3 -m pip install --upgrade pip markitdown
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile

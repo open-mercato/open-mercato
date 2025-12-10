@@ -8,7 +8,7 @@ describe('buildTaskSubmitPayload', () => {
   const t = (key: string, fallback?: string) => fallback ?? key
 
   it('throws when title is missing', () => {
-    expect(() => buildTaskSubmitPayload({}, t)).toThrowError('Task name is required.')
+    expect(() => buildTaskSubmitPayload({}, t)).toThrow('Task name is required.')
   })
 
   it('returns normalized payload when title is provided', () => {
