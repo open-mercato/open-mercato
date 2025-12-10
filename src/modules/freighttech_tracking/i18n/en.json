@@ -1,0 +1,27 @@
+{
+  "freighttech_tracking": {
+    "settings": {
+      "title": "Freighttech Tracking",
+      "configuration": "Freighttech Tracking Configuration",
+
+      "errors": {
+        "load": "Failed to load settings.",
+        "save": "Failed to save settings.",
+        "organization_required": "Organization context is required."
+      },
+      "actions": {
+        "save": "Save settings",
+        "saving": "Saving…",
+        "reset": "Reset changes"
+      },
+      "messages": {
+        "saved": "Freighttech Tracking Configuration saved."
+      },
+      "api_key":{
+        "label": "API-Key",
+        "hint": "Authorization key for the Freighttech Tracking System"
+
+      }
+    }
+  }
+}
