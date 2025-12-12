@@ -61,11 +61,14 @@ function isEncryptedPayload(value: unknown): boolean {
 }
 
 export class TenantDataEncryptionService {
+  private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
+  private static globalInflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
+  private static globalDekCache = new Map<string, TenantDek>()
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
-  private readonly memoryCache = new Map<string, EncryptionMapRecord>()
-  private readonly dekCache = new Map<string, TenantDek>()
-  private readonly inflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
+  private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
+  private readonly dekCache = TenantDataEncryptionService.globalDekCache
+  private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
 
   constructor(
     private em: EntityManager,
