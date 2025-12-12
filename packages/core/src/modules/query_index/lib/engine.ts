@@ -139,6 +139,7 @@ export class HybridQueryEngine implements QueryEngine {
       const baseTable = resolveEntityTableName(this.em, entity)
       profiler.mark('query:base_table_resolved')
       const searchConfig = resolveSearchConfig()
+      const orgScope = this.resolveOrganizationScope(opts)
       const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
       const hasSearchTokens = searchEnabled
         ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
@@ -154,7 +155,6 @@ export class HybridQueryEngine implements QueryEngine {
 
       const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:'))
-      const orgScope = this.resolveOrganizationScope(opts)
       const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
