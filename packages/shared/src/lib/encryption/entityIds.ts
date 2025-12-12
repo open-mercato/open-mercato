@@ -1,28 +1,63 @@
 import type { EntityMetadata } from '@mikro-orm/core'
+import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
 
-const TABLE_TO_ENTITY_ID: Record<string, string> = {
-  users: 'auth:user',
-  customer_addresses: 'customers:customer_address',
-  customer_comments: 'customers:customer_comment',
-  sales_orders: 'sales:sales_order',
-  sales_quotes: 'sales:sales_quote',
-  sales_notes: 'sales:sales_note',
-}
+const ENTITY_ID_LOOKUP = (() => {
+  const map = new Map<string, string>()
+  const toSnake = (value: string) =>
+    value
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[\s-]+/g, '_')
+      .replace(/__+/g, '_')
+      .toLowerCase()
+  for (const mod of Object.values(GeneratedEntities || {})) {
+    for (const [key, entityId] of Object.entries(mod || {})) {
+      const snake = toSnake(key)
+      map.set(snake, entityId)
+      // Also allow the original key and PascalCase class names to resolve
+      map.set(key.toLowerCase(), entityId)
+      map.set(
+        key
+          .split('_')
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(''),
+        entityId,
+      )
+    }
+  }
+  return map
+})()
 
-const CLASS_TO_ENTITY_ID: Record<string, string> = {
-  User: 'auth:user',
-  CustomerAddress: 'customers:customer_address',
-  CustomerComment: 'customers:customer_comment',
-  SalesOrder: 'sales:sales_order',
-  SalesQuote: 'sales:sales_quote',
-  SalesNote: 'sales:sales_note',
+const normalizeKey = (value: string): string =>
+  value
+    .replace(/["'`]/g, '')
+    .replace(/[\W]+/g, '_')
+    .replace(/__+/g, '_')
+    .toLowerCase()
+
+const maybeSingularize = (value: string): string => {
+  if (value.endsWith('ies')) return `${value.slice(0, -3)}y`
+  if (value.endsWith('s')) return value.slice(0, -1)
+  return value
 }
 
 export function resolveEntityIdFromMetadata(meta: EntityMetadata<any> | undefined): string | null {
   if (!meta) return null
-  const table = (meta as any).collection || (meta as any).tableName || ''
-  if (table && TABLE_TO_ENTITY_ID[table]) return TABLE_TO_ENTITY_ID[table]
-  const name = (meta as any).className || meta.name || ''
-  if (name && CLASS_TO_ENTITY_ID[name]) return CLASS_TO_ENTITY_ID[name]
+  const candidates = [
+    (meta as any).className,
+    meta.name,
+    (meta as any).collection,
+    (meta as any).tableName,
+  ].filter(Boolean) as string[]
+
+  for (const raw of candidates) {
+    const normalized = normalizeKey(raw)
+    const singular = maybeSingularize(normalized)
+    const id =
+      ENTITY_ID_LOOKUP.get(normalized) ||
+      ENTITY_ID_LOOKUP.get(singular) ||
+      ENTITY_ID_LOOKUP.get(normalized.replace(/_/g, '')) || // Pascal-ish fallback
+      ENTITY_ID_LOOKUP.get(singular.replace(/_/g, ''))
+    if (id) return id
+  }
   return null
 }

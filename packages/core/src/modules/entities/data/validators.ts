@@ -36,6 +36,7 @@ export const upsertCustomFieldDefSchema = z.object({
       formEditable: z.boolean().optional(),
       listVisible: z.boolean().optional(),
       priority: z.number().optional(),
+      encrypted: z.boolean().optional(),
       relatedEntityId: z.string().optional(),
       dictionaryId: z.string().uuid().optional(),
       dictionaryInlineCreate: z.boolean().optional(),

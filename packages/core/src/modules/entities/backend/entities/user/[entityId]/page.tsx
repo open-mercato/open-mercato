@@ -16,6 +16,7 @@ import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
+import { useT } from '@/lib/i18n/context'
 
 type Def = FieldDefinition
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
@@ -30,6 +31,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
   const router = useRouter()
   const searchParams = useSearchParams()
+  const t = useT()
   const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
@@ -415,6 +417,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         }}
         orderNotice={orderDirty ? { dirty: true, saving: orderSaving, message: 'Reordered — will auto-save on blur' } : undefined}
         addButtonLabel="Add Field"
+        translate={t}
         listRef={listRef}
         listProps={{
           tabIndex: -1,
