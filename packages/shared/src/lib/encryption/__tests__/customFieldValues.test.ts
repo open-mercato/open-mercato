@@ -5,10 +5,12 @@ const fixedKey = Buffer.alloc(32, 1).toString('base64')
 
 describe('customFieldValues encryption helpers', () => {
   it('caches tenant encryption service per entity manager', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
     const em = {} as EntityManager
     const first = resolveTenantEncryptionService(em)
     const second = resolveTenantEncryptionService(em)
     expect(first).toBe(second)
+    warnSpy.mockRestore()
   })
 
   it('encrypts and decrypts primitives when enabled', async () => {

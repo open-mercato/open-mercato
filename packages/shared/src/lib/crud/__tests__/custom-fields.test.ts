@@ -1,4 +1,5 @@
-import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '../custom-fields'
+import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload, loadCustomFieldValues } from '../custom-fields'
+import { encryptWithAesGcm } from '../../encryption/aes'
 
 const mockEntityManager = (defs: any[]) => ({
   find: jest.fn().mockResolvedValue(defs),
@@ -117,5 +118,33 @@ describe('extractAllCustomFieldEntries', () => {
       cf_notes: undefined,
       cf_existing: 'foo',
     })
+  })
+})
+
+describe('loadCustomFieldValues (encryption)', () => {
+  it('decrypts encrypted custom field payloads when definitions mark them encrypted', async () => {
+    const dek = Buffer.alloc(32, 2).toString('base64')
+    const encrypted = encryptWithAesGcm(JSON.stringify('secret-note'), dek).value
+    const em = {
+      find: jest.fn().mockImplementation((_, where) => {
+        if ((where as any).recordId) {
+          return Promise.resolve([
+            { recordId: 'rec-1', fieldKey: 'note', organizationId: null, tenantId: 'tenant-1', valueText: encrypted, valueMultiline: null, valueInt: null, valueFloat: null, valueBool: null, deletedAt: null },
+          ])
+        }
+        return Promise.resolve([
+          { key: 'note', entityId: 'demo:entity', organizationId: null, tenantId: 'tenant-1', kind: 'text', configJson: { encrypted: true }, isActive: true },
+        ])
+      }),
+    }
+    const mockService = { isEnabled: () => true, getDek: async () => ({ key: dek }) }
+    const values = await loadCustomFieldValues({
+      em: em as any,
+      entityId: 'demo:entity',
+      recordIds: ['rec-1'],
+      tenantIdByRecord: { 'rec-1': 'tenant-1' },
+      encryptionService: mockService as any,
+    })
+    expect(values['rec-1'].cf_note).toBe('secret-note')
   })
 })
