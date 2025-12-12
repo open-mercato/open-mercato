@@ -65,6 +65,7 @@ export class TenantDataEncryptionService {
   private readonly cache?: CacheStrategy
   private readonly memoryCache = new Map<string, EncryptionMapRecord>()
   private readonly dekCache = new Map<string, TenantDek>()
+  private readonly inflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
 
   constructor(
     private em: EntityManager,
@@ -101,6 +102,7 @@ export class TenantDataEncryptionService {
   private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
     const conn: any = (this.em as any)?.getConnection?.()
+    if (!conn || typeof conn.execute !== 'function') return null
     const sql = `
       select entity_id, fields_json
       from encryption_maps
@@ -111,7 +113,7 @@ export class TenantDataEncryptionService {
         and deleted_at is null
       limit 1
     `
-    const rows = conn ? await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null]) : []
+    const rows = await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null])
     const row = Array.isArray(rows) && rows.length ? rows[0] : null
     if (!row) return null
     return {
@@ -132,20 +134,27 @@ export class TenantDataEncryptionService {
     ]
     for (const candidate of candidates) {
       const tag = cacheKey(candidate)
+      if (this.inflightMaps.has(tag)) {
+        const pending = this.inflightMaps.get(tag)!
+        const resolved = await pending
+        if (resolved) return resolved
+      }
       const mem = this.memoryCache.get(tag)
       if (mem) return mem
       if (this.cache && typeof this.cache.get === 'function') {
         const cached = await this.cache.get(tag)
         if (cached) return cached as EncryptionMapRecord
       }
-      const loaded = await this.fetchMap(candidate)
-      if (loaded) {
-        this.memoryCache.set(tag, loaded)
-        if (this.cache && typeof this.cache.set === 'function') {
-          await this.cache.set(tag, loaded, { ttl: 300 })
-        }
-        return loaded
+      const pending = this.fetchMap(candidate)
+      this.inflightMaps.set(tag, pending)
+      const loaded = await pending
+      this.inflightMaps.delete(tag)
+      if (!loaded) continue
+      this.memoryCache.set(tag, loaded)
+      if (this.cache && typeof this.cache.set === 'function') {
+        await this.cache.set(tag, loaded, { ttl: 300 })
       }
+      return loaded
     }
     return null
   }
@@ -153,6 +162,7 @@ export class TenantDataEncryptionService {
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
     const tag = cacheKey({ entityId, tenantId, organizationId })
     this.memoryCache.delete(tag)
+    this.inflightMaps.delete(tag)
     if (this.cache && typeof (this.cache as any).delete === 'function') {
       await (this.cache as any).delete(tag)
     }
