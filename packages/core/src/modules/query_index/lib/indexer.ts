@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import type { Knex } from 'knex'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -89,6 +90,14 @@ export async function upsertIndexRow(
         .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
         .del()
     }
+    try {
+      await deleteSearchTokensForRecord(knex, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
+      })
+    } catch {}
     return { doc: null, existed, wasDeleted, created: false, revived: false }
   }
 
@@ -125,6 +134,15 @@ export async function upsertIndexRow(
 
   const created = !existed
   const revived = existed && wasDeleted
+  try {
+    await replaceSearchTokensForRecord(knex, {
+      entityType: args.entityType,
+      recordId: args.recordId,
+      organizationId: args.organizationId ?? null,
+      tenantId: args.tenantId ?? null,
+      doc,
+    })
+  } catch {}
   return { doc, existed, wasDeleted, created, revived }
 }
 
@@ -155,6 +173,14 @@ export async function markDeleted(
       .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
       .del()
   }
+  try {
+    await deleteSearchTokensForRecord(knex, {
+      entityType: args.entityType,
+      recordId: args.recordId,
+      organizationId: args.organizationId ?? null,
+      tenantId: args.tenantId ?? null,
+    })
+  } catch {}
 
   return { wasActive }
 }

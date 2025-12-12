@@ -38,12 +38,30 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     em?: { getMetadata?: () => any },
   ): EntityMetadata<any> | undefined {
     if (meta) return meta
+    const ctor = (entity as any)?.constructor
+    const name = ctor?.name
+    const registry = em?.getMetadata?.()
+    if (!registry || !name) return meta
+    try { return registry.find?.(name) } catch {}
+    try { return registry.find?.(ctor) } catch {}
+    try { return registry.get?.(name) } catch {}
+    try { return registry.get?.(ctor) } catch {}
+    const all =
+      (typeof registry.getAll === 'function' && registry.getAll()) ||
+      (Array.isArray((registry as any).metadata) ? (registry as any).metadata : undefined) ||
+      (registry as any).metadata ||
+      {}
     try {
-      const registry = em?.getMetadata?.()
-      const name = (entity as any)?.constructor?.name
-      if (registry && name) {
-        return registry.find?.(name) ?? registry.get?.(name)
-      }
+      const entries = Array.isArray(all) ? all : Object.values<any>(all)
+      const match = entries.find(
+        (m: any) =>
+          m?.className === name ||
+          m?.name === name ||
+          m?.entityName === name ||
+          m?.collection === ctor?.prototype?.__meta?.tableName ||
+          m?.tableName === ctor?.prototype?.__meta?.tableName,
+      )
+      if (match) return match as EntityMetadata<any>
     } catch {
       // best-effort
     }
@@ -105,6 +123,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   }
 
   async beforeUpdate(args: EventArgs<any>) {
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
     await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
@@ -116,22 +135,11 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
-  async afterLoad(args: EventArgs<any>) {
+  async afterUpsert(args: EventArgs<any>) {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 
-  async afterFind(args: any) {
-    const entities = Array.isArray(args?.entities) ? args.entities : []
-    for (const entity of entities) {
-      await this.decrypt(entity as Record<string, unknown>, args?.meta, args?.em)
-    }
-  }
-
-  async afterUpsert(args: any) {
-    const payload = args?.result
-    const entities = Array.isArray(payload) ? payload : payload ? [payload] : []
-    for (const entity of entities) {
-      await this.decrypt(entity as Record<string, unknown>, args?.meta, args?.em)
-    }
+  async onLoad(args: EventArgs<any>) {
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
   }
 }

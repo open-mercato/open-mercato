@@ -1,5 +1,6 @@
 import type { Knex } from 'knex'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
+import { replaceSearchTokensForBatch } from './search-tokens'
 
 export type AnyRow = Record<string, any> & { id: string | number }
 
@@ -113,6 +114,14 @@ export async function upsertIndexBatch(
     deleted_at: null,
   }))
 
+  const tokenPayloads = basePayloads.map((payload) => ({
+    entityType: payload.entity_type,
+    recordId: payload.entity_id,
+    organizationId: payload.organization_id,
+    tenantId: payload.tenant_id,
+    doc: payload.doc,
+  }))
+
   try {
     await knex('entity_indexes')
       .insert(insertRows)
@@ -125,6 +134,9 @@ export async function upsertIndexBatch(
         deleted_at: knex.raw('excluded.deleted_at'),
         updated_at: knex.fn.now(),
       })
+    try {
+      await replaceSearchTokensForBatch(knex, tokenPayloads)
+    } catch {}
     return
   } catch {
     await knex.transaction(async (trx) => {
@@ -158,4 +170,7 @@ export async function upsertIndexBatch(
       }
     })
   }
+  try {
+    await replaceSearchTokensForBatch(knex, tokenPayloads)
+  } catch {}
 }

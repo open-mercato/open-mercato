@@ -34,7 +34,7 @@ function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
     // eslint-disable-next-line no-console
-    console.debug('[tenant-encryption]', event, payload)
+    console.debug(`${event} [tenant-encryption]`, payload)
   } catch {
     // ignore
   }
@@ -79,35 +79,55 @@ export class TenantDataEncryptionService {
   }
 
   private async fetchMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
-    const repo = this.em.getRepository(EncryptionMap)
-    const record = await repo.findOne(
-      { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: key.organizationId ?? null, isActive: true, deletedAt: null },
-    )
-    if (!record) return null
+    // Bypass ORM lifecycle hooks to avoid recursive decrypt loops by querying directly.
+    const conn: any = (this.em as any)?.getConnection?.()
+    const sql = `
+      select entity_id, fields_json
+      from encryption_maps
+      where entity_id = ?
+        and tenant_id is not distinct from ?
+        and organization_id is not distinct from ?
+        and is_active = true
+        and deleted_at is null
+      limit 1
+    `
+    const rows = conn ? await conn.execute(sql, [key.entityId, key.tenantId ?? null, key.organizationId ?? null]) : []
+    const row = Array.isArray(rows) && rows.length ? rows[0] : null
+    if (!row) return null
     return {
-      entityId: record.entityId,
-      fields: Array.isArray(record.fieldsJson)
-        ? (record.fieldsJson as EncryptedFieldRule[])
-        : [],
+      entityId: row.entity_id || row.entityId || key.entityId,
+      fields: Array.isArray(row.fields_json)
+        ? (row.fields_json as EncryptedFieldRule[])
+        : Array.isArray(row.fieldsJson)
+          ? (row.fieldsJson as EncryptedFieldRule[])
+          : [],
     }
   }
 
   private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
-    const tag = cacheKey(key)
-    if (this.cache && typeof this.cache.get === 'function') {
-      const cached = await this.cache.get(tag)
-      if (cached) return cached as EncryptionMapRecord
-    }
-    const mem = this.memoryCache.get(tag)
-    if (mem) return mem
-    const loaded = await this.fetchMap(key)
-    if (loaded) {
-      this.memoryCache.set(tag, loaded)
-      if (this.cache && typeof this.cache.set === 'function') {
-        await this.cache.set(tag, loaded, { ttl: 300 })
+    const candidates: MapCacheKey[] = [
+      key,
+      { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
+      { entityId: key.entityId, tenantId: null, organizationId: null },
+    ]
+    for (const candidate of candidates) {
+      const tag = cacheKey(candidate)
+      const mem = this.memoryCache.get(tag)
+      if (mem) return mem
+      if (this.cache && typeof this.cache.get === 'function') {
+        const cached = await this.cache.get(tag)
+        if (cached) return cached as EncryptionMapRecord
+      }
+      const loaded = await this.fetchMap(candidate)
+      if (loaded) {
+        this.memoryCache.set(tag, loaded)
+        if (this.cache && typeof this.cache.set === 'function') {
+          await this.cache.set(tag, loaded, { ttl: 300 })
+        }
+        return loaded
       }
     }
-    return loaded
+    return null
   }
 
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
@@ -191,7 +211,7 @@ export class TenantDataEncryptionService {
     tenantId: string | null | undefined,
     organizationId?: string | null
   ): Promise<Record<string, unknown>> {
-    if (!this.isEnabled()) {
+    if (!isTenantDataEncryptionEnabled()) {
       debug('⚪️ decrypt.skip.disabled', { entityId, tenantId })
       return payload
     }

@@ -228,3 +228,35 @@ export class IndexerStatusLog {
   @Property({ name: 'occurred_at', type: Date, onCreate: () => new Date() })
   occurredAt: Date = new Date()
 }
+
+@Entity({ tableName: 'search_tokens' })
+@Index({ name: 'search_tokens_lookup_idx', properties: ['entityType', 'field', 'tokenHash', 'tenantId', 'organizationId'] })
+@Index({ name: 'search_tokens_entity_idx', properties: ['entityType', 'entityId'] })
+export class SearchToken {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'entity_id', type: 'text' })
+  entityId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'field', type: 'text' })
+  field!: string
+
+  @Property({ name: 'token_hash', type: 'text' })
+  tokenHash!: string
+
+  @Property({ name: 'token', type: 'text', nullable: true })
+  token?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
