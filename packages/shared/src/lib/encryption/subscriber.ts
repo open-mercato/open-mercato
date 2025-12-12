@@ -4,11 +4,18 @@ import { TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 
-type Scoped = { tenantId?: string | null; tenant_id?: string | null; organizationId?: string | null; organization_id?: string | null }
+type Scoped = {
+  tenantId?: string | null
+  tenant_id?: string | null
+  tenant?: { id?: string | null } | null
+  organizationId?: string | null
+  organization_id?: string | null
+  organization?: { id?: string | null } | null
+}
 
 function resolveScope(entity: Scoped): { tenantId: string | null; organizationId: string | null } {
-  const tenantId = entity.tenantId ?? entity.tenant_id ?? null
-  const organizationId = entity.organizationId ?? entity.organization_id ?? null
+  const tenantId = entity.tenantId ?? entity.tenant_id ?? entity.tenant?.id ?? null
+  const organizationId = entity.organizationId ?? entity.organization_id ?? entity.organization?.id ?? null
   return {
     tenantId: tenantId ? String(tenantId) : null,
     organizationId: organizationId ? String(organizationId) : null,
