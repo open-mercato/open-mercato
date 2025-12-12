@@ -40,6 +40,26 @@ function debug(event: string, payload: Record<string, unknown>) {
   }
 }
 
+const toSnakeCase = (value: string): string =>
+  value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
+
+const toCamelCase = (value: string): string =>
+  value.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+
+function findKey(obj: Record<string, unknown>, key: string): string | null {
+  const candidates = [key, toSnakeCase(key), toCamelCase(key)]
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(obj, candidate)) return candidate
+  }
+  return null
+}
+
+function isEncryptedPayload(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const parts = value.split(':')
+  return parts.length === 4 && parts[3] === 'v1'
+}
+
 export class TenantDataEncryptionService {
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
@@ -145,15 +165,18 @@ export class TenantDataEncryptionService {
   ): Record<string, unknown> {
     const clone: Record<string, unknown> = { ...obj }
     for (const rule of fields) {
-      const key = rule.field
-      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue
+      const key = findKey(clone, rule.field)
+      if (!key) continue
       const value = clone[key]
       if (value === null || value === undefined) continue
+       // Avoid double-encrypting already encrypted payloads
+      if (isEncryptedPayload(value)) continue
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)
       clone[key] = payload.value
       if (rule.hashField) {
-        clone[rule.hashField] = hashForLookup(serialized)
+        const hashKey = findKey(clone, rule.hashField) ?? rule.hashField
+        clone[hashKey] = hashForLookup(serialized)
       }
     }
     return clone
@@ -165,12 +188,23 @@ export class TenantDataEncryptionService {
     dek: TenantDek
   ): Record<string, unknown> {
     const clone: Record<string, unknown> = { ...obj }
+    const maybeDecrypt = (payload: string): string | null => {
+      const first = decryptWithAesGcm(payload, dek.key)
+      if (first === null) return null
+      // Handle accidental double-encryption: if the first pass still looks like a v1 payload, try once more.
+      const parts = first.split(':')
+      if (parts.length === 4 && parts[3] === 'v1') {
+        const second = decryptWithAesGcm(first, dek.key)
+        return second ?? first
+      }
+      return first
+    }
     for (const rule of fields) {
-      const key = rule.field
-      if (!Object.prototype.hasOwnProperty.call(clone, key)) continue
+      const key = findKey(clone, rule.field)
+      if (!key) continue
       const value = clone[key]
       if (typeof value !== 'string') continue
-      const decrypted = decryptWithAesGcm(value, dek.key)
+      const decrypted = maybeDecrypt(value)
       if (decrypted === null) continue
       try {
         clone[key] = JSON.parse(decrypted)

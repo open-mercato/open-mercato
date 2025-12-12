@@ -18,7 +18,9 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // Core registrations
   container.register({
     em: asValue(em),
-    queryEngine: asValue(new BasicQueryEngine(em)),
+    queryEngine: asValue(new BasicQueryEngine(em, undefined, () => {
+      try { return container.resolve('tenantEncryptionService') as any } catch { return null }
+    })),
     dataEngine: asValue(new DefaultDataEngine(em, container as any)),
     commandRegistry: asValue(commandRegistry),
     commandBus: asValue(new CommandBus()),

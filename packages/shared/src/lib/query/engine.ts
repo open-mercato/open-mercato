@@ -15,6 +15,11 @@ import { tokenizeText } from '../search/tokenize'
 
 const entityTableCache = new Map<string, string>()
 
+type EncryptionResolver = () => {
+  decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  isEnabled?: () => boolean
+} | null
+
 type ResolvedCustomFieldSource = {
   entityId: EntityId
   alias: string
@@ -79,7 +84,19 @@ export class BasicQueryEngine implements QueryEngine {
   private tableCache = new Map<string, boolean>()
   private searchAliasSeq = 0
 
-  constructor(private em: EntityManager, private getKnexFn?: () => any) {}
+  constructor(
+    private em: EntityManager,
+    private getKnexFn?: () => any,
+    private resolveEncryptionService?: EncryptionResolver,
+  ) {}
+
+  private getEncryptionService() {
+    try {
+      return this.resolveEncryptionService?.() ?? null
+    } catch {
+      return null
+    }
+  }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     // Heuristic: map '<module>:user' -> table 'users'
@@ -483,7 +500,27 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
-    return { items, page, pageSize, total }
+    const svc = this.getEncryptionService()
+    let decryptedItems = items
+    if (svc?.decryptEntityPayload && svc.isEnabled?.() !== false) {
+      decryptedItems = await Promise.all(
+        (items as any[]).map(async (item) => {
+          try {
+            const decrypted = await svc.decryptEntityPayload(
+              entity,
+              item,
+              item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+              item?.organization_id ?? item?.organizationId ?? null,
+            )
+            return { ...item, ...decrypted }
+          } catch {
+            return item
+          }
+        })
+      )
+    }
+
+    return { items: decryptedItems, page, pageSize, total }
   }
 
   private async resolveBaseColumn(table: string, field: string): Promise<string | null> {

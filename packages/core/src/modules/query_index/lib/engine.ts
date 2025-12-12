@@ -63,6 +63,11 @@ type SearchRuntime = {
   tenantId?: string | null
 }
 
+type EncryptionResolver = () => {
+  decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  isEnabled?: () => boolean
+} | null
+
 function createQueryProfiler(entity: string): Profiler {
   const enabled = shouldEnableProfiler(entity)
   return createProfiler({
@@ -92,11 +97,20 @@ export class HybridQueryEngine implements QueryEngine {
     private fallback: BasicQueryEngine,
     private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined,
     private vectorServiceResolver?: () => VectorIndexService | null | undefined,
+    private encryptionResolver?: EncryptionResolver,
   ) {
     const coverageTtl = Number.parseInt(process.env.QUERY_INDEX_COVERAGE_CACHE_MS ?? '', 10)
     this.coverageStatsTtlMs = Number.isFinite(coverageTtl) && coverageTtl >= 0 ? coverageTtl : 5 * 60 * 1000
     const cfTtl = Number.parseInt(process.env.QUERY_INDEX_CF_KEYS_CACHE_MS ?? '', 10)
     this.customFieldKeysTtlMs = Number.isFinite(cfTtl) && cfTtl >= 0 ? cfTtl : 5 * 60 * 1000
+  }
+
+  private getEncryptionService() {
+    try {
+      return this.encryptionResolver?.() ?? null
+    } catch {
+      return null
+    }
   }
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -639,14 +653,34 @@ export class HybridQueryEngine implements QueryEngine {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
     }
-    const items = await this.captureSqlTiming(
+    const itemsRaw = await this.captureSqlTiming(
       'query:sql:data',
       entity,
       () => dataBuilder,
       { page, pageSize },
       profiler
     )
-    if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
+    if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
+
+    let items = itemsRaw as any[]
+    const encSvc = this.getEncryptionService()
+    if (encSvc?.decryptEntityPayload && encSvc.isEnabled?.() !== false) {
+      items = await Promise.all(
+        items.map(async (item) => {
+          try {
+            const decrypted = await encSvc.decryptEntityPayload(
+              entity,
+              item,
+              item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+              item?.organization_id ?? item?.organizationId ?? null,
+            )
+            return { ...item, ...decrypted }
+          } catch {
+            return item
+          }
+        })
+      )
+    }
 
     const typedItems = items as unknown as T[]
     const result: QueryResult<T> = { items: typedItems, page, pageSize, total }
