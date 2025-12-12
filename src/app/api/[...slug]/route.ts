@@ -4,6 +4,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { withOrm } from '@open-mercato/shared/lib/db/mikro'
 import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -203,21 +204,21 @@ async function handleRequest(
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('GET', req, params)
+  return withOrm(handleRequest)('GET', req, params)
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('POST', req, params)
+  return withOrm(handleRequest)('POST', req, params)
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('PUT', req, params)
+  return withOrm(handleRequest)('PUT', req, params)
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('PATCH', req, params)
+  return withOrm(handleRequest)('PATCH', req, params)
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('DELETE', req, params)
+  return withOrm(handleRequest)('DELETE', req, params)
 }
