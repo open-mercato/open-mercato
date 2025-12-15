@@ -14,22 +14,11 @@ type BuildDocParams = {
 export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): Promise<Record<string, any> | null> {
   const knex = (em as any).getConnection().getKnex() as Knex
   const baseTable = resolveEntityTableName(em, params.entityType)
-  const encryption = resolveTenantEncryptionService(em as any)
-  const decrypt = async (entityId: string, payload: Record<string, unknown> | null | undefined) => {
-    if (!payload) return payload ?? null
-    if (!encryption || encryption.isEnabled?.() === false) return payload
-    try {
-      return await encryption.decryptEntityPayload(entityId, payload, params.tenantId ?? null, params.organizationId ?? null)
-    } catch {
-      return payload
-    }
-  }
 
   // Fetch base row
-  const baseRowRaw = await knex(baseTable)
+  const baseRow = await knex(baseTable)
     .where('id', params.recordId)
     .first()
-  const baseRow = await decrypt(params.entityType, baseRowRaw)
   if (!baseRow) return null
 
   // Build base document (snake_case keys as in DB)
@@ -60,57 +49,18 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     doc[key] = arr.length <= 1 ? arr[0] : arr
   }
 
-  // Attach profile fields so customer lookups can match names stored on person/company profiles
-  if (params.entityType === 'customers:customer_entity') {
-    const mergeProfile = (source: Record<string, any> | null | undefined, fields: string[]) => {
-      if (!source) return
-      for (const field of fields) {
-        const value = source[field]
-        if (value !== undefined && value !== null) {
-          doc[field] = value
-        }
-      }
+  try {
+    const encryption = resolveTenantEncryptionService(em as any)
+    if (encryption?.isEnabled?.() !== false) {
+      const decrypted = await encryption.decryptEntityPayload(
+        params.entityType,
+        doc,
+        params.tenantId ?? null,
+        params.organizationId ?? null,
+      )
+      if (decrypted) doc = decrypted
     }
-    if (doc.kind === 'person') {
-      const personRowRaw = await knex('customer_people')
-        .where({ entity_id: params.recordId })
-        .modify((qb: any) => {
-          if (params.organizationId != null) qb.andWhere('organization_id', params.organizationId)
-          if (params.tenantId != null) qb.andWhere('tenant_id', params.tenantId)
-        })
-        .first()
-      const personRow = await decrypt('customers:customer_person_profile', personRowRaw)
-      mergeProfile(personRow, [
-        'first_name',
-        'last_name',
-        'preferred_name',
-        'job_title',
-        'department',
-        'seniority',
-        'timezone',
-        'linked_in_url',
-        'twitter_url',
-      ])
-    } else if (doc.kind === 'company') {
-      const companyRowRaw = await knex('customer_companies')
-        .where({ entity_id: params.recordId })
-        .modify((qb: any) => {
-          if (params.organizationId != null) qb.andWhere('organization_id', params.organizationId)
-          if (params.tenantId != null) qb.andWhere('tenant_id', params.tenantId)
-        })
-        .first()
-      const companyRow = await decrypt('customers:customer_company_profile', companyRowRaw)
-      mergeProfile(companyRow, [
-        'legal_name',
-        'brand_name',
-        'domain',
-        'website_url',
-        'industry',
-        'size_bucket',
-        'annual_revenue',
-      ])
-    }
-  }
+  } catch {}
 
   return doc
 }

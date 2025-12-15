@@ -10,7 +10,6 @@ function createFakeKnex(data: {
   baseRows: any[]
   cfValues: any[]
   indexRows?: any[]
-  extraTables?: Record<string, any[]>
 }) {
   const calls: any[] = []
   const inserts: any[] = []
@@ -47,14 +46,12 @@ function createFakeKnex(data: {
       },
       first: async function () {
         if (table === data.baseTable) return data.baseRows[0]
-        if (data.extraTables?.[table]) return data.extraTables[table][0]
         if (table === 'entity_indexes') return indexRows[0]
         return undefined
       },
       then: function (resolve: any) {
         if (table === 'custom_field_values') return Promise.resolve(resolve(data.cfValues))
         if (table === data.baseTable) return Promise.resolve(resolve(data.baseRows))
-        if (data.extraTables?.[table]) return Promise.resolve(resolve(data.extraTables[table]))
         return Promise.resolve(resolve([]))
       },
       insert: function (payload: any) {
@@ -106,28 +103,6 @@ describe('Indexer', () => {
     expect(doc!.id).toBe('1')
     expect(doc!['cf:vip']).toBe(true)
     expect(doc!['cf:tags']).toEqual(['a','b'])
-  })
-
-  test('buildIndexDoc includes person profile fields for customer entities', async () => {
-    const fakeKnex = createFakeKnex({
-      baseTable: 'customer_entities',
-      baseRows: [{ id: '1', organization_id: 'org1', tenant_id: 't1', kind: 'person', display_name: 'X' }],
-      cfValues: [],
-      extraTables: {
-        customer_people: [{
-          entity_id: '1',
-          organization_id: 'org1',
-          tenant_id: 't1',
-          first_name: 'Tej',
-          last_name: 'Lorka',
-        }],
-      },
-    })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
-    const doc = await buildIndexDoc(em, { entityType: 'customers:customer_entity', recordId: '1', organizationId: 'org1', tenantId: 't1' })
-    expect(doc).toBeTruthy()
-    expect(doc!.first_name).toBe('Tej')
-    expect(doc!.last_name).toBe('Lorka')
   })
 
   test('buildIndexDoc decrypts indexed payload when encryption is available', async () => {
