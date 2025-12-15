@@ -6,6 +6,7 @@ import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments 
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/vector'
+import { isSearchDebugEnabled } from './search-tokens'
 
 export type ReindexJobOptions = {
   entityType: string
@@ -334,7 +335,49 @@ export async function reindexEntity(
       const rows = await query as AnyRow[]
       if (!rows.length) break
 
-      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg })
+          const decryptDoc = async (
+            targetEntity: string,
+            doc: Record<string, unknown>,
+            scope: { organizationId: string | null; tenantId: string | null },
+          ) => {
+            try {
+              const encryption = resolveTenantEncryptionService(em as any)
+              if (encryption?.isEnabled?.() === false) return doc
+              let working = doc
+              const maybeDecrypt = async (entityId: string) => {
+                const decrypted = await encryption.decryptEntityPayload(
+                  entityId,
+                  working,
+                  scope.tenantId ?? null,
+                  scope.organizationId ?? null,
+                )
+                if (decrypted) working = { ...working, ...decrypted }
+              }
+              await maybeDecrypt(targetEntity)
+              if (targetEntity === 'customers:customer_person_profile' || targetEntity === 'customers:customer_company_profile') {
+                await maybeDecrypt('customers:customer_entity')
+              }
+              if (isSearchDebugEnabled()) {
+                const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
+                const snapshot: Record<string, unknown> = {}
+                for (const key of keysOfInterest) {
+                  if (key in working) snapshot[key] = (working as Record<string, unknown>)[key]
+                }
+                console.info('[reindex:decrypt]', {
+                  entityType: targetEntity,
+                  tenantId: scope.tenantId ?? null,
+                  organizationId: scope.organizationId ?? null,
+                  keys: Object.keys(snapshot),
+                  sample: snapshot,
+                })
+              }
+              return working
+            } catch {
+              return doc
+            }
+          }
+
+      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, decryptDoc })
 
       const coverageDeltas = new Map<string, { tenantId: string | null; organizationId: string | null; delta: number }>()
       for (const row of rows) {

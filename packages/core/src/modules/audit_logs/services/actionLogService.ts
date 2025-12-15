@@ -8,6 +8,7 @@ import {
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
@@ -27,13 +28,37 @@ export class ActionLogService {
     const list = Array.isArray(entries) ? entries : [entries]
     for (const entry of list) {
       try {
+        const dek = await this.tenantEncryptionService.getDek(entry.tenantId ?? null)
+        const deepDecrypt = (value: unknown): unknown => {
+          if (!dek) return value
+          if (typeof value === 'string' && value.split(':').length === 4 && value.endsWith(':v1')) {
+            const decrypted = decryptWithAesGcm(value, dek.key)
+            if (decrypted === null) return value
+            try { return JSON.parse(decrypted) } catch { return decrypted }
+          }
+          if (Array.isArray(value)) return value.map((item) => deepDecrypt(item))
+          if (value && typeof value === 'object') {
+            const copy: Record<string, unknown> = {}
+            for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+              copy[k] = deepDecrypt(v)
+            }
+            return copy
+          }
+          return value
+        }
         const decrypted = await this.tenantEncryptionService.decryptEntityPayload(
           'audit_logs:action_log',
           entry as unknown as Record<string, unknown>,
           entry.tenantId ?? null,
           entry.organizationId ?? null,
         )
-        Object.assign(entry as any, decrypted)
+        const merged = { ...decrypted }
+        merged.changesJson = deepDecrypt(merged.changesJson ?? (entry as any)?.changesJson)
+        merged.snapshotBefore = deepDecrypt(merged.snapshotBefore ?? (entry as any)?.snapshotBefore)
+        merged.snapshotAfter = deepDecrypt(merged.snapshotAfter ?? (entry as any)?.snapshotAfter)
+        merged.commandPayload = deepDecrypt(merged.commandPayload ?? (entry as any)?.commandPayload)
+        merged.contextJson = deepDecrypt(merged.contextJson ?? (entry as any)?.contextJson)
+        Object.assign(entry as any, merged)
       } catch (err) {
         if (!decryptionWarningLogged) {
           decryptionWarningLogged = true

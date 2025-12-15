@@ -1,6 +1,6 @@
 import type { Knex } from 'knex'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
-import { replaceSearchTokensForBatch } from './search-tokens'
+import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 
 export type AnyRow = Record<string, any> & { id: string | number }
 
@@ -23,6 +23,11 @@ type CustomFieldRow = {
 
 export type IndexBatchOptions = {
   deriveOrganizationId?: (row: AnyRow) => string | null | undefined
+  decryptDoc?: (
+    entityType: string,
+    doc: Record<string, unknown>,
+    scope: { organizationId: string | null; tenantId: string | null },
+  ) => Promise<Record<string, unknown> | null | undefined>
 }
 
 function normalizeId(value: unknown): string {
@@ -86,7 +91,18 @@ export async function upsertIndexBatch(
     else customFieldMap.set(key, [fieldRow])
   }
 
-  const basePayloads = rows.map((row) => {
+  const basePayloads: Array<{
+    entity_type: string
+    entity_id: string
+    organization_id: string | null
+    tenant_id: string | null
+    doc: Record<string, unknown>
+    index_version: number
+  }> = []
+
+  const debugEnabled = isSearchDebugEnabled()
+
+  for (const row of rows) {
     const recordId = normalizeId(row.id)
     const baseOrg = normalizeScopedValue((row as AnyRow).organization_id)
     const baseTenant = normalizeScopedValue((row as AnyRow).tenant_id)
@@ -121,19 +137,48 @@ export async function upsertIndexBatch(
       if (!entityRow) return row
       return { ...entityRow, ...row }
     })()
-    const doc = buildIndexDocument(mergedRow, values, {
+    let doc = buildIndexDocument(mergedRow, values, {
       organizationId: scopeOrg ?? null,
       tenantId: scopeTenant ?? null,
     })
-    return {
+    if (typeof options.decryptDoc === 'function') {
+      try {
+        const decrypted = await options.decryptDoc(entityType, doc, {
+          organizationId: scopeOrg ?? null,
+          tenantId: scopeTenant ?? null,
+        })
+        if (decrypted && typeof decrypted === 'object') {
+          doc = decrypted
+        }
+      } catch {
+        // best-effort; ignore decrypt errors during indexing
+      }
+    }
+    basePayloads.push({
       entity_type: entityType,
       entity_id: recordId,
       organization_id: scopeOrg ?? null,
       tenant_id: scopeTenant ?? null,
       doc,
       index_version: 1,
+    })
+    if (debugEnabled) {
+      const sample = {
+        display_name: (doc as any).display_name,
+        first_name: (doc as any).first_name,
+        last_name: (doc as any).last_name,
+        brand_name: (doc as any).brand_name,
+        legal_name: (doc as any).legal_name,
+      }
+      console.info('[reindex:batch:doc]', {
+        entityType,
+        recordId,
+        organizationId: scopeOrg ?? null,
+        tenantId: scopeTenant ?? null,
+        sample,
+      })
     }
-  })
+  }
 
   const insertRows = basePayloads.map((payload) => ({
     ...payload,
@@ -165,6 +210,14 @@ export async function upsertIndexBatch(
     try {
       await replaceSearchTokensForBatch(knex, tokenPayloads)
     } catch {}
+    if (debugEnabled) {
+      console.info('[reindex:batch:tokens]', {
+        entityType,
+        records: basePayloads.length,
+        scopeOrg: scope.orgId ?? null,
+        scopeTenant: scope.tenantId ?? null,
+      })
+    }
     return
   } catch {
     await knex.transaction(async (trx) => {
