@@ -12,7 +12,7 @@ const catalogIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['catalog.settings.manage'],
-  pageTitle: 'Shipemnts',
+  pageTitle: 'Shipments',
   pageTitleKey: 'shipments.settings.test',
   pageGroup: 'Configuration',
   pageGroupKey: 'backend.nav.configuration',
