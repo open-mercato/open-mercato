@@ -898,21 +898,23 @@ export class HybridQueryEngine implements QueryEngine {
       const hashes = tokens.hashes
       if (hashes.length) {
         let applied = false
-        builder = builder.where((qb) => {
-          sources.forEach((source, idx) => {
-            const ok = this.applySearchTokens(qb as any, {
-              knex,
-              entity: source.entityId,
-              field: key,
-              hashes,
-              recordIdColumn: `${source.alias}.entity_id`,
-              tenantId: search.tenantId ?? null,
-              organizationScope: search.organizationScope ?? null,
-              combineWith: idx === 0 ? 'and' : 'or',
+        if (sources.length) {
+          builder = builder.where((qb) => {
+            sources.forEach((source, idx) => {
+              const ok = this.applySearchTokens(qb as any, {
+                knex,
+                entity: source.entityId,
+                field: key,
+                hashes,
+                recordIdColumn: `${source.alias}.entity_id`,
+                tenantId: search.tenantId ?? null,
+                organizationScope: search.organizationScope ?? null,
+                combineWith: idx === 0 ? 'and' : 'or',
+              })
+              if (ok) applied = true
             })
-            if (ok) applied = true
           })
-        })
+        }
         this.logSearchDebug('search:cf-filter-across', {
           entity: sources.map((src) => src.entityId),
           field: key,
@@ -930,6 +932,7 @@ export class HybridQueryEngine implements QueryEngine {
           value,
         })
       }
+      return builder
     }
     const { jsonSql, textSql } = this.buildCfExpressions(knex, key, sources)
     if (jsonSql === 'NULL' || textSql === 'NULL') return builder
@@ -1019,6 +1022,7 @@ export class HybridQueryEngine implements QueryEngine {
           value,
         })
       }
+      return q
     }
     switch (op) {
       case 'eq':
@@ -1677,21 +1681,23 @@ export class HybridQueryEngine implements QueryEngine {
           : [{ entity: search.entity, recordIdColumn: search.recordIdColumn ?? '' }]
         ).filter((src) => src.recordIdColumn && src.entity)
         let applied = false
-        q = q.where((qb) => {
-          sources.forEach((src, idx) => {
-            const ok = this.applySearchTokens(qb as any, {
-              knex: search.knex,
-              entity: src.entity,
-              field: search.field,
-              hashes,
-              recordIdColumn: src.recordIdColumn,
-              tenantId: search.tenantId ?? null,
-              organizationScope: search.organizationScope ?? null,
-              combineWith: idx === 0 ? 'and' : 'or',
+        if (sources.length) {
+          q = q.where((qb) => {
+            sources.forEach((src, idx) => {
+              const ok = this.applySearchTokens(qb as any, {
+                knex: search.knex,
+                entity: src.entity,
+                field: search.field,
+                hashes,
+                recordIdColumn: src.recordIdColumn,
+                tenantId: search.tenantId ?? null,
+                organizationScope: search.organizationScope ?? null,
+                combineWith: idx === 0 ? 'and' : 'or',
+              })
+              if (ok) applied = true
             })
-            if (ok) applied = true
           })
-        })
+        }
         this.logSearchDebug('search:filter', {
           entity: search.entity,
           field: search.field,
@@ -1710,6 +1716,7 @@ export class HybridQueryEngine implements QueryEngine {
           value: filter.value,
         })
       }
+      return q
     }
     const col = column as any
     switch (filter.op) {

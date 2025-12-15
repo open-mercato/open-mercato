@@ -29,6 +29,13 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'customers:customer_deal',
+    fields: [
+      { field: 'title' },
+      { field: 'description' },
+    ],
+  },
+  {
     entityId: 'customers:customer_comment',
     fields: [{ field: 'body' }],
   },

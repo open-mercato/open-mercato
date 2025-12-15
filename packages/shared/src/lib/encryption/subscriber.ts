@@ -243,6 +243,32 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
     // Best-effort deep decrypt for loaded relations so populated graphs get cleaned too.
     try {
+      const extractEntities = (value: any): any[] => {
+        if (!value) return []
+        // MikroORM Reference wrapper
+        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function') {
+          try {
+            if ((value as any).isInitialized()) {
+              const unwrapped = typeof (value as any).unwrap === 'function' ? (value as any).unwrap() : (value as any).__entity ?? (value as any)
+              if (unwrapped && typeof unwrapped === 'object') return [unwrapped]
+            }
+          } catch {
+            // ignore
+          }
+          return []
+        }
+        // Collection wrapper
+        if (typeof value === 'object' && typeof (value as any).isInitialized === 'function' && typeof (value as any).getItems === 'function') {
+          try {
+            return (value as any).isInitialized() ? (value as any).getItems() ?? [] : []
+          } catch {
+            return []
+          }
+        }
+        if (Array.isArray(value)) return value
+        if (typeof value === 'object') return [value]
+        return []
+      }
       const props = resolvedMeta?.properties ? Object.values(resolvedMeta.properties) : []
       for (const prop of props) {
         const kind = (prop as any)?.kind
@@ -252,25 +278,16 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
         if (!value) continue
         // Single-valued relation
         if ([ReferenceKind.MANY_TO_ONE, ReferenceKind.ONE_TO_ONE].includes(kind)) {
-          if (typeof value === 'object') {
-            const nestedMeta = this.resolveMeta((value as any).__meta ?? (value as any).__helper?.__meta, value, em)
-            await this.decrypt(value as Record<string, unknown>, nestedMeta, em, { syncOriginal: true, seen: visited })
+          const nestedEntities = extractEntities(value)
+          for (const nested of nestedEntities) {
+            const nestedMeta = this.resolveMeta((nested as any).__meta ?? (nested as any).__helper?.__meta, nested, em)
+            await this.decrypt(nested as Record<string, unknown>, nestedMeta, em, { syncOriginal: true, seen: visited })
           }
           continue
         }
         // Collections
         if ([ReferenceKind.ONE_TO_MANY, ReferenceKind.MANY_TO_MANY].includes(kind)) {
-          const coll = value as any
-          const items: any[] =
-            coll && typeof coll === 'object'
-              ? Array.isArray(coll)
-                ? coll
-                : Array.isArray(coll?.$?.items)
-                  ? coll.$.items
-                  : Array.isArray(coll?.items)
-                    ? coll.items
-                    : coll.isInitialized?.() ? coll.getItems() : []
-              : []
+          const items = extractEntities(value)
           for (const item of items) {
             if (!item || typeof item !== 'object') continue
             const nestedMeta = this.resolveMeta((item as any).__meta ?? (item as any).__helper?.__meta, item, em)
