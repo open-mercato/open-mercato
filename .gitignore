@@ -82,3 +82,6 @@ package-lock.json
 # IDE related
 .idea
 .claude
+debug-storybook.log
+*storybook.log
+storybook-static
