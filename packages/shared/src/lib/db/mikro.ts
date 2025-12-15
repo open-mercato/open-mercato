@@ -82,12 +82,6 @@ export async function getOrm() {
   return globalOrm.__mikroOrmInit
 }
 
-export async function getEm() {
-  const orm = await getOrm()
-  const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
-  return baseEm.fork({ clear: true, freshEventManager: true, useContext: true })
-}
-
 export function withOrm<T extends (...args: any[]) => any>(handler: T) {
   return async (...args: Parameters<T>): Promise<Awaited<ReturnType<T>>> => {
     const orm = await getOrm()

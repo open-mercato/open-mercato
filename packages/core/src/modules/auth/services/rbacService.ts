@@ -185,7 +185,7 @@ export class RbacService {
 
   private async isGlobalSuperAdmin(userId: string): Promise<boolean> {
     if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
-    const em = this.em.fork({ useContext: true })
+    const em = this.em.fork()
     const userSuper = await em.findOne(UserAcl, { user: userId as any, isSuperAdmin: true })
     if (userSuper && (userSuper as any).isSuperAdmin) {
       this.globalSuperAdminCache.set(userId, true)
@@ -251,7 +251,7 @@ export class RbacService {
 
     if (userId.startsWith('api_key:')) {
       const apiKeyId = userId.slice('api_key:'.length)
-      const em = this.em.fork({ useContext: true })
+      const em = this.em.fork()
       const key = await em.findOne(ApiKey, { id: apiKeyId, deletedAt: null })
       if (!key || (key.expiresAt && key.expiresAt.getTime() < Date.now())) {
         const result = { isSuperAdmin: false, features: [], organizations: null }
@@ -285,7 +285,7 @@ export class RbacService {
     }
 
     // Use a forked EntityManager to avoid inheriting an aborted transaction from callers
-    const em = this.em.fork({ useContext: true })
+    const em = this.em.fork()
     const user = await em.findOne(User, { id: userId })
     if (!user) {
       const result = { isSuperAdmin: false, features: [], organizations: null }

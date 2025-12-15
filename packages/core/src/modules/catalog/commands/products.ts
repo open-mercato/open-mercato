@@ -963,7 +963,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const { parsed, custom } = parseWithCustomFields(productCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
     const { taxRateId, taxRate } = await resolveScopedTaxRate(
       em,
@@ -1086,7 +1086,7 @@ const createProductCommand: CommandHandler<ProductCreateInput, { productId: stri
     const payload = extractUndoPayload<ProductUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProduct, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -1127,7 +1127,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(productUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProduct, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
     const organizationId = parsed.organizationId ?? record.organizationId
@@ -1282,7 +1282,7 @@ const updateProductCommand: CommandHandler<ProductUpdateInput, { productId: stri
     const payload = extractUndoPayload<ProductUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProduct, { id: before.id })
     if (!record) {
       record = em.create(CatalogProduct, {
@@ -1357,7 +1357,7 @@ const deleteProductCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Product id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(
       CatalogProduct,
       { id },
@@ -1420,7 +1420,7 @@ const deleteProductCommand: CommandHandler<
     const payload = extractUndoPayload<ProductUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProduct, { id: before.id })
     if (!record) {
       record = em.create(CatalogProduct, {

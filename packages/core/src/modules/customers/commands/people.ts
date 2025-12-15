@@ -396,7 +396,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const firstName = parsed.firstName?.trim() ?? ''
     const lastName = parsed.lastName?.trim() ?? ''
     const description = normalizeOptionalString(parsed.description)
@@ -537,7 +537,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const payload = extractUndoPayload<PersonUndoPayload>(logEntry) ?? null
     const entityId = logEntry?.resourceId ?? payload?.after?.entity.id ?? null
     if (!entityId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: entityId })
     if (!entity) return
     const profile = await em.findOne(CustomerPersonProfile, { entity })
@@ -559,7 +559,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
     const record = assertRecordFound(entity, 'Person not found')
     ensureTenantScope(ctx, record.tenantId)
@@ -716,7 +716,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
       const newEntity = em.create(CustomerEntity, {
@@ -837,7 +837,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
       const entity = await em.findOne(CustomerEntity, { id, deletedAt: null })
       const record = assertRecordFound(entity, 'Person not found')
@@ -940,7 +940,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
       if (!entity) {
         entity = em.create(CustomerEntity, {

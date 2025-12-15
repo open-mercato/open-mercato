@@ -85,7 +85,7 @@ const createOptionSchemaCommand: CommandHandler<
     const parsed = optionSchemaTemplateCreateSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const code = resolveOptionSchemaCode({
       code: parsed.code,
       name: parsed.name,
@@ -132,7 +132,7 @@ const createOptionSchemaCommand: CommandHandler<
     const payload = extractUndoPayload<OptionSchemaUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogOptionSchemaTemplate, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -158,7 +158,7 @@ const updateOptionSchemaCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = optionSchemaTemplateUpdateSchema.parse(input)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogOptionSchemaTemplate, {
       id: parsed.id,
       deletedAt: null,
@@ -216,7 +216,7 @@ const updateOptionSchemaCommand: CommandHandler<
     const payload = extractUndoPayload<OptionSchemaUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogOptionSchemaTemplate, { id: before.id })
     if (!record) {
       record = em.create(CatalogOptionSchemaTemplate, {
@@ -253,7 +253,7 @@ const deleteOptionSchemaCommand: CommandHandler<{ id: string }, { schemaId: stri
     return snapshot ? { before: snapshot } : {}
   },
   async execute(input, ctx) {
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogOptionSchemaTemplate, { id: input.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Option schema not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -284,7 +284,7 @@ const deleteOptionSchemaCommand: CommandHandler<{ id: string }, { schemaId: stri
     const payload = extractUndoPayload<OptionSchemaUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogOptionSchemaTemplate, { id: before.id })
     if (!record) {
       record = em.create(CatalogOptionSchemaTemplate, {

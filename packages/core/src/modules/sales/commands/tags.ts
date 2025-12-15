@@ -18,7 +18,7 @@ const createTagCommand: CommandHandler<SalesTagCreateInput, { tagId: string }> =
   async execute(rawInput, ctx) {
     const parsed = salesTagCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, parsed.tenantId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const conflict = await em.findOne(SalesDocumentTag, {
       slug: parsed.slug,
       organizationId: parsed.organizationId,
@@ -42,7 +42,7 @@ const updateTagCommand: CommandHandler<SalesTagUpdateInput, { tagId: string }> =
   id: 'sales.tags.update',
   async execute(rawInput, ctx) {
     const parsed = salesTagUpdateSchema.parse(rawInput ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(SalesDocumentTag, { id: parsed.id })
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     ensureTenantScope(ctx, parsed.tenantId ?? tag.tenantId)
@@ -72,7 +72,7 @@ const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
   async execute(input, ctx) {
     const id = typeof input?.id === 'string' ? input.id : null
     if (!id) throw new CrudHttpError(400, { error: 'Tag id is required' })
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(SalesDocumentTag, { id })
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     ensureTenantScope(ctx, tag.tenantId)

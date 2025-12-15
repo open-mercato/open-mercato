@@ -168,7 +168,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = em.create(CustomerDeal, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -240,7 +240,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   undo: async ({ logEntry, ctx }) => {
     const dealId = logEntry?.resourceId
     if (!dealId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await em.findOne(CustomerDeal, { id: dealId })
     if (!deal) return
     await em.nativeDelete(CustomerDealPersonLink, { deal })
@@ -260,7 +260,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await em.findOne(CustomerDeal, { id: parsed.id, deletedAt: null })
     const record = deal ?? null
     if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
@@ -365,7 +365,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const payload = extractUndoPayload<DealUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let deal = await em.findOne(CustomerDeal, { id: before.deal.id })
     if (!deal) {
       deal = em.create(CustomerDeal, {
@@ -440,7 +440,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Deal id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
       const record = deal ?? null
       if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
@@ -487,7 +487,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const payload = extractUndoPayload<DealUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       let deal = await em.findOne(CustomerDeal, { id: before.deal.id })
       if (!deal) {
         deal = em.create(CustomerDeal, {

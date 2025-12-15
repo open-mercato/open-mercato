@@ -298,7 +298,7 @@ const createPaymentCommand: CommandHandler<
     const input = paymentCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     if (!input.orderId) {
       throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
@@ -442,7 +442,7 @@ const createPaymentCommand: CommandHandler<
     const payload = extractUndoPayload<PaymentUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(SalesPayment, { id: after.id })
     if (existing) {
       const orderRef =
@@ -500,7 +500,7 @@ const updatePaymentCommand: CommandHandler<
     const input = paymentUpdateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     const payment = assertFound(
       await em.findOne(SalesPayment, { id: input.id }, { populate: ['order'] }),
@@ -677,7 +677,7 @@ const updatePaymentCommand: CommandHandler<
     const payload = extractUndoPayload<PaymentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     await restorePaymentSnapshot(em, before)
     await em.flush()
     if (before.orderId) {
@@ -710,7 +710,7 @@ const deletePaymentCommand: CommandHandler<
     const input = paymentUpdateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const payment = assertFound(
       await em.findOne(SalesPayment, { id: input.id }, { populate: ['order'] }),
       'sales.payments.not_found'
@@ -786,7 +786,7 @@ const deletePaymentCommand: CommandHandler<
     const payload = extractUndoPayload<PaymentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     await restorePaymentSnapshot(em, before)
     await em.flush()
     if (before.orderId) {

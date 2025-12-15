@@ -224,7 +224,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
@@ -312,7 +312,7 @@ const createLinkedTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { tod
   undo: async ({ logEntry, ctx }) => {
     const payload = extractUndoPayload<LinkedTodoUndoPayload>(logEntry)
     if (!payload) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
@@ -355,7 +355,7 @@ const linkExistingTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: str
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
@@ -418,7 +418,7 @@ const linkExistingTodoCommand: CommandHandler<TodoLinkCreateInput, { linkId: str
     const payload = extractUndoPayload<LinkedTodoUndoPayload>(logEntry)
     const link = payload?.link
     if (!link) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.nativeDelete(CustomerTodoLink, { id: link.id })
   },
 }
@@ -434,7 +434,7 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Todo link id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const link = await em.findOne(CustomerTodoLink, { id })
       if (!link) throw new CrudHttpError(404, { error: 'Todo link not found' })
       ensureTenantScope(ctx, link.tenantId)
@@ -477,7 +477,7 @@ const unlinkTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const payload = extractUndoPayload<LinkedTodoUndoPayload>(logEntry)
       const link = payload?.link
       if (!link) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       let existing = await em.findOne(CustomerTodoLink, { id: link.id })
       if (!existing) {
         const entity = await requireCustomerEntity(em, link.entityId, undefined, 'Customer not found')

@@ -2915,7 +2915,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
       throw new CrudHttpError(400, { error: 'Quote number is required.' })
     }
     ensureQuoteScope(ctx, parsed.organizationId, parsed.tenantId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const {
       customerSnapshot: resolvedCustomerSnapshot,
       billingAddressSnapshot: resolvedBillingSnapshot,
@@ -3124,7 +3124,7 @@ const createQuoteCommand: CommandHandler<QuoteCreateInput, { quoteId: string }> 
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: after.quote.id })
     if (!quote) return
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -3151,7 +3151,7 @@ const deleteQuoteCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Quote id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -3202,7 +3202,7 @@ const deleteQuoteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()
@@ -3222,7 +3222,7 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: parsed.id, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -3351,7 +3351,7 @@ const updateQuoteCommand: CommandHandler<DocumentUpdateInput, { quote: SalesQuot
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()
@@ -3371,7 +3371,7 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
   },
   async execute(rawInput, ctx) {
     const parsed = documentUpdateSchema.parse(rawInput ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: parsed.id, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -3523,7 +3523,7 @@ const updateOrderCommand: CommandHandler<DocumentUpdateInput, { order: SalesOrde
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
@@ -3551,7 +3551,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       throw new CrudHttpError(400, { error: 'Order number is required.' })
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
       resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null),
       resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null),
@@ -3782,7 +3782,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: after.order.id })
     if (!order) return
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -3809,7 +3809,7 @@ const deleteOrderCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Order id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -3875,7 +3875,7 @@ const deleteOrderCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
@@ -3904,7 +3904,7 @@ const convertQuoteToOrderCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const payload = quoteConvertToOrderSchema.parse(rawInput ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: payload.quoteId, deletedAt: null })
     const { translate } = await resolveTranslations()
     if (!quote) throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
@@ -4168,7 +4168,7 @@ const convertQuoteToOrderCommand: CommandHandler<
     const quoteSnapshot = payload?.quote
     const orderSnapshot = payload?.order
     if (!quoteSnapshot) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, quoteSnapshot.quote.organizationId, quoteSnapshot.quote.tenantId)
     if (orderSnapshot) {
       const orderId = orderSnapshot.order.id
@@ -4245,7 +4245,7 @@ const orderLineUpsertCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = orderLineUpsertSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -4423,7 +4423,7 @@ const orderLineUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
@@ -4447,7 +4447,7 @@ const orderLineDeleteCommand: CommandHandler<
   async execute(input, ctx) {
     const { translate } = await resolveTranslations()
     const parsed = orderLineDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -4554,7 +4554,7 @@ const orderLineDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
@@ -4577,7 +4577,7 @@ const quoteLineUpsertCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = quoteLineUpsertSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: parsed.quoteId, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -4752,7 +4752,7 @@ const quoteLineUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()
@@ -4775,7 +4775,7 @@ const quoteLineDeleteCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = quoteLineDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: parsed.quoteId, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -4869,7 +4869,7 @@ const quoteLineDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()
@@ -4892,7 +4892,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = orderAdjustmentUpsertSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -5068,7 +5068,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
@@ -5091,7 +5091,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = orderAdjustmentDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const order = await em.findOne(SalesOrder, { id: parsed.orderId, deletedAt: null })
     if (!order) throw new CrudHttpError(404, { error: 'Sales order not found' })
     ensureOrderScope(ctx, order.organizationId, order.tenantId)
@@ -5204,7 +5204,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<OrderUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId)
     await restoreOrderGraph(em, before)
     await em.flush()
@@ -5227,7 +5227,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = quoteAdjustmentUpsertSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: parsed.quoteId, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -5402,7 +5402,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()
@@ -5425,7 +5425,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const parsed = quoteAdjustmentDeleteSchema.parse((input?.body as Record<string, unknown> | undefined) ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const quote = await em.findOne(SalesQuote, { id: parsed.quoteId, deletedAt: null })
     if (!quote) throw new CrudHttpError(404, { error: 'Sales quote not found' })
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId)
@@ -5537,7 +5537,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     const payload = extractUndoPayload<QuoteUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureQuoteScope(ctx, before.quote.organizationId, before.quote.tenantId)
     await restoreQuoteGraph(em, before)
     await em.flush()

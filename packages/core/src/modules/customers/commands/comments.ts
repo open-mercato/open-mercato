@@ -69,7 +69,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       return uuidRegex.test(authSub) ? authSub : null
     })()
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
@@ -129,7 +129,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
   undo: async ({ logEntry, ctx }) => {
     const commentId = logEntry?.resourceId ?? null
     if (!commentId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CustomerComment, { id: commentId })
     if (existing) {
       em.remove(existing)
@@ -148,7 +148,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
   },
   async execute(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const comment = await em.findOne(CustomerComment, { id: parsed.id })
     if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
     ensureTenantScope(ctx, comment.tenantId)
@@ -219,7 +219,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let comment = await em.findOne(CustomerComment, { id: before.id })
     const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
     const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
@@ -275,7 +275,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Comment id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const comment = await em.findOne(CustomerComment, { id })
       if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
       ensureTenantScope(ctx, comment.tenantId)
@@ -319,7 +319,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
       let comment = await em.findOne(CustomerComment, { id: before.id })

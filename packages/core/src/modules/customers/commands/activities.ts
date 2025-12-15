@@ -128,7 +128,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
@@ -213,7 +213,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
   undo: async ({ logEntry, ctx }) => {
     const activityId = logEntry?.resourceId
     if (!activityId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CustomerActivity, { id: activityId })
     if (!record) return
     em.remove(record)
@@ -231,7 +231,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const activity = await em.findOne(CustomerActivity, { id: parsed.id })
     if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
     ensureTenantScope(ctx, activity.tenantId)
@@ -344,7 +344,7 @@ const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: s
     const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let activity = await em.findOne(CustomerActivity, { id: before.activity.id })
     const entity = await requireCustomerEntity(em, before.activity.entityId, undefined, 'Customer not found')
     const deal = await requireDealInScope(em, before.activity.dealId, before.activity.tenantId, before.activity.organizationId)
@@ -420,7 +420,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Activity id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const activity = await em.findOne(CustomerActivity, { id })
       if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
       ensureTenantScope(ctx, activity.tenantId)
@@ -464,7 +464,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
       const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const entity = await requireCustomerEntity(em, before.activity.entityId, undefined, 'Customer not found')
       const deal = await requireDealInScope(em, before.activity.dealId, before.activity.tenantId, before.activity.organizationId)
       let activity = await em.findOne(CustomerActivity, { id: before.activity.id })

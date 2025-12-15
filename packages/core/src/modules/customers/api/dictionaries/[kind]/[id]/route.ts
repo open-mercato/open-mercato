@@ -71,7 +71,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     }
     const { result, logEntry } = commandResult
 
-    const entry = await routeContext.em.fork({ useContext: true }).findOne(CustomerDictionaryEntry, id)
+    const entry = await routeContext.em.fork().findOne(CustomerDictionaryEntry, id)
     if (!entry) {
       throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
     }

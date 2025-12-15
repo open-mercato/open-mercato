@@ -122,7 +122,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const value = normalizeValue(parsed.value)
     const label = parsed.label?.trim() || value.value
     const color = sanitizeColor(parsed.color)
@@ -228,7 +228,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
   undo: async ({ logEntry, ctx }) => {
     const undo = extractUndoPayload<CustomerDictionaryEntryUndoPayload>(logEntry)
     if (!undo) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
 
     const after =
       undo.after ??
@@ -300,7 +300,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
@@ -399,7 +399,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     if (!before) return
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
     if (!entry) {
       entry = em.create(CustomerDictionaryEntry, {
@@ -437,7 +437,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
@@ -471,7 +471,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     if (!before) return
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
     if (!entry) {
       entry = em.create(CustomerDictionaryEntry, {

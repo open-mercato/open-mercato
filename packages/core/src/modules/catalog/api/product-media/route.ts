@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = (container.resolve('em') as EntityManager).fork({ useContext: true })
+  const em = (container.resolve('em') as EntityManager).fork()
 
   const product = await em.findOne(
     CatalogProduct,

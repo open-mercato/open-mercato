@@ -114,7 +114,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const slug = normalizeSlug(parsed.slug ?? null)
     if (slug) {
       const conflict = await em.findOne(CatalogProductCategory, {
@@ -184,7 +184,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     const payload = extractUndoPayload<CategoryUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductCategory, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -221,7 +221,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
   },
   async execute(input, ctx) {
     const { parsed, custom } = parseWithCustomFields(categoryUpdateSchema, input)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductCategory, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -304,7 +304,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     const payload = extractUndoPayload<CategoryUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductCategory, { id: before.id })
     if (!record) {
       record = em.create(CatalogProductCategory, {
@@ -372,7 +372,7 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Category id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogProductCategory, { id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -419,7 +419,7 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
     const payload = extractUndoPayload<CategoryUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductCategory, { id: before.id })
     if (!record) {
       record = em.create(CatalogProductCategory, {

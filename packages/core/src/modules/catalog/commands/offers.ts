@@ -101,7 +101,7 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     const { parsed, custom } = parseWithCustomFields(offerCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const product = await requireProduct(em, parsed.productId)
     if (
       product.organizationId !== parsed.organizationId ||
@@ -187,7 +187,7 @@ const createOfferCommand: CommandHandler<OfferCreateInput, { offerId: string }> 
     const payload = extractUndoPayload<OfferUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogOffer, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -222,7 +222,7 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(offerUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(CatalogOffer, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog offer not found' })
     await em.populate(record, ['product'])
@@ -331,7 +331,7 @@ const updateOfferCommand: CommandHandler<OfferUpdateInput, { offerId: string }> 
     const payload = extractUndoPayload<OfferUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await requireOffer(em, before.id).catch(() => null)
     if (!record) {
       const product = await requireProduct(em, before.productId)
@@ -398,7 +398,7 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
   },
   async execute(input, ctx) {
     const parsed = { id: requireId(input, 'Offer id is required.') }
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await requireOffer(em, parsed.id)
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -448,7 +448,7 @@ const deleteOfferCommand: CommandHandler<{ id?: string }, { offerId: string }> =
     const payload = extractUndoPayload<OfferUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const existing = await em.findOne(CatalogOffer, { id: before.id })
     if (existing) return
     const product = await requireProduct(em, before.productId)

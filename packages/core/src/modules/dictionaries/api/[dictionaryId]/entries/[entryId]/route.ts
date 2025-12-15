@@ -81,7 +81,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (!updatedEntryId) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
     }
-    const updated = await context.em.fork({ useContext: true }).findOne(DictionaryEntry, updatedEntryId, { populate: ['dictionary'] })
+    const updated = await context.em.fork().findOne(DictionaryEntry, updatedEntryId, { populate: ['dictionary'] })
     if (!updated) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
     }
