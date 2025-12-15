@@ -4,7 +4,7 @@ import { createEventBus } from '@open-mercato/events/index'
 import { createCacheService } from '@open-mercato/cache'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { TenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
+import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -60,7 +60,7 @@ export async function bootstrap(container: AwilixContainer) {
     container.register({ tenantEncryptionService: asValue(tenantEncryptionService) })
     if (isTenantDataEncryptionEnabled() && kmsService.isHealthy()) {
       try {
-        em.getEventManager().registerSubscriber(new TenantEncryptionSubscriber(tenantEncryptionService))
+        registerTenantEncryptionSubscriber(em, tenantEncryptionService)
       } catch (err) {
         console.warn('[encryption] Failed to register MikroORM encryption subscriber:', (err as Error)?.message || err)
       }

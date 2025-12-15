@@ -1,4 +1,5 @@
-import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
+import type { EntityMetadata, EventArgs, EventSubscriber, FindEventArgs } from '@mikro-orm/core'
+import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
@@ -31,6 +32,8 @@ function debug(event: string, payload: Record<string, unknown>) {
     // ignore
   }
 }
+
+const registeredEventManagers = new WeakSet<object>()
 
 export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   constructor(private readonly service: TenantDataEncryptionService) {}
@@ -83,10 +86,47 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
   }
 
+  private syncOriginalEntityData(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+    em?: { getComparator?: () => any },
+  ) {
+    const helper = (target as any)?.__helper
+    if (!helper || typeof helper !== 'object') return
+
+    // Prefer MikroORM comparator snapshot so change detection uses the expected shape.
+    try {
+      const comparator = em?.getComparator?.()
+      if (comparator?.prepareEntity) {
+        helper.__originalEntityData = comparator.prepareEntity(target)
+        helper.__touched = false
+        return
+      }
+    } catch (err) {
+      debug('⚪️ subscriber.sync_original.comparator_failed', {
+        entity: meta?.className || meta?.name,
+        message: (err as Error)?.message ?? String(err),
+      })
+    }
+
+    // Fallback: shallow snapshot of scalar/owner props to keep entities clean without comparator.
+    const properties = meta?.properties ? Object.values(meta.properties) : []
+    if (properties.length === 0) return
+    const snapshot: Record<string, unknown> = { ...(helper.__originalEntityData ?? {}) }
+    for (const prop of properties) {
+      if ([ReferenceKind.ONE_TO_MANY, ReferenceKind.MANY_TO_MANY].includes((prop as any).kind)) continue
+      const name = (prop as any).name
+      if (typeof name !== 'string' || !name.length) continue
+      snapshot[name] = (target as Record<string, unknown>)[name]
+    }
+    helper.__originalEntityData = snapshot
+    helper.__touched = false
+  }
+
   private async encrypt(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
-    em?: { getMetadata?: () => any },
+    em?: { getMetadata?: () => any; getComparator?: () => any },
     changeSet?: { payload?: Record<string, unknown> },
   ) {
     if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
@@ -102,16 +142,46 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
-    Object.assign(target, encrypted)
+    const metaProps = resolvedMeta?.properties ?? {}
+    const updates: Record<string, unknown> = {}
+    const payloadUpdates: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(encrypted)) {
+      const prop = (metaProps as Record<string, any>)[key]
+      if (!prop || typeof prop !== 'object') continue
+      if ((target as Record<string, unknown>)[key] === value) continue
+      updates[key] = value
+      const fieldNames = (prop as any)?.fieldNames
+      const fieldName =
+        (Array.isArray(fieldNames) && fieldNames.length ? fieldNames[0] : undefined) ??
+        (typeof (prop as any)?.name === 'string' && (prop as any).name.length ? (prop as any).name : undefined) ??
+        key
+      if (typeof fieldName === 'string' && fieldName.length) {
+        payloadUpdates[fieldName] = value
+      }
+    }
+    if (Object.keys(updates).length === 0) return
+    Object.assign(target, updates)
     if (changeSet?.payload && typeof changeSet.payload === 'object') {
-      Object.assign(changeSet.payload, encrypted)
+      const payloadObj = changeSet.payload as Record<string, unknown>
+      for (const key of Object.keys(updates)) {
+        const prop = (metaProps as Record<string, any>)[key]
+        const fieldNames = (prop as any)?.fieldNames
+        const columnName =
+          (Array.isArray(fieldNames) && fieldNames.length ? fieldNames[0] : undefined) ??
+          (typeof (prop as any)?.name === 'string' && (prop as any).name.length ? (prop as any).name : undefined) ??
+          key
+        if (Object.prototype.hasOwnProperty.call(payloadObj, key)) delete payloadObj[key]
+        if (columnName && Object.prototype.hasOwnProperty.call(payloadObj, columnName)) delete payloadObj[columnName]
+        if (columnName) payloadObj[columnName] = updates[key]
+      }
     }
   }
 
   private async decrypt(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
-    em?: { getMetadata?: () => any },
+    em?: { getMetadata?: () => any; getComparator?: () => any },
+    { syncOriginal = false }: { syncOriginal?: boolean } = {},
   ) {
     if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
@@ -127,6 +197,9 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
     const decrypted = await this.service.decryptEntityPayload(entityId, target, tenantId, organizationId)
     Object.assign(target, decrypted)
+    if (syncOriginal) {
+      this.syncOriginalEntityData(target, resolvedMeta, em as any)
+    }
   }
 
   async beforeCreate(args: EventArgs<any>) {
@@ -139,18 +212,36 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   }
 
   async afterCreate(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
   }
 
   async afterUpdate(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
   }
 
   async afterUpsert(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
   }
 
   async onLoad(args: EventArgs<any>) {
-    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+    await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
   }
+
+  async afterFind(args: FindEventArgs<any>) {
+    const entities = Array.isArray(args.entities) ? args.entities : []
+    for (const entity of entities) {
+      await this.decrypt(entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
+    }
+  }
+}
+
+export function registerTenantEncryptionSubscriber(
+  em: { getEventManager?: () => { registerSubscriber?: (subscriber: EventSubscriber<any>) => void } } | null | undefined,
+  service: TenantDataEncryptionService,
+): void {
+  const eventManager = em?.getEventManager?.()
+  if (!eventManager || typeof eventManager.registerSubscriber !== 'function') return
+  if (registeredEventManagers.has(eventManager)) return
+  eventManager.registerSubscriber(new TenantEncryptionSubscriber(service))
+  registeredEventManagers.add(eventManager)
 }

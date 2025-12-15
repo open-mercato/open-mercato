@@ -20,10 +20,25 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     .where('id', params.recordId)
     .first()
   if (!baseRow) return null
+  const docSources: Array<Record<string, any>> = []
+
+  // Attach the core customer entity when indexing customer profiles so search tokens see the combined row
+  if (params.entityType === 'customers:customer_person_profile' || params.entityType === 'customers:customer_company_profile') {
+    const entityId = (baseRow as any).entity_id ?? (baseRow as any).entityId
+    if (entityId) {
+      const entityRow = await knex('customer_entities')
+        .where('id', entityId)
+        .first()
+      if (entityRow) docSources.push(entityRow)
+    }
+  }
 
   // Build base document (snake_case keys as in DB)
   let doc: Record<string, any> = {}
-  for (const [k, v] of Object.entries(baseRow)) doc[k] = v
+  docSources.push(baseRow)
+  for (const source of docSources) {
+    for (const [k, v] of Object.entries(source)) doc[k] = v
+  }
 
   // Attach custom fields under flat keys 'cf:<key>'
   const cfRows = await knex('custom_field_values')
@@ -58,7 +73,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
         params.tenantId ?? null,
         params.organizationId ?? null,
       )
-      if (decrypted) doc = decrypted
+      if (decrypted) doc = { ...doc, ...decrypted }
     }
   } catch {}
 

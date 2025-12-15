@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/custom-fieldsets",
+        "user-guide/encryption",
         "user-guide/user-custom-fields",
         "user-guide/dictionaries",
         "user-guide/user-entities",

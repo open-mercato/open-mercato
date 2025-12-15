@@ -84,4 +84,26 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     entityId: 'sales:sales_note',
     fields: [{ field: 'body' }],
   },
+  {
+    entityId: 'audit_logs:action_log',
+    fields: [
+      { field: 'command_id' },
+      { field: 'action_label' },
+      { field: 'resource_kind' },
+      { field: 'resource_id' },
+      { field: 'command_payload' },
+      { field: 'snapshot_before' },
+      { field: 'snapshot_after' },
+      { field: 'changes_json' },
+      { field: 'context_json' },
+    ],
+  },
+  {
+    entityId: 'audit_logs:access_log',
+    fields: [
+      { field: 'resource_id' },
+      { field: 'fields_json' },
+      { field: 'context_json' },
+    ],
+  },
 ]

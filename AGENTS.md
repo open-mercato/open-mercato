@@ -8,7 +8,6 @@ This repository is designed for extensibility. Agents should leverage the module
 - Database tables and columns: snake_case; table names plural.
 - Keep code minimal and focused; avoid side effects across modules.
 - Avoid adding code in the `src/` - try to put it in a proper package in the `packages` folder - `src` is a boilerplate for users app
-- MikroORM: when forking an EntityManager, keep it on the request AsyncLocalStorage by forking with `useContext: true` (prefer starting from `RequestContext.getEntityManager()` when available).
 
 ## Extensibility Contract
 - Auto-discovery:
