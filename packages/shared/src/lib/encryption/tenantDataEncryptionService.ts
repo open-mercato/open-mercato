@@ -21,6 +21,8 @@ type MapCacheKey = {
   organizationId: string | null
 }
 
+const MAP_MISS_TTL_MS = 5 * 60 * 1000
+
 function cacheKey(key: MapCacheKey): string {
   return [
     'encmap',
@@ -64,11 +66,13 @@ export class TenantDataEncryptionService {
   private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
   private static globalInflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
   private static globalDekCache = new Map<string, TenantDek>()
+  private static globalMissCache = new Map<string, number>()
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
   private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
+  private readonly missCache = TenantDataEncryptionService.globalMissCache
 
   constructor(
     private em: EntityManager,
@@ -139,6 +143,17 @@ export class TenantDataEncryptionService {
   }
 
   private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
+    const shouldSkipLookup = (tag: string) => {
+      const expiresAt = this.missCache.get(tag)
+      if (!expiresAt) return false
+      if (expiresAt > Date.now()) return true
+      this.missCache.delete(tag)
+      return false
+    }
+    const recordMiss = (tag: string) => {
+      this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
+    }
+
     const candidates: MapCacheKey[] = [
       key,
       { entityId: key.entityId, tenantId: key.tenantId ?? null, organizationId: null },
@@ -146,6 +161,7 @@ export class TenantDataEncryptionService {
     ]
     for (const candidate of candidates) {
       const tag = cacheKey(candidate)
+      if (shouldSkipLookup(tag)) continue
       if (this.inflightMaps.has(tag)) {
         const pending = this.inflightMaps.get(tag)!
         const resolved = await pending
@@ -161,7 +177,11 @@ export class TenantDataEncryptionService {
       this.inflightMaps.set(tag, pending)
       const loaded = await pending
       this.inflightMaps.delete(tag)
-      if (!loaded) continue
+      if (!loaded) {
+        recordMiss(tag)
+        continue
+      }
+      this.missCache.delete(tag)
       this.memoryCache.set(tag, loaded)
       if (this.cache && typeof this.cache.set === 'function') {
         await this.cache.set(tag, loaded, { ttl: 300 })
@@ -175,6 +195,7 @@ export class TenantDataEncryptionService {
     const tag = cacheKey({ entityId, tenantId, organizationId })
     this.memoryCache.delete(tag)
     this.inflightMaps.delete(tag)
+    this.missCache.delete(tag)
     if (this.cache && typeof (this.cache as any).delete === 'function') {
       await (this.cache as any).delete(tag)
     }
