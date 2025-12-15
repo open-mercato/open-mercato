@@ -47,13 +47,6 @@ const dict = {
 }
 
 describe('LastOperationBanner', () => {
-  beforeAll(() => {
-    Object.defineProperty(window, 'location', {
-      value: { reload: jest.fn() },
-      writable: true,
-    })
-  })
-
   beforeEach(() => {
     jest.resetAllMocks()
     ;(useLastOperation as jest.Mock).mockReturnValue(mockOperation)
