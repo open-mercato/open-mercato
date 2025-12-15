@@ -146,6 +146,37 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
+    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+    if (searchFilters.length) {
+      const fields = searchFilters.map((filter) => String(filter.field))
+      this.logSearchDebug('search:init', {
+        entity: String(entity),
+        table,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: orgScope,
+        fields,
+        searchEnabled,
+        hasSearchTokens,
+        searchActive,
+        searchConfig: {
+          enabled: searchConfig.enabled,
+          minTokenLength: searchConfig.minTokenLength,
+          enablePartials: searchConfig.enablePartials,
+          hashAlgorithm: searchConfig.hashAlgorithm,
+          blocklistedFields: searchConfig.blocklistedFields,
+        },
+      })
+      if (!searchEnabled) {
+        this.logSearchDebug('search:disabled', { entity: String(entity), table })
+      } else if (!hasSearchTokens) {
+        this.logSearchDebug('search:no-search-tokens', {
+          entity: String(entity),
+          table,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: orgScope,
+        })
+      }
+    }
     const recordIdColumn = qualify('id')
 
     const applyFilterOp = (builder: any, column: string, op: any, value: any, fieldName?: string) => {
@@ -155,7 +186,8 @@ export class BasicQueryEngine implements QueryEngine {
         typeof value === 'string' &&
         fieldName
       ) {
-        const hashes = tokenizeText(String(value), searchConfig).hashes
+        const tokens = tokenizeText(String(value), searchConfig)
+        const hashes = tokens.hashes
         if (hashes.length) {
           const applied = this.applySearchTokens(builder, {
             entity: String(entity),
@@ -164,8 +196,24 @@ export class BasicQueryEngine implements QueryEngine {
             recordIdColumn,
             tenantId: opts.tenantId ?? null,
             organizationScope: orgScope,
+            tokens: tokens.tokens,
+          })
+          this.logSearchDebug('search:filter', {
+            entity: String(entity),
+            field: fieldName,
+            tokens: tokens.tokens,
+            hashes,
+            applied,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
           })
           if (applied) return builder
+        } else {
+          this.logSearchDebug('search:skip-empty-hashes', {
+            entity: String(entity),
+            field: fieldName,
+            value,
+          })
         }
       }
       switch (op) {
@@ -394,7 +442,8 @@ export class BasicQueryEngine implements QueryEngine {
       const expr = cfValueExprByKey[key]
       if (!expr) continue
       if ((f.op === 'like' || f.op === 'ilike') && searchActive && typeof f.value === 'string') {
-        const hashes = tokenizeText(String(f.value), searchConfig).hashes
+        const tokens = tokenizeText(String(f.value), searchConfig)
+        const hashes = tokens.hashes
         if (hashes.length) {
           const applied = this.applySearchTokens(q, {
             entity: String(entity),
@@ -403,8 +452,24 @@ export class BasicQueryEngine implements QueryEngine {
             recordIdColumn,
             tenantId: opts.tenantId ?? null,
             organizationScope: orgScope,
+            tokens: tokens.tokens,
+          })
+          this.logSearchDebug('search:cf-filter', {
+            entity: String(entity),
+            field: f.field,
+            tokens: tokens.tokens,
+            hashes,
+            applied,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
           })
           if (applied) continue
+        } else {
+          this.logSearchDebug('search:cf-skip-empty-hashes', {
+            entity: String(entity),
+            field: f.field,
+            value: f.value,
+          })
         }
       }
       switch (f.op) {
@@ -573,7 +638,13 @@ export class BasicQueryEngine implements QueryEngine {
       }
       const row = await query.first()
       return !!row
-    } catch {
+    } catch (err) {
+      this.logSearchDebug('search:has-tokens-error', {
+        entity,
+        tenantId,
+        organizationScope: orgScope,
+        error: err instanceof Error ? err.message : String(err),
+      })
       return false
     }
   }
@@ -588,12 +659,31 @@ export class BasicQueryEngine implements QueryEngine {
       tenantId?: string | null
       organizationScope?: { ids: string[]; includeNull: boolean } | null
       combineWith?: 'and' | 'or'
+      tokens?: string[]
     }
   ): boolean {
-    if (!opts.hashes.length) return false
+    if (!opts.hashes.length) {
+      this.logSearchDebug('search:skip-no-hashes', {
+        entity: opts.entity,
+        field: opts.field,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: opts.organizationScope,
+      })
+      return false
+    }
     const alias = `st_${this.searchAliasSeq++}`
     const combineWith = opts.combineWith === 'or' ? 'orWhereExists' : 'whereExists'
     const engine = this
+    this.logSearchDebug('search:apply-search-tokens', {
+      entity: opts.entity,
+      field: opts.field,
+      alias,
+      tokenCount: opts.hashes.length,
+      tokens: opts.tokens,
+      tenantId: opts.tenantId ?? null,
+      organizationScope: opts.organizationScope,
+      combineWith: opts.combineWith ?? 'and',
+    })
     ;(q as any)[combineWith](function (this: Knex.QueryBuilder) {
       this.select(1)
         .from({ [alias]: 'search_tokens' })
@@ -653,6 +743,14 @@ export class BasicQueryEngine implements QueryEngine {
       })
     })
     return sources
+  }
+
+  private logSearchDebug(event: string, payload: Record<string, unknown>) {
+    try {
+      console.info('[query:search]', event, JSON.stringify(payload))
+    } catch {
+      console.info('[query:search]', event, payload)
+    }
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {
