@@ -110,6 +110,14 @@ export async function reindexEntity(
 
   const knex = (em as any).getConnection().getKnex() as Knex
   const table = resolveEntityTableName(em, entityType)
+  if (entityType === 'query_index:search_token' || table === 'search_tokens') {
+    return {
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+    }
+  }
   const columns = await getColumnSet(knex, table)
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
