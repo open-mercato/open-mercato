@@ -19,6 +19,16 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'customers:customer_entity',
+    fields: [
+      { field: 'display_name' },
+      { field: 'primary_email' },
+      { field: 'primary_phone' },
+      { field: 'next_interaction_name' },
+      { field: 'description' },
+    ],
+  },
+  {
     entityId: 'customers:customer_comment',
     fields: [{ field: 'body' }],
   },
@@ -50,6 +60,7 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'promotion_snapshot' },
       { field: 'comments' },
       { field: 'internal_notes' },
+      { field: 'metadata' },
     ],
   },
   {

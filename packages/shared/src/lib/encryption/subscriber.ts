@@ -87,6 +87,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
     em?: { getMetadata?: () => any },
+    changeSet?: { payload?: Record<string, unknown> },
   ) {
     if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
@@ -102,6 +103,9 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
     const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
     Object.assign(target, encrypted)
+    if (changeSet?.payload && typeof changeSet.payload === 'object') {
+      Object.assign(changeSet.payload, encrypted)
+    }
   }
 
   private async decrypt(
@@ -126,12 +130,12 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   }
 
   async beforeCreate(args: EventArgs<any>) {
-    await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+    await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em, args.changeSet as any)
   }
 
   async beforeUpdate(args: EventArgs<any>) {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em)
-    await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em)
+    await this.encrypt(args.entity as Record<string, unknown>, args.meta, args.em, args.changeSet as any)
   }
 
   async afterCreate(args: EventArgs<any>) {

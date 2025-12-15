@@ -22,6 +22,22 @@ type BuildTokenOptions = {
 }
 
 const DEFAULT_SCOPE = { organizationId: null, tenantId: null }
+type EntityFieldPair = [string, string]
+
+const isSearchDebugEnabled = (): boolean => {
+  const raw = (process.env.OM_SEARCH_DEBUG ?? '').toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+const debug = (event: string, payload: Record<string, unknown>) => {
+  if (!isSearchDebugEnabled()) return
+  try {
+    // eslint-disable-next-line no-console
+    console.debug(`[search-tokens] ${event}`, payload)
+  } catch {
+    // ignore
+  }
+}
 
 function collectTextValues(value: unknown): string[] {
   if (typeof value === 'string') return [value]
@@ -69,6 +85,7 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
         const dedupeKey = `${field}|${hash}`
         if (seen.has(dedupeKey)) continue
         seen.add(dedupeKey)
+        debug('token.generated', { entityType: params.entityType, recordId: params.recordId, field, token, hash })
         tokens.push({
           entity_type: params.entityType,
           entity_id: String(params.recordId),
@@ -81,8 +98,22 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
       }
     }
   }
+  debug('doc.completed', { entityType: params.entityType, recordId: params.recordId, tokenCount: tokens.length })
 
   return tokens
+}
+
+function buildFieldPairs(recordId: string, doc?: Record<string, unknown> | null): EntityFieldPair[] {
+  if (!doc) return []
+  const pairs: EntityFieldPair[] = []
+  const dedupe = new Set<string>()
+  for (const field of Object.keys(doc)) {
+    const key = `${recordId}|${field}`
+    if (dedupe.has(key)) continue
+    dedupe.add(key)
+    pairs.push([recordId, field])
+  }
+  return pairs
 }
 
 export async function replaceSearchTokensForRecord(
@@ -94,13 +125,16 @@ export async function replaceSearchTokensForRecord(
   if (!config.enabled) return
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
+  const fieldPairs = buildFieldPairs(String(params.recordId), params.doc)
 
   await knex.transaction(async (trx) => {
-    await trx('search_tokens')
-      .where({ entity_type: params.entityType, entity_id: String(params.recordId) })
+    const deleteQuery = trx('search_tokens')
+      .where({ entity_type: params.entityType })
       .andWhereRaw('organization_id is not distinct from ?', [organizationId])
       .andWhereRaw('tenant_id is not distinct from ?', [tenantId])
-      .del()
+    if (fieldPairs.length) deleteQuery.whereIn(['entity_id', 'field'], fieldPairs)
+    else deleteQuery.where('entity_id', String(params.recordId))
+    await deleteQuery.del()
     if (!rows.length) return
     const payloads = rows.map((row) => ({
       ...row,
@@ -140,24 +174,47 @@ export async function replaceSearchTokensForBatch(
     return
   }
 
+  const scopeKey = (org: string | null, tenant: string | null) => `${org ?? '__null__'}|${tenant ?? '__null__'}`
   const scopeBuckets = new Map<string, { organizationId: string | null; tenantId: string | null; ids: Set<string> }>()
-  for (const row of rows) {
-    const org = row.organization_id ?? null
-    const tenant = row.tenant_id ?? null
-    const key = `${org ?? '__null__'}|${tenant ?? '__null__'}`
+  const fieldPairsByScope = new Map<string, EntityFieldPair[]>()
+  const seenPairsByScope = new Map<string, Set<string>>()
+
+  for (const payload of payloads) {
+    const org = payload.organizationId ?? null
+    const tenant = payload.tenantId ?? null
+    const key = scopeKey(org, tenant)
     const bucket = scopeBuckets.get(key) ?? { organizationId: org, tenantId: tenant, ids: new Set<string>() }
-    bucket.ids.add(row.entity_id)
+    bucket.ids.add(String(payload.recordId))
     scopeBuckets.set(key, bucket)
   }
 
+  for (const payload of payloads) {
+    const org = payload.organizationId ?? null
+    const tenant = payload.tenantId ?? null
+    const key = scopeKey(org, tenant)
+    const pairs = fieldPairsByScope.get(key) ?? []
+    const seen = seenPairsByScope.get(key) ?? new Set<string>()
+    const fieldPairs = buildFieldPairs(String(payload.recordId), payload.doc)
+    for (const pair of fieldPairs) {
+      const dedupeKey = `${pair[0]}|${pair[1]}`
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      pairs.push(pair)
+    }
+    fieldPairsByScope.set(key, pairs)
+    seenPairsByScope.set(key, seen)
+  }
+
   await knex.transaction(async (trx) => {
-    for (const bucket of scopeBuckets.values()) {
-      await trx('search_tokens')
+    for (const [key, bucket] of scopeBuckets.entries()) {
+      const pairs = fieldPairsByScope.get(key) ?? []
+      const deleteQuery = trx('search_tokens')
         .where({ entity_type: payloads[0].entityType })
-        .whereIn('entity_id', Array.from(bucket.ids))
         .andWhereRaw('organization_id is not distinct from ?', [bucket.organizationId])
         .andWhereRaw('tenant_id is not distinct from ?', [bucket.tenantId])
-        .del()
+      if (pairs.length) deleteQuery.whereIn(['entity_id', 'field'], pairs)
+      else deleteQuery.whereIn('entity_id', Array.from(bucket.ids))
+      await deleteQuery.del()
     }
     const payloadWithTimestamps = rows.map((row) => ({
       ...row,

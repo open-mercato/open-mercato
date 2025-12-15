@@ -30,10 +30,53 @@ function normalizeEnv(value: string | undefined): string {
   return value.trim().replace(/^['"]|['"]$/g, '')
 }
 
+function resolveDerivedKeySecret(): { secret: string; source: 'explicit' | 'dev-default' } | null {
+  const candidates = [
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY,
+    process.env.TENANT_DATA_ENCRYPTION_KEY,
+    process.env.AUTH_SECRET,
+    process.env.NEXTAUTH_SECRET,
+  ]
+  for (const raw of candidates) {
+    const normalized = normalizeEnv(raw)
+    if (normalized) return { secret: normalized, source: 'explicit' }
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    return { secret: 'om-dev-tenant-encryption', source: 'dev-default' }
+  }
+  return null
+}
+
 export class NoopKmsService implements KmsService {
   isHealthy(): boolean { return !isTenantDataEncryptionEnabled() }
   async getTenantDek(): Promise<TenantDek | null> { return null }
   async createTenantDek(): Promise<TenantDek | null> { return null }
+}
+
+class DerivedKmsService implements KmsService {
+  private root: Buffer
+  constructor(secret: string) {
+    // Derive a stable root key from the provided secret so derived tenant keys are deterministic
+    this.root = crypto.createHash('sha256').update(secret).digest()
+  }
+
+  isHealthy(): boolean {
+    return true
+  }
+
+  private deriveKey(tenantId: string): string {
+    const derived = crypto.createHmac('sha256', this.root).update(tenantId).digest()
+    return derived.toString('base64')
+  }
+
+  async getTenantDek(tenantId: string): Promise<TenantDek | null> {
+    if (!tenantId) return null
+    return { tenantId, key: this.deriveKey(tenantId), fetchedAt: Date.now() }
+  }
+
+  async createTenantDek(tenantId: string): Promise<TenantDek | null> {
+    return this.getTenantDek(tenantId)
+  }
 }
 
 export class HashicorpVaultKmsService implements KmsService {
@@ -175,11 +218,17 @@ export class HashicorpVaultKmsService implements KmsService {
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
   const svc = new HashicorpVaultKmsService()
-  if (!svc.isHealthy()) {
-    console.warn('⚠️ [encryption][kms] Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN); falling back to noop KMS')
-    return new NoopKmsService()
+  if (svc.isHealthy()) return svc
+
+  const derived = resolveDerivedKeySecret()
+  if (derived) {
+    const level = derived.source === 'dev-default' ? 'warn' : 'info'
+    console[level](`⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`)
+    return new DerivedKmsService(derived.secret)
   }
-  return svc
+
+  console.warn('⚠️ [encryption][kms] Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN) and no fallback secret provided; falling back to noop KMS')
+  return new NoopKmsService()
 }
 
 export { hashForLookup }

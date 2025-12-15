@@ -1,14 +1,15 @@
 import type { EntityMetadata } from '@mikro-orm/core'
 import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
 
+const toSnake = (value: string): string =>
+  value
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .replace(/__+/g, '_')
+    .toLowerCase()
+
 const ENTITY_ID_LOOKUP = (() => {
   const map = new Map<string, string>()
-  const toSnake = (value: string) =>
-    value
-      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-      .replace(/[\s-]+/g, '_')
-      .replace(/__+/g, '_')
-      .toLowerCase()
   for (const mod of Object.values(GeneratedEntities || {})) {
     for (const [key, entityId] of Object.entries(mod || {})) {
       const snake = toSnake(key)
@@ -52,12 +53,21 @@ export function resolveEntityIdFromMetadata(meta: EntityMetadata<any> | undefine
   for (const raw of candidates) {
     const normalized = normalizeKey(raw)
     const singular = maybeSingularize(normalized)
-    const id =
-      ENTITY_ID_LOOKUP.get(normalized) ||
-      ENTITY_ID_LOOKUP.get(singular) ||
-      ENTITY_ID_LOOKUP.get(normalized.replace(/_/g, '')) || // Pascal-ish fallback
-      ENTITY_ID_LOOKUP.get(singular.replace(/_/g, ''))
-    if (id) return id
+    const snake = toSnake(raw)
+    const snakeSingular = maybeSingularize(snake)
+    const variants = [
+      normalized,
+      singular,
+      normalized.replace(/_/g, ''), // Pascal-ish fallback
+      singular.replace(/_/g, ''),
+      snake,
+      snakeSingular,
+    ]
+    for (const candidate of variants) {
+      if (!candidate) continue
+      const id = ENTITY_ID_LOOKUP.get(candidate)
+      if (id) return id
+    }
   }
   return null
 }
