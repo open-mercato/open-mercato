@@ -28,6 +28,7 @@ type Partition = {
   description: string | null
   isPublic: boolean
   requiresOcr: boolean
+  ocrModel: string | null
   envKey: string
   createdAt: string | null
 }
@@ -42,7 +43,14 @@ const DEFAULT_FORM = {
   description: '',
   isPublic: false,
   requiresOcr: true,
+  ocrModel: '',
 }
+
+const OCR_MODEL_OPTIONS = [
+  { value: '', label: 'Default (from environment)' },
+  { value: 'gpt-4o', label: 'GPT-4o (Recommended)' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Faster, Lower Cost)' },
+]
 
 export function AttachmentPartitionSettings() {
   const t = useT()
@@ -101,6 +109,7 @@ export function AttachmentPartitionSettings() {
         description: state.entry.description ?? '',
         isPublic: state.entry.isPublic,
         requiresOcr: state.entry.requiresOcr,
+        ocrModel: state.entry.ocrModel ?? '',
       })
     } else {
       setForm(DEFAULT_FORM)
@@ -133,6 +142,7 @@ export function AttachmentPartitionSettings() {
         description: form.description.trim() || undefined,
         isPublic: form.isPublic,
         requiresOcr: form.requiresOcr,
+        ocrModel: form.ocrModel.trim() || null,
       }
       const method = dialog.mode === 'create' ? 'POST' : 'PUT'
       const body =
@@ -377,6 +387,31 @@ export function AttachmentPartitionSettings() {
               />
               {t('attachments.partitions.form.ocrLabel', 'Require OCR/text extraction')}
             </label>
+            {form.requiresOcr && (
+              <div className="space-y-2 pl-6">
+                <Label htmlFor="partition-ocr-model">
+                  {t('attachments.partitions.form.ocrModelLabel', 'OCR Model')}
+                </Label>
+                <select
+                  id="partition-ocr-model"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.ocrModel}
+                  onChange={(event) => setForm((prev) => ({ ...prev, ocrModel: event.target.value }))}
+                >
+                  {OCR_MODEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {t(`attachments.partitions.form.ocrModelOptions.${option.value || 'default'}`, option.label)}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'attachments.partitions.form.ocrModelHelp',
+                    'Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-4o.'
+                  )}
+                </p>
+              </div>
+            )}
             {dialog ? (
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <div>

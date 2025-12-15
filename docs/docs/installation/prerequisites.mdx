@@ -13,6 +13,9 @@ Before cloning the repository make sure the following tools are installed:
   ```
 - **Docker & Docker Compose** – required for running PostgreSQL with pgvector and Redis.
 - **OpenSSL** – handy for generating random secrets while configuring `.env`.
+- **GraphicsMagick, Ghostscript, and Poppler** (optional) – required for LLM-based OCR on PDFs:
+  - **macOS**: `brew install graphicsmagick ghostscript poppler`
+  - **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
 
 Copy `.env.example` to `.env` and configure at least:
 

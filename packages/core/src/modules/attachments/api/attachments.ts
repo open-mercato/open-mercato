@@ -8,6 +8,8 @@ import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartition
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { storePartitionFile, deletePartitionFile } from '../lib/storage'
 import { extractAttachmentContent } from '../lib/textExtraction'
+import { requestOcrProcessing } from '../lib/ocrQueue'
+import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import {
   mergeAttachmentMetadata,
@@ -297,11 +299,14 @@ export async function POST(req: Request) {
       ? Boolean((partition as any).requiresOcr)
       : resolveDefaultAttachmentOcrEnabled()
   let extractedContent: string | null = null
-  if (requiresOcr) {
+  const fileMimeType = (file as any).type || 'application/octet-stream'
+  const useLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
+
+  if (requiresOcr && !useLlmOcr) {
     try {
       extractedContent = await extractAttachmentContent({
         filePath: stored.absolutePath,
-        mimeType: (file as any).type || null,
+        mimeType: fileMimeType,
       })
     } catch (error) {
       console.error('[attachments] failed to extract attachment content', error)
@@ -331,6 +336,18 @@ export async function POST(req: Request) {
     storageMetadata: metadata,
   })
   await em.persistAndFlush(att)
+
+  if (useLlmOcr) {
+    const ocrService = new OcrService()
+    if (ocrService.available) {
+      requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
+        console.error('[attachments] failed to queue OCR processing', error)
+      })
+    } else {
+      console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured')
+    }
+  }
+
   if (dataEngine) {
     try {
       await setCustomFieldsIfAny({
