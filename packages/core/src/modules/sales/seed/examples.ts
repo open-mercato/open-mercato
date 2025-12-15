@@ -963,41 +963,78 @@ async function loadCustomerLookups(
   lookups: CustomerLookup[]
 ): Promise<Map<string, CustomerContext>> {
   const map = new Map<string, CustomerContext>()
+  if (lookups.length === 0) return map
+
+  const lookupsByName = new Map<string, CustomerLookup>()
   for (const lookup of lookups) {
-    const entity = await em.findOne(
-      CustomerEntity,
-      {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        displayName: lookup.displayName,
-        deletedAt: null,
-      },
-      { populate: ['personProfile', 'companyProfile'] }
-    )
-    if (!entity) {
-      console.warn(`[sales.examples] Customer "${lookup.displayName}" not found; skipping seeded linkage.`)
-      continue
+    const nameKey = normalizeKey(lookup.displayName)
+    if (nameKey && !lookupsByName.has(nameKey)) {
+      lookupsByName.set(nameKey, lookup)
     }
-    const address = await em.findOne(
-      CustomerAddress,
-      { entity, organizationId: scope.organizationId, tenantId: scope.tenantId },
-      { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any }
-    )
-    const contact = await em.findOne(
-      CustomerPersonProfile,
-      { company: entity, organizationId: scope.organizationId, tenantId: scope.tenantId },
-      { populate: ['entity'] }
-    )
-    const snapshot = buildCustomerSnapshot(entity, contact)
-    const addresses = toExampleAddresses(entity, address)
+  }
+
+  const customers = await em.find(
+    CustomerEntity,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    { populate: ['personProfile', 'companyProfile'] }
+  )
+
+  const matches = customers.filter((customer) => lookupsByName.has(normalizeKey(customer.displayName)))
+  const matchIds = matches.map((customer) => customer.id)
+
+  const addresses = matchIds.length
+    ? await em.find(
+        CustomerAddress,
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, entity: { $in: matchIds } },
+        { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any }
+      )
+    : []
+  const addressByCustomer = new Map<string, CustomerAddress>()
+  for (const address of addresses) {
+    const entityId = typeof address.entity === 'string' ? address.entity : address.entity?.id
+    if (!entityId || addressByCustomer.has(entityId)) continue
+    addressByCustomer.set(entityId, address)
+  }
+
+  const contacts = matchIds.length
+    ? await em.find(
+        CustomerPersonProfile,
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, company: { $in: matchIds } },
+        { populate: ['entity', 'company'] }
+      )
+    : []
+  const contactByCompany = new Map<string, CustomerPersonProfile>()
+  for (const contact of contacts) {
+    const companyId = typeof contact.company === 'string' ? contact.company : contact.company?.id
+    if (!companyId || contactByCompany.has(companyId)) continue
+    contactByCompany.set(companyId, contact)
+  }
+
+  for (const customer of matches) {
+    const lookup = lookupsByName.get(normalizeKey(customer.displayName))
+    if (!lookup) continue
+    const contact = contactByCompany.get(customer.id) ?? null
+    const snapshot = buildCustomerSnapshot(customer, contact)
+    const addresses = toExampleAddresses(customer, addressByCustomer.get(customer.id) ?? null)
     map.set(lookup.key, {
-      entity,
+      entity: customer,
       contact,
       contactId: contact?.id ?? null,
       snapshot,
       addresses,
     })
   }
+
+  for (const lookup of lookups) {
+    if (!map.has(lookup.key)) {
+      console.warn(`[sales.examples] Customer "${lookup.displayName}" not found; skipping seeded linkage.`)
+    }
+  }
+
   return map
 }
 

@@ -47,6 +47,16 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'customers:customer_company_profile',
+    fields: [
+      { field: 'legal_name' },
+      { field: 'brand_name' },
+      { field: 'domain' },
+      { field: 'website_url' },
+      { field: 'industry' },
+    ],
+  },
+  {
     entityId: 'sales:sales_order',
     fields: [
       { field: 'customer_snapshot' },
