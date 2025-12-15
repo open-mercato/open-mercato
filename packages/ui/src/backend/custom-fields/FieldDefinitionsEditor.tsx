@@ -435,6 +435,7 @@ export function FieldDefinitionsEditor({
             availableGroups={groupOptions}
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
+            translate={t}
           />
         </div>
       )})}
@@ -481,6 +482,7 @@ type FieldDefinitionCardProps = {
   availableGroups?: FieldsetGroup[]
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
+  translate?: (key: string, fallback: string) => string
 }
 
 const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
@@ -495,6 +497,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   availableGroups = [],
   onRegisterGroup,
   onRemoveGroup,
+  translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
   const [optionValueDraft, setOptionValueDraft] = React.useState('')
@@ -1110,7 +1113,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             checked={!!local.configJson?.encrypted}
             onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), encrypted: event.target.checked } }, true) }}
           />
-          {t('entities.customFields.fields.encrypted', 'Encrypted')}
+          {translate?.('entities.customFields.fields.encrypted', 'Encrypted') ?? 'Encrypted'}
         </label>
       </div>
     </div>
