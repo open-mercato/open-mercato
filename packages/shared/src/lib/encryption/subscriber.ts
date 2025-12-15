@@ -35,6 +35,9 @@ function debug(event: string, payload: Record<string, unknown>) {
 
 const registeredEventManagers = new WeakSet<object>()
 
+const toSnakeCase = (value: string): string =>
+  value.replace(/([A-Z])/g, '_$1').replace(/__/g, '_').toLowerCase()
+
 export class TenantEncryptionSubscriber implements EventSubscriber<any> {
   constructor(private readonly service: TenantDataEncryptionService) {}
 
@@ -142,37 +145,66 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       return
     }
     const encrypted = await this.service.encryptEntityPayload(entityId, target, tenantId, organizationId)
-    const metaProps = resolvedMeta?.properties ?? {}
+    const metaProps: Record<string, unknown> = resolvedMeta?.properties && typeof resolvedMeta.properties === 'object'
+      ? resolvedMeta.properties
+      : {}
+    const payloadObj: Record<string, unknown> | null =
+      changeSet && typeof changeSet === 'object'
+        ? (typeof changeSet.payload === 'object' && changeSet.payload
+            ? (changeSet.payload as Record<string, unknown>)
+            : ((changeSet.payload = {}) as Record<string, unknown>))
+        : null
     const updates: Record<string, unknown> = {}
-    const payloadUpdates: Record<string, unknown> = {}
+    const columnNameFor = (propKey: string, prop: Record<string, unknown> | undefined): string => {
+      try {
+        if (prop && typeof prop === 'object') {
+          const explicit = (prop as any)?.fieldName
+          if (typeof explicit === 'string' && explicit.length) return explicit
+          const name = (prop as any)?.name
+          if (typeof name === 'string' && name.length) return name
+        }
+      } catch (err) {
+        debug('⚠️ subscriber.column_name.resolve', {
+          entityId,
+          propKey,
+          message: (err as Error)?.message ?? String(err),
+        })
+      }
+      return toSnakeCase(propKey)
+    }
+
     for (const [key, value] of Object.entries(encrypted)) {
       const prop = (metaProps as Record<string, any>)[key]
       if (!prop || typeof prop !== 'object') continue
       if ((target as Record<string, unknown>)[key] === value) continue
       updates[key] = value
-      const fieldNames = (prop as any)?.fieldNames
-      const fieldName =
-        (Array.isArray(fieldNames) && fieldNames.length ? fieldNames[0] : undefined) ??
-        (typeof (prop as any)?.name === 'string' && (prop as any).name.length ? (prop as any).name : undefined) ??
-        key
-      if (typeof fieldName === 'string' && fieldName.length) {
-        payloadUpdates[fieldName] = value
-      }
     }
     if (Object.keys(updates).length === 0) return
     Object.assign(target, updates)
-    if (changeSet?.payload && typeof changeSet.payload === 'object') {
-      const payloadObj = changeSet.payload as Record<string, unknown>
-      for (const key of Object.keys(updates)) {
-        const prop = (metaProps as Record<string, any>)[key]
-        const fieldNames = (prop as any)?.fieldNames
-        const columnName =
-          (Array.isArray(fieldNames) && fieldNames.length ? fieldNames[0] : undefined) ??
-          (typeof (prop as any)?.name === 'string' && (prop as any).name.length ? (prop as any).name : undefined) ??
-          key
-        if (Object.prototype.hasOwnProperty.call(payloadObj, key)) delete payloadObj[key]
-        if (columnName && Object.prototype.hasOwnProperty.call(payloadObj, columnName)) delete payloadObj[columnName]
-        if (columnName) payloadObj[columnName] = updates[key]
+    if (payloadObj) {
+      try {
+        const ensureColumnKey = (propKey: string, value: unknown) => {
+          const columnName = columnNameFor(propKey, (metaProps as Record<string, any>)[propKey])
+          const canonicalKey = columnName || toSnakeCase(propKey)
+          const aliases = new Set(
+            [propKey, toSnakeCase(propKey), columnName, columnName ? toSnakeCase(columnName) : undefined].filter(
+              (v): v is string => typeof v === 'string' && v.length > 0,
+            ),
+          )
+          for (const alias of aliases) {
+            if (Object.prototype.hasOwnProperty.call(payloadObj, alias)) delete payloadObj[alias]
+          }
+          const finalKey = columnName || toSnakeCase(propKey)
+          payloadObj[finalKey] = value
+        }
+        for (const key of Object.keys(updates)) {
+          ensureColumnKey(key, updates[key])
+        }
+      } catch (err) {
+        debug('⚠️ subscriber.payload.normalize.error', {
+          entityId,
+          message: (err as Error)?.message ?? String(err),
+        })
       }
     }
   }

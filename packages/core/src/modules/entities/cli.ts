@@ -249,7 +249,7 @@ async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: s
       existing.fieldsJson = spec.fields
       existing.isActive = true
       existing.updatedAt = new Date()
-      logger(`Updated encryption map for ${spec.entityId}`)
+      logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
       await em.persistAndFlush(existing)
       continue
     }
