@@ -7,14 +7,42 @@ import {
   type ActionLogCreateInput,
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
+let decryptionWarningLogged = false
 
 const isZodRuntimeMissing = (err: unknown) => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
 
 export class ActionLogService {
-  constructor(private readonly em: EntityManager) {}
+  constructor(
+    private readonly em: EntityManager,
+    private readonly tenantEncryptionService?: TenantDataEncryptionService,
+  ) {}
+
+  private async decryptEntries(entries: ActionLog | ActionLog[] | null | undefined): Promise<void> {
+    if (!entries) return
+    if (!this.tenantEncryptionService?.isEnabled()) return
+    const list = Array.isArray(entries) ? entries : [entries]
+    for (const entry of list) {
+      try {
+        const decrypted = await this.tenantEncryptionService.decryptEntityPayload(
+          'audit_logs:action_log',
+          entry as unknown as Record<string, unknown>,
+          entry.tenantId ?? null,
+          entry.organizationId ?? null,
+        )
+        Object.assign(entry as any, decrypted)
+      } catch (err) {
+        if (!decryptionWarningLogged) {
+          decryptionWarningLogged = true
+          // eslint-disable-next-line no-console
+          console.warn('[audit_logs] failed to decrypt action log entry', err)
+        }
+      }
+    }
+  }
 
   async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
     let data: ActionLogCreateInput
@@ -57,6 +85,7 @@ export class ActionLogService {
       updatedAt: new Date(),
     })
     await fork.persistAndFlush(log)
+    await this.decryptEntries(log)
     return log
   }
 
@@ -124,7 +153,7 @@ export class ActionLogService {
     if (parsed.before) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $lt: parsed.before } as any
     if (parsed.after) where.createdAt = { ...(where.createdAt as Record<string, any> | undefined), $gt: parsed.after } as any
 
-    return await this.em.find(
+    const results = await this.em.find(
       ActionLog,
       where,
       {
@@ -132,6 +161,8 @@ export class ActionLogService {
         limit: parsed.limit,
       },
     )
+    await this.decryptEntries(results)
+    return results
   }
 
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
@@ -144,7 +175,9 @@ export class ActionLogService {
     if (scope.tenantId) where.tenantId = scope.tenantId
     if (scope.organizationId) where.organizationId = scope.organizationId
 
-    return await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    const entry = await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    await this.decryptEntries(entry)
+    return entry
   }
 
   async markUndone(id: string) {
@@ -157,11 +190,15 @@ export class ActionLogService {
   }
 
   async findByUndoToken(undoToken: string) {
-    return await this.em.findOne(ActionLog, { undoToken, deletedAt: null })
+    const entry = await this.em.findOne(ActionLog, { undoToken, deletedAt: null })
+    await this.decryptEntries(entry)
+    return entry
   }
 
   async findById(id: string) {
-    return await this.em.findOne(ActionLog, { id, deletedAt: null })
+    const entry = await this.em.findOne(ActionLog, { id, deletedAt: null })
+    await this.decryptEntries(entry)
+    return entry
   }
 
   async latestUndoableForResource(params: {
@@ -181,7 +218,9 @@ export class ActionLogService {
     if (params.organizationId) where.organizationId = params.organizationId
     if (params.resourceKind) where.resourceKind = params.resourceKind
     if (params.resourceId) where.resourceId = params.resourceId
-    return await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    const entry = await this.em.findOne(ActionLog, where, { orderBy: { createdAt: 'desc' } })
+    await this.decryptEntries(entry)
+    return entry
   }
 
   async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
@@ -192,7 +231,9 @@ export class ActionLogService {
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
     if (scope.organizationId) where.organizationId = scope.organizationId
-    return await this.em.findOne(ActionLog, where, { orderBy: { updatedAt: 'desc' } })
+    const entry = await this.em.findOne(ActionLog, where, { orderBy: { updatedAt: 'desc' } })
+    await this.decryptEntries(entry)
+    return entry
   }
 
   async markRedone(id: string) {

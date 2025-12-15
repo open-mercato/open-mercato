@@ -179,6 +179,11 @@ export class TenantDataEncryptionService {
       this.inflightMaps.delete(tag)
       if (!loaded) {
         recordMiss(tag)
+        debug('🔍 encmap.miss', {
+          entityId: candidate.entityId,
+          tenantId: candidate.tenantId,
+          organizationId: candidate.organizationId,
+        })
         continue
       }
       this.missCache.delete(tag)

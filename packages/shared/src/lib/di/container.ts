@@ -45,13 +45,26 @@ export async function createRequestContainer(): Promise<AppContainer> {
   // App-level DI override (last chance)
   try {
     const appDi = await import('@/di') as any
-    if (appDi?.register) {
-      try {
-        const maybe = appDi.register(container)
-        if (maybe && typeof maybe.then === 'function') await maybe
-      } catch {}
+      if (appDi?.register) {
+        try {
+          const maybe = appDi.register(container)
+          if (maybe && typeof maybe.then === 'function') await maybe
+        } catch {}
+      }
+    } catch {}
+  // Ensure tenant encryption subscriber is always registered on the fresh request-scoped EM
+  try {
+    const emForEnc = container.resolve('em') as any
+    const tenantEncryptionService = container.hasRegistration('tenantEncryptionService')
+      ? (container.resolve('tenantEncryptionService') as any)
+      : null
+    if (emForEnc && tenantEncryptionService?.isEnabled?.()) {
+      const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
+      registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }
-  } catch {}
+  } catch {
+    // best-effort; do not block container creation
+  }
   return container
 }
 try {

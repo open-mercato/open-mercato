@@ -138,7 +138,13 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
     const resolvedMeta = this.resolveMeta(meta, target, em)
     const entityId = this.resolveEntityId(resolvedMeta)
-    if (!entityId) return
+    if (!entityId) {
+      debug('⚠️ subscriber.decrypt.skip.entity_id_missing', {
+        metaName: resolvedMeta?.className || resolvedMeta?.name,
+        table: (resolvedMeta as any)?.tableName,
+      })
+      return
+    }
     const { tenantId, organizationId } = resolveScope(target)
     if (!tenantId) {
       debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
@@ -213,8 +219,11 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
     em?: { getMetadata?: () => any; getComparator?: () => any },
-    { syncOriginal = false }: { syncOriginal?: boolean } = {},
+    { syncOriginal = false, seen }: { syncOriginal?: boolean; seen?: WeakSet<object> } = {},
   ) {
+    const visited = seen ?? new WeakSet<object>()
+    if (visited.has(target as object)) return
+    visited.add(target as object)
     if (!isTenantDataEncryptionEnabled() || !this.service.isEnabled()) {
       debug('⚪️ subscriber.skip', { reason: 'disabled', entity: meta?.className || meta?.name })
       return
@@ -231,6 +240,49 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     Object.assign(target, decrypted)
     if (syncOriginal) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)
+    }
+    // Best-effort deep decrypt for loaded relations so populated graphs get cleaned too.
+    try {
+      const props = resolvedMeta?.properties ? Object.values(resolvedMeta.properties) : []
+      for (const prop of props) {
+        const kind = (prop as any)?.kind
+        const name = (prop as any)?.name
+        if (typeof name !== 'string' || !name.length) continue
+        const value = (target as any)[name]
+        if (!value) continue
+        // Single-valued relation
+        if ([ReferenceKind.MANY_TO_ONE, ReferenceKind.ONE_TO_ONE].includes(kind)) {
+          if (typeof value === 'object') {
+            const nestedMeta = this.resolveMeta((value as any).__meta ?? (value as any).__helper?.__meta, value, em)
+            await this.decrypt(value as Record<string, unknown>, nestedMeta, em, { syncOriginal: true, seen: visited })
+          }
+          continue
+        }
+        // Collections
+        if ([ReferenceKind.ONE_TO_MANY, ReferenceKind.MANY_TO_MANY].includes(kind)) {
+          const coll = value as any
+          const items: any[] =
+            coll && typeof coll === 'object'
+              ? Array.isArray(coll)
+                ? coll
+                : Array.isArray(coll?.$?.items)
+                  ? coll.$.items
+                  : Array.isArray(coll?.items)
+                    ? coll.items
+                    : coll.isInitialized?.() ? coll.getItems() : []
+              : []
+          for (const item of items) {
+            if (!item || typeof item !== 'object') continue
+            const nestedMeta = this.resolveMeta((item as any).__meta ?? (item as any).__helper?.__meta, item, em)
+            await this.decrypt(item as Record<string, unknown>, nestedMeta, em, { syncOriginal: true, seen: visited })
+          }
+        }
+      }
+    } catch (err) {
+      debug('⚠️ subscriber.deep_decrypt.error', {
+        entityId,
+        message: (err as Error)?.message ?? String(err),
+      })
     }
   }
 

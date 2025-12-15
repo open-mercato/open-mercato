@@ -23,13 +23,17 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   const docSources: Array<Record<string, any>> = []
 
   // Attach the core customer entity when indexing customer profiles so search tokens see the combined row
+  let parentEntityRow: Record<string, any> | null = null
   if (params.entityType === 'customers:customer_person_profile' || params.entityType === 'customers:customer_company_profile') {
     const entityId = (baseRow as any).entity_id ?? (baseRow as any).entityId
     if (entityId) {
       const entityRow = await knex('customer_entities')
         .where('id', entityId)
         .first()
-      if (entityRow) docSources.push(entityRow)
+      if (entityRow) {
+        docSources.push(entityRow)
+        parentEntityRow = entityRow
+      }
     }
   }
 
@@ -66,14 +70,19 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
 
   try {
     const encryption = resolveTenantEncryptionService(em as any)
-    if (encryption?.isEnabled?.() !== false) {
+    const decryptFor = async (entityId: string) => {
+      if (encryption?.isEnabled?.() === false) return
       const decrypted = await encryption.decryptEntityPayload(
-        params.entityType,
+        entityId,
         doc,
         params.tenantId ?? null,
         params.organizationId ?? null,
       )
       if (decrypted) doc = { ...doc, ...decrypted }
+    }
+    await decryptFor(params.entityType)
+    if (parentEntityRow) {
+      await decryptFor('customers:customer_entity')
     }
   } catch {}
 
