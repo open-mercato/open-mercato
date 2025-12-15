@@ -8,7 +8,7 @@ import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 
 export type AppContainer = AwilixContainer
 
-const diRegistrars = diGenerated.diRegistrars ?? diGenerated.default ?? []
+const diRegistrars = diGenerated.diRegistrars ?? diGenerated.default?.diRegistrars ?? []
 
 export async function createRequestContainer(): Promise<AppContainer> {
   const orm = await getOrm()
