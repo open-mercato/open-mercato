@@ -12,7 +12,7 @@ const mockEm = {
       return partitions.find((p) => p.code === where?.code) ?? null
     }
     if (entity?.name === 'CustomFieldDef') {
-      return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf'] } }
+      return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf', 'docx'] } }
     }
     return null
   }),
@@ -124,7 +124,11 @@ describe('attachments API', () => {
 
   it('extracts content when partition requires OCR', async () => {
     mockExtractAttachmentContent.mockResolvedValue('extracted text')
-    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const file = new File(
+      [new Uint8Array([1, 2, 3])],
+      'doc.docx',
+      { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    )
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
     expect(res.status).toBe(200)
@@ -159,11 +163,15 @@ describe('attachments API', () => {
     mockEm.findOne.mockImplementation(async (entity: any, where: any) => {
       if (entity?.name === 'AttachmentPartition') return partitionWithoutFlag
       if (entity?.name === 'CustomFieldDef') {
-        return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf'] } }
+        return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf', 'docx'] } }
       }
       return null
     })
-    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const file = new File(
+      [new Uint8Array([1, 2, 3])],
+      'doc.docx',
+      { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    )
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
     expect(res.status).toBe(200)
