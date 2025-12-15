@@ -43,7 +43,7 @@ describe('entities/encryption API', () => {
 
   it('creates map on POST and invalidates cache', async () => {
     mockMapRepo.findOne.mockResolvedValue(null)
-    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'emailHash' }] }
+    const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] }
     const res = await POST(new Request('http://x/api/entities/encryption', {
       method: 'POST',
       body: JSON.stringify(payload),

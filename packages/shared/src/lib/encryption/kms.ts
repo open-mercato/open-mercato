@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import { generateDek } from './aes'
-import { isTenantDataEncryptionEnabled } from './toggles'
+import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 
 export type TenantDek = {
   tenantId: string
@@ -43,6 +43,7 @@ export class HashicorpVaultKmsService implements KmsService {
   private readonly mountPath: string
   private readonly ttlMs: number
   private healthy = true
+  private readonly debugEnabled: boolean
   private static loggedInit = false
 
   constructor(opts: VaultClientOpts = {}) {
@@ -50,11 +51,12 @@ export class HashicorpVaultKmsService implements KmsService {
     this.vaultToken = normalizeEnv(opts.vaultToken || process.env.VAULT_TOKEN || '')
     this.mountPath = (opts.mountPath || process.env.VAULT_KV_PATH || 'secret/data').replace(/\/+$/, '')
     this.ttlMs = opts.ttlMs ?? 15 * 60 * 1000
+    this.debugEnabled = isEncryptionDebugEnabled()
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
       console.warn('⚠️ [encryption][kms] Vault misconfigured (missing VAULT_ADDR or VAULT_TOKEN)')
     }
-    if (this.healthy && !HashicorpVaultKmsService.loggedInit) {
+    if (this.healthy && !HashicorpVaultKmsService.loggedInit && this.debugEnabled) {
       HashicorpVaultKmsService.loggedInit = true
       console.info('🔐 [encryption][kms] Hashicorp Vault KMS enabled')
     }
@@ -93,7 +95,9 @@ export class HashicorpVaultKmsService implements KmsService {
         console.warn('⚠️ [encryption][kms] Vault read failed', { path, status: res.status })
         return null
       }
-      console.info('🔍 [encryption][kms] Vault read ok', { path })
+      if (this.debugEnabled) {
+        console.info('🔍 [encryption][kms] Vault read ok', { path })
+      }
       return (await res.json()) as VaultReadResponse
     } catch (err) {
       this.healthy = false

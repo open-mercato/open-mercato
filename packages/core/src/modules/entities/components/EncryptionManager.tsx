@@ -26,12 +26,33 @@ type EncryptionMapResponse = {
   isActive?: boolean
 }
 
-function normalizeFieldRows(raw: EncryptionMapResponse | undefined): EncryptionFieldRow[] {
+type CanonicalOption = { value: string; label?: string }
+
+function normalizeToken(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[^a-z0-9]/gi, '')
+    .toLowerCase()
+}
+
+function canonicalizeFieldName(raw: string, options: CanonicalOption[]): string {
+  const trimmed = typeof raw === 'string' ? raw.trim() : ''
+  if (!trimmed) return ''
+  const normalized = normalizeToken(trimmed)
+  for (const option of options) {
+    const optionValue = typeof option.value === 'string' ? option.value.trim() : ''
+    if (optionValue && normalizeToken(optionValue) === normalized) return optionValue
+    if (option.label && normalizeToken(option.label) === normalized) return optionValue
+  }
+  return trimmed
+}
+
+function normalizeFieldRows(raw: EncryptionMapResponse | undefined, options: CanonicalOption[]): EncryptionFieldRow[] {
   const rows = Array.isArray(raw?.fields) ? raw!.fields : []
   return rows.map((entry, idx) => ({
     id: `${entry.field}-${idx}`,
-    field: entry.field,
-    hashField: entry.hashField ?? null,
+    field: canonicalizeFieldName(entry.field, options),
+    hashField: entry.hashField ? canonicalizeFieldName(entry.hashField, options) : null,
   }))
 }
 
@@ -47,9 +68,25 @@ export function EncryptionManager() {
   const [fields, setFields] = React.useState<EncryptionFieldRow[]>([])
   const [isActive, setIsActive] = React.useState(true)
   const [baseFieldOptions, setBaseFieldOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [hasUserEdited, setHasUserEdited] = React.useState(false)
   const { data: fieldDefs = [], isLoading: loadingFieldDefs } = useCustomFieldDefs(selectedEntityId ? [selectedEntityId] : [], {
     enabled: !!selectedEntityId,
   })
+  const canonicalOptions = React.useMemo<CanonicalOption[]>(() => {
+    const options: CanonicalOption[] = []
+    for (const option of baseFieldOptions) {
+      if (!option.value) continue
+      if (options.some((opt) => opt.value === option.value)) continue
+      options.push(option)
+    }
+    for (const def of fieldDefs) {
+      const key = typeof def.key === 'string' ? def.key.trim() : ''
+      if (!key || options.some((opt) => opt.value === key)) continue
+      const label = typeof def.label === 'string' ? def.label : undefined
+      options.push({ value: key, label })
+    }
+    return options
+  }, [baseFieldOptions, fieldDefs])
   const fieldOptions = React.useMemo(() => {
     const entries = new Map<string, string>()
     for (const option of baseFieldOptions) {
@@ -135,17 +172,32 @@ export function EncryptionManager() {
       }),
   })
 
+  const mapSignature = React.useMemo(() => JSON.stringify(map ?? null), [map])
+  const lastMapSignatureRef = React.useRef<string | null>(null)
+
   React.useEffect(() => {
-    setFields(normalizeFieldRows(map))
+    const signature = mapSignature
+    const isSameMap = signature === lastMapSignatureRef.current
+    if (isSameMap && hasUserEdited) return
+    if (!map) {
+      setFields([])
+      setIsActive(true)
+      setHasUserEdited(false)
+      lastMapSignatureRef.current = signature
+      return
+    }
+    setFields(normalizeFieldRows(map, canonicalOptions))
     setIsActive(map?.isActive !== false)
-  }, [map])
+    setHasUserEdited(false)
+    lastMapSignatureRef.current = signature
+  }, [mapSignature, map, canonicalOptions, hasUserEdited])
 
   const mutation = useMutation({
     mutationFn: async () => {
       const trimmed = fields
         .map((row) => ({
-          field: row.field.trim(),
-          hashField: row.hashField ? row.hashField.trim() : '',
+          field: canonicalizeFieldName(row.field, canonicalOptions).trim(),
+          hashField: row.hashField ? canonicalizeFieldName(row.hashField, canonicalOptions).trim() : '',
         }))
         .filter((row) => row.field.length > 0)
         .map((row) => ({
@@ -179,14 +231,17 @@ export function EncryptionManager() {
   })
 
   const addField = () => {
+    setHasUserEdited(true)
     setFields((prev) => [...prev, { id: buildRowId(), field: '', hashField: null }])
   }
 
   const updateField = (id: string, patch: Partial<EncryptionFieldRow>) => {
+    setHasUserEdited(true)
     setFields((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch } : row)))
   }
 
   const removeField = (id: string) => {
+    setHasUserEdited(true)
     setFields((prev) => prev.filter((row) => row.id !== id))
   }
 

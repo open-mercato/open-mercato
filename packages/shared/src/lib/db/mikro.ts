@@ -84,7 +84,7 @@ export async function getOrm() {
 
 export async function getEm() {
   const orm = await getOrm()
-  return orm.em.fork({ clear: true })
+  return orm.em.fork({ clear: true, freshEventManager: true })
 }
 
 export function withOrm<T extends (...args: any[]) => any>(handler: T) {
