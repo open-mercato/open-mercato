@@ -7,7 +7,8 @@ const scoped = z.object({
 })
 
 export const settingsUpsertSchema = scoped.extend({
-  apiKey: z.string().min(1).max(30),
+  apiKey: z.string().min(1).max(100),
+  apiBaseUrl: z.string().min(1).max(100),
 })
 
 export type SettingsUpsertInput = z.infer<typeof settingsUpsertSchema>

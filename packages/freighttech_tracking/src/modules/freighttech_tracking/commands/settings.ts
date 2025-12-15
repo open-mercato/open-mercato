@@ -25,6 +25,7 @@ const saveFreighttechTrackingSettingsCommand: CommandHandler<
   {
     settingsId: string
     apiKey: string
+    apiBaseUrl: string
   }
 > = {
   id: 'freighttech_tracking.settings.save',
@@ -40,16 +41,19 @@ const saveFreighttechTrackingSettingsCommand: CommandHandler<
     })
 
     const apiKey = input.apiKey.trim()
+    const apiBaseUrl = input.apiBaseUrl.trim()
 
     if (!settings) {
       settings = em.create(FreighttechTrackingSettings, {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
         apiKey: apiKey,
+        apiBaseUrl: apiBaseUrl
       })
       em.persist(settings)
     } else {
       settings.apiKey = apiKey
+      settings.apiBaseUrl = apiBaseUrl
       settings.updatedAt = new Date()
     }
 
@@ -58,6 +62,7 @@ const saveFreighttechTrackingSettingsCommand: CommandHandler<
     return {
       settingsId: settings.id,
       apiKey: settings.apiKey,
+      apiBaseUrl: settings.apiBaseUrl,
     }
   },
 }

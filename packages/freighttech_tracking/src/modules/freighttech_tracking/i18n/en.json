@@ -20,7 +20,10 @@
       "api_key":{
         "label": "API-Key",
         "hint": "Authorization key for the Freighttech Tracking System"
-
+      },
+      "api_base_url":{
+        "label": "API URL",
+        "hint": "Base URL of the Freighttech Tracking System"
       }
     }
   }
