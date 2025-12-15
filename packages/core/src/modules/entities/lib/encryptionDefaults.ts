@@ -66,6 +66,7 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'promotion_snapshot' },
       { field: 'comments' },
       { field: 'internal_notes' },
+      { field: 'metadata' },
     ],
   },
   {
