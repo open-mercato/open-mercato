@@ -1,9 +1,14 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/core'
 import { FreighttechTrackingSettings } from '../data/entities'
 import { settingsUpsertSchema, type SettingsUpsertInput } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
+
+export async function freighttechApiKey(em: EntityManager, params: { tenantId: string; organizationId: string }) {
+  const settings = await loadFreighttechTrackingSettings(em, params)
+  return settings?.apiKey
+}
 
 export async function loadFreighttechTrackingSettings(
   em: EntityManager,
