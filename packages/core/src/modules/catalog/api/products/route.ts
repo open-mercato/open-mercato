@@ -95,7 +95,7 @@ export async function buildProductFilters(
   ctx: CrudCtx
 ): Promise<Record<string, unknown>> {
   const filters: Record<string, unknown> = {}
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
   const restrictedProductIds: { value: Set<string> | null } = { value: null }
 
   const intersectProductIds = (ids: string[]) => {
@@ -292,7 +292,7 @@ async function decorateProductsAfterList(
     .map((item) => (typeof item.id === 'string' ? item.id : null))
     .filter((id): id is string => !!id)
   if (!productIds.length) return
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
   const offers = await em.find(
     CatalogOffer,
     { product: { $in: productIds }, deletedAt: null },

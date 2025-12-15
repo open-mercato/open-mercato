@@ -37,7 +37,7 @@ export class ActionLogService {
     } else {
       data = this.normalizeInput(input)
     }
-    const fork = this.em.fork()
+    const fork = this.em.fork({ useContext: true })
     const log = fork.create(ActionLog, {
       tenantId: data.tenantId ?? null,
       organizationId: data.organizationId ?? null,

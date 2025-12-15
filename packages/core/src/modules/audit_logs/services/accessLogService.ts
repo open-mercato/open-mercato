@@ -51,7 +51,7 @@ export class AccessLogService {
     } else {
       data = this.normalizeInput(input)
     }
-    const fork = this.em.fork()
+    const fork = this.em.fork({ useContext: true })
     const entry = fork.create(AccessLog, {
       tenantId: data.tenantId ?? null,
       organizationId: data.organizationId ?? null,

@@ -234,7 +234,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     id: `${config.commandPrefix}.create`,
     async execute(rawInput, ctx) {
       const parsed = config.createSchema.parse(rawInput)
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       const { dictionary, scope } = await config.resolveDictionaryForCreate({ em, ctx, parsed })
       scopeEnsurer(ctx, scope)
 
@@ -292,7 +292,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         (logEntry?.snapshotAfter as DictionaryEntrySnapshot | null | undefined) ??
         null
       if (!after) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       scopeEnsurer(ctx, { tenantId: after.tenantId, organizationId: after.organizationId })
       const entry = await em.findOne(DictionaryEntry, after.id)
       if (entry) {
@@ -319,7 +319,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     async execute(rawInput, ctx) {
       const parsed = config.updateSchema.parse(rawInput)
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       const id = requireId(parsed, 'Dictionary entry id is required')
       const { entry, dictionary, scope } = await config.resolveEntry({ em, ctx, id, parsed })
       scopeEnsurer(ctx, scope)
@@ -390,7 +390,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         (logEntry?.snapshotBefore as DictionaryEntrySnapshot | null | undefined) ??
         null
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       scopeEnsurer(ctx, { tenantId: before.tenantId, organizationId: before.organizationId })
       const dictionary = await ensureDictionaryForUndo({ em, ctx, snapshot: before })
       if (!dictionary) return
@@ -434,7 +434,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Dictionary entry id is required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       const { entry, scope } = await config.resolveEntry({ em, ctx, id })
       scopeEnsurer(ctx, scope)
       em.remove(entry)
@@ -464,7 +464,7 @@ export function registerDictionaryEntryCommands<TCreate, TUpdate>(
         (logEntry?.snapshotBefore as DictionaryEntrySnapshot | null | undefined) ??
         null
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       scopeEnsurer(ctx, { tenantId: before.tenantId, organizationId: before.organizationId })
       const dictionary = await ensureDictionaryForUndo({ em, ctx, snapshot: before })
       if (!dictionary) return

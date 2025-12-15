@@ -131,7 +131,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
         },
         ctx: context.ctx,
       })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
-    const entry = await context.em.fork().findOne(CustomerDictionaryEntry, result.entryId)
+    const entry = await context.em.fork({ useContext: true }).findOne(CustomerDictionaryEntry, result.entryId)
     if (!entry) {
       throw new CrudHttpError(400, { error: context.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
     }

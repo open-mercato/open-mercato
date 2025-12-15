@@ -598,7 +598,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     const { parsed, custom } = parseWithCustomFields(channelCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const statusValue = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null)
     const record = em.create(SalesChannel, {
       organizationId: parsed.organizationId,
@@ -675,7 +675,7 @@ const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: stri
     const payload = extractUndoPayload<UndoPayload<ChannelSnapshot>>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesChannel, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -723,7 +723,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(channelUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesChannel, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -816,7 +816,7 @@ const updateChannelCommand: CommandHandler<ChannelUpdateInput, { channelId: stri
     const payload = extractUndoPayload<UndoPayload<ChannelSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesChannel, { id: before.id })
     if (!record) {
       record = em.create(SalesChannel, channelSeedFromSnapshot(before))
@@ -871,7 +871,7 @@ const deleteChannelCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Channel id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesChannel, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Channel not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -915,7 +915,7 @@ const deleteChannelCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<ChannelSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesChannel, { id: before.id })
     if (!record) {
       record = em.create(SalesChannel, channelSeedFromSnapshot(before))
@@ -960,7 +960,7 @@ const createDeliveryWindowCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(deliveryWindowCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = em.create(SalesDeliveryWindow, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -1013,7 +1013,7 @@ const createDeliveryWindowCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<DeliveryWindowSnapshot>>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesDeliveryWindow, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -1051,7 +1051,7 @@ const updateDeliveryWindowCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(deliveryWindowUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesDeliveryWindow, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Delivery window not found' })
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
@@ -1114,7 +1114,7 @@ const updateDeliveryWindowCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<DeliveryWindowSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesDeliveryWindow, { id: before.id })
     if (!record) {
       record = em.create(SalesDeliveryWindow, deliveryWindowSeedFromSnapshot(before))
@@ -1155,7 +1155,7 @@ const deleteDeliveryWindowCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Delivery window id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesDeliveryWindow, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Delivery window not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -1186,7 +1186,7 @@ const deleteDeliveryWindowCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<DeliveryWindowSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesDeliveryWindow, { id: before.id })
     if (!record) {
       record = em.create(SalesDeliveryWindow, deliveryWindowSeedFromSnapshot(before))
@@ -1218,7 +1218,7 @@ const createShippingMethodCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = em.create(SalesShippingMethod, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -1275,7 +1275,7 @@ const createShippingMethodCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<ShippingMethodSnapshot>>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesShippingMethod, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -1313,7 +1313,7 @@ const updateShippingMethodCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesShippingMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Shipping method not found' })
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
@@ -1396,7 +1396,7 @@ const updateShippingMethodCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<ShippingMethodSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesShippingMethod, { id: before.id })
     if (!record) {
       record = em.create(SalesShippingMethod, shippingMethodSeedFromSnapshot(before))
@@ -1437,7 +1437,7 @@ const deleteShippingMethodCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Shipping method id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesShippingMethod, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Shipping method not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -1468,7 +1468,7 @@ const deleteShippingMethodCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<ShippingMethodSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesShippingMethod, { id: before.id })
     if (!record) {
       record = em.create(SalesShippingMethod, shippingMethodSeedFromSnapshot(before))
@@ -1500,7 +1500,7 @@ const createPaymentMethodCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(paymentMethodCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = em.create(SalesPaymentMethod, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -1552,7 +1552,7 @@ const createPaymentMethodCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<PaymentMethodSnapshot>>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesPaymentMethod, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -1590,7 +1590,7 @@ const updatePaymentMethodCommand: CommandHandler<
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(paymentMethodUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesPaymentMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Payment method not found' })
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
@@ -1662,7 +1662,7 @@ const updatePaymentMethodCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<PaymentMethodSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesPaymentMethod, { id: before.id })
     if (!record) {
       record = em.create(SalesPaymentMethod, paymentMethodSeedFromSnapshot(before))
@@ -1703,7 +1703,7 @@ const deletePaymentMethodCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Payment method id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesPaymentMethod, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Payment method not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -1734,7 +1734,7 @@ const deletePaymentMethodCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<PaymentMethodSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesPaymentMethod, { id: before.id })
     if (!record) {
       record = em.create(SalesPaymentMethod, paymentMethodSeedFromSnapshot(before))
@@ -1763,7 +1763,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     const { parsed, custom } = parseWithCustomFields(taxRateCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     if (parsed.channelId) {
       const channel = await em.findOne(SalesChannel, { id: parsed.channelId, deletedAt: null })
       const channelInScope = assertFound(channel, 'Channel not found for tax rate')
@@ -1832,7 +1832,7 @@ const createTaxRateCommand: CommandHandler<TaxRateCreateInput, { taxRateId: stri
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesTaxRate, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -1867,7 +1867,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(taxRateUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesTaxRate, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Tax rate not found' })
     const scope = resolveScopeFromUpdate(record, parsed, ctx)
@@ -1957,7 +1957,7 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesTaxRate, { id: before.id })
     if (!record) {
       record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
@@ -1998,7 +1998,7 @@ const deleteTaxRateCommand: CommandHandler<
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Tax rate id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(SalesTaxRate, { id })
     if (!record) throw new CrudHttpError(404, { error: 'Tax rate not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -2043,7 +2043,7 @@ const deleteTaxRateCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(SalesTaxRate, { id: before.id })
     if (!record) {
       record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))

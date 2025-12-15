@@ -87,7 +87,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
@@ -160,7 +160,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
   undo: async ({ logEntry, ctx }) => {
     const addressId = logEntry?.resourceId ?? null
     if (!addressId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const address = await em.findOne(CustomerAddress, { id: addressId })
     if (address) {
       em.remove(address)
@@ -179,7 +179,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
   },
   async execute(rawInput, ctx) {
     const parsed = addressUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const address = await em.findOne(CustomerAddress, { id: parsed.id })
     if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
     ensureTenantScope(ctx, address.tenantId)
@@ -278,7 +278,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let address = await em.findOne(CustomerAddress, { id: before.id })
     const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
     if (!address) {
@@ -354,7 +354,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     },
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       const address = await em.findOne(CustomerAddress, { id })
       if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
       ensureTenantScope(ctx, address.tenantId)
@@ -398,7 +398,7 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
       const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
       let address = await em.findOne(CustomerAddress, { id: before.id })
       if (!address) {

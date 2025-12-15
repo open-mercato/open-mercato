@@ -66,7 +66,7 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     const parsed = priceKindCreateSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const existing = await em.findOne(CatalogPriceKind, {
       code: parsed.code,
       tenantId: parsed.tenantId,
@@ -117,7 +117,7 @@ const createPriceKindCommand: CommandHandler<PriceKindCreateInput, { priceKindId
     const payload = extractUndoPayload<PriceKindUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(CatalogPriceKind, { id: after.id })
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
@@ -139,7 +139,7 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
   },
   async execute(input, ctx) {
     const parsed = priceKindUpdateSchema.parse(input)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(CatalogPriceKind, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price kind not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -195,7 +195,7 @@ const updatePriceKindCommand: CommandHandler<PriceKindUpdateInput, { priceKindId
     const payload = extractUndoPayload<PriceKindUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(CatalogPriceKind, { id: before.id })
     if (!record) return
     ensureTenantScope(ctx, before.tenantId)
@@ -223,7 +223,7 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
   },
   async execute(input, ctx) {
     const id = requireId(input, 'Price kind id is required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const record = await em.findOne(CatalogPriceKind, { id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price kind not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -258,7 +258,7 @@ const deletePriceKindCommand: CommandHandler<{ id?: string }, { priceKindId: str
     const payload = extractUndoPayload<PriceKindUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     let record = await em.findOne(CatalogPriceKind, { id: before.id })
     const displayMode: CatalogPriceDisplayMode =
       before.displayMode === 'including-tax' ? 'including-tax' : 'excluding-tax'

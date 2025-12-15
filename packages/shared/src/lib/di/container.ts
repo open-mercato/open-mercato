@@ -1,4 +1,5 @@
 import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix'
+import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
 import * as diGenerated from '@/generated/di.generated'
@@ -13,7 +14,8 @@ const diRegistrars = diGenerated.diRegistrars ?? diGenerated.default ?? []
 export async function createRequestContainer(): Promise<AppContainer> {
   const orm = await getOrm()
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
-  const em = orm.em.fork({ clear: true, freshEventManager: true }) as unknown as EntityManager
+  const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
+  const em = baseEm.fork({ clear: true, freshEventManager: true, useContext: true }) as unknown as EntityManager
   const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
   // Core registrations
   container.register({

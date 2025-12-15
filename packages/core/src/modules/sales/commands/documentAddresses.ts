@@ -55,7 +55,7 @@ const createDocumentAddress: CommandHandler<DocumentAddressCreateInput, { id: st
     const input = documentAddressCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
     if (input.documentKind === 'order') {
       await assertAddressEditable(em, {
@@ -98,7 +98,7 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
     const input = documentAddressUpdateSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const entity = assertFound(
       await em.findOne(SalesDocumentAddress, { id: input.id }),
       'sales.document.address.not_found'
@@ -144,7 +144,7 @@ const deleteDocumentAddress: CommandHandler<
     const input = documentAddressDeleteSchema.parse(rawInput)
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const entity = assertFound(
       await em.findOne(SalesDocumentAddress, { id: input.id }),
       'sales.document.address.not_found'

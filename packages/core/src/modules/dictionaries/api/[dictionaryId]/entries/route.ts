@@ -106,7 +106,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (!createdEntryId) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }
-    const entry = await context.em.fork().findOne(DictionaryEntry, createdEntryId, { populate: ['dictionary'] })
+    const entry = await context.em.fork({ useContext: true }).findOne(DictionaryEntry, createdEntryId, { populate: ['dictionary'] })
     if (!entry) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }

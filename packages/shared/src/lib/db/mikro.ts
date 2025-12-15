@@ -84,7 +84,8 @@ export async function getOrm() {
 
 export async function getEm() {
   const orm = await getOrm()
-  return orm.em.fork({ clear: true, freshEventManager: true })
+  const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
+  return baseEm.fork({ clear: true, freshEventManager: true, useContext: true })
 }
 
 export function withOrm<T extends (...args: any[]) => any>(handler: T) {

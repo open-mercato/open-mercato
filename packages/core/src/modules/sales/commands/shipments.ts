@@ -406,7 +406,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const input = shipmentCreateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const order = await loadOrder(em, input.orderId)
     ensureSameScope(order, input.organizationId, input.tenantId)
     const { translate } = await resolveTranslations()
@@ -526,7 +526,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const payload = extractUndoPayload<ShipmentUndoPayload>(logEntry)
     const after = payload?.after
     if (!after) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const existing = await em.findOne(SalesShipment, { id: after.id }, { populate: ['order'] })
     if (existing) {
       const order = existing.order as SalesOrder | null
@@ -557,7 +557,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     const input = shipmentUpdateSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const shipment = await em.findOne(
       SalesShipment,
       { id: input.id },
@@ -718,7 +718,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     const payload = extractUndoPayload<ShipmentUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     await restoreShipmentSnapshot(em, before)
     const order = await em.findOne(SalesOrder, { id: before.orderId })
     await em.flush()
@@ -790,7 +790,7 @@ const deleteShipmentCommand: CommandHandler<
       })
       throw error
     }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     const shipment = await em.findOne(
       SalesShipment,
       { id: payload.id },
@@ -843,7 +843,7 @@ const deleteShipmentCommand: CommandHandler<
     const payload = extractUndoPayload<ShipmentUndoPayload>(logEntry)
     const snapshot = payload?.before ?? null
     if (!snapshot) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const em = (ctx.container.resolve('em') as EntityManager).fork({ useContext: true })
     await restoreShipmentSnapshot(em, snapshot)
     const order = await em.findOne(SalesOrder, { id: snapshot.orderId })
     await em.flush()
