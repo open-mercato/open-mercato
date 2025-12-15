@@ -30,6 +30,9 @@ export class AttachmentPartition {
   @Property({ name: 'requires_ocr', type: 'boolean', default: resolveDefaultAttachmentOcrEnabled() })
   requiresOcr: boolean = resolveDefaultAttachmentOcrEnabled()
 
+  @Property({ name: 'ocr_model', type: 'text', nullable: true })
+  ocrModel?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
