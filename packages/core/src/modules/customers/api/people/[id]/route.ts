@@ -437,17 +437,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
-    const person = await em.findOne(
-      CustomerEntity,
-      { id: parse.data.id, kind: 'person', deletedAt: null },
-      {
-        populate: [
-          'personProfile',
-          'personProfile.company',
-          'personProfile.company.companyProfile',
-        ],
-      }
-    )
+    const person = await em.findOne(CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null })
     profiler.mark('person_loaded', { found: !!person })
     if (!person) {
       statusCode = 404

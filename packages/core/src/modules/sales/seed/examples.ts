@@ -883,6 +883,8 @@ type CustomerLookup = {
   displayName: string
 }
 
+type CustomerLookupSpec = CustomerLookup & { normalizedName: string }
+
 type CustomerContext = {
   entity: CustomerEntity
   contact: CustomerPersonProfile | null
@@ -964,13 +966,13 @@ async function loadCustomerLookups(
 ): Promise<Map<string, CustomerContext>> {
   const map = new Map<string, CustomerContext>()
   if (lookups.length === 0) return map
-
-  const lookupsByName = new Map<string, CustomerLookup>()
-  for (const lookup of lookups) {
-    const nameKey = normalizeKey(lookup.displayName)
-    if (nameKey && !lookupsByName.has(nameKey)) {
-      lookupsByName.set(nameKey, lookup)
-    }
+  const lookupSpecs: CustomerLookupSpec[] = lookups.map((lookup) => ({
+    ...lookup,
+    normalizedName: normalizeKey(lookup.displayName),
+  }))
+  const unresolved = new Map<string, CustomerLookupSpec>()
+  for (const spec of lookupSpecs) {
+    unresolved.set(spec.key, spec)
   }
 
   const customers = await em.find(
@@ -983,8 +985,44 @@ async function loadCustomerLookups(
     { populate: ['personProfile', 'companyProfile'] }
   )
 
-  const matches = customers.filter((customer) => lookupsByName.has(normalizeKey(customer.displayName)))
-  const matchIds = matches.map((customer) => customer.id)
+  const doesMatch = (candidate: string, spec: CustomerLookupSpec): boolean => {
+    if (!candidate) return false
+    return (
+      candidate === spec.normalizedName ||
+      candidate.includes(spec.normalizedName) ||
+      spec.normalizedName.includes(candidate)
+    )
+  }
+
+  const matchedPairs: Array<{ spec: CustomerLookupSpec; customer: CustomerEntity }> = []
+
+  for (const customer of customers) {
+    if (unresolved.size === 0) break
+    const tokens = new Set<string>()
+    tokens.add(normalizeKey(customer.displayName))
+    if (customer.companyProfile) {
+      tokens.add(normalizeKey(customer.companyProfile.legalName ?? ''))
+      tokens.add(normalizeKey(customer.companyProfile.brandName ?? ''))
+      tokens.add(normalizeKey(customer.companyProfile.domain ?? ''))
+    }
+    if (customer.personProfile) {
+      tokens.add(normalizeKey(customer.personProfile.firstName ?? ''))
+      tokens.add(normalizeKey(customer.personProfile.lastName ?? ''))
+      const fullName = [customer.personProfile.firstName, customer.personProfile.lastName]
+        .filter((part) => (part ?? '').trim().length > 0)
+        .join(' ')
+      tokens.add(normalizeKey(fullName))
+    }
+
+    const matchedSpec = lookupSpecs.find(
+      (spec) => unresolved.has(spec.key) && Array.from(tokens).some((token) => doesMatch(token, spec))
+    )
+    if (!matchedSpec) continue
+    matchedPairs.push({ spec: matchedSpec, customer })
+    unresolved.delete(matchedSpec.key)
+  }
+
+  const matchIds = matchedPairs.map(({ customer }) => customer.id)
 
   const addresses = matchIds.length
     ? await em.find(
@@ -1014,13 +1052,11 @@ async function loadCustomerLookups(
     contactByCompany.set(companyId, contact)
   }
 
-  for (const customer of matches) {
-    const lookup = lookupsByName.get(normalizeKey(customer.displayName))
-    if (!lookup) continue
+  for (const { spec, customer } of matchedPairs) {
     const contact = contactByCompany.get(customer.id) ?? null
     const snapshot = buildCustomerSnapshot(customer, contact)
     const addresses = toExampleAddresses(customer, addressByCustomer.get(customer.id) ?? null)
-    map.set(lookup.key, {
+    map.set(spec.key, {
       entity: customer,
       contact,
       contactId: contact?.id ?? null,
