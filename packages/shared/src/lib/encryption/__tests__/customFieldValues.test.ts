@@ -30,6 +30,27 @@ describe('customFieldValues encryption helpers', () => {
     expect(decryptedNumber).toBe(42)
   })
 
+  it('creates a tenant DEK on first encrypt when none exists', async () => {
+    let created = false
+    const service = {
+      isEnabled: () => true,
+      getDek: jest.fn(async () => (created ? { key: fixedKey } : null)),
+      createDek: jest.fn(async () => {
+        created = true
+        return { key: fixedKey }
+      }),
+    } as any
+    const cache = new Map<string | null, string | null>()
+
+    const encrypted = await encryptCustomFieldValue('secret', 'tenant-1', service, cache)
+    expect(typeof encrypted).toBe('string')
+    expect(encrypted).not.toBe('secret')
+    expect(service.createDek).toHaveBeenCalledTimes(1)
+
+    const decrypted = await decryptCustomFieldValue(encrypted, 'tenant-1', service, cache)
+    expect(decrypted).toBe('secret')
+  })
+
   it('returns original value when encryption is disabled or tenant is missing', async () => {
     const disabledService = {
       isEnabled: () => false,

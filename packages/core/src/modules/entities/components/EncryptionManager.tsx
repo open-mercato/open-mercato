@@ -46,11 +46,16 @@ export function EncryptionManager() {
   const [selectedEntityId, setSelectedEntityId] = React.useState('')
   const [fields, setFields] = React.useState<EncryptionFieldRow[]>([])
   const [isActive, setIsActive] = React.useState(true)
+  const [baseFieldOptions, setBaseFieldOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const { data: fieldDefs = [], isLoading: loadingFieldDefs } = useCustomFieldDefs(selectedEntityId ? [selectedEntityId] : [], {
     enabled: !!selectedEntityId,
   })
   const fieldOptions = React.useMemo(() => {
     const entries = new Map<string, string>()
+    for (const option of baseFieldOptions) {
+      if (!option.value || entries.has(option.value)) continue
+      entries.set(option.value, option.label || option.value)
+    }
     for (const def of fieldDefs) {
       const key = typeof def.key === 'string' ? def.key.trim() : ''
       if (!key || entries.has(key)) continue
@@ -64,7 +69,7 @@ export function EncryptionManager() {
       if (hash && !entries.has(hash)) entries.set(hash, hash)
     }
     return Array.from(entries.entries()).map(([value, label]) => ({ value, label }))
-  }, [fieldDefs, fields])
+  }, [baseFieldOptions, fieldDefs, fields])
 
   const { data: entities, isLoading: loadingEntities, error: entitiesError } = useQuery<{ items: EntityOption[] }>({
     queryKey: ['entities-list', scopeVersion],
@@ -80,6 +85,41 @@ export function EncryptionManager() {
       setSelectedEntityId(first.entityId)
     }
   }, [entities, selectedEntityId])
+
+  React.useEffect(() => {
+    const loadBaseFields = async () => {
+      if (!selectedEntityId) {
+        setBaseFieldOptions([])
+        return
+      }
+      const parts = selectedEntityId.split(':')
+      const entitySlug = parts[1]
+      if (!entitySlug) {
+        setBaseFieldOptions([])
+        return
+      }
+      try {
+        const mod = (await import(`@open-mercato/core/generated/entities/${entitySlug}`)) as Record<string, unknown>
+        const options: Array<{ value: string; label: string }> = []
+        for (const raw of Object.values(mod)) {
+          if (typeof raw !== 'string' || !raw.trim()) continue
+          const value = raw.trim()
+          if (options.some((opt) => opt.value === value)) continue
+          const label = value
+            .split('_')
+            .map((segment) => (segment ? `${segment[0].toUpperCase()}${segment.slice(1)}` : ''))
+            .join(' ')
+            .trim() || value
+          options.push({ value, label })
+        }
+        setBaseFieldOptions(options)
+      } catch (err) {
+        console.warn('[encryption] Failed to load base fields for entity', selectedEntityId, err)
+        setBaseFieldOptions([])
+      }
+    }
+    void loadBaseFields()
+  }, [selectedEntityId])
 
   const {
     data: map,

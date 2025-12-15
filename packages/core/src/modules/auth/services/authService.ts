@@ -23,8 +23,10 @@ export class AuthService {
   }
 
   async updateLastLoginAt(user: User) {
-    user.lastLoginAt = new Date()
-    await this.em.flush()
+    const now = new Date()
+    // Use native update to avoid flushing unrelated entities that might be pending in this EM
+    await this.em.nativeUpdate(User, { id: user.id }, { lastLoginAt: now })
+    user.lastLoginAt = now
   }
 
   async getUserRoles(user: User, tenantId?: string | null): Promise<string[]> {

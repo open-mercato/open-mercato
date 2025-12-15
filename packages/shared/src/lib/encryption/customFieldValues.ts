@@ -20,12 +20,17 @@ async function resolveDekKey(
   service: TenantDataEncryptionService | null,
   tenantId: string | null | undefined,
   cache?: Map<string | null, string | null>,
+  opts?: { createIfMissing?: boolean },
 ): Promise<string | null> {
   const scopedTenantId = tenantId ?? null
   if (!service || !service.isEnabled() || !scopedTenantId) return null
   if (cache?.has(scopedTenantId)) return cache.get(scopedTenantId) ?? null
   const dek = await service.getDek(scopedTenantId)
-  const key = dek?.key ?? null
+  let key = dek?.key ?? null
+  if (!key && opts?.createIfMissing && typeof service.createDek === 'function') {
+    const created = await service.createDek(scopedTenantId)
+    key = created?.key ?? null
+  }
   cache?.set(scopedTenantId, key)
   return key
 }
@@ -37,7 +42,7 @@ export async function encryptCustomFieldValue(
   cache?: Map<string | null, string | null>,
 ): Promise<unknown> {
   if (value === undefined || value === null) return value
-  const key = await resolveDekKey(service, tenantId, cache)
+  const key = await resolveDekKey(service, tenantId, cache, { createIfMissing: true })
   if (!key) return value
   const serialized = typeof value === 'string' ? value : JSON.stringify(value)
   return encryptWithAesGcm(serialized, key).value

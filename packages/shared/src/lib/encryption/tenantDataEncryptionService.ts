@@ -96,6 +96,15 @@ export class TenantDataEncryptionService {
     return dek
   }
 
+  private async resolveDekForEncrypt(tenantId: string | null): Promise<TenantDek | null> {
+    const existing = await this.getDek(tenantId)
+    if (existing || !tenantId) return existing ?? null
+    if (typeof this.kms.createTenantDek !== 'function') return existing ?? null
+    const created = await this.kms.createTenantDek(tenantId)
+    if (created) this.dekCache.set(tenantId, created)
+    return created ?? null
+  }
+
   async createDek(tenantId: string): Promise<TenantDek | null> {
     const dek = await this.kms.createTenantDek(tenantId)
     if (dek) this.dekCache.set(tenantId, dek)
@@ -238,7 +247,7 @@ export class TenantDataEncryptionService {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const dek = await this.getDek(tenantId ?? null)
+    const dek = await this.resolveDekForEncrypt(tenantId ?? null)
     if (!dek) {
       debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId })
       return payload

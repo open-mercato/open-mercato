@@ -191,11 +191,15 @@ export async function run(argv = process.argv) {
       console.log('🔐 Setting up RBAC and users...')
       const setupResult = runCommand(
         `yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`,
-        { quiet: false, label: 'Auth setup' }
+        // Capture output so we can parse tenant/org ids for follow-up seeders.
+        { quiet: true, label: 'Auth setup' }
       )
       const setupOutput = typeof setupResult === 'string' || Buffer.isBuffer(setupResult)
         ? setupResult.toString()
         : ''
+      if (setupOutput.trim()) {
+        console.log(setupOutput.trim())
+      }
       console.log('✅ RBAC setup complete\n')
       
 

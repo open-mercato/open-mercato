@@ -162,16 +162,16 @@ const setupApp: ModuleCli = {
       for (const snapshot of result.users) {
         if (snapshot.created) {
           if (snapshot.user.email === email && password) {
-            console.log('Created user', snapshot.user.email, 'password:', password)
+            console.log('🎉 Created user', snapshot.user.email, 'password:', password)
           } else {
-            console.log('Created user', snapshot.user.email)
+            console.log('🎉 Created user', snapshot.user.email)
           }
         } else {
           console.log(`Updated user ${snapshot.user.email}`)
         }
       }
 
-      console.log('Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
+      console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
     } catch (err) {
       if (err instanceof Error && err.message === 'USER_EXISTS') {
         console.error('Setup aborted: user already exists with the provided email.')
