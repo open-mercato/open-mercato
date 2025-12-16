@@ -569,9 +569,18 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     const svc = this.getEncryptionService()
-    const decryptPayload = svc?.decryptEntityPayload
+    const decryptPayload: ((
+      entityId: EntityId,
+      payload: Record<string, unknown>,
+      tenantId: string | null,
+      organizationId: string | null,
+    ) => Promise<Record<string, unknown>>) | null =
+      svc?.decryptEntityPayload
+        ? (entityId, payload, tenantId, organizationId) =>
+            svc.decryptEntityPayload(entityId, payload, tenantId, organizationId)
+        : null
     let decryptedItems = items
-    if (decryptPayload && svc?.isEnabled?.() !== false) {
+    if (decryptPayload) {
       const fallbackOrgId =
         opts.organizationId
         ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
@@ -585,7 +594,8 @@ export class BasicQueryEngine implements QueryEngine {
               item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null,
             )
             return { ...item, ...decrypted }
-          } catch {
+          } catch (err) {
+            console.error('QueryEngine: error decrypting entity payload', err);
             return item
           }
         })

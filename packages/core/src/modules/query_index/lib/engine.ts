@@ -714,8 +714,10 @@ export class HybridQueryEngine implements QueryEngine {
     let items = itemsRaw as any[]
     const encSvc = this.getEncryptionService()
     const decryptPayload = encSvc?.decryptEntityPayload
-    const encryptionEnabled = decryptPayload && encSvc?.isEnabled?.() !== false
-    if (decryptPayload && encryptionEnabled) {
+      ? (entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null) =>
+          encSvc.decryptEntityPayload(entityId, payload, tenantId, organizationId)
+      : null
+    if (decryptPayload) {
       items = await Promise.all(
         items.map(async (item) => {
           try {
@@ -726,7 +728,8 @@ export class HybridQueryEngine implements QueryEngine {
               item?.organization_id ?? item?.organizationId ?? null,
             )
             return { ...item, ...decrypted }
-          } catch {
+          } catch (err) {
+            console.error('Error decrypting entity payload', err);
             return item
           }
         })
