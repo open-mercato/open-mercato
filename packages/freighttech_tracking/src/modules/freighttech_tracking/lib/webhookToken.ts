@@ -63,8 +63,17 @@ export function decodeWebhookToken(token: string): {
       .replace(/\//g, '_')
       .replace(/=/g, '')
 
+    // Normalize buffer lengths before comparison
+    const sigBuffer = Buffer.from(signature)
+    const expectedBuffer = Buffer.from(expectedSignature)
+
+    if (sigBuffer.length !== expectedBuffer.length) {
+      console.warn('[webhookToken] Invalid signature length')
+      return null
+    }
+
     // Use timing-safe comparison to prevent timing attacks
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+    if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
       console.warn('[webhookToken] Invalid signature')
       return null
     }
