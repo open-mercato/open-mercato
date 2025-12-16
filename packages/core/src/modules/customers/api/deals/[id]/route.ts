@@ -111,6 +111,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const em = (container.resolve('em') as EntityManager)
 
   const deal = await findOneWithDecryption(
+    em,
     CustomerDeal,
     { id: parsedParams.data.id, deletedAt: null },
     {
