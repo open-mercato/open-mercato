@@ -140,6 +140,13 @@
         "descriptionLabel": "Description",
         "publicLabel": "Publicly accessible",
         "ocrLabel": "Require OCR/text extraction",
+        "ocrModelLabel": "OCR Model",
+        "ocrModelHelp": "Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-4o.",
+        "ocrModelOptions": {
+          "default": "Default (from environment)",
+          "gpt-4o": "GPT-4o (Recommended)",
+          "gpt-4o-mini": "GPT-4o Mini (Faster, Lower Cost)"
+        },
         "codePlaceholder": "e.g. marketingAssets",
         "titlePlaceholder": "e.g. Marketing assets",
         "descriptionPlaceholder": "Explain how this partition is used.",

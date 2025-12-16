@@ -18,6 +18,7 @@ const partitionBaseSchema = z.object({
   description: z.string().max(500).optional().nullable(),
   isPublic: z.boolean().optional(),
   requiresOcr: z.boolean().optional(),
+  ocrModel: z.string().max(50).optional().nullable(),
 })
 
 const partitionUpdateSchema = partitionBaseSchema.extend({
@@ -38,6 +39,7 @@ function serializePartition(entry: AttachmentPartition) {
     description: entry.description ?? null,
     isPublic: entry.isPublic ?? false,
     requiresOcr: entry.requiresOcr ?? resolveDefaultAttachmentOcrEnabled(),
+    ocrModel: entry.ocrModel ?? null,
     createdAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
     updatedAt: entry.updatedAt instanceof Date ? entry.updatedAt.toISOString() : null,
     envKey: resolvePartitionEnvKey(entry.code),
@@ -108,6 +110,7 @@ export async function POST(req: Request) {
       typeof parsed.data.requiresOcr === 'boolean'
         ? parsed.data.requiresOcr
         : resolveDefaultAttachmentOcrEnabled(),
+    ocrModel: parsed.data.ocrModel?.trim() || null,
   })
   await em.persistAndFlush(entry)
   return NextResponse.json({ item: serializePartition(entry) }, { status: 201 })
@@ -147,6 +150,9 @@ export async function PUT(req: Request) {
   entry.isPublic = parsed.data.isPublic ?? false
   if (typeof parsed.data.requiresOcr === 'boolean') {
     entry.requiresOcr = parsed.data.requiresOcr
+  }
+  if (parsed.data.ocrModel !== undefined) {
+    entry.ocrModel = parsed.data.ocrModel?.trim() || null
   }
   await em.persistAndFlush(entry)
   return NextResponse.json({ item: serializePartition(entry) })
