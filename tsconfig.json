@@ -128,6 +128,30 @@
       ],
       "@tests/*": [
         "./tests/*"
+      ],
+      "@open-mercato/shipments/*": [
+        "./packages/shipments/src/*"
+      ],
+      "@open-mercato/shipments/datamodel/entities": [
+        "./packages/shipments/generated/entities.ids.generated.ts"
+      ],
+      "@open-mercato/shipments/datamodel/entities/*": [
+        "./packages/shipments/generated/entities/*"
+      ],
+      "@open-mercato/shipments/generated/*": [
+        "./packages/shipments/generated/*"
+      ],
+      "@open-mercato/freighttech_tracking/*": [
+        "./packages/freighttech_tracking/src/*"
+      ],
+      "@open-mercato/freighttech_tracking/datamodel/entities": [
+        "./packages/freighttech_tracking/generated/entities.ids.generated.ts"
+      ],
+      "@open-mercato/freighttech_tracking/datamodel/entities/*": [
+        "./packages/freighttech_tracking/generated/entities/*"
+      ],
+      "@open-mercato/freighttech_tracking/generated/*": [
+        "./packages/freighttech_tracking/generated/*"
       ]
     }
   },
