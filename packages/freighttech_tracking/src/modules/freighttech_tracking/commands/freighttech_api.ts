@@ -1,5 +1,6 @@
 import { EntityManager } from "@mikro-orm/core";
 import { loadFreighttechTrackingSettings } from "./settings";
+import { encodeWebhookToken } from "../lib/webhookToken";
 
 async function fetchFreighttech(
     path: string,
@@ -62,7 +63,7 @@ export async function RegisterContainerSubscription(
             carrier_code: carrierCode,
             booking_number: bookingNumber,
             container_id: containerId,
-            callback_url: `${process.env.APP_URL}/api/freighttech_tracking/webhook`, //todo add tenantID, orgID info
+            callback_url: `${process.env.APP_URL}/api/freighttech_tracking/webhook?token=${encodeWebhookToken({ organizationId, tenantId })}`,
         }
     })
 

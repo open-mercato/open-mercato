@@ -2,9 +2,14 @@ jest.mock('../settings', () => ({
   loadFreighttechTrackingSettings: jest.fn(),
 }))
 
+jest.mock('../../lib/webhookToken', () => ({
+  encodeWebhookToken: jest.fn(),
+}))
+
 import { EntityManager } from '@mikro-orm/core'
 import { RegisterContainerSubscription } from '../freighttech_api'
 import { loadFreighttechTrackingSettings } from '../settings'
+import { encodeWebhookToken } from '../../lib/webhookToken'
 
 // Mock global fetch
 global.fetch = jest.fn()
@@ -24,6 +29,9 @@ describe('freighttech_api', () => {
 
     // Set default environment variables
     process.env.APP_URL = 'https://test-app.example.com'
+
+    // Mock encodeWebhookToken to return a predictable token
+    ;(encodeWebhookToken as jest.Mock).mockReturnValue('mock-token-abc123')
   })
 
   afterEach(() => {
@@ -52,7 +60,7 @@ describe('freighttech_api', () => {
         carrier_code: 'MAEU',
         booking_number: 'MAEU325537156',
         carrier_id: 'carrier-1',
-        callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook',
+        callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook?token=mock-token-abc123',
         organization_id: 'org-ext-123',
         parent_reference_id: null,
         latest_update_id: 'update-1',
@@ -104,6 +112,12 @@ describe('freighttech_api', () => {
         tenantId: mockParams.tenantId,
       })
 
+      // Verify encodeWebhookToken was called with correct params
+      expect(encodeWebhookToken).toHaveBeenCalledWith({
+        organizationId: mockParams.organizationId,
+        tenantId: mockParams.tenantId,
+      })
+
       // Verify fetch was called with correct parameters
       expect(global.fetch).toHaveBeenCalledWith(
         `${mockApiBaseUrl}/v1/references`,
@@ -117,7 +131,7 @@ describe('freighttech_api', () => {
             carrier_code: mockParams.carrierCode,
             booking_number: mockParams.bookingNumber,
             container_id: mockParams.containerId,
-            callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook',
+            callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook?token=mock-token-abc123',
           }),
           signal: expect.any(AbortSignal),
         }
@@ -156,7 +170,7 @@ describe('freighttech_api', () => {
             carrier_code: mockParams.carrierCode,
             booking_number: mockParams.bookingNumber,
             container_id: undefined,
-            callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook',
+            callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook?token=mock-token-abc123',
           }),
         })
       )
@@ -188,7 +202,7 @@ describe('freighttech_api', () => {
             carrier_code: mockParams.carrierCode,
             booking_number: undefined,
             container_id: mockParams.containerId,
-            callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook',
+            callback_url: 'https://test-app.example.com/api/freighttech_tracking/webhook?token=mock-token-abc123',
           }),
         })
       )
@@ -314,7 +328,7 @@ describe('freighttech_api', () => {
       await expect(RegisterContainerSubscription(mockEm, mockParams)).rejects.toThrow('Network error')
     })
 
-    it('includes callback URL with APP_URL environment variable', async () => {
+    it('includes callback URL with APP_URL environment variable and token', async () => {
       process.env.APP_URL = 'https://custom-domain.com'
 
       ;(loadFreighttechTrackingSettings as jest.Mock).mockResolvedValue({
@@ -330,6 +344,11 @@ describe('freighttech_api', () => {
 
       await RegisterContainerSubscription(mockEm, mockParams)
 
+      expect(encodeWebhookToken).toHaveBeenCalledWith({
+        organizationId: mockParams.organizationId,
+        tenantId: mockParams.tenantId,
+      })
+
       expect(global.fetch).toHaveBeenCalledWith(
         `${mockApiBaseUrl}/v1/references`,
         expect.objectContaining({
@@ -337,7 +356,7 @@ describe('freighttech_api', () => {
             carrier_code: mockParams.carrierCode,
             booking_number: mockParams.bookingNumber,
             container_id: mockParams.containerId,
-            callback_url: 'https://custom-domain.com/api/freighttech_tracking/webhook',
+            callback_url: 'https://custom-domain.com/api/freighttech_tracking/webhook?token=mock-token-abc123',
           }),
         })
       )
