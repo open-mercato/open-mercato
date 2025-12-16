@@ -215,6 +215,29 @@ export class HashicorpVaultKmsService implements KmsService {
   }
 }
 
+let loggedDerivedKeyBanner = false
+
+function logDerivedKeyBanner(source: 'explicit' | 'dev-default'): void {
+  if (loggedDerivedKeyBanner) return
+  loggedDerivedKeyBanner = true
+  const redBg = '\x1b[41m'
+  const white = '\x1b[97m'
+  const reset = '\x1b[0m'
+  const width = 88
+  const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
+  const body = [
+    '🚨 Using derived tenant encryption keys (Vault unavailable)',
+    source === 'explicit' ? 'Source: environment secret' : 'Source: dev default secret (do NOT use in production)',
+    'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
+  ]
+  console.warn(border)
+  for (const line of body) {
+    const padded = line.padEnd(width - 2, ' ')
+    console.warn(`${redBg}${white} ${padded} ${reset}`)
+  }
+  console.warn(border)
+}
+
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
   const svc = new HashicorpVaultKmsService()
@@ -224,6 +247,7 @@ export function createKmsService(): KmsService {
   if (derived) {
     const level = derived.source === 'dev-default' ? 'warn' : 'info'
     console[level](`⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`)
+    logDerivedKeyBanner(derived.source)
     return new DerivedKmsService(derived.secret)
   }
 
