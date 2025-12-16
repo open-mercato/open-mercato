@@ -35,6 +35,7 @@ import {
   CustomerEntity,
   CustomerPersonProfile,
 } from '@open-mercato/core/modules/customers/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type ExampleAddress = {
   role: 'billing' | 'shipping'
@@ -975,14 +976,16 @@ async function loadCustomerLookups(
     unresolved.set(spec.key, spec)
   }
 
-  const customers = await em.find(
+  const customers = await findWithDecryption(
+    em,
     CustomerEntity,
     {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
     },
-    { populate: ['personProfile', 'companyProfile'] }
+    { populate: ['personProfile', 'companyProfile'] },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId }
   )
 
   const doesMatch = (candidate: string, spec: CustomerLookupSpec): boolean => {
@@ -1025,10 +1028,12 @@ async function loadCustomerLookups(
   const matchIds = matchedPairs.map(({ customer }) => customer.id)
 
   const addresses = matchIds.length
-    ? await em.find(
+    ? await findWithDecryption(
+        em,
         CustomerAddress,
         { organizationId: scope.organizationId, tenantId: scope.tenantId, entity: { $in: matchIds } },
-        { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any }
+        { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId }
       )
     : []
   const addressByCustomer = new Map<string, CustomerAddress>()
@@ -1039,10 +1044,12 @@ async function loadCustomerLookups(
   }
 
   const contacts = matchIds.length
-    ? await em.find(
+    ? await findWithDecryption(
+        em,
         CustomerPersonProfile,
         { organizationId: scope.organizationId, tenantId: scope.tenantId, company: { $in: matchIds } },
-        { populate: ['entity', 'company'] }
+        { populate: ['entity', 'company'] },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId }
       )
     : []
   const contactByCompany = new Map<string, CustomerPersonProfile>()
