@@ -83,3 +83,4 @@ package-lock.json
 .idea
 .claude
 packages/cache/node_modules/*
+newrelic_agent.log
