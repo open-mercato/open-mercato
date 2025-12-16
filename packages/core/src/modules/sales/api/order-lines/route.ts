@@ -65,6 +65,8 @@ const crud = makeCrudRoute({
       F.name,
       F.description,
       F.comment,
+      F.organization_id,
+      F.tenant_id,
       F.quantity,
       F.quantity_unit,
       F.currency_code,
