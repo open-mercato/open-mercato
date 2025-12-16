@@ -10,6 +10,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { env } from 'process'
 
 type QueryIndexCrudAction = 'created' | 'updated' | 'deleted'
 type UndoEnvelope<T> = {
@@ -45,18 +46,20 @@ function logScopeViolation(
             : null,
         }
       : null
-    console.warn('[catalog.scope] Forbidden scope mismatch detected', {
-      scopeKind: kind,
-      expectedId: expected,
-      actualId: actual,
-      userId: ctx.auth?.sub ?? null,
-      actorTenantId: ctx.auth?.tenantId ?? null,
-      actorOrganizationId: ctx.auth?.orgId ?? null,
-      selectedOrganizationId: ctx.selectedOrganizationId ?? null,
-      organizationIdsCount: Array.isArray(ctx.organizationIds) ? ctx.organizationIds.length : null,
-      scope,
-      request: requestInfo,
-    })
+    if (env.NODE_ENV !== 'test') {
+      console.warn('[catalog.scope] Forbidden scope mismatch detected', {
+        scopeKind: kind,
+        expectedId: expected,
+        actualId: actual,
+        userId: ctx.auth?.sub ?? null,
+        actorTenantId: ctx.auth?.tenantId ?? null,
+        actorOrganizationId: ctx.auth?.orgId ?? null,
+        selectedOrganizationId: ctx.selectedOrganizationId ?? null,
+        organizationIdsCount: Array.isArray(ctx.organizationIds) ? ctx.organizationIds.length : null,
+        scope,
+        request: requestInfo,
+      })
+    }
   } catch {
     // best-effort logging; ignore secondary failures
   }

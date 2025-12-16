@@ -1662,6 +1662,7 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private logSearchDebug(event: string, payload: Record<string, unknown>) {
+    if (!this.isDebugVerbosity()) return
     try {
       console.info('[query-index:search]', event, JSON.stringify(payload))
     } catch {

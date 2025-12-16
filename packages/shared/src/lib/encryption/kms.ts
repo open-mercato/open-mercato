@@ -155,11 +155,15 @@ export class HashicorpVaultKmsService implements KmsService {
     this.debugEnabled = isEncryptionDebugEnabled()
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
-      console.warn('⚠️ [encryption][kms] Vault misconfigured (missing VAULT_ADDR or VAULT_TOKEN)')
+      if (this.debugEnabled) {
+        console.warn('⚠️ [encryption][kms] Vault misconfigured (missing VAULT_ADDR or VAULT_TOKEN)')
+      }
     }
     if (this.healthy && !HashicorpVaultKmsService.loggedInit && this.debugEnabled) {
       HashicorpVaultKmsService.loggedInit = true
-      console.info('🔐 [encryption][kms] Hashicorp Vault KMS enabled')
+      if(this.debugEnabled) {
+        console.info('🔐 [encryption][kms] Hashicorp Vault KMS enabled')
+      }
     }
   }
 
@@ -276,7 +280,7 @@ export class HashicorpVaultKmsService implements KmsService {
 let loggedDerivedKeyBanner = false
 
 function logDerivedKeyBanner(opts: DerivedSecret): void {
-  if (loggedDerivedKeyBanner) return
+  if (process.env.NODE_ENV === 'test' || loggedDerivedKeyBanner) return
   loggedDerivedKeyBanner = true
   const redBg = '\x1b[41m'
   const white = '\x1b[97m'
@@ -308,10 +312,12 @@ export function createKmsService(): KmsService {
   const notifyFallback = derived
     ? () => {
         const level = derived.source === 'dev-default' ? 'warn' : 'info'
-        console[level](
-          `⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`,
-        )
-        logDerivedKeyBanner(derived)
+        if(isEncryptionDebugEnabled()) {
+          console[level](
+            `⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`,
+          )
+          logDerivedKeyBanner(derived)
+        }
       }
     : undefined
 

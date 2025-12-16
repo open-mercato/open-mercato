@@ -9,6 +9,7 @@ import { ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { env } from 'process'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -168,19 +169,21 @@ const setupApp: ModuleCli = {
         console.log('⚠️  Updated roles if missing and reused tenant/organization.')
       }
 
-      for (const snapshot of result.users) {
-        if (snapshot.created) {
-          if (snapshot.user.email === email && password) {
-            console.log('🎉 Created user', snapshot.user.email, 'password:', password)
+      if(env.NODE_ENV !== 'test') { 
+        for (const snapshot of result.users) {
+          if (snapshot.created) {
+            if (snapshot.user.email === email && password) {
+              console.log('🎉 Created user', snapshot.user.email, 'password:', password)
+            } else {
+              console.log('🎉 Created user', snapshot.user.email)
+            }
           } else {
-            console.log('🎉 Created user', snapshot.user.email)
+            console.log(`Updated user ${snapshot.user.email}`)
           }
-        } else {
-          console.log(`Updated user ${snapshot.user.email}`)
         }
       }
 
-      console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
+      if(env.NODE_ENV !== 'test')   console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
     } catch (err) {
       if (err instanceof Error && err.message === 'USER_EXISTS') {
         console.error('Setup aborted: user already exists with the provided email.')

@@ -10,7 +10,7 @@ import {
   DEFAULT_QUOTE_NUMBER_FORMAT,
 } from '@open-mercato/core/modules/sales/lib/documentNumberTokens'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
-import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
@@ -199,17 +199,24 @@ export async function setupInitialTenant(
 
     if (isTenantDataEncryptionEnabled()) {
       try {
-        console.log('PIPA')
         const kms = createKmsService()
         if (kms.isHealthy()) {
-          console.info('🔑 [encryption][setup] provisioning tenant DEK', { tenantId: String(tenant.id) })
+          if (isEncryptionDebugEnabled()) {
+            console.info('🔑 [encryption][setup] provisioning tenant DEK', { tenantId: String(tenant.id) })
+          }
           await kms.createTenantDek(String(tenant.id))
-          console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
+          if (isEncryptionDebugEnabled()) {
+            console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
+          }   
         } else {
-          console.warn('⚠️ [encryption][setup] KMS not healthy, tenant DEK not created', { tenantId: String(tenant.id) })
+          if (isEncryptionDebugEnabled()) {
+            console.warn('⚠️ [encryption][setup] KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
+          }
         }
       } catch (err) {
-        console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
+        if (isEncryptionDebugEnabled()) {
+          console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
+        }   
       }
     }
 

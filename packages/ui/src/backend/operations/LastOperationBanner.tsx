@@ -42,7 +42,12 @@ export function LastOperationBanner() {
       router.refresh()
       if (typeof window !== 'undefined') {
         try {
-          window.location.reload()
+          const isJSDOM = typeof navigator !== 'undefined' && typeof navigator.userAgent === 'string'
+            ? navigator.userAgent.toLowerCase().includes('jsdom')
+            : false
+          if (!isJSDOM && typeof window.location?.reload === 'function') {
+            window.location.reload()
+          }
         } catch {
           // noop in non-browser or jsdom environments
         }
