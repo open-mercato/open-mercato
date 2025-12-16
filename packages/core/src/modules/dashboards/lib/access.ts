@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { DashboardRoleWidgets, DashboardUserWidgets } from '../data/entities'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { hasAllFeatures as userHasAllFeatures } from '@open-mercato/shared/security/features'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type LoadedWidget = {
   metadata: {
@@ -54,7 +55,13 @@ export async function resolveAllowedWidgetIds(
   }
 
   // Aggregate role-level settings
-  const userRoles = await em.find(UserRole, { user: ctx.userId as any, deletedAt: null }, { populate: ['role'] })
+  const userRoles = await findWithDecryption(
+    em,
+    UserRole,
+    { user: ctx.userId as any, deletedAt: null },
+    { populate: ['role'] },
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
   const roleRecords = await em.find(DashboardRoleWidgets, {
     roleId: { $in: userRoles.map((ur) => String(ur.role?.id || ur.role)) },
     deletedAt: null,

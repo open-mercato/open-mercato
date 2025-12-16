@@ -110,3 +110,24 @@ If you don’t provide the generic, `filters` falls back to a permissive shape.
   - Read `modules.generated.ts` to discover `entityExtensions` and join them.
   - Join `custom_field_values` to surface `cf:*` fields and filter/sort them efficiently; aggregate when multiple values exist.
   - Provide per-entity adapters if conventions differ from table naming.
+
+## Encryption-aware finds
+
+When you fetch data via MikroORM outside of the query engine, use the decryption helpers so encrypted columns are decoded with the right tenant/org scope:
+
+```ts
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { User } from './data/entities'
+
+const users = await findWithDecryption(em, User, { tenant_id: tenantId }, undefined, {
+  tenantId,
+  organizationId,
+})
+
+const user = await findOneWithDecryption(em, User, { id: userId }, undefined, {
+  tenantId,
+  organizationId,
+})
+```
+
+These helpers no-op when encryption is disabled but ensure encrypted relations that lack explicit scopes are decrypted safely. Prefer them over raw `em.find` / `em.findOne` for direct reads.

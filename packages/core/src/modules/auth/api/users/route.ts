@@ -13,6 +13,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -176,7 +177,15 @@ export async function GET(req: Request) {
   }
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
   const userIds = rows.map((u: any) => u.id)
-  const links = userIds.length ? await em.find(UserRole, { user: { $in: userIds as any } } as any, { populate: ['role'] }) : []
+  const links = userIds.length
+    ? await findWithDecryption(
+        em,
+        UserRole,
+        { user: { $in: userIds as any } } as any,
+        { populate: ['role'] },
+        { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+      )
+    : []
   const roleMap: Record<string, string[]> = {}
   for (const l of links) {
     const uid = String((l as any).user?.id || (l as any).user)

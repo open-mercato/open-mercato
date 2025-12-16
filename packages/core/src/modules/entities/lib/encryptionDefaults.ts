@@ -36,6 +36,13 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'customers:customer_activity',
+    fields: [
+      { field: 'subject' },
+      { field: 'body' },
+    ],
+  },
+  {
     entityId: 'customers:customer_comment',
     fields: [{ field: 'body' }],
   },
@@ -95,6 +102,24 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'comments' },
       { field: 'internal_notes' },
       { field: 'metadata' },
+    ],
+  },
+  {
+    entityId: 'sales:sales_document_address',
+    fields: [
+      { field: 'name' },
+      { field: 'purpose' },
+      { field: 'company_name' },
+      { field: 'address_line1' },
+      { field: 'address_line2' },
+      { field: 'city' },
+      { field: 'region' },
+      { field: 'postal_code' },
+      { field: 'country' },
+      { field: 'building_number' },
+      { field: 'flat_number' },
+      { field: 'latitude' },
+      { field: 'longitude' },
     ],
   },
   {

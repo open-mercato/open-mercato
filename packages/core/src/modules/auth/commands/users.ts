@@ -26,6 +26,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type SerializedUser = {
   email: string
@@ -110,7 +111,13 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
 
-    const organization = await em.findOne(Organization, { id: parsed.organizationId }, { populate: ['tenant'] })
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: parsed.organizationId },
+      { populate: ['tenant'] },
+      { tenantId: parsed.tenantId ?? null, organizationId: parsed.organizationId },
+    )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
     const emailHash = computeEmailHash(parsed.email)
@@ -307,7 +314,13 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     let tenantId: string | null | undefined
     if (parsed.organizationId !== undefined) {
-      const organization = await em.findOne(Organization, { id: parsed.organizationId }, { populate: ['tenant'] })
+      const organization = await findOneWithDecryption(
+        em,
+        Organization,
+        { id: parsed.organizationId },
+        { populate: ['tenant'] },
+        { tenantId: parsed.tenantId ?? null, organizationId: parsed.organizationId ?? null },
+      )
       if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     }
@@ -646,7 +659,13 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
 }
 
 async function loadUserRoleNames(em: EntityManager, userId: string): Promise<string[]> {
-  const links = await em.find(UserRole, { user: userId as unknown as User }, { populate: ['role'] })
+  const links = await findWithDecryption(
+    em,
+    UserRole,
+    { user: userId as unknown as User },
+    { populate: ['role'] },
+    { tenantId: null, organizationId: null },
+  )
   const names = links
     .map((link) => link.role?.name ?? '')
     .filter((name): name is string => !!name)

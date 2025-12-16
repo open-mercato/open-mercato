@@ -15,6 +15,7 @@ import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities
 import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
@@ -149,7 +150,13 @@ export async function setupInitialTenant(
       await tem.flush()
 
       const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
-      const links = await tem.find(UserRole, { user: existingUser }, { populate: ['role'] })
+      const links = await findWithDecryption(
+        tem,
+        UserRole,
+        { user: existingUser },
+        { populate: ['role'] },
+        { tenantId: normalizedTenantId, organizationId: null },
+      )
       const currentRoles = new Set(links.map((link) => link.role.name))
       for (const roleName of requiredRoleSet) {
         if (!currentRoles.has(roleName)) {

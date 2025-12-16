@@ -568,6 +568,9 @@ export class BasicQueryEngine implements QueryEngine {
     const svc = this.getEncryptionService()
     let decryptedItems = items
     if (svc?.decryptEntityPayload && svc.isEnabled?.() !== false) {
+      const fallbackOrgId =
+        opts.organizationId
+        ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
       decryptedItems = await Promise.all(
         (items as any[]).map(async (item) => {
           try {
@@ -575,7 +578,7 @@ export class BasicQueryEngine implements QueryEngine {
               entity,
               item,
               item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
-              item?.organization_id ?? item?.organizationId ?? null,
+              item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null,
             )
             return { ...item, ...decrypted }
           } catch {

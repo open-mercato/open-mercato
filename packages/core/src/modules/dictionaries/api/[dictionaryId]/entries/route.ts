@@ -15,6 +15,7 @@ import {
   dictionariesErrorSchema,
   dictionariesTag,
 } from '../../openapi'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -106,7 +107,13 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (!createdEntryId) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }
-    const entry = await context.em.fork().findOne(DictionaryEntry, createdEntryId, { populate: ['dictionary'] })
+    const entry = await findOneWithDecryption(
+      context.em.fork(),
+      DictionaryEntry,
+      createdEntryId,
+      { populate: ['dictionary'] },
+      { tenantId: context.auth.tenantId ?? null, organizationId: context.auth.orgId ?? null },
+    )
     if (!entry) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }

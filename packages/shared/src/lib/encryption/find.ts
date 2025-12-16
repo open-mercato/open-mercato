@@ -49,3 +49,21 @@ export async function findOneWithDecryption<Entity extends object>(
   })
   return record
 }
+
+export async function findAndCountWithDecryption<Entity extends object>(
+  em: EntityManager,
+  entityName: AnyEntityName<Entity>,
+  where: FilterQuery<Entity>,
+  options?: FindOptions<Entity>,
+  scope?: DecryptionScope,
+): Promise<[Entity[], number]> {
+  const [records, count] = await em.findAndCount(entityName as any, where as any, options as any)
+  if (!records.length) return [records, count]
+  await decryptEntitiesWithFallbackScope(records, {
+    em,
+    tenantId: scope?.tenantId ?? null,
+    organizationId: scope?.organizationId ?? null,
+    encryptionService: scope?.encryptionService ?? null,
+  })
+  return [records, count]
+}

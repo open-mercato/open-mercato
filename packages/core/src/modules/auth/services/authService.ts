@@ -3,6 +3,7 @@ import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import crypto from 'node:crypto'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
@@ -32,10 +33,12 @@ export class AuthService {
   async getUserRoles(user: User, tenantId?: string | null): Promise<string[]> {
     const resolvedTenantId = tenantId ?? user.tenantId ?? null
     if (!resolvedTenantId) return []
-    const links = await this.em.find(
+    const links = await findWithDecryption(
+      this.em,
       UserRole,
       { user, role: { tenantId: resolvedTenantId } as any },
       { populate: ['role'] },
+      { tenantId: resolvedTenantId, organizationId: user.organizationId ?? null },
     )
     return links.map((l) => l.role.name)
   }

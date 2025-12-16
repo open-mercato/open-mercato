@@ -15,7 +15,8 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -109,12 +110,13 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const em = (container.resolve('em') as EntityManager)
 
-  const deal = await em.findOne(
+  const deal = await findOneWithDecryption(
     CustomerDeal,
     { id: parsedParams.data.id, deletedAt: null },
     {
       populate: ['people.person', 'people.person.personProfile', 'companies.company', 'companies.company.companyProfile'],
     },
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
   )
   if (!deal) {
     return notFound('Deal not found')

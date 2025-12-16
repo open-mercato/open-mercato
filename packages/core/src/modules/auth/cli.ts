@@ -8,6 +8,7 @@ import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/
 import { ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -28,7 +29,15 @@ const addUser: ModuleCli = {
     }
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
+    const org =
+      (await findOneWithDecryption(
+        em,
+        Organization,
+        { id: organizationId },
+        { populate: ['tenant'] },
+        { tenantId: null, organizationId },
+      )) ?? null
+    if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
     const u = em.create(User, {
@@ -187,7 +196,13 @@ const listOrganizations: ModuleCli = {
   async run() {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const orgs = await em.find(Organization, {}, { populate: ['tenant'] })
+    const orgs = await findWithDecryption(
+      em,
+      Organization,
+      {},
+      { populate: ['tenant'] },
+      { tenantId: null, organizationId: null },
+    )
     
     if (orgs.length === 0) {
       console.log('No organizations found')
@@ -271,7 +286,13 @@ const listUsers: ModuleCli = {
     
     for (const user of users) {
       // Get user roles separately
-      const userRoles = await em.find(UserRole, { user: user.id }, { populate: ['role'] })
+      const userRoles = await findWithDecryption(
+        em,
+        UserRole,
+        { user: user.id },
+        { populate: ['role'] },
+        { tenantId: user.tenantId ?? null, organizationId: user.organizationId ?? null },
+      )
       const roles = userRoles.map((ur: any) => ur.role?.name).filter(Boolean).join(', ') || 'None'
       
       // Get organization and tenant names if IDs exist

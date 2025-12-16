@@ -54,6 +54,7 @@ import {
   randomSuffix,
   toNumericString,
 } from './shared'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type ProductSnapshot = {
   id: string
@@ -702,10 +703,12 @@ async function syncProductTags(
     })
   }
   const slugs = Array.from(labelMap.keys())
-  const existingAssignments = await em.find(
+  const existingAssignments = await findWithDecryption(
+    em,
     CatalogProductTagAssignment,
     { product },
-    { populate: ['tag'] }
+    { populate: ['tag'] },
+    { tenantId: product.tenantId, organizationId: product.organizationId },
   )
   if (!slugs.length) {
     if (existingAssignments.length) {
@@ -861,10 +864,11 @@ async function loadProductSnapshot(
   em: EntityManager,
   id: string
 ): Promise<ProductSnapshot | null> {
-  const record = await em.findOne(
+  const record = await findOneWithDecryption(
+    em,
     CatalogProduct,
     { id, deletedAt: null },
-    { populate: ['optionSchemaTemplate'] }
+    { populate: ['optionSchemaTemplate'] },
   )
   if (!record) return null
   const offers = await loadOfferSnapshots(em, record.id)
@@ -1358,10 +1362,11 @@ const deleteProductCommand: CommandHandler<
   async execute(input, ctx) {
     const id = requireId(input, 'Product id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(
+    const record = await findOneWithDecryption(
+      em,
       CatalogProduct,
       { id },
-      { populate: ['optionSchemaTemplate'] }
+      { populate: ['optionSchemaTemplate'] },
     )
     if (!record) throw new CrudHttpError(404, { error: 'Catalog product not found' })
     const baseEm = (ctx.container.resolve('em') as EntityManager)
