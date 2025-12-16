@@ -24,8 +24,10 @@ export async function findWithDecryption<Entity extends object, Hint extends str
   options?: AnyFindOptions<Entity, Hint>,
   scope?: DecryptionScope,
 ): Promise<Entity[]> {
-  const records = await em.find<Entity, Hint, any, any>(entityName as any, where as any, options as any) as any as Entity[]
-  if (!records.length) return records
+  const records = (await em.find<Entity, Hint, any, any>(entityName as any, where as any, options as any)) as any as
+    | Entity[]
+    | undefined
+  if (!Array.isArray(records) || records.length === 0) return records ?? []
   await decryptEntitiesWithFallbackScope(records, {
     em,
     tenantId: scope?.tenantId ?? null,
@@ -42,7 +44,9 @@ export async function findOneWithDecryption<Entity extends object, Hint extends 
   options?: AnyFindOneOptions<Entity, Hint>,
   scope?: DecryptionScope,
 ): Promise<Entity | null> {
-  const record = await em.findOne<Entity, Hint, any, any>(entityName as any, where as any, options as any) as any as Entity | null
+  const record = (await em.findOne<Entity, Hint, any, any>(entityName as any, where as any, options as any)) as any as
+    | Entity
+    | null
   if (!record) return record
   await decryptEntitiesWithFallbackScope(record, {
     em,
@@ -60,11 +64,12 @@ export async function findAndCountWithDecryption<Entity extends object, Hint ext
   options?: AnyFindOptions<Entity, Hint>,
   scope?: DecryptionScope,
 ): Promise<[Entity[], number]> {
-  const [records, count] = await em.findAndCount<Entity, Hint, any, any>(
+  const [recordsRaw, count] = await em.findAndCount<Entity, Hint, any, any>(
     entityName as any,
     where as any,
     options as any,
-  ) as any as [Entity[], number]
+  ) as any as [Entity[] | undefined, number]
+  const records = Array.isArray(recordsRaw) ? recordsRaw : []
   if (!records.length) return [records, count]
   await decryptEntitiesWithFallbackScope(records, {
     em,

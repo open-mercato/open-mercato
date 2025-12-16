@@ -119,6 +119,14 @@ export async function upsertIndexRow(
 
   const doc = await buildIndexDoc(em, args)
   if (!doc) {
+    try {
+      await deleteSearchTokensForRecord(knex, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
+      })
+    } catch {}
     if (existed) {
       await knex('entity_indexes')
         .where({
@@ -129,14 +137,6 @@ export async function upsertIndexRow(
         .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
         .del()
     }
-    try {
-      await deleteSearchTokensForRecord(knex, {
-        entityType: args.entityType,
-        recordId: args.recordId,
-        organizationId: args.organizationId ?? null,
-        tenantId: args.tenantId ?? null,
-      })
-    } catch {}
     return { doc: null, existed, wasDeleted, created: false, revived: false }
   }
 
@@ -203,6 +203,14 @@ export async function markDeleted(
   const wasActive = !!existing && existing.deleted_at == null
 
   if (existing) {
+    try {
+      await deleteSearchTokensForRecord(knex, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
+      })
+    } catch {}
     await knex('entity_indexes')
       .where({
         entity_type: args.entityType,
@@ -212,14 +220,6 @@ export async function markDeleted(
       .andWhereRaw('tenant_id is not distinct from ?', [args.tenantId ?? null])
       .del()
   }
-  try {
-    await deleteSearchTokensForRecord(knex, {
-      entityType: args.entityType,
-      recordId: args.recordId,
-      organizationId: args.organizationId ?? null,
-      tenantId: args.tenantId ?? null,
-    })
-  } catch {}
 
   return { wasActive }
 }

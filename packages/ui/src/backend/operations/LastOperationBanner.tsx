@@ -41,7 +41,11 @@ export function LastOperationBanner() {
       flash(t('audit_logs.banner.undo_success'), 'success')
       router.refresh()
       if (typeof window !== 'undefined') {
-        window.location.reload()
+        try {
+          window.location.reload()
+        } catch {
+          // noop in non-browser or jsdom environments
+        }
       }
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : t('audit_logs.banner.undo_error')

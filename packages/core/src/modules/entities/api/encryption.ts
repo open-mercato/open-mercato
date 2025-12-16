@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     existing.updatedAt = new Date()
     await em.persistAndFlush(existing)
   } else {
-    const map = em.create(EncryptionMap, {
+    const map = repo.create({
       entityId: payload.entityId,
       tenantId,
       organizationId,
