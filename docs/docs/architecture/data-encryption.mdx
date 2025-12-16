@@ -29,8 +29,16 @@ This document outlines the data-encryption architecture so module owners can wir
   - On `afterFind`: decrypts mapped fields using the tenant DEK; falls back silently when encryption is disabled or KMS is unhealthy.
 - **Auth adjustments** – `users` table gains `email_hash` (indexed) so login can query by hash even when `email` is encrypted.
 - **Tenant bootstrap** – tenant creation flow generates and stores a DEK via `kmsService.createTenantDek` with the `tenant_key_<tenantId>` prefix.
-- **Observability** – warning rows (or audit logs) emitted when KMS is unavailable; encryption map evaluation adds debug logging to trace which fields are encrypted.
+- **Observability** – warning rows (or audit logs) emitted when KMS is unavailable; set `TENANT_DATA_ENCRYPTION_DEBUG=yes` to log map evaluation plus Vault KMS reads/writes.
 - **Fallback path** – if Vault is unhealthy, the runtime uses a derived-key KMS when a fallback secret is provided (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY` → `TENANT_DATA_ENCRYPTION_KEY` → `AUTH_SECRET/NEXTAUTH_SECRET`, dev default last); without any secret in production it becomes a noop KMS (ciphertext left plaintext).
+
+## Environment variables
+
+- `TENANT_DATA_ENCRYPTION` – master toggle (`yes` by default). Disables hooks when set to `no` but keeps validation in place.
+- `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to surface map evaluation decisions, Vault cache hits/misses, and fallback selection in logs.
+- `VAULT_ADDR`, `VAULT_TOKEN` – required for the HashiCorp Vault KMS provider.
+- `VAULT_KV_PATH` – KV v2 mount for tenant keys; defaults to `secret/data`.
+- Fallback secrets (used when Vault is down or missing): `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`, then `TENANT_DATA_ENCRYPTION_KEY`, then `AUTH_SECRET`/`NEXTAUTH_SECRET` in dev; production without any secret falls back to the noop KMS.
 
 ## Data flow
 

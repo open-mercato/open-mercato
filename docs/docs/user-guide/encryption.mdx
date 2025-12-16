@@ -65,5 +65,15 @@ When defining a custom field, check **Encrypted** to store its values with the t
 ## Debugging
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
+- Debug logs also call out Vault health and the selected KMS path (Vault vs derived vs noop) so you can verify `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` without exposing the token value.
 - If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext).
 - Use **Configuration → System status** to confirm the active values of the encryption env vars in the running instance.
+
+## Running without Vault
+
+If you don’t want to depend on Vault, set a fallback secret and the runtime will derive tenant keys from it:
+
+- `TENANT_DATA_ENCRYPTION=yes`
+- `TENANT_DATA_ENCRYPTION_FALLBACK_KEY=<32+ char secret>` (preferred) or `TENANT_DATA_ENCRYPTION_KEY=<secret>`
+
+When Vault is down or not configured, a warning banner appears and shows which env var supplied the derived key. Avoid short/shared secrets—treat this like any other encryption root and store it securely.

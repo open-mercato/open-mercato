@@ -14,6 +14,60 @@ export interface KmsService {
   isHealthy(): boolean
 }
 
+class FallbackKmsService implements KmsService {
+  private notified = false
+  constructor(
+    private readonly primary: KmsService,
+    private readonly fallback: KmsService | null,
+    private readonly onFallback?: () => void,
+  ) {}
+
+  isHealthy(): boolean {
+    return this.primary.isHealthy() || Boolean(this.fallback?.isHealthy?.())
+  }
+
+  private notifyFallback() {
+    if (this.notified) return
+    this.notified = true
+    this.onFallback?.()
+  }
+
+  private async fromPrimary<T>(op: () => Promise<T | null>): Promise<T | null> {
+    try {
+      return await op()
+    } catch (err) {
+      console.warn('⚠️ [encryption][kms] Primary KMS failed, will try fallback', {
+        error: (err as Error)?.message || String(err),
+      })
+      return null
+    }
+  }
+
+  async getTenantDek(tenantId: string): Promise<TenantDek | null> {
+    if (this.primary.isHealthy()) {
+      const dek = await this.fromPrimary(() => this.primary.getTenantDek(tenantId))
+      if (dek) return dek
+    }
+    if (this.fallback?.isHealthy()) {
+      this.notifyFallback()
+      return this.fallback.getTenantDek(tenantId)
+    }
+    return null
+  }
+
+  async createTenantDek(tenantId: string): Promise<TenantDek | null> {
+    if (this.primary.isHealthy()) {
+      const dek = await this.fromPrimary(() => this.primary.createTenantDek(tenantId))
+      if (dek) return dek
+    }
+    if (this.fallback?.isHealthy()) {
+      this.notifyFallback()
+      return this.fallback.createTenantDek(tenantId)
+    }
+    return null
+  }
+}
+
 type VaultClientOpts = {
   vaultAddr?: string
   vaultToken?: string
@@ -30,19 +84,21 @@ function normalizeEnv(value: string | undefined): string {
   return value.trim().replace(/^['"]|['"]$/g, '')
 }
 
-function resolveDerivedKeySecret(): { secret: string; source: 'explicit' | 'dev-default' } | null {
-  const candidates = [
-    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY,
-    process.env.TENANT_DATA_ENCRYPTION_KEY,
-    process.env.AUTH_SECRET,
-    process.env.NEXTAUTH_SECRET,
+type DerivedSecret = { secret: string; source: 'explicit' | 'dev-default'; envName: string }
+
+function resolveDerivedKeySecret(): DerivedSecret | null {
+  const candidates: Array<{ value: string | null; envName: string }> = [
+    { value: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY' },
+    { value: process.env.TENANT_DATA_ENCRYPTION_KEY ?? null, envName: 'TENANT_DATA_ENCRYPTION_KEY' },
+    { value: process.env.AUTH_SECRET ?? null, envName: 'AUTH_SECRET' },
+    { value: process.env.NEXTAUTH_SECRET ?? null, envName: 'NEXTAUTH_SECRET' },
   ]
   for (const raw of candidates) {
-    const normalized = normalizeEnv(raw)
-    if (normalized) return { secret: normalized, source: 'explicit' }
+    const normalized = normalizeEnv(raw.value ?? undefined)
+    if (normalized) return { secret: normalized, source: 'explicit', envName: raw.envName }
   }
   if (process.env.NODE_ENV !== 'production') {
-    return { secret: 'om-dev-tenant-encryption', source: 'dev-default' }
+    return { secret: 'om-dev-tenant-encryption', source: 'dev-default', envName: 'DEV_DEFAULT' }
   }
   return null
 }
@@ -217,17 +273,20 @@ export class HashicorpVaultKmsService implements KmsService {
 
 let loggedDerivedKeyBanner = false
 
-function logDerivedKeyBanner(source: 'explicit' | 'dev-default'): void {
+function logDerivedKeyBanner(opts: DerivedSecret): void {
   if (loggedDerivedKeyBanner) return
   loggedDerivedKeyBanner = true
   const redBg = '\x1b[41m'
   const white = '\x1b[97m'
   const reset = '\x1b[0m'
-  const width = 88
+  const width = 110
   const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
   const body = [
     '🚨 Using derived tenant encryption keys (Vault unavailable)',
-    source === 'explicit' ? 'Source: environment secret' : 'Source: dev default secret (do NOT use in production)',
+    opts.source === 'explicit'
+      ? `Source: ${opts.envName}`
+      : 'Source: dev default secret (do NOT use in production)',
+    `Secret: ${opts.secret}`,
     'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
   ]
   console.warn(border)
@@ -240,19 +299,36 @@ function logDerivedKeyBanner(source: 'explicit' | 'dev-default'): void {
 
 export function createKmsService(): KmsService {
   if (!isTenantDataEncryptionEnabled()) return new NoopKmsService()
-  const svc = new HashicorpVaultKmsService()
-  if (svc.isHealthy()) return svc
+  const primary = new HashicorpVaultKmsService()
 
   const derived = resolveDerivedKeySecret()
-  if (derived) {
-    const level = derived.source === 'dev-default' ? 'warn' : 'info'
-    console[level](`⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`)
-    logDerivedKeyBanner(derived.source)
-    return new DerivedKmsService(derived.secret)
+  const fallback = derived ? new DerivedKmsService(derived.secret) : null
+  const notifyFallback = derived
+    ? () => {
+        const level = derived.source === 'dev-default' ? 'warn' : 'info'
+        console[level](
+          `⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`,
+        )
+        logDerivedKeyBanner(derived)
+      }
+    : undefined
+
+  if (!primary.isHealthy()) {
+    if (fallback) {
+      notifyFallback?.()
+      return fallback
+    }
+    console.warn(
+      '⚠️ [encryption][kms] Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN) and no fallback secret provided; falling back to noop KMS',
+    )
+    return new NoopKmsService()
   }
 
-  console.warn('⚠️ [encryption][kms] Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN) and no fallback secret provided; falling back to noop KMS')
-  return new NoopKmsService()
+  if (fallback) {
+    return new FallbackKmsService(primary, fallback, notifyFallback)
+  }
+
+  return primary
 }
 
 export { hashForLookup }
