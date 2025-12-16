@@ -4,6 +4,7 @@ import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
 import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
+import { resolveTenantEncryptionService } from './customFieldValues'
 
 type Scoped = {
   tenantId?: string | null
@@ -14,7 +15,9 @@ type Scoped = {
   organization?: { id?: string | null } | null
 }
 
-function resolveScope(entity: Scoped): { tenantId: string | null; organizationId: string | null } {
+type Scope = { tenantId: string | null; organizationId: string | null }
+
+function resolveScope(entity: Scoped): Scope {
   const tenantId = entity.tenantId ?? entity.tenant_id ?? entity.tenant?.id ?? null
   const organizationId = entity.organizationId ?? entity.organization_id ?? entity.organization?.id ?? null
   return {
@@ -215,11 +218,24 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     }
   }
 
+  async decryptEntityGraph(
+    target: Record<string, unknown>,
+    meta: EntityMetadata<any> | undefined,
+    em?: { getMetadata?: () => any; getComparator?: () => any },
+    opts: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
+  ) {
+    await this.decrypt(target, meta, em, opts)
+  }
+
   private async decrypt(
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
     em?: { getMetadata?: () => any; getComparator?: () => any },
-    { syncOriginal = false, seen }: { syncOriginal?: boolean; seen?: WeakSet<object> } = {},
+    {
+      syncOriginal = false,
+      seen,
+      fallbackScope,
+    }: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
   ) {
     const visited = seen ?? new WeakSet<object>()
     if (visited.has(target as object)) return
@@ -232,15 +248,22 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const entityId = this.resolveEntityId(resolvedMeta)
     if (!entityId) return
     const { tenantId, organizationId } = resolveScope(target)
-    if (!tenantId) {
+    const scopedTenantId = tenantId ?? fallbackScope?.tenantId ?? null
+    const scopedOrgId = organizationId ?? fallbackScope?.organizationId ?? null
+    if (!scopedTenantId) {
       debug('⚪️ subscriber.skip', { reason: 'no-tenant', entityId })
       return
     }
-    const decrypted = await this.service.decryptEntityPayload(entityId, target, tenantId, organizationId)
+    const decrypted = await this.service.decryptEntityPayload(entityId, target, scopedTenantId, scopedOrgId)
     Object.assign(target, decrypted)
     if (syncOriginal) {
       this.syncOriginalEntityData(target, resolvedMeta, em as any)
     }
+    const nextFallback =
+      fallbackScope ??
+      (tenantId || organizationId
+        ? { tenantId: tenantId ?? null, organizationId: organizationId ?? null }
+        : { tenantId: scopedTenantId, organizationId: scopedOrgId })
     // Best-effort deep decrypt for loaded relations so populated graphs get cleaned too.
     try {
       const extractEntities = (value: any): any[] => {
@@ -281,7 +304,11 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
           const nestedEntities = extractEntities(value)
           for (const nested of nestedEntities) {
             const nestedMeta = this.resolveMeta((nested as any).__meta ?? (nested as any).__helper?.__meta, nested, em)
-            await this.decrypt(nested as Record<string, unknown>, nestedMeta, em, { syncOriginal: true, seen: visited })
+            await this.decrypt(nested as Record<string, unknown>, nestedMeta, em, {
+              syncOriginal: true,
+              seen: visited,
+              fallbackScope: nextFallback,
+            })
           }
           continue
         }
@@ -291,7 +318,11 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
           for (const item of items) {
             if (!item || typeof item !== 'object') continue
             const nestedMeta = this.resolveMeta((item as any).__meta ?? (item as any).__helper?.__meta, item, em)
-            await this.decrypt(item as Record<string, unknown>, nestedMeta, em, { syncOriginal: true, seen: visited })
+            await this.decrypt(item as Record<string, unknown>, nestedMeta, em, {
+              syncOriginal: true,
+              seen: visited,
+              fallbackScope: nextFallback,
+            })
           }
         }
       }
@@ -345,4 +376,41 @@ export function registerTenantEncryptionSubscriber(
   if (registeredEventManagers.has(eventManager)) return
   eventManager.registerSubscriber(new TenantEncryptionSubscriber(service))
   registeredEventManagers.add(eventManager)
+}
+
+export async function decryptEntitiesWithFallbackScope(
+  targets: unknown | unknown[],
+  {
+    em,
+    tenantId,
+    organizationId,
+    encryptionService,
+  }: {
+    em: { getMetadata?: () => any; getComparator?: () => any }
+    tenantId?: string | null
+    organizationId?: string | null
+    encryptionService?: TenantDataEncryptionService | null
+  },
+): Promise<void> {
+  if (!isTenantDataEncryptionEnabled()) return
+  const list = Array.isArray(targets) ? targets : [targets]
+  if (!list.length) return
+  const service = encryptionService ?? resolveTenantEncryptionService(em as any)
+  if (!service || !service.isEnabled()) return
+  const subscriber = new TenantEncryptionSubscriber(service)
+  const fallback: Scope | undefined =
+    tenantId || organizationId
+      ? {
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+        }
+      : undefined
+  for (const entity of list) {
+    if (!entity || typeof entity !== 'object') continue
+    const meta = (entity as any).__meta ?? (entity as any).__helper?.__meta
+    await subscriber.decryptEntityGraph(entity as Record<string, unknown>, meta, em as any, {
+      syncOriginal: true,
+      fallbackScope: fallback,
+    })
+  }
 }
