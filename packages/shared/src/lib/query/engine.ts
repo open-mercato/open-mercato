@@ -569,16 +569,15 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     const svc = this.getEncryptionService()
-    const decryptPayload: ((
-      entityId: EntityId,
-      payload: Record<string, unknown>,
-      tenantId: string | null,
-      organizationId: string | null,
-    ) => Promise<Record<string, unknown>>) | null =
-      svc?.decryptEntityPayload
-        ? (entityId, payload, tenantId, organizationId) =>
-            svc.decryptEntityPayload(entityId, payload, tenantId, organizationId)
-        : null
+    const decryptPayload =
+      svc?.decryptEntityPayload?.bind(svc) as
+        | ((
+            entityId: EntityId,
+            payload: Record<string, unknown>,
+            tenantId: string | null,
+            organizationId: string | null,
+          ) => Promise<Record<string, unknown>>)
+        | null
     let decryptedItems = items
     if (decryptPayload) {
       const fallbackOrgId =
