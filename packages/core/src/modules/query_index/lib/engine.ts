@@ -330,7 +330,7 @@ export class HybridQueryEngine implements QueryEngine {
 
     const shouldAttachCustomSources = Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && (wantsCf || searchEnabled)
     if (shouldAttachCustomSources) {
-      const prepared = this.prepareCustomFieldSources(knex, builder, opts.customFieldSources, qualify)
+      const prepared = this.prepareCustomFieldSources(knex, builder, opts.customFieldSources ?? [], qualify)
       builder = prepared.builder
       for (const source of prepared.sources) {
         const fragments: string[] = []
@@ -713,11 +713,13 @@ export class HybridQueryEngine implements QueryEngine {
 
     let items = itemsRaw as any[]
     const encSvc = this.getEncryptionService()
-    if (encSvc?.decryptEntityPayload && encSvc.isEnabled?.() !== false) {
+    const decryptPayload = encSvc?.decryptEntityPayload
+    const encryptionEnabled = decryptPayload && encSvc?.isEnabled?.() !== false
+    if (decryptPayload && encryptionEnabled) {
       items = await Promise.all(
         items.map(async (item) => {
           try {
-            const decrypted = await encSvc.decryptEntityPayload(
+            const decrypted = await decryptPayload(
               entity,
               item,
               item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,

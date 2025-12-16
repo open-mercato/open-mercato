@@ -116,7 +116,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       Organization,
       { id: parsed.organizationId },
       { populate: ['tenant'] },
-      { tenantId: parsed.tenantId ?? null, organizationId: parsed.organizationId },
+      { tenantId: null, organizationId: parsed.organizationId },
     )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
@@ -319,7 +319,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         Organization,
         { id: parsed.organizationId },
         { populate: ['tenant'] },
-        { tenantId: parsed.tenantId ?? null, organizationId: parsed.organizationId ?? null },
+        { tenantId: null, organizationId: parsed.organizationId ?? null },
       )
       if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null

@@ -418,10 +418,10 @@ export function EncryptionManager() {
         <div className="flex justify-end">
           <Button
             onClick={() => mutation.mutate()}
-            disabled={mutation.isLoading || loadingEntities || !!entitiesError || !selectedEntityId}
+            disabled={mutation.isPending || loadingEntities || !!entitiesError || !selectedEntityId}
           >
             <Save className="mr-2 h-4 w-4" />
-            {mutation.isLoading
+            {mutation.isPending
               ? t('entities.encryption.actions.saving', 'Saving…')
               : t('entities.encryption.actions.save', 'Save encryption map')}
           </Button>

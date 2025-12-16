@@ -62,6 +62,9 @@ export const metadata = {
 export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: string; entryId?: string } }) {
   try {
     const context = await resolveDictionariesRouteContext(req)
+    if (!context.auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { dictionaryId, entryId } = paramsSchema.parse({
       dictionaryId: ctx.params?.dictionaryId,
       entryId: ctx.params?.entryId,

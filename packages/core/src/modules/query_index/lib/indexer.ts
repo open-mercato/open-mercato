@@ -71,7 +71,8 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   try {
     const encryption = resolveTenantEncryptionService(em as any)
     const decryptFor = async (entityId: string) => {
-      if (encryption?.isEnabled?.() === false) return
+      if (!encryption || typeof encryption.decryptEntityPayload !== 'function') return
+      if (encryption.isEnabled?.() === false) return
       const decrypted = await encryption.decryptEntityPayload(
         entityId,
         doc,

@@ -1,6 +1,7 @@
 import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Knex } from 'knex'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -26,6 +27,8 @@ type ResolvedCustomFieldSource = {
   table: string
   recordIdExpr: any
 }
+
+type ResultRow = Record<string, unknown>
 
 const pluralizeBaseName = (name: string): string => {
   if (!name) return name
@@ -566,15 +569,16 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     const svc = this.getEncryptionService()
+    const decryptPayload = svc?.decryptEntityPayload
     let decryptedItems = items
-    if (svc?.decryptEntityPayload && svc.isEnabled?.() !== false) {
+    if (decryptPayload && svc?.isEnabled?.() !== false) {
       const fallbackOrgId =
         opts.organizationId
         ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
       decryptedItems = await Promise.all(
         (items as any[]).map(async (item) => {
           try {
-            const decrypted = await svc.decryptEntityPayload(
+            const decrypted = await decryptPayload(
               entity,
               item,
               item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,

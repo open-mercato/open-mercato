@@ -59,6 +59,9 @@ export const metadata = {
 export async function GET(req: Request, ctx: { params?: { dictionaryId?: string } }) {
   try {
     const context = await resolveDictionariesRouteContext(req)
+    if (!context.auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
     const entries = await context.em.find(
@@ -94,6 +97,9 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
 export async function POST(req: Request, ctx: { params?: { dictionaryId?: string } }) {
   try {
     const context = await resolveDictionariesRouteContext(req)
+    if (!context.auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const payload = createDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
     // These nested routes do not use makeCrudRoute, so we invoke the command bus directly.

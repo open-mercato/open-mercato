@@ -155,7 +155,7 @@ export async function setupInitialTenant(
         UserRole,
         { user: existingUser },
         { populate: ['role'] },
-        { tenantId: normalizedTenantId, organizationId: null },
+        { tenantId: roleTenantId, organizationId: null },
       )
       const currentRoles = new Set(links.map((link) => link.role.name))
       for (const roleName of requiredRoleSet) {
@@ -240,6 +240,8 @@ export async function setupInitialTenant(
             organizationId: organization.id,
             fieldsJson: spec.fields,
             isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           }))
         } else {
           existing.fieldsJson = spec.fields

@@ -343,7 +343,8 @@ export async function reindexEntity(
           ) => {
             try {
               const encryption = resolveTenantEncryptionService(em as any)
-              if (encryption?.isEnabled?.() === false) return doc
+              if (!encryption || typeof encryption.decryptEntityPayload !== 'function') return doc
+              if (encryption.isEnabled?.() === false) return doc
               let working = doc
               const maybeDecrypt = async (entityId: string) => {
                 const decrypted = await encryption.decryptEntityPayload(
