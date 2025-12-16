@@ -1,4 +1,4 @@
-import type { EntityMetadata, EventArgs, EventSubscriber, FindEventArgs } from '@mikro-orm/core'
+import type { EntityMetadata, EventArgs, EventSubscriber } from '@mikro-orm/core'
 import { ReferenceKind } from '@mikro-orm/core'
 import { resolveEntityIdFromMetadata } from './entityIds'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
@@ -359,7 +359,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     await this.decrypt(args.entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })
   }
 
-  async afterFind(args: FindEventArgs<any>) {
+  async afterFind(args: EventArgs<any> & { entities?: unknown[] }) {
     const entities = Array.isArray(args.entities) ? args.entities : []
     for (const entity of entities) {
       await this.decrypt(entity as Record<string, unknown>, args.meta, args.em, { syncOriginal: true })

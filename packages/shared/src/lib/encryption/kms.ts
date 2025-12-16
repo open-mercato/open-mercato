@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { generateDek } from './aes'
+import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 
 export type TenantDek = {
@@ -121,7 +121,9 @@ class DerivedKmsService implements KmsService {
   }
 
   private deriveKey(tenantId: string): string {
-    const derived = crypto.createHmac('sha256', this.root).update(tenantId).digest()
+    const iterations = 310_000
+    const keyLength = 32
+    const derived = crypto.pbkdf2Sync(this.root, tenantId, iterations, keyLength, 'sha512')
     return derived.toString('base64')
   }
 

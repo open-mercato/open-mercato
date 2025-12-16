@@ -1,9 +1,10 @@
 import type {
-  AnyEntityName,
   EntityManager,
+  EntityName,
   FilterQuery,
   FindOneOptions,
   FindOptions,
+  Loaded,
 } from '@mikro-orm/postgresql'
 import { decryptEntitiesWithFallbackScope } from './subscriber'
 import type { TenantDataEncryptionService } from './tenantDataEncryptionService'
@@ -14,14 +15,17 @@ export type DecryptionScope = {
   encryptionService?: TenantDataEncryptionService | null
 }
 
-export async function findWithDecryption<Entity extends object>(
+type AnyFindOptions<Entity extends object, Hint extends string = any> = FindOptions<Entity, Hint, any, any>
+type AnyFindOneOptions<Entity extends object, Hint extends string = any> = FindOneOptions<Entity, Hint, any, any>
+
+export async function findWithDecryption<Entity extends object, Hint extends string = any>(
   em: EntityManager,
-  entityName: AnyEntityName<Entity>,
+  entityName: EntityName<Entity>,
   where: FilterQuery<Entity>,
-  options?: FindOptions<Entity>,
+  options?: AnyFindOptions<Entity, Hint>,
   scope?: DecryptionScope,
-): Promise<Entity[]> {
-  const records = await em.find(entityName as any, where as any, options as any)
+): Promise<Loaded<Entity, Hint>[]> {
+  const records = await em.find<Entity, Hint, any, any>(entityName as any, where as any, options as any)
   if (!records.length) return records
   await decryptEntitiesWithFallbackScope(records, {
     em,
@@ -32,14 +36,14 @@ export async function findWithDecryption<Entity extends object>(
   return records
 }
 
-export async function findOneWithDecryption<Entity extends object>(
+export async function findOneWithDecryption<Entity extends object, Hint extends string = any>(
   em: EntityManager,
-  entityName: AnyEntityName<Entity>,
+  entityName: EntityName<Entity>,
   where: FilterQuery<Entity>,
-  options?: FindOneOptions<Entity>,
+  options?: AnyFindOneOptions<Entity, Hint>,
   scope?: DecryptionScope,
-): Promise<Entity | null> {
-  const record = await em.findOne(entityName as any, where as any, options as any)
+): Promise<Loaded<Entity, Hint> | null> {
+  const record = await em.findOne<Entity, Hint, any, any>(entityName as any, where as any, options as any)
   if (!record) return record
   await decryptEntitiesWithFallbackScope(record, {
     em,
@@ -50,14 +54,18 @@ export async function findOneWithDecryption<Entity extends object>(
   return record
 }
 
-export async function findAndCountWithDecryption<Entity extends object>(
+export async function findAndCountWithDecryption<Entity extends object, Hint extends string = any>(
   em: EntityManager,
-  entityName: AnyEntityName<Entity>,
+  entityName: EntityName<Entity>,
   where: FilterQuery<Entity>,
-  options?: FindOptions<Entity>,
+  options?: AnyFindOptions<Entity, Hint>,
   scope?: DecryptionScope,
-): Promise<[Entity[], number]> {
-  const [records, count] = await em.findAndCount(entityName as any, where as any, options as any)
+): Promise<[Loaded<Entity, Hint>[], number]> {
+  const [records, count] = await em.findAndCount<Entity, Hint, any, any>(
+    entityName as any,
+    where as any,
+    options as any,
+  )
   if (!records.length) return [records, count]
   await decryptEntitiesWithFallbackScope(records, {
     em,
