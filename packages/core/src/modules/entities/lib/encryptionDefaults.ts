@@ -118,8 +118,6 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'country' },
       { field: 'building_number' },
       { field: 'flat_number' },
-      { field: 'latitude' },
-      { field: 'longitude' },
     ],
   },
   {
