@@ -15,6 +15,7 @@ import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/h
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -993,7 +994,13 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
   const [addresses, notes, tags, quoteCustomFields, lineCustomFields, adjustmentCustomFields] = await Promise.all([
     em.find(SalesDocumentAddress, { documentId: id, documentKind: 'quote' }),
     em.find(SalesNote, { contextType: 'quote', contextId: id }),
-    em.find(SalesDocumentTagAssignment, { documentId: id, documentKind: 'quote' }, { populate: ['tag'] }),
+    findWithDecryption(
+      em,
+      SalesDocumentTagAssignment,
+      { documentId: id, documentKind: 'quote' },
+      { populate: ['tag'] },
+      { tenantId: quote.tenantId, organizationId: quote.organizationId },
+    ),
     loadCustomFieldValues({
       em,
       entityId: E.sales.sales_quote,
@@ -1175,7 +1182,13 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
   const [addresses, notes, tags, shipments, payments, orderCustomFields, lineCustomFields, adjustmentCustomFields] = await Promise.all([
     em.find(SalesDocumentAddress, { documentId: id, documentKind: 'order' }),
     em.find(SalesNote, { contextType: 'order', contextId: id }),
-    em.find(SalesDocumentTagAssignment, { documentId: id, documentKind: 'order' }, { populate: ['tag'] }),
+    findWithDecryption(
+      em,
+      SalesDocumentTagAssignment,
+      { documentId: id, documentKind: 'order' },
+      { populate: ['tag'] },
+      { tenantId: order.tenantId, organizationId: order.organizationId },
+    ),
     em.find(SalesShipment, { order: order }),
     em.find(SalesPayment, { order: order }),
     loadCustomFieldValues({

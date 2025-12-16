@@ -15,6 +15,7 @@ import {
   dictionariesErrorSchema,
   dictionariesTag,
 } from '../../openapi'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -58,6 +59,9 @@ export const metadata = {
 export async function GET(req: Request, ctx: { params?: { dictionaryId?: string } }) {
   try {
     const context = await resolveDictionariesRouteContext(req)
+    if (!context.auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId, { allowInherited: true })
     const entries = await context.em.find(
@@ -93,6 +97,9 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
 export async function POST(req: Request, ctx: { params?: { dictionaryId?: string } }) {
   try {
     const context = await resolveDictionariesRouteContext(req)
+    if (!context.auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const payload = createDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
     // These nested routes do not use makeCrudRoute, so we invoke the command bus directly.
@@ -106,7 +113,13 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (!createdEntryId) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }
-    const entry = await context.em.fork().findOne(DictionaryEntry, createdEntryId, { populate: ['dictionary'] })
+    const entry = await findOneWithDecryption(
+      context.em.fork(),
+      DictionaryEntry,
+      createdEntryId,
+      { populate: ['dictionary'] },
+      { tenantId: context.auth.tenantId ?? null, organizationId: context.auth.orgId ?? null },
+    )
     if (!entry) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_create_failed', 'Failed to create dictionary entry') })
     }

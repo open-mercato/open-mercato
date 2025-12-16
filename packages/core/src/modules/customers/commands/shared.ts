@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type UndoEnvelope<T> = {
   undo?: T
@@ -119,7 +120,13 @@ export async function syncEntityTags(
 }
 
 export async function loadEntityTagIds(em: EntityManager, entity: CustomerEntity): Promise<string[]> {
-  const assignments = await em.find(CustomerTagAssignment, { entity }, { populate: ['tag'] })
+  const assignments = await findWithDecryption(
+    em,
+    CustomerTagAssignment,
+    { entity },
+    { populate: ['tag'] },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+  )
   return assignments.map((assignment) =>
     typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id
   )

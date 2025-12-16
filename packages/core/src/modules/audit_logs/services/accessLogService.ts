@@ -7,6 +7,8 @@ import {
   type AccessLogCreateInput,
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 
@@ -51,20 +53,74 @@ export class AccessLogService {
     } else {
       data = this.normalizeInput(input)
     }
-    const fork = this.em.fork()
+    const fork = this.em.fork({ useContext: true })
+    const fields = Array.isArray(data.fields) && data.fields.length ? data.fields : null
+    const context = data.context && Object.keys(data.context).length ? data.context : null
+    const createdAt = new Date()
+    const tenantId = data.tenantId ?? null
+    const organizationId = data.organizationId ?? null
+
+    type AccessLogEncryptedFields = {
+      resourceKind?: unknown
+      resourceId?: unknown
+      accessType?: unknown
+      fieldsJson?: unknown
+      contextJson?: unknown
+    }
+    const encryption = resolveTenantEncryptionService(fork as any)
+    const encrypted = encryption
+      ? ((await encryption.encryptEntityPayload(
+          E.audit_logs.access_log,
+          {
+            resourceKind: data.resourceKind,
+            resourceId: data.resourceId,
+            accessType: data.accessType,
+            fieldsJson: fields,
+            contextJson: context,
+          },
+          tenantId,
+          organizationId,
+        )) as AccessLogEncryptedFields)
+      : null
+
+    const payload = {
+      resourceKind: encrypted?.resourceKind ?? data.resourceKind,
+      resourceId: encrypted?.resourceId ?? data.resourceId,
+      accessType: encrypted?.accessType ?? data.accessType,
+      fieldsJson: encrypted?.fieldsJson ?? fields,
+      contextJson: encrypted?.contextJson ?? context,
+    }
+
+    const rows = await fork.getConnection().execute(
+      `insert into "access_logs" ("tenant_id", "organization_id", "actor_user_id", "resource_kind", "resource_id", "access_type", "fields_json", "context_json", "created_at", "deleted_at") values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning "id"`,
+      [
+        tenantId,
+        organizationId,
+        data.actorUserId ?? null,
+        payload.resourceKind,
+        payload.resourceId,
+        payload.accessType,
+        payload.fieldsJson !== null && payload.fieldsJson !== undefined ? JSON.stringify(payload.fieldsJson) : null,
+        payload.contextJson !== null && payload.contextJson !== undefined ? JSON.stringify(payload.contextJson) : null,
+        createdAt,
+        null,
+      ],
+    )
+    await this.rotate(fork)
+    const id = Array.isArray(rows) && rows.length > 0 ? rows[0]?.id ?? null : null
+    if (!id) return null
     const entry = fork.create(AccessLog, {
+      id,
       tenantId: data.tenantId ?? null,
       organizationId: data.organizationId ?? null,
       actorUserId: data.actorUserId ?? null,
       resourceKind: data.resourceKind,
       resourceId: data.resourceId,
       accessType: data.accessType,
-      fieldsJson: data.fields ?? null,
-      contextJson: data.context ?? null,
-      createdAt: new Date(),
+      fieldsJson: fields,
+      contextJson: context,
+      createdAt,
     })
-    await fork.persistAndFlush(entry)
-    await this.rotate(fork)
     return entry
   }
 

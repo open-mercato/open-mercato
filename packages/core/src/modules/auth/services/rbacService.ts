@@ -3,6 +3,7 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 interface AclData {
   isSuperAdmin: boolean
@@ -191,7 +192,13 @@ export class RbacService {
       this.globalSuperAdminCache.set(userId, true)
       return true
     }
-    const links = await em.find(UserRole, { user: userId as any }, { populate: ['role'] })
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId as any },
+      { populate: ['role'] },
+      { tenantId: null, organizationId: null },
+    )
     const linkList = Array.isArray(links) ? links : []
     if (!linkList.length) {
       this.globalSuperAdminCache.set(userId, false)
@@ -314,7 +321,13 @@ export class RbacService {
     }
 
     // Aggregate role ACLs
-    const links = await em.find(UserRole, { user: userId as any, role: { tenantId } } as any, { populate: ['role'] })
+    const links = await findWithDecryption(
+      em,
+      UserRole,
+      { user: userId as any, role: { tenantId } } as any,
+      { populate: ['role'] },
+      { tenantId, organizationId: orgId },
+    )
     const linkList = Array.isArray(links) ? links : []
     const roleIds = linkList.map((l) => (l.role as any)?.id).filter(Boolean)
     let isSuper = false

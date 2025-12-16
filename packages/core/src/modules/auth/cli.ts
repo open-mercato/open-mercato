@@ -7,6 +7,9 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
+import { computeEmailHash } from './lib/emailHash'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { env } from 'process'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -27,10 +30,25 @@ const addUser: ModuleCli = {
     }
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const org = await em.findOneOrFail(Organization, { id: organizationId }, { populate: ['tenant'] })
+    const org =
+      (await findOneWithDecryption(
+        em,
+        Organization,
+        { id: organizationId },
+        { populate: ['tenant'] },
+        { tenantId: null, organizationId },
+      )) ?? null
+    if (!org) throw new Error('Organization not found')
     const orgTenantId = org.tenant?.id ? String(org.tenant.id) : null
     const normalizedTenantId = normalizeTenantId(orgTenantId ?? null) ?? null
-    const u = em.create(User, { email, passwordHash: await hash(password, 10), isConfirmed: true, organizationId: org.id, tenantId: org.tenant.id })
+    const u = em.create(User, {
+      email,
+      emailHash: computeEmailHash(email),
+      passwordHash: await hash(password, 10),
+      isConfirmed: true,
+      organizationId: org.id,
+      tenantId: org.tenant.id,
+    })
     await em.persistAndFlush(u)
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
@@ -151,19 +169,21 @@ const setupApp: ModuleCli = {
         console.log('⚠️  Updated roles if missing and reused tenant/organization.')
       }
 
-      for (const snapshot of result.users) {
-        if (snapshot.created) {
-          if (snapshot.user.email === email && password) {
-            console.log('Created user', snapshot.user.email, 'password:', password)
+      if(env.NODE_ENV !== 'test') { 
+        for (const snapshot of result.users) {
+          if (snapshot.created) {
+            if (snapshot.user.email === email && password) {
+              console.log('🎉 Created user', snapshot.user.email, 'password:', password)
+            } else {
+              console.log('🎉 Created user', snapshot.user.email)
+            }
           } else {
-            console.log('Created user', snapshot.user.email)
+            console.log(`Updated user ${snapshot.user.email}`)
           }
-        } else {
-          console.log(`Updated user ${snapshot.user.email}`)
         }
       }
 
-      console.log('Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
+      if(env.NODE_ENV !== 'test')   console.log('✅ Setup complete:', { tenantId: result.tenantId, organizationId: result.organizationId })
     } catch (err) {
       if (err instanceof Error && err.message === 'USER_EXISTS') {
         console.error('Setup aborted: user already exists with the provided email.')
@@ -179,7 +199,13 @@ const listOrganizations: ModuleCli = {
   async run() {
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    const orgs = await em.find(Organization, {}, { populate: ['tenant'] })
+    const orgs = await findWithDecryption(
+      em,
+      Organization,
+      {},
+      { populate: ['tenant'] },
+      { tenantId: null, organizationId: null },
+    )
     
     if (orgs.length === 0) {
       console.log('No organizations found')
@@ -263,7 +289,13 @@ const listUsers: ModuleCli = {
     
     for (const user of users) {
       // Get user roles separately
-      const userRoles = await em.find(UserRole, { user: user.id }, { populate: ['role'] })
+      const userRoles = await findWithDecryption(
+        em,
+        UserRole,
+        { user: user.id },
+        { populate: ['role'] },
+        { tenantId: user.tenantId ?? null, organizationId: user.organizationId ?? null },
+      )
       const roles = userRoles.map((ur: any) => ur.role?.name).filter(Boolean).join(', ') || 'None'
       
       // Get organization and tenant names if IDs exist
@@ -309,8 +341,8 @@ const setPassword: ModuleCli = {
     
     const { resolve } = await createRequestContainer()
     const em = resolve('em') as any
-    
-    const user = await em.findOne(User, { email })
+    const emailHash = computeEmailHash(email)
+    const user = await em.findOne(User, { $or: [{ email }, { emailHash }] })
     
     if (!user) {
       console.error(`User with email "${email}" not found`)

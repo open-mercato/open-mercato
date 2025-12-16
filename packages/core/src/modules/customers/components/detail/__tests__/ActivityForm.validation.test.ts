@@ -15,7 +15,7 @@ describe('buildActivityValidationError', () => {
       path: ['activityType'],
     }
     const thrower = () => buildActivityValidationError([issue], t)
-    expect(thrower).toThrowError('Activity type is required')
+    expect(thrower).toThrow('Activity type is required')
     try {
       thrower()
     } catch (error) {
@@ -32,6 +32,6 @@ describe('buildActivityValidationError', () => {
       message: undefined as unknown as string,
       path: [],
     }
-    expect(() => buildActivityValidationError([issue], t)).toThrowError('customers.people.detail.activities.error')
+    expect(() => buildActivityValidationError([issue], t)).toThrow('customers.people.detail.activities.error')
   })
 })

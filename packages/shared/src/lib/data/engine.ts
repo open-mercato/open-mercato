@@ -114,18 +114,24 @@ export interface DataEngine {
 
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
-
   constructor(private em: EntityManager, private container: AwilixContainer) {}
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
     await this.validateCustomFieldValues(entityId, organizationId, tenantId, values as Record<string, unknown>)
+    let encryptionService: any = null
+    try {
+      encryptionService = this.container.resolve('tenantEncryptionService') as any
+    } catch {
+      encryptionService = null
+    }
     await setRecordCustomFields(this.em, {
       entityId,
       recordId,
       organizationId,
       tenantId,
       values,
+      encryptionService,
     })
     if (opts.notify !== false) {
       let bus: EventBus | null = null

@@ -81,6 +81,7 @@ Limitations and notes
 
 - Standard debug logs honour `LOG_VERBOSITY=debug` (or a development `NODE_ENV`) and describe which path the hybrid engine picks.
 - To additionally print the SQL emitted for the count and data queries, set `QUERY_ENGINE_DEBUG_SQL=true`. The flag is disabled by default to keep development logs readable.
+- To inspect the tokens generated for search, set `OM_SEARCH_DEBUG=true`. It will log each token and hash produced during indexing, plus a per-record summary, without changing query behaviour.
 
 Related files
 - `packages/core/src/modules/query_index/data/entities.ts`

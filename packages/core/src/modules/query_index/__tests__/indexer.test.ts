@@ -1,4 +1,9 @@
 import { buildIndexDoc, upsertIndexRow, markDeleted } from '../../query_index/lib/indexer'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+
+jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
+  resolveTenantEncryptionService: jest.fn(),
+}))
 
 function createFakeKnex(data: {
   baseTable: string
@@ -75,7 +80,13 @@ function createFakeKnex(data: {
   return fn
 }
 
+const resolveEncryptionMock = resolveTenantEncryptionService as jest.Mock
+
 describe('Indexer', () => {
+  beforeEach(() => {
+    resolveEncryptionMock.mockReset()
+  })
+
   test('buildIndexDoc composes base row and custom fields (singleton and arrays)', async () => {
     const fakeKnex = createFakeKnex({
       baseTable: 'todos',
@@ -92,6 +103,26 @@ describe('Indexer', () => {
     expect(doc!.id).toBe('1')
     expect(doc!['cf:vip']).toBe(true)
     expect(doc!['cf:tags']).toEqual(['a','b'])
+  })
+
+  test('buildIndexDoc decrypts indexed payload when encryption is available', async () => {
+    resolveEncryptionMock.mockReturnValue({
+      isEnabled: () => true,
+      decryptEntityPayload: async (_entityId: string, payload: Record<string, unknown>) => ({
+        ...payload,
+        title: 'Decrypted',
+      }),
+    })
+    const fakeKnex = createFakeKnex({
+      baseTable: 'todos',
+      baseRows: [{ id: '1', title: 'Encrypted', organization_id: 'org1', tenant_id: 't1' }],
+      cfValues: [],
+    })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const doc = await buildIndexDoc(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' })
+    expect(doc).toBeTruthy()
+    expect(doc!.title).toBe('Decrypted')
+    expect(resolveEncryptionMock).toHaveBeenCalled()
   })
 
   test('upsertIndexRow inserts or merges index row with built doc', async () => {

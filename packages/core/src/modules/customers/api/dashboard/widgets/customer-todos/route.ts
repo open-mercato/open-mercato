@@ -8,6 +8,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityId } from '@/modules/entities'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -141,6 +142,11 @@ export async function GET(req: Request) {
         populate: ['entity'],
       }
     )
+    await decryptEntitiesWithFallbackScope(links, {
+      em,
+      tenantId,
+      organizationId: organizationIds?.[0] ?? null,
+    })
 
     const queryEngine = (container.resolve('queryEngine') as QueryEngine)
     const todoSummaries = await resolveTodoSummaries(queryEngine, links, tenantId, organizationIds)

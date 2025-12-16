@@ -23,6 +23,7 @@ import { mergePersonCustomFieldValues, resolvePersonCustomFieldRouting } from '.
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -437,17 +438,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
-    const person = await em.findOne(
-      CustomerEntity,
-      { id: parse.data.id, kind: 'person', deletedAt: null },
-      {
-        populate: [
-          'personProfile',
-          'personProfile.company',
-          'personProfile.company.companyProfile',
-        ],
-      }
-    )
+    const person = await em.findOne(CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null })
     profiler.mark('person_loaded', { found: !!person })
     if (!person) {
       statusCode = 404
@@ -478,7 +469,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profiler.mark('addresses_loaded', { count: addresses.length })
     }
 
-    tagAssignments = await em.find(CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] })
+    tagAssignments = await findWithDecryption(
+      em,
+      CustomerTagAssignment,
+      { entity: person.id },
+      { populate: ['tag'] },
+      { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
+    )
     profiler.mark('tags_loaded', { count: tagAssignments.length })
 
     if (includeComments) {
@@ -539,7 +536,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
 
     if (includeDeals) {
-      const dealLinks = await em.find(CustomerDealPersonLink, { person: person.id }, { populate: ['deal'] })
+      const dealLinks = await findWithDecryption(
+        em,
+        CustomerDealPersonLink,
+        { person: person.id },
+        { populate: ['deal'] },
+        { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
+      )
       deals = dealLinks
         .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
         .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')

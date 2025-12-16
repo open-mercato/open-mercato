@@ -14,6 +14,7 @@ import { buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpe
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { z } from 'zod'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type DictionaryScope = {
   tenantId: string
@@ -88,7 +89,7 @@ function toScopeEnsurer(fn: EnsureScopeFn | undefined): EnsureScopeFn {
 }
 
 async function loadSnapshot(em: EntityManager, id: string): Promise<DictionaryEntrySnapshot | null> {
-  const entry = await em.findOne(DictionaryEntry, id, { populate: ['dictionary'] })
+  const entry = await findOneWithDecryption(em, DictionaryEntry, id, { populate: ['dictionary'] })
   if (!entry) return null
   return {
     id: entry.id,

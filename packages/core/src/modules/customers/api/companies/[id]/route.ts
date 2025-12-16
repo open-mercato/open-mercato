@@ -27,6 +27,7 @@ import {
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -330,7 +331,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const addresses = includeAddresses
     ? await em.find(CustomerAddress, { entity: company.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
     : []
-  const tagAssignments = await em.find(CustomerTagAssignment, { entity: company.id }, { populate: ['tag'] })
+  const tagAssignments = await findWithDecryption(
+    em,
+    CustomerTagAssignment,
+    { entity: company.id },
+    { populate: ['tag'] },
+    { tenantId: company.tenantId ?? auth.tenantId ?? null, organizationId: company.organizationId ?? auth.orgId ?? null },
+  )
 
   const comments = includeComments
     ? await em.find(CustomerComment, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
@@ -388,7 +395,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   let deals: CustomerDeal[] = []
   if (includeDeals) {
-    const dealLinks = await em.find(CustomerDealCompanyLink, { company: company.id }, { populate: ['deal'] })
+    const dealLinks = await findWithDecryption(
+      em,
+      CustomerDealCompanyLink,
+      { company: company.id },
+      { populate: ['deal'] },
+      { tenantId: company.tenantId ?? auth.tenantId ?? null, organizationId: company.organizationId ?? auth.orgId ?? null },
+    )
     deals = dealLinks
       .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
       .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')

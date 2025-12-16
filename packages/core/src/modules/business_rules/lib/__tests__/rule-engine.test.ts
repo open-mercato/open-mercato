@@ -80,7 +80,7 @@ describe('Rule Engine (Unit Tests)', () => {
 
       expect(rules).toHaveLength(1)
       expect(rules[0].ruleId).toBe('TEST-001')
-      expect(mockEm.find).toHaveBeenCalledWith(
+      expect(mockEm.find as any).toHaveBeenCalledWith(
         expect.any(Function), // BusinessRule class
         expect.objectContaining({
           entityType: 'WorkOrder',
@@ -165,7 +165,7 @@ describe('Rule Engine (Unit Tests)', () => {
         organizationId: testOrgId,
       })
 
-      expect(mockEm.find).toHaveBeenCalledWith(
+      expect(mockEm.find as any).toHaveBeenCalledWith(
         expect.any(Function), // BusinessRule class
         expect.any(Object),
         expect.objectContaining({
@@ -221,7 +221,7 @@ describe('Rule Engine (Unit Tests)', () => {
       expect(result.actionsExecuted?.success).toBe(true)
       expect(result.executionTime).toBeGreaterThanOrEqual(0)
       expect(ruleEvaluator.evaluateSingleRule).toHaveBeenCalledWith(
-        mockRule,
+        mockRule as any,
         context.data,
         expect.objectContaining({
           entityType: context.entityType,

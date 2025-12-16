@@ -4,6 +4,11 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const supportedLocales = new Set<Locale>(locales)
 
+export const metadata = {
+  GET: { requireAuth: false },
+  POST: { requireAuth: false },
+}
+
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
   try {
