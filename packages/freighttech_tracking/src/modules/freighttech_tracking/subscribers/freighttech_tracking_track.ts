@@ -22,10 +22,9 @@ export default async function handle(payload: any, ctx: HandlerContext) {
   const em = ctx.resolve<EntityManager>('em')
 
   console.debug("[freighttech_tracking.subscribers] event received", payload)
-  // todo check if already tracked
-  
+
   const resp = await RegisterContainerSubscription(em, payload)
 
-  console.debug("[freighttech_tracking.subscribers] registered new tracking", resp)
-  // todo save response for tracking duplicates
+  const { container_id, carrier_code } = resp.reference
+  console.debug("[freighttech_tracking.subscribers] registered new tracking", { container_id, carrier_code })
 }
