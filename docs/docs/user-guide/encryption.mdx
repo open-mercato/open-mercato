@@ -13,6 +13,8 @@ Use tenant data encryption to protect sensitive columns with per-tenant DEKs, ke
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys (default `secret/data`).
 - Fallback (dev / when Vault is down): set `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (preferred) or `TENANT_DATA_ENCRYPTION_KEY`. If none are set, `AUTH_SECRET`/`NEXTAUTH_SECRET` is used in dev; production falls back to noop KMS.
 
+Note: changing encryption maps or toggling the **Encrypted** flag on a custom field only applies to data written after the change; previously stored values stay as they were unless you re-save or migrate them.
+
 ## Vault setup (KMS)
 
 1. Enable KV v2 and pick a mount, e.g. `secret/`:

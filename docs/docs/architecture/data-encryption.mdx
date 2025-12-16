@@ -30,6 +30,7 @@ This document outlines the data-encryption architecture so module owners can wir
 - **Auth adjustments** – `users` table gains `email_hash` (indexed) so login can query by hash even when `email` is encrypted.
 - **Tenant bootstrap** – tenant creation flow generates and stores a DEK via `kmsService.createTenantDek` with the `tenant_key_<tenantId>` prefix.
 - **Observability** – warning rows (or audit logs) emitted when KMS is unavailable; encryption map evaluation adds debug logging to trace which fields are encrypted.
+- **Fallback path** – if Vault is unhealthy, the runtime uses a derived-key KMS when a fallback secret is provided (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY` → `TENANT_DATA_ENCRYPTION_KEY` → `AUTH_SECRET/NEXTAUTH_SECRET`, dev default last); without any secret in production it becomes a noop KMS (ciphertext left plaintext).
 
 ## Data flow
 
@@ -89,6 +90,7 @@ flowchart TD
 - **DEK generation** – 32 random bytes, base64-encoded; stored under `tenant_key_<tenantId>` in Vault.
 - **Rotation** – future addition: new version stored under suffix `tenant_key_<tenantId>_v2` with dual-read, single-write strategy; current design keeps a single active DEK per tenant.
 - **Caching** – DEKs cached with TTL (e.g., 15 minutes) and proactive refresh on expiry; invalidated if KMS returns a new version.
+- **Derived-key fallback** – when running without Vault, the derived KMS hashes the chosen secret to a root key (SHA-256) and produces per-tenant DEKs via `HMAC-SHA256(root, tenantId)`, encoded base64. The key stays stable for a tenant while the secret is unchanged.
 
 ## Integration points to implement
 
