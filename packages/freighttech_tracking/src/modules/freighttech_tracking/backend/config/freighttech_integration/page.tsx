@@ -9,14 +9,17 @@ import { flash } from "@open-mercato/ui/backend/FlashMessages";
 
 type SettingsResponse = {
   apiKey: string;
+  apiBaseUrl: string;
 };
 
 type FormState = {
   apiKey: string;
+  apiBaseUrl: string;
 };
 
 const DEFAULT_STATE: FormState = {
   apiKey: "",
+  apiBaseUrl: "",
 };
 
 const normalizeState = (
@@ -26,6 +29,10 @@ const normalizeState = (
     typeof payload?.apiKey === "string" && payload.apiKey.trim().length
       ? payload.apiKey
       : "",
+  apiBaseUrl: typeof payload?.apiBaseUrl === "string" && payload.apiBaseUrl.trim().length
+    ? payload.apiBaseUrl
+    : "",
+
 });
 
 export default function FreighttechTrackingAdminIndex() {
@@ -41,6 +48,7 @@ export default function FreighttechTrackingAdminIndex() {
       try {
         const payload = {
           apiKey: formState.apiKey.trim(),
+          apiBaseUrl: formState.apiBaseUrl.trim(),
         };
         const call = await apiCall<SettingsResponse>(
           "/api/freighttech_tracking/settings",
@@ -63,7 +71,7 @@ export default function FreighttechTrackingAdminIndex() {
         setSaving(false);
       }
     },
-    [formState.apiKey, t]
+    [formState.apiKey, formState.apiBaseUrl, t]
   );
 
   const handleChange =
@@ -118,6 +126,21 @@ export default function FreighttechTrackingAdminIndex() {
                 />
                 <p className="text-xs text-muted-foreground">
                   {t("freighttech_tracking.settings.api_key.hint")}
+                </p>
+              </label>
+
+              <label className="space-y-2">
+                <div className="text-sm font-medium">
+                  {t("freighttech_tracking.settings.api_base_url.label")}
+                </div>
+                <Input
+                  value={formState.apiBaseUrl}
+                  onChange={handleChange("apiBaseUrl")}
+                  disabled={loading || saving}
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("freighttech_tracking.settings.api_base_url.hint")}
                 </p>
               </label>
             </div>

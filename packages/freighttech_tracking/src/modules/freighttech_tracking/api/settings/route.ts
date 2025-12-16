@@ -67,6 +67,7 @@ export async function GET(req: Request) {
     const record = await loadFreighttechTrackingSettings(em, { tenantId, organizationId })
     return NextResponse.json({
       apiKey: record?.apiKey ?? "",
+      apiBaseUrl: record?.apiBaseUrl ?? "",
     })
   } catch (err) {
     if (err instanceof CrudHttpError) {
@@ -95,11 +96,13 @@ export async function PUT(req: Request) {
       {
         settingsId: string
         apiKey: string
+        apiBaseUrl: string
       }
     >('freighttech_tracking.settings.save', { input, ctx })
 
     return NextResponse.json({
       apiKey: result?.apiKey ?? input.apiKey,
+      apiBaseUrl: result?.apiBaseUrl ?? input.apiBaseUrl,
     })
   } catch (err) {
     if (err instanceof CrudHttpError) {
@@ -116,6 +119,7 @@ export async function PUT(req: Request) {
 
 const settingsResponseSchema = z.object({
   apiKey: z.string(),
+  apiBaseUrl: z.string(),
 })
 
 const settingsErrorSchema = z.object({

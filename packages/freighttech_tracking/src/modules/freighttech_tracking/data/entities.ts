@@ -18,6 +18,9 @@ export class FreighttechTrackingSettings {
   @Property({ name: 'api_key', type: 'text', default: '' })
   apiKey: string = ''
 
+  @Property({ name: 'api_base_url', type: 'text', default: '' })
+  apiBaseUrl: string = ''
+  
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

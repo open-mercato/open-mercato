@@ -44,6 +44,16 @@
           "default": "''",
           "mappedType": "text"
         },
+        "api_base_url": {
+          "name": "api_base_url",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "''",
+          "mappedType": "text"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
