@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react';
 import Table from './index';
 import { TableEvents } from './events/types';
 import { dispatch, useMediator } from './events/events';
-import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent } from './events/types';
+import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent } from './events/types';
 import { ColumnConfig } from './renderers';
 import { ApiCallResult } from '../utils/apiCall';
 import {emailValidator} from "./validators";
@@ -15,8 +15,6 @@ const meta: Meta<typeof Table> = {
         layout: 'padded',
     },
 };
-
-
 
 export default meta;
 
@@ -68,6 +66,52 @@ const mockApiSave = (rowIndex: number, colIndex: number, value: any): Promise<Ap
     });
   }; 
 
+const mockApiNewRowSave = (rowIndex: number, rowData: any): Promise<ApiCallResult<{ success: boolean; data?: any; error?: string }>> => {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        // 80% success rate for demo (same as cell save)
+        if (Math.random() > 0.2) {
+          resolve({
+            ok: true,
+            status: 201,
+            result: {
+              success: true,
+              data: {
+                rowIndex,
+                rowData,
+                id: Math.floor(Math.random() * 10000), // Generate mock ID
+                createdAt: new Date().toISOString(),
+              }
+            },
+            response: new Response(JSON.stringify({ success: true }), {
+              status: 201,
+              headers: { 'Content-Type': 'application/json' }
+            }),
+            cacheStatus: null
+          });
+        } else {
+          resolve({
+            ok: false,
+            status: 400,
+            result: {
+              success: false,
+              error: 'Validation failed: Required fields missing'
+            },
+            response: new Response(
+              JSON.stringify({ 
+                error: 'Validation failed: Required fields missing'
+              }), 
+              {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+              }
+            ),
+            cacheStatus: null
+          });
+        }
+      }, 1500);
+    });
+  }; 
 
 // Generate random data
 const generateData = (count: number) => {
@@ -93,8 +137,6 @@ const generateData = (count: number) => {
         notes: `Notes for person ${i + 1}`
     }));
 };
-
-
 
 const DynamicTableExample = () => {
     const tableRef = React.useRef<HTMLDivElement>(null);
@@ -138,72 +180,120 @@ const DynamicTableExample = () => {
         )},
         { data: 'notes', width: 250, title: 'Notes' },
     ];
+
+    // Handle cell edits (not for new rows)
     useMediator<CellEditSaveEvent>(
         TableEvents.CELL_EDIT_SAVE,
         useCallback(async (payload: CellEditSaveEvent) => {
+            console.log('CELL_EDIT_SAVE event received:', payload);
 
-        dispatch(
-            tableRef.current as HTMLElement,
-            TableEvents.CELL_SAVE_START,
-            {
-                rowIndex: payload.rowIndex,
-                colIndex: payload.colIndex,
-            } as CellSaveStartEvent
-        );
+            dispatch(
+                tableRef.current as HTMLElement,
+                TableEvents.CELL_SAVE_START,
+                {
+                    rowIndex: payload.rowIndex,
+                    colIndex: payload.colIndex,
+                } as CellSaveStartEvent
+            );
 
-        try {
-            const response = await mockApiSave(payload.rowIndex, payload.colIndex, payload.value);
-            
-            if (response.ok) {
+            try {
+                const response = await mockApiSave(payload.rowIndex, payload.colIndex, payload.value);
                 
-                // Dispatch success event
-                dispatch(
-                    tableRef.current as HTMLElement,
-                    TableEvents.CELL_SAVE_SUCCESS,
-                    {
-                        rowIndex: payload.rowIndex,
-                        colIndex: payload.colIndex,
-                    } as CellSaveSuccessEvent
-                );
-            } else {
-                console.error('Save failed', response.result?.error);
+                if (response.ok) {
+                    dispatch(
+                        tableRef.current as HTMLElement,
+                        TableEvents.CELL_SAVE_SUCCESS,
+                        {
+                            rowIndex: payload.rowIndex,
+                            colIndex: payload.colIndex,
+                        } as CellSaveSuccessEvent
+                    );
+                } else {
+                    console.error('Save failed', response.result?.error);
+                    
+                    dispatch(
+                        tableRef.current as HTMLElement,
+                        TableEvents.CELL_SAVE_ERROR,
+                        {
+                            rowIndex: payload.rowIndex,
+                            colIndex: payload.colIndex,
+                            error: response.result?.error,
+                        } as CellSaveErrorEvent
+                    );
+                }
+            } catch (error) {
+                console.error('Save exception', error);
                 
-                // Dispatch error event
                 dispatch(
                     tableRef.current as HTMLElement,
                     TableEvents.CELL_SAVE_ERROR,
                     {
                         rowIndex: payload.rowIndex,
                         colIndex: payload.colIndex,
-                        error: response.result?.error,
+                        error: error instanceof Error ? error.message : 'Unknown error',
                     } as CellSaveErrorEvent
                 );
             }
-        } catch (error) {
-            console.error('Save exception', error);
-            
-            // Dispatch error event for exceptions
-            dispatch(
-                tableRef.current as HTMLElement,
-                TableEvents.CELL_SAVE_ERROR,
-                {
-                    rowIndex: payload.rowIndex,
-                    colIndex: payload.colIndex,
-                    error: error instanceof Error ? error.message : 'Unknown error',
-                } as CellSaveErrorEvent
-            );
-        
-        }
-    }, []),
-    tableRef as React.RefObject<HTMLElement>
-);
+        }, []),
+        tableRef as React.RefObject<HTMLElement>
+    );
+
+    // Handle new row save
+    useMediator<NewRowSaveEvent>(
+        TableEvents.NEW_ROW_SAVE,
+        useCallback(async (payload: NewRowSaveEvent) => {
+            console.log('NEW_ROW_SAVE event received:', payload);
+
+            try {
+                const response = await mockApiNewRowSave(payload.rowIndex, payload.rowData);
+                
+                if (response.ok) {
+                    console.log('New row saved successfully:', response.result);
+                    
+                    // Dispatch success event with saved data including new ID
+                    dispatch(
+                        tableRef.current as HTMLElement,
+                        TableEvents.NEW_ROW_SAVE_SUCCESS,
+                        {
+                            rowIndex: payload.rowIndex,
+                            savedRowData: {
+                                ...payload.rowData,
+                                id: response.result.data.id, // Update with generated ID
+                            }
+                        } as NewRowSaveSuccessEvent
+                    );
+                } else {
+                    console.error('New row save failed', response.result?.error);
+                    
+                    dispatch(
+                        tableRef.current as HTMLElement,
+                        TableEvents.NEW_ROW_SAVE_ERROR,
+                        {
+                            rowIndex: payload.rowIndex,
+                            error: response.result?.error,
+                        } as NewRowSaveErrorEvent
+                    );
+                }
+            } catch (error) {
+                console.error('New row save exception', error);
+                
+                dispatch(
+                    tableRef.current as HTMLElement,
+                    TableEvents.NEW_ROW_SAVE_ERROR,
+                    {
+                        rowIndex: payload.rowIndex,
+                        error: error instanceof Error ? error.message : 'Unknown error',
+                    } as NewRowSaveErrorEvent
+                );
+            }
+        }, []),
+        tableRef as React.RefObject<HTMLElement>
+    );
 
     return (
         <div className="space-y-4">
             <div className="bg-white p-4 rounded-lg shadow">
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-
                     <div className="space-y-2">
                         <h3 className="font-semibold text-lg">Filter</h3>
                         <div className="flex gap-2">
@@ -220,12 +310,12 @@ const DynamicTableExample = () => {
             </div>
 
             <Table
-            tableRef={tableRef}
-                    data={data}
-                    columns={columns}
-                    colHeaders={true}
-                    rowHeaders={true}
-                />
+                tableRef={tableRef}
+                data={data}
+                columns={columns}
+                colHeaders={true}
+                rowHeaders={true}
+            />
         </div>
     );
 };

@@ -86,36 +86,34 @@ tr[data-is-new="true"] td {
     background: #fef3c7 !important;
 }
 
-tr[data-is-new="true"] td:hover:not([data-save-state]) {
+tr[data-is-new="true"] td:hover:not([data-save-state]):not([data-row-save-state]) {
     background: #fde68a !important;
 }
 
-/* Cancel button */
-.hot-row-cancel-btn {
-    position: absolute;
-    left: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 20px;
-    height: 20px;
+/* Error state on new rows - override yellow with red */
+tr[data-is-new="true"] td[data-row-save-state="error"] {
+    background: #fee2e2 !important;
+}
+
+/* Cancel button in row header */
+.hot-row-cancel-btn-header {
+    width: 100%;
+    height: 100%;
     border: none;
-    border-radius: 3px;
     background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: bold;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 5;
     transition: all 0.2s;
 }
 
-.hot-row-cancel-btn:hover {
+.hot-row-cancel-btn-header:hover {
     background: #ef4444;
     color: white;
-    transform: translateY(-50%) scale(1.1);
 }
 
 /* Save button cell */
@@ -552,9 +550,132 @@ td[data-save-state="error"] {
     }
 }
 
+/* Row save state animations */
+td[data-row-save-state="saving"] {
+    position: relative;
+    overflow: hidden;
+    background: #e8f0fe !important;
+}
+
+td[data-row-save-state="saving"]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.6) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    animation: pulse-skeleton 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+td[data-row-save-state="success"] {
+    background: #d1fae5 !important;
+    animation: fade-row-success 2s ease-out forwards;
+}
+
+/* Success row border - first cell (including row header) */
+tr td:first-child[data-row-save-state="success"] {
+    box-shadow: inset 2px 0 0 0 #10b981, inset 0 2px 0 0 #10b981, inset 0 -2px 0 0 #10b981 !important;
+}
+
+/* Success row border - middle cells */
+tr td[data-row-save-state="success"]:not(:first-child):not(:last-child) {
+    box-shadow: inset 0 2px 0 0 #10b981, inset 0 -2px 0 0 #10b981 !important;
+}
+
+/* Success row border - last cell */
+tr td:last-child[data-row-save-state="success"] {
+    box-shadow: inset -2px 0 0 0 #10b981, inset 0 2px 0 0 #10b981, inset 0 -2px 0 0 #10b981 !important;
+}
+
+td[data-row-save-state="error"] {
+    background: #fee2e2 !important;
+    animation: shake-row 0.5s ease-in-out, fade-row-error 3s ease-out forwards;
+}
+
+/* Error row border - first cell */
+tr td:first-child[data-row-save-state="error"] {
+    box-shadow: inset 2px 0 0 0 #ef4444, inset 0 2px 0 0 #ef4444, inset 0 -2px 0 0 #ef4444 !important;
+}
+
+/* Error row border - middle cells */
+tr td[data-row-save-state="error"]:not(:first-child):not(:last-child) {
+    box-shadow: inset 0 2px 0 0 #ef4444, inset 0 -2px 0 0 #ef4444 !important;
+}
+
+/* Error row border - last cell */
+tr td:last-child[data-row-save-state="error"] {
+    box-shadow: inset -2px 0 0 0 #ef4444, inset 0 2px 0 0 #ef4444, inset 0 -2px 0 0 #ef4444 !important;
+}
+
+@keyframes fade-row-success {
+    0% {
+        background: #d1fae5 !important;
+    }
+
+    70% {
+        background: #d1fae5 !important;
+    }
+
+    100% {
+        background: white !important;
+    }
+}
+
+@keyframes fade-row-error {
+    0% {
+        background: #fee2e2 !important;
+    }
+
+    85% {
+        background: #fee2e2 !important;
+    }
+
+    100% {
+        background: white !important;
+    }
+}
+
+@keyframes shake-row {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+        transform: translateX(-2px);
+    }
+
+    20%,
+    40%,
+    60%,
+    80% {
+        transform: translateX(2px);
+    }
+}
+
+/* Override new row background during save states */
+tr[data-is-new="false"] td[data-row-save-state="success"],
+tr[data-is-new="false"] td[data-row-save-state="error"],
+tr[data-is-new="false"] td[data-row-save-state="saving"] {
+    /* Let the data attribute styles apply */
+}
+
 /* Ensure save state styles override selection styles when needed */
 td[data-save-state="saving"],
 td[data-save-state="success"],
-td[data-save-state="error"] {
+td[data-save-state="error"],
+td[data-row-save-state="saving"],
+td[data-row-save-state="success"],
+td[data-row-save-state="error"] {
     z-index: 2;
 }

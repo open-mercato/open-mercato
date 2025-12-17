@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import './HOT.css';
 import { getCellRenderer, ColumnConfig } from './renderers';
 import {dispatch, useMediator} from "./events/events"
-import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents } from './events/types';
+import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents, NewRowSaveEvent, NewRowSaveStartEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent } from './events/types';
 
 interface TableCellProps {
   value: any;
@@ -45,6 +45,7 @@ interface TableCellProps {
   onCancelRow?: () => void;
   stickyLeft?: number;
   stickyRight?: number;
+  rowSaveState?: 'saving' | 'success' | 'error' | null;
 }
 
 interface CellSaveState {
@@ -81,7 +82,8 @@ const TableCell = memo<TableCellProps>(({
   isFirstDataCell,
   onCancelRow,
   stickyLeft,
-  stickyRight
+  stickyRight,
+  rowSaveState
 }) => {
   if (isRowHeader) {
     return (
@@ -101,7 +103,20 @@ const TableCell = memo<TableCellProps>(({
           zIndex: 3
         }}
       >
-        {rowIndex + 1}
+        {isNewRow ? (
+          <button
+            className="hot-row-cancel-btn-header"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancelRow?.();
+            }}
+            title="Cancel"
+          >
+            ✕
+          </button>
+        ) : (
+          rowIndex + 1
+        )}
       </td>
     );
   }
@@ -150,21 +165,10 @@ const TableCell = memo<TableCellProps>(({
       data-col-range-left={colRangeEdges.left}
       data-col-range-right={colRangeEdges.right}
       data-save-state={saveState?.status}
+      data-row-save-state={rowSaveState}
       data-sticky-left={stickyLeft !== undefined}
       data-sticky-right={stickyRight !== undefined}
     >
-      {isFirstDataCell && isNewRow && (
-        <button
-          className="hot-row-cancel-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onCancelRow?.();
-          }}
-          title="Cancel"
-        >
-          ✕
-        </button>
-      )}
       {isEditing ? (
         <textarea
           ref={editInputRef}
@@ -242,12 +246,14 @@ const HOT: React.FC<HOTProps> = ({
     colRange: null
   });
   const [cellSaveStates, setCellSaveStates] = useState<Map<string, CellSaveState>>(new Map());
+  const [rowSaveStates, setRowSaveStates] = useState<Map<number, 'saving' | 'success' | 'error' | null>>(new Map());
   const [editing, setEditing] = useState<EditingState>({ row: null, col: null, value: '' });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<any>(null);
   const dragTypeRef = useRef<'cell' | 'row' | 'column' | null>(null);
   const lastUpdateRef = useRef(0);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
+  const isTabbing = useRef(false);
   const THROTTLE_MS = 50;
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
@@ -366,6 +372,9 @@ const HOT: React.FC<HOTProps> = ({
   const handleEditSave = useCallback(() => {
     if (editing.row === null || editing.col === null) return;
 
+    // If we're tabbing, skip the blur-triggered save
+    if (isTabbing.current) return;
+
     const oldValue = tableData[editing.row][cols[editing.col].data];
     const newValue = editing.value;
     
@@ -385,19 +394,21 @@ const HOT: React.FC<HOTProps> = ({
     // Force re-render
     setTableData([...tableData]);
     
-    // Dispatch save event
-    dispatch(
-      tableRef?.current as HTMLElement,
-      TableEvents.CELL_EDIT_SAVE,
-      {
-        rowIndex: editing.row,
-        colIndex: editing.col,
-        oldValue: oldValue,
-        newValue: newValue,
-        rowData: tableData[editing.row],
-        id: isObjectData ? tableData[editing.row][idColumName] : undefined
-      }
-    );
+    // Only dispatch save event if NOT a new row
+    if (!tableData[editing.row]._isNew) {
+      dispatch(
+        tableRef?.current as HTMLElement,
+        TableEvents.CELL_EDIT_SAVE,
+        {
+          rowIndex: editing.row,
+          colIndex: editing.col,
+          oldValue: oldValue,
+          newValue: newValue,
+          rowData: tableData[editing.row],
+          id: isObjectData ? tableData[editing.row][idColumName] : undefined
+        }
+      );
+    }
     
     setEditing({ row: null, col: null, value: '' });
   }, [editing, tableData, cols, isObjectData, idColumName]);
@@ -411,7 +422,7 @@ const HOT: React.FC<HOTProps> = ({
     if (!cell) return;
     
     // Ignore clicks on action buttons
-    if ((e.target as HTMLElement).closest('.hot-row-cancel-btn, .hot-row-save-btn')) {
+    if ((e.target as HTMLElement).closest('.hot-row-cancel-btn-header, .hot-row-save-btn')) {
       return;
     }
 
@@ -586,14 +597,33 @@ const HOT: React.FC<HOTProps> = ({
       const editedRow = editing.row!;
       const editedCol = editing.col!;
       
+      const oldValue = tableData[editedRow][cols[editedCol].data];
+      const newValue = editing.value;
+      
       const newData = [...tableData];
       if (isObjectData) {
-        newData[editedRow] = { ...newData[editedRow], [cols[editedCol].data]: editing.value };
+        newData[editedRow] = { ...newData[editedRow], [cols[editedCol].data]: newValue };
       } else {
         newData[editedRow] = [...newData[editedRow]];
-        newData[editedRow][cols[editedCol].data] = editing.value;
+        newData[editedRow][cols[editedCol].data] = newValue;
       }
       setTableData(newData);
+      
+      // Dispatch save event if NOT a new row and value changed
+      if (!newData[editedRow]._isNew && String(oldValue ?? '') !== newValue) {
+        dispatch(
+          tableRef?.current as HTMLElement,
+          TableEvents.CELL_EDIT_SAVE,
+          {
+            rowIndex: editedRow,
+            colIndex: editedCol,
+            oldValue: oldValue,
+            newValue: newValue,
+            rowData: newData[editedRow],
+            id: isObjectData ? newData[editedRow][idColumName] : undefined
+          }
+        );
+      }
       
       const nextRow = editedRow + 1;
       if (nextRow < tableData.length) {
@@ -622,7 +652,7 @@ const HOT: React.FC<HOTProps> = ({
       e.preventDefault();
       handleEditCancel();
     }
-  }, [editing, tableData, cols, isObjectData, getCellValue, handleEditCancel]);
+  }, [editing, tableData, cols, isObjectData, getCellValue, handleEditCancel, idColumName, tableRef]);
 
   const handleAddRow = useCallback(() => {
     const newRow = isObjectData 
@@ -631,28 +661,42 @@ const HOT: React.FC<HOTProps> = ({
     
     tableData.unshift(newRow);
     setTableData([...tableData]);
-  }, [tableData, cols, isObjectData]);
+
+    // Set selection and editing state to first cell of new row
+    const firstValue = getCellValue(newRow, cols[0]);
+    setSelection({
+      type: 'range',
+      row: null,
+      col: null,
+      range: { startRow: 0, endRow: 0, startCol: 0, endCol: 0 },
+      rowRange: null,
+      colRange: null
+    });
+    setEditing({ row: 0, col: 0, value: String(firstValue ?? '') });
+  }, [tableData, cols, isObjectData, getCellValue]);
 
   const handleSaveNewRow = useCallback((rowIndex: number) => {
-    const newData = [...tableData];
-    delete newData[rowIndex]._isNew;
-    setTableData(newData);
+    const rowData = { ...tableData[rowIndex] };
 
-    // Dispatch event for new row save
+    // Dispatch NEW_ROW_SAVE_START event
     dispatch(
       tableRef?.current as HTMLElement,
-      TableEvents.CELL_EDIT_SAVE,
+      TableEvents.NEW_ROW_SAVE_START,
+      {
+        rowIndex
+      } as NewRowSaveStartEvent
+    );
+
+    // Dispatch NEW_ROW_SAVE event
+    dispatch(
+      tableRef?.current as HTMLElement,
+      TableEvents.NEW_ROW_SAVE,
       {
         rowIndex,
-        colIndex: -1,
-        oldValue: undefined,
-        newValue: newData[rowIndex],
-        rowData: newData[rowIndex],
-        id: isObjectData ? newData[rowIndex][idColumName] : undefined,
-        isNewRow: true
-      }
+        rowData: rowData
+      } as NewRowSaveEvent
     );
-  }, [tableData, isObjectData, idColumName, tableRef]);
+  }, [tableData, tableRef]);
 
   const handleCancelNewRow = useCallback((rowIndex: number) => {
     const newData = tableData.filter((_, idx) => idx !== rowIndex);
@@ -722,6 +766,70 @@ const HOT: React.FC<HOTProps> = ({
     tableRef as React.RefObject<HTMLElement>
   );
 
+  useMediator<NewRowSaveStartEvent>(
+    TableEvents.NEW_ROW_SAVE_START,
+    useCallback((payload: NewRowSaveStartEvent) => {
+      setRowSaveStates(prev => {
+        const next = new Map(prev);
+        next.set(payload.rowIndex, 'saving');
+        return next;
+      });
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+  );
+
+  useMediator<NewRowSaveSuccessEvent>(
+    TableEvents.NEW_ROW_SAVE_SUCCESS,
+    useCallback((payload: NewRowSaveSuccessEvent) => {
+      // Update row data with saved data (including new ID)
+      setTableData(prev => {
+        const newData = [...prev];
+        if (newData[payload.rowIndex]) {
+          newData[payload.rowIndex] = { ...payload.savedRowData };
+          delete newData[payload.rowIndex]._isNew;
+        }
+        return newData;
+      });
+
+      setRowSaveStates(prev => {
+        const next = new Map(prev);
+        next.set(payload.rowIndex, 'success');
+        return next;
+      });
+      
+      // Clear success state after 2 seconds
+      setTimeout(() => {
+        setRowSaveStates(prev => {
+          const next = new Map(prev);
+          next.delete(payload.rowIndex);
+          return next;
+        });
+      }, 2000);
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+  );
+
+  useMediator<NewRowSaveErrorEvent>(
+    TableEvents.NEW_ROW_SAVE_ERROR,
+    useCallback((payload: NewRowSaveErrorEvent) => {
+      setRowSaveStates(prev => {
+        const next = new Map(prev);
+        next.set(payload.rowIndex, 'error');
+        return next;
+      });
+      
+      // Clear error state after 3 seconds
+      setTimeout(() => {
+        setRowSaveStates(prev => {
+          const next = new Map(prev);
+          next.delete(payload.rowIndex);
+          return next;
+        });
+      }, 3000);
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+  );
+
   useEffect(() => {
     if (isDragging) {
       document.addEventListener('mouseup', handleMouseUp);
@@ -731,11 +839,16 @@ const HOT: React.FC<HOTProps> = ({
 
   useEffect(() => {
     if (editing.row !== null && editInputRef.current) {
-      editInputRef.current.focus();
-      const length = editInputRef.current.value.length;
-      editInputRef.current.setSelectionRange(length, length);
+      // Use setTimeout to ensure textarea is mounted and ready
+      setTimeout(() => {
+        if (editInputRef.current) {
+          editInputRef.current.focus();
+          const length = editInputRef.current.value.length;
+          editInputRef.current.setSelectionRange(length, length);
+        }
+      }, 0);
     }
-  }, [editing.row]);
+  }, [editing.row, editing.col]);
 
   useEffect(() => {
     const handleCopy = (e: ClipboardEvent) => {
@@ -803,7 +916,35 @@ const HOT: React.FC<HOTProps> = ({
         e.preventDefault();
         
         if (editing.row !== null) {
-          handleEditSave();
+          isTabbing.current = true;
+          
+          // Manually save the current cell
+          const oldValue = tableData[editing.row][cols[editing.col!].data];
+          const newValue = editing.value;
+          
+          if (String(oldValue ?? '') !== newValue) {
+            if (isObjectData) {
+              tableData[editing.row][cols[editing.col!].data] = newValue;
+            } else {
+              tableData[editing.row][cols[editing.col!].data] = newValue;
+            }
+            setTableData([...tableData]);
+            
+            if (!tableData[editing.row]._isNew) {
+              dispatch(
+                tableRef?.current as HTMLElement,
+                TableEvents.CELL_EDIT_SAVE,
+                {
+                  rowIndex: editing.row,
+                  colIndex: editing.col!,
+                  oldValue: oldValue,
+                  newValue: newValue,
+                  rowData: tableData[editing.row],
+                  id: isObjectData ? tableData[editing.row][idColumName] : undefined
+                }
+              );
+            }
+          }
           
           const direction = e.shiftKey ? -1 : 1;
           let nextCol = editing.col! + direction;
@@ -828,6 +969,13 @@ const HOT: React.FC<HOTProps> = ({
               colRange: null
             });
             setEditing({ row: nextRow, col: nextCol, value: String(nextValue ?? '') });
+            
+            // Reset flag after state updates
+            setTimeout(() => {
+              isTabbing.current = false;
+            }, 0);
+          } else {
+            isTabbing.current = false;
           }
           return;
         }
@@ -867,6 +1015,7 @@ const HOT: React.FC<HOTProps> = ({
             rowRange: null,
             colRange: null
           });
+          // Auto-enter edit mode on Tab
           setEditing({ row: nextRow, col: nextCol, value: String(nextValue ?? '') });
         }
       }
@@ -1068,6 +1217,7 @@ const HOT: React.FC<HOTProps> = ({
               const rowInRowRange = isInRowRange(rowIndex);
               const rowRangeEdges = getRowRangeEdges(rowIndex);
               const isNewRow = row._isNew === true;
+              const rowSaveState = rowSaveStates.get(rowIndex) || null;
 
               return (
                 <tr
@@ -1096,6 +1246,8 @@ const HOT: React.FC<HOTProps> = ({
                       hasCellSelected={hasCellSelected}
                       isInRowRange={rowInRowRange}
                       rowRangeEdges={rowRangeEdges}
+                      isNewRow={isNewRow}
+                      onCancelRow={() => handleCancelNewRow(rowIndex)}
                     />
                   )}
                   {cols.map((col, colIndex) => {
@@ -1142,6 +1294,7 @@ const HOT: React.FC<HOTProps> = ({
                         onCancelRow={() => handleCancelNewRow(rowIndex)}
                         stickyLeft={leftOffsets[colIndex]}
                         stickyRight={rightOffsets[colIndex]}
+                        rowSaveState={rowSaveState}
                       />
                     );
                   })}
@@ -1161,6 +1314,7 @@ const HOT: React.FC<HOTProps> = ({
                     data-col={cols.length}
                     data-actions-cell="true"
                     data-sticky-right={true}
+                    data-row-save-state={rowSaveState}
                   >
                     {isNewRow && (
                       <button
