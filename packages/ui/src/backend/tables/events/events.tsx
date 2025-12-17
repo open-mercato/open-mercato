@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-export function dispatch(element, eventName, payload) {
+export function dispatch<T>(element: HTMLElement, eventName: string, payload: T) {
   console.log('Dispatching event:', element, eventName, payload);
   const event = new CustomEvent(eventName, {
     detail: payload,
@@ -10,15 +10,15 @@ export function dispatch(element, eventName, payload) {
   element.dispatchEvent(event);
 }
 
-export function useMediator(eventName, handler, elementRef) {
+export function useMediator<T>(eventName: string, handler: (payload: any) => void, elementRef: React.RefObject<HTMLElement> | null) {
   useEffect(() => {
-    const element = elementRef.current;
+    const element = elementRef?.current;
     if (!element) return;
     
-    const listener = (event) => {
+    const listener = (event: Event) => {
       event.stopPropagation();
       event.preventDefault();
-      handler(event.detail);
+      handler((event as CustomEvent).detail);
     };
     
     element.addEventListener(eventName, listener);
@@ -26,13 +26,13 @@ export function useMediator(eventName, handler, elementRef) {
   }, [eventName, handler, elementRef]);
 }
 
-export function useListener(eventName, handler, elementRef) {
+export function useListener<T>(eventName: string, handler: (payload: any) => void, elementRef: React.RefObject<HTMLElement> | null) {
   useEffect(() => {
-    const element = elementRef.current;
+    const element = elementRef?.current;
     if (!element) return;
     
-    const listener = (event) => {
-      handler(event.detail);
+    const listener = (event: Event) => {
+      handler((event as CustomEvent).detail);
     };
     
     element.addEventListener(eventName, listener);

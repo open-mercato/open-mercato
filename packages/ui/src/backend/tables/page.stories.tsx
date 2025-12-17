@@ -2,8 +2,10 @@ import React, { useState, useCallback } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import Table from './index';
 import { TableEvents } from './events/types';
-import { useMediator } from './events/events';
-import { CellEditSaveEvent } from './events/types';
+import { dispatch, useMediator } from './events/events';
+import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent } from './events/types';
+import { ColumnConfig } from './renderers';
+import { ApiCallResult } from '../utils/apiCall';
 
 const meta: Meta<typeof Table> = {
     title: 'Backend/Tables/Dynamic Example',
@@ -13,10 +15,61 @@ const meta: Meta<typeof Table> = {
     },
 };
 
+
+
 export default meta;
+
+const mockApiSave = (rowIndex: number, colIndex: number, value: any): Promise<ApiCallResult<{ success: boolean; data?: any; error?: string }>> => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        // 80% success rate for demo
+        if (Math.random() > 0.2) {
+            resolve({
+                ok: true,
+                status: 200,
+                result: {
+                  success: true,
+                  data: {
+                    rowIndex,
+                    colIndex,
+                    value,
+                    updatedAt: new Date().toISOString(),
+                  }
+                },
+                response: new Response(JSON.stringify({ success: true }), {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' }
+                }),
+                cacheStatus: null
+              });
+        } else {
+  // Error response (but resolved, not rejected)
+  resolve({
+    ok: false,
+    status: 400,
+    result: {
+      success: false,
+      error: 'Validation failed: Value must be non-empty'
+    },
+    response: new Response(
+      JSON.stringify({ 
+        error: 'Validation failed: Value must be non-empty',
+        fieldErrors: { [colIndex]: 'Invalid value' }
+      }), 
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    ),
+    cacheStatus: null
+  });        }
+      }, 1500); // 1.5 second delay
+    });
+  }; 
 
 const DynamicTableExample = () => {
     const tableRef = React.useRef<HTMLDivElement>(null);
+
     const initialData = [
         { id: 1, name: 'John Doe', email: 'john@example.com', age: 28, department: 'Engineering', salary: 75000, active: true },
         { id: 2, name: 'Jane Smith', email: 'jane@example.com', age: 34, department: 'Marketing', salary: 68000, active: true },
@@ -29,7 +82,7 @@ const DynamicTableExample = () => {
     const [filterText, setFilterText] = useState('');
     const [editLog, setEditLog] = useState<Array<{ timestamp: string; row: number; col: number; value: any }>>([]);
 
-    const columns = [
+    const columns: ColumnConfig[] = [
         { data: 'id', width: 60, title: 'ID', readOnly: true },
         { data: 'name', width: 150, title: 'Name' },
         { data: 'email', width: 200, title: 'Email' },
@@ -55,17 +108,64 @@ const DynamicTableExample = () => {
 
     useMediator<CellEditSaveEvent>(
         TableEvents.CELL_EDIT_SAVE,
-        useCallback((payload) => {
-        console.log('CELL_EDIT_SAVE', payload);
+        useCallback(async (payload: CellEditSaveEvent) => {
+
+        dispatch(
+            tableRef.current as HTMLElement,
+            TableEvents.CELL_SAVE_START,
+            {
+                rowIndex: payload.rowIndex,
+                colIndex: payload.colIndex,
+            } as CellSaveStartEvent
+        );
+
+        try {
+            const response = await mockApiSave(payload.rowIndex, payload.colIndex, payload.value);
+            
+            if (response.ok) {
+                
+                // Dispatch success event
+                dispatch(
+                    tableRef.current as HTMLElement,
+                    TableEvents.CELL_SAVE_SUCCESS,
+                    {
+                        rowIndex: payload.rowIndex,
+                        colIndex: payload.colIndex,
+                    } as CellSaveSuccessEvent
+                );
+            } else {
+                console.error('Save failed', response.result?.error);
+                
+                // Dispatch error event
+                dispatch(
+                    tableRef.current as HTMLElement,
+                    TableEvents.CELL_SAVE_ERROR,
+                    {
+                        rowIndex: payload.rowIndex,
+                        colIndex: payload.colIndex,
+                        error: response.result?.error,
+                    } as CellSaveErrorEvent
+                );
+            }
+        } catch (error) {
+            console.error('Save exception', error);
+            
+            // Dispatch error event for exceptions
+            dispatch(
+                tableRef.current as HTMLElement,
+                TableEvents.CELL_SAVE_ERROR,
+                {
+                    rowIndex: payload.rowIndex,
+                    colIndex: payload.colIndex,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                } as CellSaveErrorEvent
+            );
         
-        // API CALL na debouncie
-        }, []),
-        tableRef
-    );
+        }
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+);
 
-
-
-    // This would be called from the table's event system
     return (
         <div className="space-y-4">
             <div className="bg-white p-4 rounded-lg shadow">

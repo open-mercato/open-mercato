@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import './HOT.css';
 import { getCellRenderer, ColumnConfig } from './renderers';
 import {dispatch, useMediator} from "./events/events"
-import { TableEvents } from './events/types';
+import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents } from './events/types';
 
 interface TableCellProps {
   value: any;
@@ -38,7 +38,13 @@ interface TableCellProps {
   onEditChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onEditKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onEditBlur?: () => void;
-  editInputRef?: React.RefObject<HTMLTextAreaElement>;
+  editInputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  saveState?: CellSaveState;
+}
+
+interface CellSaveState {
+  status: 'saving' | 'success' | 'error' | null;
+  timestamp: number;
 }
 
 // Memoized TableCell component
@@ -64,7 +70,8 @@ const TableCell = memo<TableCellProps>(({
   onEditChange,
   onEditKeyDown,
   onEditBlur,
-  editInputRef
+  editInputRef,
+  saveState
 }) => {
   if (isRowHeader) {
     return (
@@ -119,6 +126,7 @@ const TableCell = memo<TableCellProps>(({
       data-in-col-range={isInColRange}
       data-col-range-left={colRangeEdges.left}
       data-col-range-right={colRangeEdges.right}
+      data-save-state={saveState?.status}
     >
       {isEditing ? (
         <textarea
@@ -172,7 +180,7 @@ interface HOTProps {
   height?: string | number;
   width?: string | number;
   idColumName?: string;
-  tableRef: React.RefObject<HTMLDivElement>;
+  tableRef: React.RefObject<HTMLDivElement | null>;
 }
 
 const HOT: React.FC<HOTProps> = ({ 
@@ -194,6 +202,8 @@ const HOT: React.FC<HOTProps> = ({
     rowRange: null,
     colRange: null
   });
+  const [cellSaveStates, setCellSaveStates] = useState<Map<string, CellSaveState>>(new Map());
+
   const [editing, setEditing] = useState<EditingState>({ row: null, col: null, value: '' });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<any>(null);
@@ -204,6 +214,7 @@ const HOT: React.FC<HOTProps> = ({
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
 
+  const getCellKey = (row: number, col: number) => `${row},${col}`;
 
   const getColumns = (): ColumnConfig[] => {
     if (columns.length > 0) return columns;
@@ -304,7 +315,7 @@ const HOT: React.FC<HOTProps> = ({
     
     // Dispatch save event
     dispatch(
-      tableRef.current,
+      tableRef?.current as HTMLElement,
       TableEvents.CELL_EDIT_SAVE,
       {
         rowIndex: editing.row,
@@ -313,7 +324,7 @@ const HOT: React.FC<HOTProps> = ({
         newValue: newValue,
         rowData: tableData[editing.row],
         id: isObjectData ? tableData[editing.row][idColumName] : undefined
-      } as CellEditSaveEvent
+      }
     );
     
     setEditing({ row: null, col: null, value: '' });
@@ -528,6 +539,73 @@ const HOT: React.FC<HOTProps> = ({
       handleEditCancel();
     }
   }, [editing, tableData, cols, isObjectData, getCellValue, handleEditCancel]);
+
+  useMediator<CellSaveStartEvent>(
+    TableEvents.CELL_SAVE_START,
+    useCallback((payload: CellSaveStartEvent) => {
+
+      setCellSaveStates(prev => {
+        const next = new Map(prev);
+
+        next.set(getCellKey(payload.rowIndex, payload.colIndex), {
+          status: 'saving',
+          timestamp: Date.now()
+        });
+
+        return next;
+      });
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+  );
+
+  useMediator<CellSaveSuccessEvent>(
+    TableEvents.CELL_SAVE_SUCCESS,
+    useCallback((payload: CellSaveSuccessEvent) => {
+      setCellSaveStates(prev => {
+        const next = new Map(prev);
+        next.set(getCellKey(payload.rowIndex, payload.colIndex), {
+          status: 'success',
+          timestamp: Date.now()
+        });
+        return next;
+      });
+      
+      // Clear success state after 2 seconds
+      setTimeout(() => {
+        setCellSaveStates(prev => {
+          const next = new Map(prev);
+          next.delete(getCellKey(payload.rowIndex, payload.colIndex));
+          return next;
+        });
+      }, 2000);
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+  );
+
+  useMediator<CellSaveErrorEvent>(
+    TableEvents.CELL_SAVE_ERROR,
+    useCallback((payload: CellSaveErrorEvent) => {
+      setCellSaveStates(prev => {
+        const next = new Map(prev);
+        next.set(getCellKey(payload.rowIndex, payload.colIndex), {
+          status: 'error',
+          timestamp: Date.now()
+        });
+        return next;
+      });
+      
+      // Clear error state after 3 seconds
+      setTimeout(() => {
+        setCellSaveStates(prev => {
+          const next = new Map(prev);
+          next.delete(getCellKey(payload.rowIndex, payload.colIndex));
+          return next;
+        });
+      }, 3000);
+    }, []),
+    tableRef as React.RefObject<HTMLElement>
+  );
+  
 
   useEffect(() => {
     if (isDragging) {
@@ -747,7 +825,7 @@ const HOT: React.FC<HOTProps> = ({
 
   const rowVirtualizer = useVirtualizer({
     count: tableData.length,
-    getScrollElement: () => tableRef.current,
+    getScrollElement: () => tableRef?.current as HTMLElement,
     estimateSize: () => 32,
     overscan: 10,
   });
@@ -863,6 +941,7 @@ const HOT: React.FC<HOTProps> = ({
                     const cellInColRange = isInColRange(colIndex);
                     const colRangeEdges = getColRangeEdges(colIndex);
                     const isEditingThisCell = editing.row === rowIndex && editing.col === colIndex;
+                    const saveState = cellSaveStates.get(getCellKey(rowIndex, colIndex));
 
                     return (
                       <TableCell
@@ -887,6 +966,7 @@ const HOT: React.FC<HOTProps> = ({
                         onEditKeyDown={isEditingThisCell ? handleEditKeyDown : undefined}
                         onEditBlur={isEditingThisCell ? handleEditSave : undefined}
                         editInputRef={isEditingThisCell ? editInputRef : undefined}
+                        saveState={saveState}
                       />
                     );
                   })}

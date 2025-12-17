@@ -66,7 +66,7 @@
     color: #666;
 }
 
-.hot-cell:hover {
+.hot-cell:hover:not([data-save-state]){
     background: #f0f8ff;
 }
 
@@ -390,4 +390,76 @@ tr[style*="display: flex"] td {
     background: white;
     box-shadow: inset 0 0 0 2px #1a42e8;
     z-index: 10;
+}
+
+td[data-save-state="saving"] {
+    position: relative;
+    overflow: hidden;
+    background: #e8f0fe !important;  
+}
+
+td[data-save-state="saving"]::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.6) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    animation: pulse-skeleton 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes pulse-skeleton {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+td[data-save-state="success"] {
+    background: #d1fae5 !important;
+    box-shadow: inset 0 0 0 2px #10b981;
+    animation: fade-success 2s ease-out forwards;
+}
+
+@keyframes fade-success {
+    0% {
+        background: #d1fae5 !important;
+        box-shadow: inset 0 0 0 2px #10b981;
+    }
+    70% {
+        background: #d1fae5 !important;
+        box-shadow: inset 0 0 0 2px #10b981;
+    }
+    100% {
+        background: white !important;
+        box-shadow: none;
+    }
+}
+
+td[data-save-state="error"] {
+    background: #fee2e2 !important;
+    box-shadow: inset 0 0 0 2px #ef4444 !important;
+    animation: shake 0.5s ease-in-out;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
+    20%, 40%, 60%, 80% { transform: translateX(2px); }
+}
+
+/* Ensure save state styles override selection styles when needed */
+td[data-save-state="saving"],
+td[data-save-state="success"],
+td[data-save-state="error"] {
+    z-index: 2;
 }
