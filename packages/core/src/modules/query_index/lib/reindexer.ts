@@ -1,11 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/vector'
+import { isSearchDebugEnabled } from './search-tokens'
 
 export type ReindexJobOptions = {
   entityType: string
@@ -110,6 +112,14 @@ export async function reindexEntity(
 
   const knex = (em as any).getConnection().getKnex() as Knex
   const table = resolveEntityTableName(em, entityType)
+  if (entityType === 'query_index:search_token' || table === 'search_tokens') {
+    return {
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+    }
+  }
   const columns = await getColumnSet(knex, table)
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
@@ -326,7 +336,50 @@ export async function reindexEntity(
       const rows = await query as AnyRow[]
       if (!rows.length) break
 
-      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg })
+          const decryptDoc = async (
+            targetEntity: string,
+            doc: Record<string, unknown>,
+            scope: { organizationId: string | null; tenantId: string | null },
+          ) => {
+            try {
+              const encryption = resolveTenantEncryptionService(em as any)
+              if (!encryption || typeof encryption.decryptEntityPayload !== 'function') return doc
+              if (encryption.isEnabled?.() === false) return doc
+              let working = doc
+              const maybeDecrypt = async (entityId: string) => {
+                const decrypted = await encryption.decryptEntityPayload(
+                  entityId,
+                  working,
+                  scope.tenantId ?? null,
+                  scope.organizationId ?? null,
+                )
+                if (decrypted) working = { ...working, ...decrypted }
+              }
+              await maybeDecrypt(targetEntity)
+              if (targetEntity === 'customers:customer_person_profile' || targetEntity === 'customers:customer_company_profile') {
+                await maybeDecrypt('customers:customer_entity')
+              }
+              if (isSearchDebugEnabled()) {
+                const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
+                const snapshot: Record<string, unknown> = {}
+                for (const key of keysOfInterest) {
+                  if (key in working) snapshot[key] = (working as Record<string, unknown>)[key]
+                }
+                console.info('[reindex:decrypt]', {
+                  entityType: targetEntity,
+                  tenantId: scope.tenantId ?? null,
+                  organizationId: scope.organizationId ?? null,
+                  keys: Object.keys(snapshot),
+                  sample: snapshot,
+                })
+              }
+              return working
+            } catch {
+              return doc
+            }
+          }
+
+      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, decryptDoc })
 
       const coverageDeltas = new Map<string, { tenantId: string | null; organizationId: string | null; delta: number }>()
       for (const row of rows) {

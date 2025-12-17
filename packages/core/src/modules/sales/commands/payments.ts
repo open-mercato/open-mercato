@@ -34,6 +34,7 @@ import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export type PaymentAllocationSnapshot = {
   id: string
@@ -96,10 +97,11 @@ async function invalidateOrderCache(container: any, order: SalesOrder | null | u
 }
 
 export async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<PaymentSnapshot | null> {
-  const payment = await em.findOne(
+  const payment = await findOneWithDecryption(
+    em,
     SalesPayment,
     { id },
-    { populate: ['order', 'allocations', 'allocations.order', 'allocations.invoice'] }
+    { populate: ['order', 'allocations', 'allocations.order', 'allocations.invoice'] },
   )
   if (!payment) return null
   const allocations: PaymentAllocationSnapshot[] = Array.from(payment.allocations ?? []).map((allocation) => ({
@@ -228,10 +230,12 @@ async function recomputeOrderPaymentTotals(
   const orderId = order.id
   const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
 
-  const allocations = await em.find(
+  const allocations = await findWithDecryption(
+    em,
     SalesPaymentAllocation,
     { ...scope, order: orderId },
-    { populate: ['payment'] }
+    { populate: ['payment'] },
+    scope,
   )
 
   const paymentIds = new Set<string>()
@@ -503,7 +507,13 @@ const updatePaymentCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     const payment = assertFound(
-      await em.findOne(SalesPayment, { id: input.id }, { populate: ['order'] }),
+      await findOneWithDecryption(
+        em,
+        SalesPayment,
+        { id: input.id },
+        { populate: ['order'] },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      ),
       'sales.payments.not_found'
     )
     ensureSameScope(payment, input.organizationId, input.tenantId)
@@ -712,7 +722,13 @@ const deletePaymentCommand: CommandHandler<
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const payment = assertFound(
-      await em.findOne(SalesPayment, { id: input.id }, { populate: ['order'] }),
+      await findOneWithDecryption(
+        em,
+        SalesPayment,
+        { id: input.id },
+        { populate: ['order'] },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      ),
       'sales.payments.not_found'
     )
     ensureSameScope(payment, input.organizationId, input.tenantId)

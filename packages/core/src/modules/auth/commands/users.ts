@@ -25,6 +25,8 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type SerializedUser = {
   email: string
@@ -109,10 +111,17 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
 
-    const organization = await em.findOne(Organization, { id: parsed.organizationId }, { populate: ['tenant'] })
+    const organization = await findOneWithDecryption(
+      em,
+      Organization,
+      { id: parsed.organizationId },
+      { populate: ['tenant'] },
+      { tenantId: null, organizationId: parsed.organizationId },
+    )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
-    const duplicate = await em.findOne(User, { email: parsed.email, deletedAt: null })
+    const emailHash = computeEmailHash(parsed.email)
+    const duplicate = await em.findOne(User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any)
     if (duplicate) await throwDuplicateEmailError()
 
     const { hash } = await import('bcryptjs')
@@ -126,6 +135,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity: User,
         data: {
           email: parsed.email,
+          emailHash,
           passwordHash,
           isConfirmed: true,
           organizationId: parsed.organizationId,
@@ -280,10 +290,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const em = (ctx.container.resolve('em') as EntityManager)
 
     if (parsed.email !== undefined) {
+      const emailHash = computeEmailHash(parsed.email)
       const duplicate = await em.findOne(
         User,
         {
-          email: parsed.email,
+          $or: [{ email: parsed.email }, { emailHash }],
           deletedAt: null,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,
@@ -292,14 +303,24 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
 
     let hashed: string | null = null
+    let emailHash: string | null = null
     if (parsed.password) {
       const { hash } = await import('bcryptjs')
       hashed = await hash(parsed.password, 10)
     }
+    if (parsed.email !== undefined) {
+      emailHash = computeEmailHash(parsed.email)
+    }
 
     let tenantId: string | null | undefined
     if (parsed.organizationId !== undefined) {
-      const organization = await em.findOne(Organization, { id: parsed.organizationId }, { populate: ['tenant'] })
+      const organization = await findOneWithDecryption(
+        em,
+        Organization,
+        { id: parsed.organizationId },
+        { populate: ['tenant'] },
+        { tenantId: null, organizationId: parsed.organizationId ?? null },
+      )
       if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
       tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     }
@@ -311,7 +332,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity: User,
         where: { id: parsed.id, deletedAt: null } as FilterQuery<User>,
         apply: (entity) => {
-          if (parsed.email !== undefined) entity.email = parsed.email
+          if (parsed.email !== undefined) {
+            entity.email = parsed.email
+            entity.emailHash = emailHash
+          }
           if (parsed.organizationId !== undefined) {
             entity.organizationId = parsed.organizationId
             entity.tenantId = tenantId ?? null
@@ -635,7 +659,13 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
 }
 
 async function loadUserRoleNames(em: EntityManager, userId: string): Promise<string[]> {
-  const links = await em.find(UserRole, { user: userId as unknown as User }, { populate: ['role'] })
+  const links = await findWithDecryption(
+    em,
+    UserRole,
+    { user: userId as unknown as User },
+    { populate: ['role'] },
+    { tenantId: null, organizationId: null },
+  )
   const names = links
     .map((link) => link.role?.name ?? '')
     .filter((name): name is string => !!name)

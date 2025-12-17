@@ -85,3 +85,5 @@ package-lock.json
 debug-storybook.log
 *storybook.log
 storybook-static
+packages/cache/node_modules/*
+newrelic_agent.log

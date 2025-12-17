@@ -5,6 +5,7 @@ const RESERVED_SYSTEM_ENTITY_TYPES = new Set<string>([
   'entities:custom_field_value',
   'query_index:entity_index_row',
   'query_index:entity_index_coverage',
+  'query_index:search_token',
 ])
 
 export function isSystemEntitySelectable(entityId: string): boolean {

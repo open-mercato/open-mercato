@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import type { Knex } from 'knex'
+import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -18,10 +20,29 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     .where('id', params.recordId)
     .first()
   if (!baseRow) return null
+  const docSources: Array<Record<string, any>> = []
+
+  // Attach the core customer entity when indexing customer profiles so search tokens see the combined row
+  let parentEntityRow: Record<string, any> | null = null
+  if (params.entityType === 'customers:customer_person_profile' || params.entityType === 'customers:customer_company_profile') {
+    const entityId = (baseRow as any).entity_id ?? (baseRow as any).entityId
+    if (entityId) {
+      const entityRow = await knex('customer_entities')
+        .where('id', entityId)
+        .first()
+      if (entityRow) {
+        docSources.push(entityRow)
+        parentEntityRow = entityRow
+      }
+    }
+  }
 
   // Build base document (snake_case keys as in DB)
-  const doc: Record<string, any> = {}
-  for (const [k, v] of Object.entries(baseRow)) doc[k] = v
+  let doc: Record<string, any> = {}
+  docSources.push(baseRow)
+  for (const source of docSources) {
+    for (const [k, v] of Object.entries(source)) doc[k] = v
+  }
 
   // Attach custom fields under flat keys 'cf:<key>'
   const cfRows = await knex('custom_field_values')
@@ -46,6 +67,25 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     // Store singletons as simple value; multis as array
     doc[key] = arr.length <= 1 ? arr[0] : arr
   }
+
+  try {
+    const encryption = resolveTenantEncryptionService(em as any)
+    const decryptFor = async (entityId: string) => {
+      if (!encryption || typeof encryption.decryptEntityPayload !== 'function') return
+      if (encryption.isEnabled?.() === false) return
+      const decrypted = await encryption.decryptEntityPayload(
+        entityId,
+        doc,
+        params.tenantId ?? null,
+        params.organizationId ?? null,
+      )
+      if (decrypted) doc = { ...doc, ...decrypted }
+    }
+    await decryptFor(params.entityType)
+    if (parentEntityRow) {
+      await decryptFor('customers:customer_entity')
+    }
+  } catch {}
 
   return doc
 }
@@ -79,6 +119,14 @@ export async function upsertIndexRow(
 
   const doc = await buildIndexDoc(em, args)
   if (!doc) {
+    try {
+      await deleteSearchTokensForRecord(knex, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
+      })
+    } catch {}
     if (existed) {
       await knex('entity_indexes')
         .where({
@@ -125,6 +173,15 @@ export async function upsertIndexRow(
 
   const created = !existed
   const revived = existed && wasDeleted
+  try {
+    await replaceSearchTokensForRecord(knex, {
+      entityType: args.entityType,
+      recordId: args.recordId,
+      organizationId: args.organizationId ?? null,
+      tenantId: args.tenantId ?? null,
+      doc,
+    })
+  } catch {}
   return { doc, existed, wasDeleted, created, revived }
 }
 
@@ -146,6 +203,14 @@ export async function markDeleted(
   const wasActive = !!existing && existing.deleted_at == null
 
   if (existing) {
+    try {
+      await deleteSearchTokensForRecord(knex, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
+      })
+    } catch {}
     await knex('entity_indexes')
       .where({
         entity_type: args.entityType,

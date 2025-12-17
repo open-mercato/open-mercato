@@ -34,6 +34,7 @@ import {
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -73,8 +74,21 @@ type DealChangeMap = Record<string, { from: unknown; to: unknown }> & {
 async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnapshot | null> {
   const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
   if (!deal) return null
-  const peopleLinks = await em.find(CustomerDealPersonLink, { deal: deal }, { populate: ['person'] })
-  const companyLinks = await em.find(CustomerDealCompanyLink, { deal: deal }, { populate: ['company'] })
+  const decryptionScope = { tenantId: deal.tenantId ?? null, organizationId: deal.organizationId ?? null }
+  const peopleLinks = await findWithDecryption(
+    em,
+    CustomerDealPersonLink,
+    { deal: deal },
+    { populate: ['person'] },
+    decryptionScope,
+  )
+  const companyLinks = await findWithDecryption(
+    em,
+    CustomerDealCompanyLink,
+    { deal: deal },
+    { populate: ['company'] },
+    decryptionScope,
+  )
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: DEAL_ENTITY_ID,
     recordId: deal.id,

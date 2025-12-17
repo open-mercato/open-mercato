@@ -6,6 +6,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { RuleExecutionLog } from '../../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { executionResultSchema } from '../../../data/validators'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const paramsSchema = z.object({
   id: z.string().regex(/^\d+$/, 'Invalid log id'),
@@ -67,9 +68,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     filters.organizationId = auth.orgId
   }
 
-  const log = await em.findOne(RuleExecutionLog, filters, {
-    populate: ['rule'],
-  })
+  const log = await findOneWithDecryption(
+    em,
+    RuleExecutionLog,
+    filters,
+    {
+      populate: ['rule'],
+    },
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+  )
 
   if (!log) {
     return NextResponse.json({ error: 'Log entry not found' }, { status: 404 })

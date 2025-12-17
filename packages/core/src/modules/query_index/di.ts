@@ -17,7 +17,17 @@ export function register(container: AppContainer) {
   // Override queryEngine with hybrid that prefers JSONB index when available
   try {
     const em = (container.resolve('em') as any)
-    const basic = new BasicQueryEngine(em)
+    const basic = new BasicQueryEngine(
+      em,
+      undefined,
+      () => {
+        try {
+          return container.resolve('tenantEncryptionService') as any
+        } catch {
+          return null
+        }
+      },
+    )
     const hybrid = new HybridQueryEngine(
       em,
       basic,
@@ -31,6 +41,13 @@ export function register(container: AppContainer) {
       () => {
         try {
           return (container.resolve('vectorIndexService') as VectorIndexService)
+        } catch {
+          return null
+        }
+      },
+      () => {
+        try {
+          return container.resolve('tenantEncryptionService') as any
         } catch {
           return null
         }

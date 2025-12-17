@@ -7,6 +7,7 @@ import {
 import { registerDictionaryEntryCommands } from '@open-mercato/core/modules/dictionaries/commands/factory'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 function ensureScope(ctx: CommandRuntimeContext, scope: { tenantId: string; organizationId: string }): void {
   const tenantId = ctx.auth?.tenantId ?? null
@@ -45,7 +46,7 @@ registerDictionaryEntryCommands({
     return { dictionary, scope }
   },
   resolveEntry: async ({ em, ctx, id }) => {
-    const entry = await em.findOne(DictionaryEntry, id, { populate: ['dictionary'] })
+    const entry = await findOneWithDecryption(em, DictionaryEntry, id, { populate: ['dictionary'] })
     if (!entry) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
     }

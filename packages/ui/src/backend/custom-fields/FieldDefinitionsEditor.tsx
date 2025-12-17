@@ -52,6 +52,7 @@ export type FieldDefinitionsEditorProps = {
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
   onSingleFieldsetPerRecordChange?: (value: boolean) => void
+  translate?: (key: string, fallback: string) => string
 }
 
 const DEFAULT_KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({
@@ -156,9 +157,11 @@ export function FieldDefinitionsEditor({
   onReorder,
   listRef,
   listProps,
+  translate,
 }: FieldDefinitionsEditorProps) {
   const dragIndex = React.useRef<number | null>(null)
   const hasFieldsets = fieldsets.length > 0
+  const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
   const resolvedActiveFieldset = React.useMemo(() => {
     if (!hasFieldsets) return activeFieldset ?? null
     if (activeFieldset === null) return null
@@ -432,6 +435,7 @@ export function FieldDefinitionsEditor({
             availableGroups={groupOptions}
             onRegisterGroup={registerGroup}
             onRemoveGroup={removeGroup}
+            translate={t}
           />
         </div>
       )})}
@@ -478,6 +482,7 @@ type FieldDefinitionCardProps = {
   availableGroups?: FieldsetGroup[]
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
+  translate?: (key: string, fallback: string) => string
 }
 
 const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
@@ -492,6 +497,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   availableGroups = [],
   onRegisterGroup,
   onRemoveGroup,
+  translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
   const [optionValueDraft, setOptionValueDraft] = React.useState('')
@@ -1100,6 +1106,14 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), formEditable: event.target.checked } }, true) }}
           />
           Form
+        </label>
+        <label className="inline-flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={!!local.configJson?.encrypted}
+            onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), encrypted: event.target.checked } }, true) }}
+          />
+          {translate?.('entities.customFields.fields.encrypted', 'Encrypted') ?? 'Encrypted'}
         </label>
       </div>
     </div>

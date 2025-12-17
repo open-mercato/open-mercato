@@ -199,7 +199,6 @@
             "id"
           ],
           "referencedTableName": "public.roles",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -322,7 +321,6 @@
             "id"
           ],
           "referencedTableName": "public.roles",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -365,6 +363,15 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "mappedType": "text"
+        },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "mappedType": "text"
         },
         "name": {
@@ -438,6 +445,16 @@
           "constraint": true,
           "primary": false,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "email_hash"
+          ],
+          "composite": false,
+          "keyName": "users_email_hash_idx",
+          "constraint": false,
+          "primary": false,
+          "unique": false
         },
         {
           "keyName": "users_pkey",
@@ -561,7 +578,6 @@
             "id"
           ],
           "referencedTableName": "public.users",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -674,7 +690,6 @@
             "id"
           ],
           "referencedTableName": "public.users",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -795,7 +810,6 @@
             "id"
           ],
           "referencedTableName": "public.users",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -878,7 +892,6 @@
             "id"
           ],
           "referencedTableName": "public.users",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         },
         "user_roles_role_id_foreign": {
@@ -891,7 +904,6 @@
             "id"
           ],
           "referencedTableName": "public.roles",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },
@@ -1024,7 +1036,6 @@
             "id"
           ],
           "referencedTableName": "public.users",
-          "createForeignKeyConstraint": true,
           "updateRule": "cascade"
         }
       },

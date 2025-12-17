@@ -15,6 +15,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 
 export const tenantCrudEvents: CrudEventsConfig = {
   module: 'directory',
@@ -62,6 +63,20 @@ const createTenantCommand: CommandHandler<TenantPayload, Tenant> = {
       tenantId: ctx.auth?.tenantId ?? null,
       values: custom,
     })
+
+    if (isTenantDataEncryptionEnabled()) {
+      try {
+        const kms = ctx.container.resolve('kmsService') as { createTenantDek?: (id: string) => Promise<unknown>; isHealthy?: () => boolean }
+        if (kms?.isHealthy?.()) {
+          await kms?.createTenantDek?.(String(tenant.id))
+          console.info('🔑 [encryption][tenant] created tenant DEK', { tenantId: String(tenant.id) })
+        } else {
+          console.warn('⚠️ [encryption][tenant] kms not healthy, skipping tenant DEK provisioning', { tenantId: String(tenant.id) })
+        }
+      } catch (err) {
+        console.warn('⚠️ [encryption] Failed to provision tenant key', err)
+      }
+    }
 
     const identifiers = {
       id: String(tenant.id),

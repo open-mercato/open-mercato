@@ -22,6 +22,7 @@ import {
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type TagSnapshot = {
   id: string
@@ -386,7 +387,13 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager)
-    const assignment = await em.findOne(CustomerTagAssignment, { id: result.assignmentId }, { populate: ['tag', 'entity'] })
+    const assignment = await findOneWithDecryption(
+      em,
+      CustomerTagAssignment,
+      { id: result.assignmentId },
+      { populate: ['tag', 'entity'] },
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null },
+    )
     if (!assignment) return null
     const tagId = typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id
     const entityId = typeof assignment.entity === 'string' ? assignment.entity : assignment.entity.id

@@ -7,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   dictionaryEntryParamsSchema,
   dictionaryEntryResponseSchema,
@@ -61,6 +62,9 @@ export const metadata = {
 export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: string; entryId?: string } }) {
   try {
     const context = await resolveDictionariesRouteContext(req)
+    if (!context.auth) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     const { dictionaryId, entryId } = paramsSchema.parse({
       dictionaryId: ctx.params?.dictionaryId,
       entryId: ctx.params?.entryId,
@@ -81,7 +85,13 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (!updatedEntryId) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
     }
-    const updated = await context.em.fork().findOne(DictionaryEntry, updatedEntryId, { populate: ['dictionary'] })
+    const updated = await findOneWithDecryption(
+      context.em.fork(),
+      DictionaryEntry,
+      updatedEntryId,
+      { populate: ['dictionary'] },
+      { tenantId: context.auth.tenantId ?? null, organizationId: context.auth.orgId ?? null },
+    )
     if (!updated) {
       throw new CrudHttpError(500, { error: context.translate('dictionaries.errors.entry_update_failed', 'Failed to update dictionary entry') })
     }

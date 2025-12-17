@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@/lib/auth/jwt'
@@ -14,16 +15,15 @@ function parseCookie(req: Request, name: string): string | null {
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const redirectTo = url.searchParams.get('redirect') || '/'
-  const toAbs = (p: string) => new URL(p, url.origin).toString()
   const token = parseCookie(req, 'session_token')
-  if (!token) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
+  if (!token) return NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
   const c = await createRequestContainer()
   const auth = c.resolve<AuthService>('authService')
   const ctx = await auth.refreshFromSessionToken(token)
-  if (!ctx) return NextResponse.redirect(toAbs('/login?redirect=' + encodeURIComponent(redirectTo)))
+  if (!ctx) return NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
   const { user, roles } = ctx
   const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
-  const res = NextResponse.redirect(toAbs(redirectTo))
+  const res = NextResponse.redirect(toAbsoluteUrl(req, redirectTo))
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
 }
