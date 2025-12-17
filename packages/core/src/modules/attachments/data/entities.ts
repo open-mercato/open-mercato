@@ -1,4 +1,5 @@
 import { Entity, Index, OptionalProps, PrimaryKey, Property, Unique } from '@mikro-orm/core'
+import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
 
 @Entity({ tableName: 'attachment_partitions' })
 @Unique({ name: 'attachment_partitions_code_unique', properties: ['code'] })
@@ -25,6 +26,12 @@ export class AttachmentPartition {
 
   @Property({ name: 'is_public', type: 'boolean', default: false })
   isPublic: boolean = false
+
+  @Property({ name: 'requires_ocr', type: 'boolean', default: resolveDefaultAttachmentOcrEnabled() })
+  requiresOcr: boolean = resolveDefaultAttachmentOcrEnabled()
+
+  @Property({ name: 'ocr_model', type: 'text', nullable: true })
+  ocrModel?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -77,6 +84,9 @@ export class Attachment {
 
   @Property({ name: 'url', type: 'text' })
   url!: string
+
+  @Property({ name: 'content', type: 'text', nullable: true })
+  content: string | null = null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

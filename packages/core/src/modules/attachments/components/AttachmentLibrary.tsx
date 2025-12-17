@@ -23,6 +23,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Download, Plus, Upload, Trash2, Copy, File, FileText, FileSpreadsheet, FileArchive, FileAudio, FileVideo, FileCode } from 'lucide-react'
 import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { AttachmentContentPreview } from './AttachmentContentPreview'
 
 type AttachmentAssignment = {
   type: string
@@ -43,6 +44,7 @@ type AttachmentRow = {
   tags: string[]
   assignments: AttachmentAssignment[]
   thumbnailUrl?: string
+  content?: string | null
 }
 
 type AttachmentLibraryResponse = {
@@ -65,6 +67,7 @@ type AttachmentMetadataResponse = {
     partitionCode?: string
     partitionTitle?: string | null
     tags?: string[]
+    content?: string | null
     assignments?: AttachmentAssignment[]
     customFields?: Record<string, unknown>
   }
@@ -767,7 +770,7 @@ type MetadataDialogProps = {
   ) => Promise<void>
 }
 
-function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onSave }: MetadataDialogProps) {
+export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onSave }: MetadataDialogProps) {
   const t = useT()
   const [sizeWidth, setSizeWidth] = React.useState<string>('')
   const [sizeHeight, setSizeHeight] = React.useState<string>('')
@@ -775,6 +778,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
   const [initialValues, setInitialValues] = React.useState<Partial<AttachmentMetadataFormValues> | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [extractedContent, setExtractedContent] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open || !item) {
@@ -782,6 +786,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
       setLoadError(null)
       setLoading(false)
       setImageTab('preview')
+      setExtractedContent(null)
       return
     }
     let cancelled = false
@@ -795,6 +800,7 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
       tags: item.tags ?? [],
       assignments: prepareAssignmentsForForm(item.assignments),
     })
+    setExtractedContent(item.content ?? null)
     const loadDetails = async () => {
       try {
         const call = await apiCall<AttachmentMetadataResponse>(`/api/attachments/library/${encodeURIComponent(item.id)}`)
@@ -811,6 +817,8 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
             assignments: prepareAssignmentsForForm(payload.assignments ?? item.assignments),
             ...prefixedCustom,
           })
+          const nextContent = typeof payload.content === 'string' ? payload.content : null
+          setExtractedContent(nextContent)
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -1120,6 +1128,17 @@ function AttachmentMetadataDialog({ open, onOpenChange, item, availableTags, onS
                 {loadError}
               </div>
             ) : null}
+            <div className="rounded border border-border/60 bg-muted/30 px-3 py-2">
+              <div className="text-xs font-semibold text-muted-foreground">
+                {t('attachments.library.metadata.extractedTitle', 'Extracted text')}
+              </div>
+              <AttachmentContentPreview
+                content={extractedContent}
+                emptyLabel={t('attachments.library.metadata.noContent', 'No text extracted')}
+                showMoreLabel={t('attachments.library.metadata.showMore', 'Show more')}
+                showLessLabel={t('attachments.library.metadata.showLess', 'Show less')}
+              />
+            </div>
             <CrudForm<AttachmentMetadataFormValues>
               embedded
               schema={metadataSchema}
@@ -1305,6 +1324,11 @@ export function AttachmentLibrary() {
               </div>
               <div className="text-xs text-muted-foreground">
                 {formatFileSize(value.fileSize)} • {value.mimeType || 'application/octet-stream'}
+              </div>
+              <div className="text-xs text-muted-foreground line-clamp-2">
+                {value.content?.trim()
+                  ? value.content
+                  : t('attachments.library.metadata.noContent', 'No text extracted')}
               </div>
             </div>
           )

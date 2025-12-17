@@ -71,6 +71,7 @@
         "error": "Failed to update metadata.",
         "success": "Attachment updated.",
         "preview": "Preview",
+        "source": "Source",
         "resizeTool": {
           "title": "Generate resized URL",
           "width": "Width (px)",
@@ -89,7 +90,11 @@
           "label": "Label",
           "add": "Add assignment",
           "remove": "Remove"
-        }
+        },
+        "extractedTitle": "Extracted text",
+        "noContent": "No text extracted",
+        "showMore": "Show more",
+        "showLess": "Show less"
       },
       "messages": {
         "deleted": "Attachment removed."
@@ -124,6 +129,7 @@
         "visibility": "Visibility",
         "public": "Public",
         "private": "Private",
+        "ocr": "OCR",
         "envKey": "Env variable",
         "search": "Search partitions…",
         "empty": "No partitions configured."
@@ -133,6 +139,14 @@
         "titleLabel": "Title",
         "descriptionLabel": "Description",
         "publicLabel": "Publicly accessible",
+        "ocrLabel": "Require OCR/text extraction",
+        "ocrModelLabel": "OCR Model",
+        "ocrModelHelp": "Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-4o.",
+        "ocrModelOptions": {
+          "default": "Default (from environment)",
+          "gpt-4o": "GPT-4o (Recommended)",
+          "gpt-4o-mini": "GPT-4o Mini (Faster, Lower Cost)"
+        },
         "codePlaceholder": "e.g. marketingAssets",
         "titlePlaceholder": "e.g. Marketing assets",
         "descriptionPlaceholder": "Explain how this partition is used.",

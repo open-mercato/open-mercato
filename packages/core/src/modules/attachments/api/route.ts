@@ -7,6 +7,9 @@ import { buildAttachmentFileUrl, buildAttachmentImageUrl, slugifyAttachmentFileN
 import { ensureDefaultPartitions, resolveDefaultPartitionCode, sanitizePartitionCode } from '../lib/partitions'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { storePartitionFile, deletePartitionFile } from '../lib/storage'
+import { extractAttachmentContent } from '../lib/textExtraction'
+import { requestOcrProcessing } from '../lib/ocrQueue'
+import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import {
   mergeAttachmentMetadata,
@@ -22,6 +25,7 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -50,6 +54,7 @@ const attachmentItemSchema = z.object({
   thumbnailUrl: z.string().optional().describe('Helper route that renders a thumbnail'),
   partitionCode: z.string().optional().describe('Partition identifier'),
   tags: z.array(z.string()).optional().describe('Tags assigned to the attachment'),
+  content: z.string().nullable().optional().describe('Extracted text or markdown content'),
   assignments: z.array(attachmentAssignmentSchema).optional().describe('Records that reference this attachment'),
 })
 
@@ -80,6 +85,7 @@ const uploadResponseSchema = z.object({
     fileName: z.string(),
     fileSize: z.number().int().nonnegative(),
     thumbnailUrl: z.string().optional(),
+    content: z.string().nullable().optional(),
     tags: z.array(z.string()).optional(),
     assignments: z.array(attachmentAssignmentSchema).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
@@ -177,6 +183,7 @@ export async function GET(req: Request) {
         fileSize: a.fileSize,
         createdAt: a.createdAt,
         partitionCode: a.partitionCode,
+        content: a.content ?? null,
         thumbnailUrl: buildAttachmentImageUrl(a.id, {
           width: 320,
           height: 320,
@@ -287,6 +294,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
+  const requiresOcr =
+    typeof (partition as any).requiresOcr === 'boolean'
+      ? Boolean((partition as any).requiresOcr)
+      : resolveDefaultAttachmentOcrEnabled()
+  let extractedContent: string | null = null
+  const fileMimeType = (file as any).type || 'application/octet-stream'
+  const useLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
+
+  if (requiresOcr && !useLlmOcr) {
+    try {
+      extractedContent = await extractAttachmentContent({
+        filePath: stored.absolutePath,
+        mimeType: fileMimeType,
+      })
+    } catch (error) {
+      console.error('[attachments] failed to extract attachment content', error)
+    }
+  }
+
   let assignments = assignmentsFromForm.slice()
   if (entityId !== LIBRARY_ENTITY_ID) {
     assignments = upsertAssignment(assignments, { type: entityId, id: recordId })
@@ -306,9 +332,22 @@ export async function POST(req: Request) {
     storageDriver: partition.storageDriver || 'local',
     storagePath: stored.storagePath,
     url: buildAttachmentFileUrl(attachmentId),
+    content: extractedContent,
     storageMetadata: metadata,
   })
   await em.persistAndFlush(att)
+
+  if (useLlmOcr) {
+    const ocrService = new OcrService()
+    if (ocrService.available) {
+      requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
+        console.error('[attachments] failed to queue OCR processing', error)
+      })
+    } else {
+      console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured')
+    }
+  }
+
   if (dataEngine) {
     try {
       await setCustomFieldsIfAny({
@@ -351,6 +390,7 @@ export async function POST(req: Request) {
         height: 320,
         slug: slugifyAttachmentFileName(safeName),
       }),
+      content: extractedContent ?? null,
       tags: metadata.tags ?? [],
       assignments: metadata.assignments ?? [],
       customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,

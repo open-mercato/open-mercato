@@ -27,6 +27,8 @@ type Partition = {
   title: string
   description: string | null
   isPublic: boolean
+  requiresOcr: boolean
+  ocrModel: string | null
   envKey: string
   createdAt: string | null
 }
@@ -40,7 +42,15 @@ const DEFAULT_FORM = {
   title: '',
   description: '',
   isPublic: false,
+  requiresOcr: true,
+  ocrModel: '',
 }
+
+const OCR_MODEL_OPTIONS = [
+  { value: '', label: 'Default (from environment)' },
+  { value: 'gpt-4o', label: 'GPT-4o (Recommended)' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Faster, Lower Cost)' },
+]
 
 export function AttachmentPartitionSettings() {
   const t = useT()
@@ -63,7 +73,11 @@ export function AttachmentPartitionSettings() {
         { errorMessage: loadErrorMessage },
       )
       const normalized = Array.isArray(payload.items) ? payload.items : []
-      setItems(normalized)
+      const withDefaults = normalized.map((entry) => ({
+        ...entry,
+        requiresOcr: typeof entry.requiresOcr === 'boolean' ? entry.requiresOcr : true,
+      }))
+      setItems(withDefaults)
     } catch (err) {
       console.error('[attachments.partitions] list failed', err)
       flash(loadErrorMessage, 'error')
@@ -94,6 +108,8 @@ export function AttachmentPartitionSettings() {
         title: state.entry.title,
         description: state.entry.description ?? '',
         isPublic: state.entry.isPublic,
+        requiresOcr: state.entry.requiresOcr,
+        ocrModel: state.entry.ocrModel ?? '',
       })
     } else {
       setForm(DEFAULT_FORM)
@@ -125,6 +141,8 @@ export function AttachmentPartitionSettings() {
         title: trimmedTitle,
         description: form.description.trim() || undefined,
         isPublic: form.isPublic,
+        requiresOcr: form.requiresOcr,
+        ocrModel: form.ocrModel.trim() || null,
       }
       const method = dialog.mode === 'create' ? 'POST' : 'PUT'
       const body =
@@ -214,6 +232,17 @@ export function AttachmentPartitionSettings() {
             {row.original.isPublic
               ? t('attachments.partitions.table.public', 'Public')
               : t('attachments.partitions.table.private', 'Private')}
+          </span>
+        ),
+      },
+      {
+        header: t('attachments.partitions.table.ocr', 'OCR'),
+        accessorKey: 'requiresOcr',
+        cell: ({ row }) => (
+          <span className="text-sm">
+            {row.original.requiresOcr
+              ? t('common.enabled', 'Enabled')
+              : t('common.disabled', 'Disabled')}
           </span>
         ),
       },
@@ -349,6 +378,40 @@ export function AttachmentPartitionSettings() {
               />
               {t('attachments.partitions.form.publicLabel', 'Publicly accessible')}
             </label>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border"
+                checked={form.requiresOcr}
+                onChange={(event) => setForm((prev) => ({ ...prev, requiresOcr: event.target.checked }))}
+              />
+              {t('attachments.partitions.form.ocrLabel', 'Require OCR/text extraction')}
+            </label>
+            {form.requiresOcr && (
+              <div className="space-y-2 pl-6">
+                <Label htmlFor="partition-ocr-model">
+                  {t('attachments.partitions.form.ocrModelLabel', 'OCR Model')}
+                </Label>
+                <select
+                  id="partition-ocr-model"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={form.ocrModel}
+                  onChange={(event) => setForm((prev) => ({ ...prev, ocrModel: event.target.value }))}
+                >
+                  {OCR_MODEL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {t(`attachments.partitions.form.ocrModelOptions.${option.value || 'default'}`, option.label)}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'attachments.partitions.form.ocrModelHelp',
+                    'Choose the LLM model for OCR processing. Falls back to OCR_MODEL environment variable or gpt-4o.'
+                  )}
+                </p>
+              </div>
+            )}
             {dialog ? (
               <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <div>

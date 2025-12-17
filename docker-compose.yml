@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-open_mercato}
+      POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
