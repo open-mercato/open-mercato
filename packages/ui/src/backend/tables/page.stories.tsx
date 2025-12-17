@@ -6,6 +6,7 @@ import { dispatch, useMediator } from './events/events';
 import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent } from './events/types';
 import { ColumnConfig } from './renderers';
 import { ApiCallResult } from '../utils/apiCall';
+import {emailValidator} from "./validators";
 
 const meta: Meta<typeof Table> = {
     title: 'Backend/Tables/Dynamic Example',
@@ -67,45 +68,76 @@ const mockApiSave = (rowIndex: number, colIndex: number, value: any): Promise<Ap
     });
   }; 
 
+
+// Generate random data
+const generateData = (count: number) => {
+    const departments = ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance', 'Design', 'Operations', 'Legal'];
+    const roles = ['Manager', 'Developer', 'Designer', 'Analyst', 'Director', 'Lead', 'Specialist', 'Coordinator'];
+    const locations = ['New York', 'Los Angeles', 'Chicago', 'San Francisco', 'Boston', 'Seattle', 'Austin', 'Miami'];
+    const countries = ['USA', 'UK', 'Canada', 'Germany', 'France', 'Japan', 'Australia'];
+    
+    return Array.from({ length: count }, (_, i) => ({
+        id: i + 1,
+        name: `Person ${i + 1}`,
+        email: `person${i + 1}@example.com`,
+        phone: `+1-555-${String(i).padStart(4, '0')}`,
+        age: 25 + Math.floor(Math.random() * 30),
+        role: roles[Math.floor(Math.random() * roles.length)],
+        department: departments[Math.floor(Math.random() * departments.length)],
+        location: locations[Math.floor(Math.random() * locations.length)],
+        country: countries[Math.floor(Math.random() * countries.length)],
+        startDate: `20${15 + Math.floor(Math.random() * 10)}-${String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`,
+        rating: +(3.5 + Math.random() * 1.5).toFixed(1),
+        salary: 50000 + Math.floor(Math.random() * 80000),
+        active: Math.random() > 0.2,
+        notes: `Notes for person ${i + 1}`
+    }));
+};
+
+
+
 const DynamicTableExample = () => {
     const tableRef = React.useRef<HTMLDivElement>(null);
-
-    const initialData = [
-        { id: 1, name: 'John Doe', email: 'john@example.com', age: 28, department: 'Engineering', salary: 75000, active: true },
-        { id: 2, name: 'Jane Smith', email: 'jane@example.com', age: 34, department: 'Marketing', salary: 68000, active: true },
-        { id: 3, name: 'Bob Johnson', email: 'bob@example.com', age: 45, department: 'Sales', salary: 82000, active: false },
-        { id: 4, name: 'Alice Brown', email: 'alice@example.com', age: 29, department: 'Engineering', salary: 79000, active: true },
-        { id: 5, name: 'Charlie Davis', email: 'charlie@example.com', age: 38, department: 'HR', salary: 65000, active: true },
-    ];
-
-    const [data, setData] = useState(initialData);
+    const [data, setData] = useState(() => generateData(50));
     const [filterText, setFilterText] = useState('');
     const [editLog, setEditLog] = useState<Array<{ timestamp: string; row: number; col: number; value: any }>>([]);
 
-    const columns: ColumnConfig[] = [
-        { data: 'id', width: 60, title: 'ID', readOnly: true },
-        { data: 'name', width: 150, title: 'Name' },
-        { data: 'email', width: 200, title: 'Email' },
-        { data: 'age', width: 80, title: 'Age' },
+    const columns = [
+        { data: 'id', width: 60, title: 'ID', readOnly: true, sticky: 'left' },
+        { data: 'name', width: 150, title: 'Name', },
+        { data: 'email', width: 220, title: 'Email', validator: emailValidator },
+        { data: 'phone', width: 130, title: 'Phone' },
+        { data: 'age', width: 70, title: 'Age' },
+        { data: 'role', width: 180, title: 'Role' },
         { data: 'department', width: 120, title: 'Department' },
-        { data: 'salary', width: 100, title: 'Salary', type: 'numeric', numericFormat: {
+        { data: 'location', width: 130, title: 'Location' },
+        { data: 'country', width: 100, title: 'Country' },
+        { data: 'startDate', width: 120, title: 'Start Date' },
+        { data: 'rating', width: 90, title: 'Rating', renderer: (value: number) => (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span>{'⭐'.repeat(Math.floor(value))}</span>
+                <span style={{ fontSize: '12px', color: '#666' }}>{value}</span>
+            </div>
+        )},
+        { data: 'salary', width: 110, title: 'Salary', type: 'numeric', numericFormat: {
             style: 'currency',
             currency: 'USD',
             locale: 'en-US'
         }},
-        { data: 'active', width: 100, title: 'Active', renderer: (value: boolean) => (
+        { data: 'active', width: 100, title: 'Status',  renderer: (value: boolean) => (
             <span style={{ 
                 color: value ? '#10b981' : '#ef4444',
                 fontWeight: 'bold',
                 padding: '2px 8px',
                 borderRadius: '4px',
-                backgroundColor: value ? '#d1fae5' : '#fee2e2'
+                backgroundColor: value ? '#d1fae5' : '#fee2e2',
+                fontSize: '11px'
             }}>
                 {value ? '✓ Active' : '✗ Inactive'}
             </span>
         )},
+        { data: 'notes', width: 250, title: 'Notes' },
     ];
-
     useMediator<CellEditSaveEvent>(
         TableEvents.CELL_EDIT_SAVE,
         useCallback(async (payload: CellEditSaveEvent) => {

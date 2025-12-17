@@ -1,18 +1,5 @@
 import { format, parseISO, isValid } from 'date-fns';
 
-export interface ColumnConfig {
-  data: string | number;
-  type?: 'text' | 'numeric' | 'date';
-  title?: string;
-  width?: number;
-  readOnly?: boolean;
-  numericFormat?: Intl.NumberFormatOptions & {
-    locale?: string;
-  };
-  dateFormat?: string;
-  renderer?: CellRendererFunction;
-}
-
 export type CellRendererFunction = (
   value: any,
   rowData: any,

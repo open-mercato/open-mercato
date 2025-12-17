@@ -66,8 +66,90 @@
     color: #666;
 }
 
-.hot-cell:hover:not([data-save-state]){
+.hot-cell:hover:not([data-save-state]) {
     background: #f0f8ff;
+}
+
+/* Sticky columns */
+td[data-sticky-left],
+th[data-sticky-left] {
+    box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.1);
+}
+
+td[data-sticky-right],
+th[data-sticky-right] {
+    box-shadow: -2px 0 4px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* New row styles */
+tr[data-is-new="true"] td {
+    background: #fef3c7 !important;
+}
+
+tr[data-is-new="true"] td:hover:not([data-save-state]) {
+    background: #fde68a !important;
+}
+
+/* Cancel button */
+.hot-row-cancel-btn {
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    transition: all 0.2s;
+}
+
+.hot-row-cancel-btn:hover {
+    background: #ef4444;
+    color: white;
+    transform: translateY(-50%) scale(1.1);
+}
+
+/* Save button cell */
+.hot-actions-cell {
+    background: white;
+    padding: 2px !important;
+}
+
+tr[data-is-new="true"] .hot-actions-cell {
+    background: #fef3c7 !important;
+}
+
+.hot-row-save-btn {
+    width: 100%;
+    height: 100%;
+    min-height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: #3b82f6;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.hot-row-save-btn:hover {
+    background: #2563eb;
+    transform: scale(1.05);
+}
+
+.hot-row-save-btn:active {
+    background: #1d4ed8;
+    transform: scale(0.98);
 }
 
 /* Selection Styles */
@@ -368,12 +450,6 @@ tr[style*="display: flex"] td {
     flex-grow: 0;
 }
 
-/* Flex layout for virtualized rows */
-tr[style*="display: flex"] td {
-    flex-shrink: 0;
-    flex-grow: 0;
-}
-
 /* Cell editor */
 .hot-cell-editor {
     position: absolute;
@@ -392,10 +468,11 @@ tr[style*="display: flex"] td {
     z-index: 10;
 }
 
+/* Save states */
 td[data-save-state="saving"] {
     position: relative;
     overflow: hidden;
-    background: #e8f0fe !important;  
+    background: #e8f0fe !important;
 }
 
 td[data-save-state="saving"]::after {
@@ -405,12 +482,10 @@ td[data-save-state="saving"]::after {
     left: 0;
     width: 100%;
     height: 100%;
-    background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.6) 50%,
-        rgba(255, 255, 255, 0) 100%
-    );
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.6) 50%,
+            rgba(255, 255, 255, 0) 100%);
     animation: pulse-skeleton 1.5s ease-in-out infinite;
     pointer-events: none;
 }
@@ -419,6 +494,7 @@ td[data-save-state="saving"]::after {
     0% {
         transform: translateX(-100%);
     }
+
     100% {
         transform: translateX(100%);
     }
@@ -435,10 +511,12 @@ td[data-save-state="success"] {
         background: #d1fae5 !important;
         box-shadow: inset 0 0 0 2px #10b981;
     }
+
     70% {
         background: #d1fae5 !important;
         box-shadow: inset 0 0 0 2px #10b981;
     }
+
     100% {
         background: white !important;
         box-shadow: none;
@@ -452,9 +530,26 @@ td[data-save-state="error"] {
 }
 
 @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    10%, 30%, 50%, 70%, 90% { transform: translateX(-2px); }
-    20%, 40%, 60%, 80% { transform: translateX(2px); }
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+        transform: translateX(-2px);
+    }
+
+    20%,
+    40%,
+    60%,
+    80% {
+        transform: translateX(2px);
+    }
 }
 
 /* Ensure save state styles override selection styles when needed */
