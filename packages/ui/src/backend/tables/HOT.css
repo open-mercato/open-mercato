@@ -1,0 +1,389 @@
+/* HOT.css */
+.hot-container {
+    overflow: hidden;
+    border: 1px solid #ccc;
+    display: flex;
+    flex-direction: column;
+}
+
+.hot-virtual-container {
+    flex: 1;
+    overflow: auto;
+}
+
+.hot-headers-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: white;
+}
+
+.hot-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+}
+
+.hot-table th,
+.hot-table td {
+    border: 1px solid #e0e0e0;
+    padding: 4px 6px;
+    text-align: left;
+}
+
+.hot-col-header {
+    background: #f5f5f5;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    cursor: pointer;
+}
+
+.hot-row-header {
+    background: #f5f5f5;
+    font-weight: 600;
+    text-align: center;
+    color: #666;
+    min-width: 40px;
+    cursor: pointer;
+}
+
+.hot-cell {
+    background: white;
+    cursor: cell;
+    position: relative;
+}
+
+.hot-cell.read-only {
+    background: #f9f9f9;
+    color: #666;
+}
+
+.hot-cell:hover {
+    background: #f0f8ff;
+}
+
+/* Selection Styles */
+
+/* Selected cell - blue border */
+td[data-cell-selected="true"] {
+    box-shadow: inset 0 0 0 2px #1a42e8 !important;
+    z-index: 1;
+}
+
+/* Selected row - blue background with top/bottom inset shadows */
+tr[data-row-selected="true"] td {
+    background: #e8f0fe !important;
+    box-shadow:
+        inset 0 2px 0 0 #1a42e8,
+        inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Selected row's row header - includes left edge */
+tr[data-row-selected="true"] .hot-row-header {
+    background: #1a42e8 !important;
+    color: white;
+    box-shadow:
+        inset 2px 0 0 0 #1a42e8,
+        inset 0 2px 0 0 #1a42e8,
+        inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Last cell in selected row - add right edge */
+tr[data-row-selected="true"] td:last-child {
+    box-shadow:
+        inset 0 2px 0 0 #1a42e8,
+        inset 0 -2px 0 0 #1a42e8,
+        inset -2px 0 0 0 #1a42e8;
+}
+
+/* Selected column - blue background with left/right inset shadows */
+td[data-col-selected="true"] {
+    background: #e8f0fe !important;
+    box-shadow:
+        inset 2px 0 0 0 #1a42e8,
+        inset -2px 0 0 0 #1a42e8;
+}
+
+/* Last row in selected column - add bottom shadow */
+tbody tr:last-child td[data-col-selected="true"] {
+    box-shadow:
+        inset 2px 0 0 0 #1a42e8,
+        inset -2px 0 0 0 #1a42e8,
+        inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Selected column header - includes top shadow */
+th[data-col-selected="true"] {
+    background: #1a42e8 !important;
+    color: white;
+    box-shadow:
+        inset 2px 0 0 0 #1a42e8,
+        inset -2px 0 0 0 #1a42e8,
+        inset 0 2px 0 0 #1a42e8;
+}
+
+/* Darker row header when cell in that row is selected */
+.hot-row-header[data-has-selected-cell="true"] {
+    background: #d0d0d0 !important;
+    color: #333;
+}
+
+/* Darker column header when cell in that column is selected */
+th[data-has-selected-cell="true"] {
+    background: #d0d0d0 !important;
+    color: #333;
+}
+
+/* Range Selection Styles */
+
+/* Cells in range - blue background */
+td[data-in-range="true"] {
+    background: #e8f0fe !important;
+}
+
+/* Range borders - only apply to cells in range, not to single selected cells */
+/* Top edge only */
+td[data-in-range="true"][data-range-top="true"]:not([data-range-bottom="true"]):not([data-range-left="true"]):not([data-range-right="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8;
+}
+
+/* Bottom edge only */
+td[data-in-range="true"][data-range-bottom="true"]:not([data-range-top="true"]):not([data-range-left="true"]):not([data-range-right="true"]) {
+    box-shadow: inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Left edge only */
+td[data-in-range="true"][data-range-left="true"]:not([data-range-top="true"]):not([data-range-bottom="true"]):not([data-range-right="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8;
+}
+
+/* Right edge only */
+td[data-in-range="true"][data-range-right="true"]:not([data-range-top="true"]):not([data-range-bottom="true"]):not([data-range-left="true"]) {
+    box-shadow: inset -2px 0 0 0 #1a42e8;
+}
+
+/* Top + Bottom */
+td[data-in-range="true"][data-range-top="true"][data-range-bottom="true"]:not([data-range-left="true"]):not([data-range-right="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Left + Right */
+td[data-in-range="true"][data-range-left="true"][data-range-right="true"]:not([data-range-top="true"]):not([data-range-bottom="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Top + Left */
+td[data-in-range="true"][data-range-top="true"][data-range-left="true"]:not([data-range-bottom="true"]):not([data-range-right="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 2px 0 0 0 #1a42e8;
+}
+
+/* Top + Right */
+td[data-in-range="true"][data-range-top="true"][data-range-right="true"]:not([data-range-bottom="true"]):not([data-range-left="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Bottom + Left */
+td[data-in-range="true"][data-range-bottom="true"][data-range-left="true"]:not([data-range-top="true"]):not([data-range-right="true"]) {
+    box-shadow: inset 0 -2px 0 0 #1a42e8, inset 2px 0 0 0 #1a42e8;
+}
+
+/* Bottom + Right */
+td[data-in-range="true"][data-range-bottom="true"][data-range-right="true"]:not([data-range-top="true"]):not([data-range-left="true"]) {
+    box-shadow: inset 0 -2px 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Top + Left + Right */
+td[data-in-range="true"][data-range-top="true"][data-range-left="true"][data-range-right="true"]:not([data-range-bottom="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Bottom + Left + Right */
+td[data-in-range="true"][data-range-bottom="true"][data-range-left="true"][data-range-right="true"]:not([data-range-top="true"]) {
+    box-shadow: inset 0 -2px 0 0 #1a42e8, inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Top + Bottom + Left */
+td[data-in-range="true"][data-range-top="true"][data-range-bottom="true"][data-range-left="true"]:not([data-range-right="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8, inset 2px 0 0 0 #1a42e8;
+}
+
+/* Top + Bottom + Right */
+td[data-in-range="true"][data-range-top="true"][data-range-bottom="true"][data-range-right="true"]:not([data-range-left="true"]) {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* All four edges (complete rectangle) */
+td[data-in-range="true"][data-range-top="true"][data-range-bottom="true"][data-range-left="true"][data-range-right="true"] {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8, inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Row Range Selection Styles */
+
+/* Cells in row range */
+td[data-in-row-range="true"] {
+    background: #e8f0fe !important;
+}
+
+/* Row header in row range */
+.hot-row-header[data-in-row-range="true"] {
+    background: #1a42e8 !important;
+    color: white;
+}
+
+/* Top border for all cells in top row */
+td[data-in-row-range="true"][data-row-range-top="true"] {
+    box-shadow: inset 0 2px 0 0 #1a42e8;
+}
+
+/* Bottom border for all cells in bottom row */
+td[data-in-row-range="true"][data-row-range-bottom="true"] {
+    box-shadow: inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Both borders for single row */
+td[data-in-row-range="true"][data-row-range-top="true"][data-row-range-bottom="true"] {
+    box-shadow: inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8;
+}
+
+/* Add left border to first cell (after row header) */
+tbody tr td[data-in-row-range="true"]:nth-child(2) {
+    box-shadow: inset 2px 0 0 0 #1a42e8 !important;
+}
+
+tbody tr td[data-in-row-range="true"]:nth-child(2)[data-row-range-top="true"]:not([data-row-range-bottom="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+tbody tr td[data-in-row-range="true"]:nth-child(2)[data-row-range-bottom="true"]:not([data-row-range-top="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+tbody tr td[data-in-row-range="true"]:nth-child(2)[data-row-range-top="true"][data-row-range-bottom="true"] {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+/* Add right border to last cell */
+tbody tr td[data-in-row-range="true"]:last-child {
+    box-shadow: inset -2px 0 0 0 #1a42e8 !important;
+}
+
+tbody tr td[data-in-row-range="true"]:last-child[data-row-range-top="true"]:not([data-row-range-bottom="true"]) {
+    box-shadow: inset -2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+tbody tr td[data-in-row-range="true"]:last-child[data-row-range-bottom="true"]:not([data-row-range-top="true"]) {
+    box-shadow: inset -2px 0 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+tbody tr td[data-in-row-range="true"]:last-child[data-row-range-top="true"][data-row-range-bottom="true"] {
+    box-shadow: inset -2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+/* Column Range Selection Styles */
+
+/* Cells in column range */
+td[data-in-col-range="true"] {
+    background: #e8f0fe !important;
+}
+
+/* Column header in column range */
+th[data-in-col-range="true"] {
+    background: #1a42e8 !important;
+    color: white;
+}
+
+/* Left border for all cells in left column */
+td[data-in-col-range="true"][data-col-range-left="true"] {
+    box-shadow: inset 2px 0 0 0 #1a42e8;
+}
+
+/* Right border for all cells in right column */
+td[data-in-col-range="true"][data-col-range-right="true"] {
+    box-shadow: inset -2px 0 0 0 #1a42e8;
+}
+
+/* Both borders for single column */
+td[data-in-col-range="true"][data-col-range-left="true"][data-col-range-right="true"] {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8;
+}
+
+/* Add top border to first row cells */
+tbody tr:first-child td[data-in-col-range="true"] {
+    box-shadow: inset 0 2px 0 0 #1a42e8 !important;
+}
+
+tbody tr:first-child td[data-in-col-range="true"][data-col-range-left="true"]:not([data-col-range-right="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+tbody tr:first-child td[data-in-col-range="true"][data-col-range-right="true"]:not([data-col-range-left="true"]) {
+    box-shadow: inset -2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+tbody tr:first-child td[data-in-col-range="true"][data-col-range-left="true"][data-col-range-right="true"] {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+/* Add bottom border to last row cells */
+tbody tr:last-child td[data-in-col-range="true"] {
+    box-shadow: inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+tbody tr:last-child td[data-in-col-range="true"][data-col-range-left="true"]:not([data-col-range-right="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+tbody tr:last-child td[data-in-col-range="true"][data-col-range-right="true"]:not([data-col-range-left="true"]) {
+    box-shadow: inset -2px 0 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+tbody tr:last-child td[data-in-col-range="true"][data-col-range-left="true"][data-col-range-right="true"] {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8, inset 0 -2px 0 0 #1a42e8 !important;
+}
+
+/* Column header range edges */
+th[data-in-col-range="true"][data-col-range-left="true"]:not([data-col-range-right="true"]) {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+th[data-in-col-range="true"][data-col-range-right="true"]:not([data-col-range-left="true"]) {
+    box-shadow: inset -2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+th[data-in-col-range="true"][data-col-range-left="true"][data-col-range-right="true"] {
+    box-shadow: inset 2px 0 0 0 #1a42e8, inset -2px 0 0 0 #1a42e8, inset 0 2px 0 0 #1a42e8 !important;
+}
+
+/* Flex layout for virtualized rows */
+tr[style*="display: flex"] td {
+    flex-shrink: 0;
+    flex-grow: 0;
+}
+
+/* Flex layout for virtualized rows */
+tr[style*="display: flex"] td {
+    flex-shrink: 0;
+    flex-grow: 0;
+}
+
+/* Cell editor */
+.hot-cell-editor {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    padding: 4px 6px;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    resize: none;
+    background: white;
+    box-shadow: inset 0 0 0 2px #1a42e8;
+    z-index: 10;
+}
