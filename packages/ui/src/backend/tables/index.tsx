@@ -3,7 +3,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import './HOT.css';
 import { getCellRenderer, ColumnConfig } from './renderers';
 import {dispatch, useMediator} from "./events/events"
-import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents, NewRowSaveEvent, NewRowSaveStartEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent } from './events/types';
+import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents, NewRowSaveEvent, NewRowSaveStartEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent, FilterChangeEvent } from './events/types';
+import FilterBuilder from './FilterBuilder';
+import FilterTabs from './FilterTabs';
+import { FilterRow, SavedFilter, applyFilters } from './filterTypes';
 
 interface TableCellProps {
   value: any;
@@ -237,6 +240,10 @@ const HOT: React.FC<HOTProps> = ({
   tableRef
 }) => {
   const [tableData, setTableData] = useState(data);
+  const [filterRows, setFilterRows] = useState<FilterRow[]>([]);
+  const [filterExpanded, setFilterExpanded] = useState(false);
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionState>({
     type: null,
     row: null,
@@ -272,6 +279,38 @@ const HOT: React.FC<HOTProps> = ({
   };
 
   const cols = getColumns();
+
+  // Load saved filters from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('table-saved-filters');
+    if (stored) {
+      try {
+        setSavedFilters(JSON.parse(stored));
+      } catch (e) {
+        console.error('Failed to load saved filters', e);
+      }
+    }
+  }, []);
+
+  // Update tableData when data prop changes
+  useEffect(() => {
+    setTableData(data);
+  }, [data]);
+
+  // Emit filter change event whenever filters change
+  useEffect(() => {
+    const activeFilter = savedFilters.find(f => f.id === activeFilterId);
+    const filtersToEmit = activeFilter ? activeFilter.rows : filterRows;
+    
+    dispatch(
+      tableRef?.current as HTMLElement,
+      TableEvents.FILTER_CHANGE,
+      {
+        filters: filtersToEmit,
+        savedFilterId: activeFilterId
+      } as FilterChangeEvent
+    );
+  }, [filterRows, savedFilters, activeFilterId, tableRef]);
 
   // Actions column configuration (always present, sticky right)
   const actionsColumn: ColumnConfig = {
@@ -674,6 +713,80 @@ const HOT: React.FC<HOTProps> = ({
     });
     setEditing({ row: 0, col: 0, value: String(firstValue ?? '') });
   }, [tableData, cols, isObjectData, getCellValue]);
+
+  const handleToggleFilter = useCallback(() => {
+    const newExpanded = !filterExpanded;
+    setFilterExpanded(newExpanded);
+    
+    // Auto-add first filter row when expanding
+    if (newExpanded && filterRows.length === 0) {
+      const newRow: FilterRow = {
+        id: `filter-${Date.now()}`,
+        field: cols[0]?.data || '',
+        operator: 'is_any_of',
+        values: [],
+      };
+      setFilterRows([newRow]);
+    }
+  }, [filterExpanded, filterRows.length, cols]);
+
+  const handleClearFilters = useCallback(() => {
+    setFilterRows([]);
+    setActiveFilterId(null);
+  }, []);
+
+  const handleSaveFilter = useCallback((name: string) => {
+    const newFilter: SavedFilter = {
+      id: `filter-${Date.now()}`,
+      name: name,
+      rows: filterRows,
+    };
+
+    const updated = [...savedFilters, newFilter];
+    setSavedFilters(updated);
+    localStorage.setItem('table-saved-filters', JSON.stringify(updated));
+    setActiveFilterId(newFilter.id);
+
+    // Emit event on save
+    dispatch(
+      tableRef?.current as HTMLElement,
+      TableEvents.FILTER_CHANGE,
+      {
+        filters: filterRows,
+        savedFilterId: newFilter.id
+      } as FilterChangeEvent
+    );
+  }, [filterRows, savedFilters, tableRef]);
+
+  const handleFilterSelect = useCallback((id: string | null) => {
+    setActiveFilterId(id);
+    if (id === null) {
+      setFilterRows([]);
+    } else {
+      const filter = savedFilters.find(f => f.id === id);
+      if (filter) {
+        setFilterRows(filter.rows);
+      }
+    }
+  }, [savedFilters]);
+
+  const handleFilterRename = useCallback((id: string, newName: string) => {
+    const updated = savedFilters.map(f => 
+      f.id === id ? { ...f, name: newName } : f
+    );
+    setSavedFilters(updated);
+    localStorage.setItem('table-saved-filters', JSON.stringify(updated));
+  }, [savedFilters]);
+
+  const handleFilterDelete = useCallback((id: string) => {
+    const updated = savedFilters.filter(f => f.id !== id);
+    setSavedFilters(updated);
+    localStorage.setItem('table-saved-filters', JSON.stringify(updated));
+    if (activeFilterId === id) {
+      setActiveFilterId(null);
+      setFilterRows([]);
+    }
+  }, [savedFilters, activeFilterId]);
 
   const handleSaveNewRow = useCallback((rowIndex: number) => {
     const rowData = { ...tableData[rowIndex] };
@@ -1110,6 +1223,14 @@ const HOT: React.FC<HOTProps> = ({
         
         <div className="flex items-center gap-2">
           <button
+            onClick={handleToggleFilter}
+            className="filter-toggle-btn-header"
+            title="Build filter"
+          >
+            <span className={`toggle-icon ${filterExpanded ? 'expanded' : ''}`}>▼</span>
+            Build Filter
+          </button>
+          <button
             onClick={handleAddRow}
             className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
             title="Add new row"
@@ -1118,6 +1239,16 @@ const HOT: React.FC<HOTProps> = ({
           </button>
         </div>
       </div>
+
+      <FilterBuilder
+        columns={cols}
+        filterRows={filterRows}
+        onFilterRowsChange={setFilterRows}
+        onClear={handleClearFilters}
+        onSave={handleSaveFilter}
+        isExpanded={filterExpanded}
+        onToggle={handleToggleFilter}
+      />
 
       <div 
         ref={tableRef}
@@ -1335,6 +1466,14 @@ const HOT: React.FC<HOTProps> = ({
           </tbody>
         </table>
       </div>
+
+      <FilterTabs
+        savedFilters={savedFilters}
+        activeFilterId={activeFilterId}
+        onFilterSelect={handleFilterSelect}
+        onFilterRename={handleFilterRename}
+        onFilterDelete={handleFilterDelete}
+      />
     </div>
   );
 };

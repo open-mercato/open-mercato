@@ -40,6 +40,11 @@ export interface CellEditSaveEvent {
     error?: string;
   }
   
+  export interface FilterChangeEvent {
+    filters: any[];
+    savedFilterId?: string | null;
+  }
+  
   // Event names constants
   export const TableEvents = {
     CELL_EDIT_SAVE: 'table:cell:edit:save',
@@ -50,4 +55,5 @@ export interface CellEditSaveEvent {
     NEW_ROW_SAVE_START: 'table:new:row:save:start',
     NEW_ROW_SAVE_SUCCESS: 'table:new:row:save:success',
     NEW_ROW_SAVE_ERROR: 'table:new:row:save:error',
+    FILTER_CHANGE: 'table:filter:change',
   } as const;

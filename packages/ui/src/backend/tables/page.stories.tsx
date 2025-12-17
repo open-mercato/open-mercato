@@ -292,22 +292,6 @@ const DynamicTableExample = () => {
 
     return (
         <div className="space-y-4">
-            <div className="bg-white p-4 rounded-lg shadow">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div className="space-y-2">
-                        <h3 className="font-semibold text-lg">Filter</h3>
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={filterText}
-                                onChange={(e) => setFilterText(e.target.value)}
-                                placeholder="Search anything..."
-                                className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <Table
                 tableRef={tableRef}
