@@ -15,7 +15,11 @@ export async function POST(req: Request) {
     try { const c = await createRequestContainer(); const auth = c.resolve<AuthService>('authService'); await auth.deleteSessionByToken(sessToken) } catch {}
   }
   const url = new URL(req.url)
-  const toAbs = (p: string) => new URL(p, url.origin).toString()
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    `${url.protocol}//${url.host}`
+  const toAbs = (p: string) => new URL(p, baseUrl).toString()
   const res = NextResponse.redirect(toAbs('/login'))
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
