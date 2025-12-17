@@ -57,6 +57,10 @@
     position: relative;
 }
 
+.hot-cell[data-custom-renderer="true"] {
+    padding: 0;
+}
+
 .hot-cell.read-only {
     background: #f9f9f9;
     color: #666;

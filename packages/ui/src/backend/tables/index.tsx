@@ -1,24 +1,64 @@
 import React, { useState, memo, useCallback, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import './HOT.css';
+import { getCellRenderer, ColumnConfig } from './renderers';
+import {dispatch, useMediator} from "./events/events"
+import { TableEvents } from './events/types';
+
+interface TableCellProps {
+  value: any;
+  rowIndex: number;
+  colIndex: number;
+  col: ColumnConfig;
+  rowData: any;
+  isRowHeader?: boolean;
+  isCellSelected?: boolean;
+  isRowSelected?: boolean;
+  isColSelected?: boolean;
+  hasCellSelected?: boolean;
+  isInRange?: boolean;
+  rangeEdges?: {
+    top?: boolean;
+    bottom?: boolean;
+    left?: boolean;
+    right?: boolean;
+  };
+  isInRowRange?: boolean;
+  rowRangeEdges?: {
+    top?: boolean;
+    bottom?: boolean;
+  };
+  isInColRange?: boolean;
+  colRangeEdges?: {
+    left?: boolean;
+    right?: boolean;
+  };
+  isEditing?: boolean;
+  editValue?: string;
+  onEditChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onEditKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onEditBlur?: () => void;
+  editInputRef?: React.RefObject<HTMLTextAreaElement>;
+}
 
 // Memoized TableCell component
-const TableCell = memo(({ 
+const TableCell = memo<TableCellProps>(({ 
   value, 
   rowIndex, 
   colIndex, 
-  col, 
+  col,
+  rowData,
   isRowHeader,
   isCellSelected,
   isRowSelected,
   isColSelected,
   hasCellSelected,
   isInRange,
-  rangeEdges,
+  rangeEdges = {},
   isInRowRange,
-  rowRangeEdges,
+  rowRangeEdges = {},
   isInColRange,
-  colRangeEdges,
+  colRangeEdges = {},
   isEditing,
   editValue,
   onEditChange,
@@ -46,6 +86,13 @@ const TableCell = memo(({
     );
   }
 
+  // Get renderer for this column
+  const renderer = getCellRenderer(col);
+  const renderedValue = renderer(value, rowData, col, rowIndex, colIndex);
+  const isCustomRenderer = typeof col.renderer === 'function';
+
+
+
   return (
     <td
       className={`hot-cell ${col.readOnly ? 'read-only' : ''}`}
@@ -58,6 +105,7 @@ const TableCell = memo(({
       }}
       data-row={rowIndex}
       data-col={colIndex}
+      data-custom-renderer={isCustomRenderer}
       data-cell-selected={isCellSelected}
       data-col-selected={isColSelected}
       data-in-range={isInRange}
@@ -82,7 +130,7 @@ const TableCell = memo(({
           className="hot-cell-editor"
         />
       ) : (
-        value
+        renderedValue
       )}
     </td>
   );
@@ -90,16 +138,55 @@ const TableCell = memo(({
 
 TableCell.displayName = 'TableCell';
 
-const HOT = ({ 
+interface SelectionState {
+  type: 'cell' | 'row' | 'column' | 'range' | 'rowRange' | 'colRange' | null;
+  row: number | null;
+  col: number | null;
+  range: {
+    startRow: number;
+    endRow: number;
+    startCol: number;
+    endCol: number;
+  } | null;
+  rowRange: {
+    start: number;
+    end: number;
+  } | null;
+  colRange: {
+    start: number;
+    end: number;
+  } | null;
+}
+
+interface EditingState {
+  row: number | null;
+  col: number | null;
+  value: string;
+}
+
+interface HOTProps {
+  data?: any[];
+  columns?: ColumnConfig[];
+  colHeaders?: boolean | string[];
+  rowHeaders?: boolean;
+  height?: string | number;
+  width?: string | number;
+  idColumName?: string;
+  tableRef: React.RefObject<HTMLDivElement>;
+}
+
+const HOT: React.FC<HOTProps> = ({ 
   data = [], 
   columns = [],
   colHeaders = true,
   rowHeaders = false,
   height = 'auto',
-  width = 'auto'
+  width = 'auto',
+  idColumName = 'id',
+  tableRef
 }) => {
   const [tableData, setTableData] = useState(data);
-  const [selection, setSelection] = useState({
+  const [selection, setSelection] = useState<SelectionState>({
     type: null,
     row: null,
     col: null,
@@ -107,51 +194,52 @@ const HOT = ({
     rowRange: null,
     colRange: null
   });
-  const [editing, setEditing] = useState({ row: null, col: null, value: '' });
+  const [editing, setEditing] = useState<EditingState>({ row: null, col: null, value: '' });
   const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef(null);
-  const dragTypeRef = useRef(null);
+  const dragStartRef = useRef<any>(null);
+  const dragTypeRef = useRef<'cell' | 'row' | 'column' | null>(null);
   const lastUpdateRef = useRef(0);
-  const editInputRef = useRef(null);
-  const parentRef = useRef(null);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
   const THROTTLE_MS = 50;
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
 
-  const getColumns = () => {
+
+  const getColumns = (): ColumnConfig[] => {
     if (columns.length > 0) return columns;
     if (isObjectData && tableData.length > 0) {
       return Object.keys(tableData[0]).map(key => ({ data: key }));
     }
     if (tableData.length > 0 && Array.isArray(tableData[0])) {
-      return tableData[0].map((_, index) => ({ data: index }));
+      return tableData[0].map((_: any, index: number) => ({ data: index }));
     }
     return [];
   };
 
   const cols = getColumns();
 
-  const getCellValue = useCallback((row, col) => {
+
+  const getCellValue = useCallback((row: any, col: ColumnConfig) => {
     if (isObjectData) {
       return row[col.data];
     }
     return row[col.data];
   }, [isObjectData]);
 
-  const getColHeader = (col, index) => {
+  const getColHeader = (col: ColumnConfig, index: number): string => {
     if (Array.isArray(colHeaders)) return colHeaders[index];
     if (col.title) return col.title;
-    if (isObjectData) return col.data;
+    if (isObjectData) return String(col.data);
     return String.fromCharCode(65 + index);
   };
 
-  const isInRange = useCallback((r, c) => {
+  const isInRange = useCallback((r: number, c: number): boolean => {
     if (!selection.range) return false;
     const { startRow, endRow, startCol, endCol } = selection.range;
     return r >= startRow && r <= endRow && c >= startCol && c <= endCol;
   }, [selection.range]);
 
-  const getRangeEdges = useCallback((r, c) => {
+  const getRangeEdges = useCallback((r: number, c: number) => {
     if (!selection.range) return {};
     const { startRow, endRow, startCol, endCol } = selection.range;
     return {
@@ -162,13 +250,13 @@ const HOT = ({
     };
   }, [selection.range]);
 
-  const isInRowRange = useCallback((r) => {
+  const isInRowRange = useCallback((r: number): boolean => {
     if (!selection.rowRange) return false;
     const { start, end } = selection.rowRange;
     return r >= start && r <= end;
   }, [selection.rowRange]);
 
-  const getRowRangeEdges = useCallback((r) => {
+  const getRowRangeEdges = useCallback((r: number) => {
     if (!selection.rowRange) return {};
     const { start, end } = selection.rowRange;
     return {
@@ -177,13 +265,13 @@ const HOT = ({
     };
   }, [selection.rowRange]);
 
-  const isInColRange = useCallback((c) => {
+  const isInColRange = useCallback((c: number): boolean => {
     if (!selection.colRange) return false;
     const { start, end } = selection.colRange;
     return c >= start && c <= end;
   }, [selection.colRange]);
 
-  const getColRangeEdges = useCallback((c) => {
+  const getColRangeEdges = useCallback((c: number) => {
     if (!selection.colRange) return {};
     const { start, end } = selection.colRange;
     return {
@@ -194,30 +282,53 @@ const HOT = ({
 
   const handleEditSave = useCallback(() => {
     if (editing.row === null || editing.col === null) return;
+
+    const oldValue = tableData[editing.row][cols[editing.col].data];
+    const newValue = editing.value;
     
-    const newData = [...tableData];
+    // Only proceed if value changed
+    if (String(oldValue ?? '') === newValue) {
+      setEditing({ row: null, col: null, value: '' });
+      return;
+    }
+
+    // Mutate data directly
     if (isObjectData) {
-      newData[editing.row] = { ...newData[editing.row], [cols[editing.col].data]: editing.value };
+      tableData[editing.row][cols[editing.col].data] = newValue;
     } else {
-      newData[editing.row] = [...newData[editing.row]];
-      newData[editing.row][cols[editing.col].data] = editing.value;
+      tableData[editing.row][cols[editing.col].data] = newValue;
     }
     
-    setTableData(newData);
+    // Force re-render
+    setTableData([...tableData]);
+    
+    // Dispatch save event
+    dispatch(
+      tableRef.current,
+      TableEvents.CELL_EDIT_SAVE,
+      {
+        rowIndex: editing.row,
+        colIndex: editing.col,
+        oldValue: oldValue,
+        newValue: newValue,
+        rowData: tableData[editing.row],
+        id: isObjectData ? tableData[editing.row][idColumName] : undefined
+      } as CellEditSaveEvent
+    );
+    
     setEditing({ row: null, col: null, value: '' });
-  }, [editing, tableData, cols, isObjectData]);
+  }, [editing, tableData, cols, isObjectData, idColumName]);
 
-  const handleMouseDown = useCallback((e) => {
-    // Save any ongoing edit before changing selection
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (editing.row !== null) {
       handleEditSave();
     }
     
-    const cell = e.target.closest('td');
+    const cell = (e.target as HTMLElement).closest('td');
     if (!cell) return;
     
     const isRowHeader = cell.getAttribute('data-row-header') === 'true';
-    const row = parseInt(cell.getAttribute('data-row'), 10);
+    const row = parseInt(cell.getAttribute('data-row') || '', 10);
     
     if (isRowHeader) {
       dragStartRef.current = row;
@@ -235,7 +346,7 @@ const HOT = ({
       return;
     }
   
-    const col = parseInt(cell.getAttribute('data-col'), 10);
+    const col = parseInt(cell.getAttribute('data-col') || '', 10);
     
     dragStartRef.current = { row, col };
     dragTypeRef.current = 'cell';
@@ -252,7 +363,7 @@ const HOT = ({
     e.preventDefault();
   }, [editing.row, handleEditSave]);
 
-  const handleMouseMove = useCallback((e) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDragging || dragStartRef.current == null || !dragTypeRef.current) return;
 
     const now = Date.now();
@@ -263,7 +374,7 @@ const HOT = ({
     if (!cell) return;
 
     if (dragTypeRef.current === 'row') {
-      const row = parseInt(cell.getAttribute('data-row'), 10);
+      const row = parseInt(cell.getAttribute('data-row') || '', 10);
       if (isNaN(row)) return;
 
       const startRow = dragStartRef.current;
@@ -277,8 +388,8 @@ const HOT = ({
     } else if (dragTypeRef.current === 'cell') {
       if (cell.getAttribute('data-row-header') === 'true') return;
       
-      const row = parseInt(cell.getAttribute('data-row'), 10);
-      const col = parseInt(cell.getAttribute('data-col'), 10);
+      const row = parseInt(cell.getAttribute('data-row') || '', 10);
+      const col = parseInt(cell.getAttribute('data-col') || '', 10);
       
       if (isNaN(row) || isNaN(col)) return;
 
@@ -303,11 +414,11 @@ const HOT = ({
     }
   }, [isDragging]);
 
-  const handleColHeaderMouseDown = useCallback((e) => {
-    const header = e.target.closest('th');
+  const handleColHeaderMouseDown = useCallback((e: React.MouseEvent) => {
+    const header = (e.target as HTMLElement).closest('th');
     if (!header || header.classList.contains('hot-row-header')) return;
 
-    const col = parseInt(header.getAttribute('data-col'), 10);
+    const col = parseInt(header.getAttribute('data-col') || '', 10);
     if (isNaN(col)) return;
 
     dragStartRef.current = col;
@@ -325,9 +436,7 @@ const HOT = ({
     e.preventDefault();
   }, []);
 
-  
-
-  const handleColHeaderMouseMove = useCallback((e) => {
+  const handleColHeaderMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDragging || dragStartRef.current == null || dragTypeRef.current !== 'column') return;
 
     const now = Date.now();
@@ -337,7 +446,7 @@ const HOT = ({
     const header = document.elementFromPoint(e.clientX, e.clientY)?.closest('th');
     if (!header || header.classList.contains('hot-row-header')) return;
 
-    const col = parseInt(header.getAttribute('data-col'), 10);
+    const col = parseInt(header.getAttribute('data-col') || '', 10);
     if (isNaN(col)) return;
 
     const startCol = dragStartRef.current;
@@ -350,16 +459,15 @@ const HOT = ({
     }));
   }, [isDragging, THROTTLE_MS]);
 
-  const handleDoubleClick = useCallback((e) => {
-    const cell = e.target.closest('td');
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    const cell = (e.target as HTMLElement).closest('td');
     if (!cell || cell.getAttribute('data-row-header') === 'true') return;
     
-    const row = parseInt(cell.getAttribute('data-row'), 10);
-    const col = parseInt(cell.getAttribute('data-col'), 10);
+    const row = parseInt(cell.getAttribute('data-row') || '', 10);
+    const col = parseInt(cell.getAttribute('data-col') || '', 10);
     
     if (isNaN(row) || isNaN(col)) return;
     
-    // Update selection to the cell being edited
     setSelection({
       type: 'range',
       row: null,
@@ -373,18 +481,16 @@ const HOT = ({
     setEditing({ row, col, value: String(currentValue ?? '') });
   }, [tableData, cols, getCellValue]);
 
-
   const handleEditCancel = useCallback(() => {
     setEditing({ row: null, col: null, value: '' });
   }, []);
 
-  const handleEditKeyDown = useCallback((e) => {
+  const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const editedRow = editing.row;
-      const editedCol = editing.col;
+      const editedRow = editing.row!;
+      const editedCol = editing.col!;
       
-      // Save current edit
       const newData = [...tableData];
       if (isObjectData) {
         newData[editedRow] = { ...newData[editedRow], [cols[editedCol].data]: editing.value };
@@ -394,7 +500,6 @@ const HOT = ({
       }
       setTableData(newData);
       
-      // Move to next row, same column
       const nextRow = editedRow + 1;
       if (nextRow < tableData.length) {
         const nextValue = getCellValue(newData[nextRow], cols[editedCol]);
@@ -408,7 +513,6 @@ const HOT = ({
         });
         setEditing({ row: nextRow, col: editedCol, value: String(nextValue ?? '') });
       } else {
-        // Last row - just close editing
         setEditing({ row: null, col: null, value: '' });
         setSelection({
           type: 'range',
@@ -441,14 +545,14 @@ const HOT = ({
   }, [editing.row]);
 
   useEffect(() => {
-    const handleCopy = (e) => {
+    const handleCopy = (e: ClipboardEvent) => {
       if (!selection.type) return;
 
       let textData = '';
 
       if (selection.type === 'cell') {
-        const row = tableData[selection.row];
-        const col = cols[selection.col];
+        const row = tableData[selection.row!];
+        const col = cols[selection.col!];
         textData = String(getCellValue(row, col) ?? '');
       } 
       else if (selection.type === 'range' && selection.range) {
@@ -490,7 +594,7 @@ const HOT = ({
         textData = rows.join('\n');
       }
 
-      if (textData) {
+      if (textData && e.clipboardData) {
         e.clipboardData.setData('text/plain', textData);
         e.preventDefault();
       }
@@ -500,24 +604,18 @@ const HOT = ({
     return () => document.removeEventListener('copy', handleCopy);
   }, [selection, tableData, cols, getCellValue]);
 
-  // Handle keyboard navigation
-// Handle keyboard navigation
-useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Tab navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
         e.preventDefault();
         
-        // If editing, save first
         if (editing.row !== null) {
           handleEditSave();
           
-          // Calculate next cell from editing position
           const direction = e.shiftKey ? -1 : 1;
-          let nextCol = editing.col + direction;
+          let nextCol = editing.col! + direction;
           let nextRow = editing.row;
           
-          // Handle column overflow
           if (nextCol >= cols.length) {
             nextCol = 0;
             nextRow++;
@@ -526,7 +624,6 @@ useEffect(() => {
             nextRow--;
           }
           
-          // Check bounds
           if (nextRow >= 0 && nextRow < tableData.length) {
             setSelection({
               type: 'range',
@@ -540,8 +637,7 @@ useEffect(() => {
           return;
         }
         
-        // Determine current cell
-        let currentRow, currentCol;
+        let currentRow: number, currentCol: number;
         if (selection.type === 'range' && selection.range) {
           const { startRow, startCol, endRow, endCol } = selection.range;
           if (startRow === endRow && startCol === endCol) {
@@ -554,12 +650,10 @@ useEffect(() => {
           return;
         }
         
-        // Calculate next cell
         const direction = e.shiftKey ? -1 : 1;
         let nextCol = currentCol + direction;
         let nextRow = currentRow;
         
-        // Handle column overflow
         if (nextCol >= cols.length) {
           nextCol = 0;
           nextRow++;
@@ -568,7 +662,6 @@ useEffect(() => {
           nextRow--;
         }
         
-        // Check bounds
         if (nextRow >= 0 && nextRow < tableData.length) {
           setSelection({
             type: 'range',
@@ -581,7 +674,6 @@ useEffect(() => {
         }
       }
       
-      // Enter to start editing
       if (e.key === 'Enter' && editing.row === null) {
         e.preventDefault();
         if (selection.type === 'range' && selection.range) {
@@ -601,65 +693,61 @@ useEffect(() => {
         }
       }
       
-      // Arrow navigation (only when not editing)
-      // Arrow navigation (only when not editing)
-if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-    e.preventDefault();
-    
-    let currentRow, currentCol;
-    
-    // Handle both 'range' and 'cell' selection types
-    if (selection.type === 'range' && selection.range) {
-      const { startRow, startCol, endRow, endCol } = selection.range;
-      if (startRow === endRow && startCol === endCol) {
-        currentRow = startRow;
-        currentCol = startCol;
-      } else {
-        return;
+      if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        
+        let currentRow: number, currentCol: number;
+        
+        if (selection.type === 'range' && selection.range) {
+          const { startRow, startCol, endRow, endCol } = selection.range;
+          if (startRow === endRow && startCol === endCol) {
+            currentRow = startRow;
+            currentCol = startCol;
+          } else {
+            return;
+          }
+        } else if (selection.type === 'cell') {
+          currentRow = selection.row!;
+          currentCol = selection.col!;
+        } else {
+          return;
+        }
+        
+        let nextRow = currentRow;
+        let nextCol = currentCol;
+        
+        switch (e.key) {
+          case 'ArrowUp':
+            nextRow = Math.max(0, currentRow - 1);
+            break;
+          case 'ArrowDown':
+            nextRow = Math.min(tableData.length - 1, currentRow + 1);
+            break;
+          case 'ArrowLeft':
+            nextCol = Math.max(0, currentCol - 1);
+            break;
+          case 'ArrowRight':
+            nextCol = Math.min(cols.length - 1, currentCol + 1);
+            break;
+        }
+        
+        setSelection({
+          type: 'range',
+          row: null,
+          col: null,
+          range: { startRow: nextRow, endRow: nextRow, startCol: nextCol, endCol: nextCol },
+          rowRange: null,
+          colRange: null
+        });
       }
-    } else if (selection.type === 'cell') {
-      currentRow = selection.row;
-      currentCol = selection.col;
-    } else {
-      return;
-    }
-    
-    let nextRow = currentRow;
-    let nextCol = currentCol;
-    
-    switch (e.key) {
-      case 'ArrowUp':
-        nextRow = Math.max(0, currentRow - 1);
-        break;
-      case 'ArrowDown':
-        nextRow = Math.min(tableData.length - 1, currentRow + 1);
-        break;
-      case 'ArrowLeft':
-        nextCol = Math.max(0, currentCol - 1);
-        break;
-      case 'ArrowRight':
-        nextCol = Math.min(cols.length - 1, currentCol + 1);
-        break;
-    }
-    
-    setSelection({
-      type: 'range',
-      row: null,
-      col: null,
-      range: { startRow: nextRow, endRow: nextRow, startCol: nextCol, endCol: nextCol },
-      rowRange: null,
-      colRange: null
-    });
-  }
     };
-  
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [selection, editing, tableData, cols, getCellValue, handleEditSave]);
 
   const rowVirtualizer = useVirtualizer({
     count: tableData.length,
-    getScrollElement: () => parentRef.current,
+    getScrollElement: () => tableRef.current,
     estimateSize: () => 32,
     overscan: 10,
   });
@@ -670,7 +758,7 @@ if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].
   return (
     <div className="hot-container" style={{ height, width }}>
       <div 
-        ref={parentRef}
+        ref={tableRef}
         className="hot-virtual-container"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -687,10 +775,10 @@ if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].
             onMouseDown={handleColHeaderMouseDown}
             onMouseMove={handleColHeaderMouseMove}
           >
-            <table className="hot-table">
+            <table className="hot-table" style={{ width: `${totalWidth}px` }}>
               <thead>
-                <tr>
-                  {rowHeaders && <th className="hot-row-header" style={{ width: 50 }}></th>}
+              <tr style={{ display: 'flex' }}>
+                  {rowHeaders && <th className="hot-row-header" style={{ width: 50, flexBasis: 50, flexShrink: 0, flexGrow: 0 }}></th>}
                   {cols.map((col, colIndex) => {
                     const isColSelected = selection.type === 'column' && selection.col === colIndex;
                     const hasCellSelected = selection.type === 'cell' && selection.col === colIndex;
@@ -700,7 +788,7 @@ if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].
                       <th 
                         key={colIndex}
                         className="hot-col-header"
-                        style={{ width: col.width || 100 }}
+                        style={{ width: col.width || 100, flexBasis: col.width || 100, flexShrink: 0, flexGrow: 0 }}
                         data-col={colIndex}
                         data-col-selected={isColSelected}
                         data-has-selected-cell={hasCellSelected}
@@ -751,7 +839,11 @@ if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].
                 >
                   {rowHeaders && (
                     <TableCell 
+                      value={undefined}
                       rowIndex={rowIndex}
+                      colIndex={-1}
+                      col={{} as ColumnConfig}
+                      rowData={row}
                       isRowHeader={true}
                       hasCellSelected={hasCellSelected}
                       isInRowRange={rowInRowRange}
@@ -779,6 +871,7 @@ if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].
                         rowIndex={rowIndex}
                         colIndex={colIndex}
                         col={col}
+                        rowData={row}
                         isCellSelected={isCellSelected}
                         isRowSelected={isRowSelected}
                         isColSelected={isColSelected}
