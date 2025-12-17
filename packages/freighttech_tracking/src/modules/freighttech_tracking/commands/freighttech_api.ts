@@ -17,6 +17,7 @@ async function fetchFreighttech(
         throw Error(`[freighttech_tracking.api] missing apiKey and/or apiBaseUrl`)
     }
 
+    console.debug(`[freighttech_tracking.api] external API call`, {baseUrl: settings.apiBaseUrl, path})
     const response = await fetch(`${settings.apiBaseUrl}${path}`, {
         method: config.method,
         headers: {
@@ -24,7 +25,7 @@ async function fetchFreighttech(
             'Content-Type': 'application/json'
         },
         body: config.body ? JSON.stringify(config.body) : undefined,
-        signal: AbortSignal.timeout(1000)
+        signal: AbortSignal.timeout(5000)
     });
 
     if (!response.ok) {

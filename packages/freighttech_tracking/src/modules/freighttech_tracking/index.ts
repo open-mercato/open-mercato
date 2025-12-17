@@ -1,4 +1,6 @@
 import type { ModuleInfo } from '@/modules/registry'
+import './commands/settings'
+import './commands/webhook'
 
 export const metadata: ModuleInfo = {
   name: 'freighttech_tracking',
