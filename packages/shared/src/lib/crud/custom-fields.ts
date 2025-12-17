@@ -2,6 +2,8 @@ import type { CustomFieldSet, EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/core'
 import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import type { WhereValue } from '@open-mercato/shared/lib/query/types'
+import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
+import { decryptCustomFieldValue, resolveTenantEncryptionService } from '../encryption/customFieldValues'
 
 export type CustomFieldSelectors = {
   keys: string[]
@@ -468,11 +470,19 @@ export async function loadCustomFieldValues(opts: {
   tenantIdByRecord?: Record<string, string | null | undefined>
   organizationIdByRecord?: Record<string, string | null | undefined>
   tenantFallbacks?: (string | null | undefined)[]
+  encryptionService?: TenantDataEncryptionService | null
 }): Promise<Record<string, Record<string, unknown>>> {
   const { em, entityId, recordIds } = opts
   if (!Array.isArray(recordIds) || recordIds.length === 0) return {}
 
   const normalizedRecordIds = recordIds.map((id) => String(id))
+  let encryptionService: TenantDataEncryptionService | null | undefined
+  const encryptionCache = new Map<string | null, string | null>()
+  const getEncryptionService = () => {
+    if (encryptionService !== undefined) return encryptionService
+    encryptionService = resolveTenantEncryptionService(em, opts.encryptionService)
+    return encryptionService
+  }
   const tenantCandidates = new Set<string | null>()
   tenantCandidates.add(null)
   if (opts.tenantIdByRecord) {
@@ -483,6 +493,7 @@ export async function loadCustomFieldValues(opts: {
   if (opts.tenantFallbacks) {
     for (const val of opts.tenantFallbacks) tenantCandidates.add(val ? String(val) : null)
   }
+  const fallbackTenant = (opts.tenantFallbacks || []).find((t) => t != null) ?? null
 
   const tenantList = Array.from(tenantCandidates)
   const tenantNonNull = tenantList.filter((t): t is string => t !== null)
@@ -559,7 +570,7 @@ export async function loadCustomFieldValues(opts: {
     return null
   }
 
-  type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[] }
+  type Bucket = { orgId: string | null; tenantId: string | null; values: unknown[]; def?: CustomFieldDef | null; encrypted?: boolean }
   const buckets = new Map<string, Bucket>()
 
   for (const row of cfRows) {
@@ -568,14 +579,23 @@ export async function loadCustomFieldValues(opts: {
     const bucketKey = `${recordId}::${key}`
     const orgId = row.organizationId ? String(row.organizationId) : null
     const tenantId = row.tenantId ? String(row.tenantId) : null
+    const resolvedOrgId = orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null)
+    const resolvedTenantId = tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? fallbackTenant)
+    const def = pickDefinition(key, resolvedOrgId, resolvedTenantId)
+    const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const value = valueFromRow(row)
+    const decrypted = encrypted
+      ? await decryptCustomFieldValue(value, resolvedTenantId ?? tenantId ?? null, getEncryptionService(), encryptionCache)
+      : value
     const existing = buckets.get(bucketKey)
     if (existing) {
-      if (existing.orgId == null && orgId) existing.orgId = orgId
-      if (existing.tenantId == null && tenantId) existing.tenantId = tenantId
-      existing.values.push(value)
+      if (existing.orgId == null && resolvedOrgId) existing.orgId = resolvedOrgId
+      if (existing.tenantId == null && resolvedTenantId) existing.tenantId = resolvedTenantId
+      if (existing.def == null && def) existing.def = def
+      existing.encrypted = existing.encrypted || encrypted
+      existing.values.push(decrypted)
     } else {
-      buckets.set(bucketKey, { orgId, tenantId, values: [value] })
+      buckets.set(bucketKey, { orgId: resolvedOrgId, tenantId: resolvedTenantId, values: [decrypted], def: def ?? null, encrypted })
     }
   }
 
@@ -584,7 +604,7 @@ export async function loadCustomFieldValues(opts: {
     const [recordId, fieldKey] = compoundKey.split('::')
     if (!result[recordId]) result[recordId] = {}
     const prefixed = `cf_${fieldKey}`
-    const def = pickDefinition(fieldKey, bucket.orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null), bucket.tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? null))
+    const def = bucket.def ?? pickDefinition(fieldKey, bucket.orgId ?? (opts.organizationIdByRecord?.[recordId] ?? null), bucket.tenantId ?? (opts.tenantIdByRecord?.[recordId] ?? null))
     if (def && def.configJson && typeof def.configJson === 'object' && (def.configJson as any).multi) {
       const cleaned = bucket.values.filter((v) => v !== undefined && v !== null)
       result[recordId][prefixed] = cleaned

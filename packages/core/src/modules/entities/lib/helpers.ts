@@ -1,4 +1,6 @@
 import type { EntityManager } from '@mikro-orm/core'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { encryptCustomFieldValue, resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { CustomFieldDef, CustomFieldValue } from '../data/entities'
 
 type Primitive = string | number | boolean | null | undefined
@@ -14,6 +16,8 @@ export type SetRecordCustomFieldsOptions = {
   preferDefs?: boolean
   // Optional: notify external systems (e.g., indexing) when values changed
   onChanged?: (payload: { entityId: string; recordId: string; organizationId: string | null; tenantId: string | null }) => Promise<void> | void
+  // Optional: re-use an existing tenant encryption service instance
+  encryptionService?: TenantDataEncryptionService | null
 }
 
 function columnFromKind(kind: string): keyof CustomFieldValue {
@@ -80,12 +84,20 @@ export async function setRecordCustomFields(
   }
 
   const toPersist: CustomFieldValue[] = []
+  let encryptionService: TenantDataEncryptionService | null | undefined
+  const encryptionCache = new Map<string | null, string | null>()
+  const getEncryptionService = () => {
+    if (encryptionService !== undefined) return encryptionService
+    encryptionService = resolveTenantEncryptionService(em as any, opts.encryptionService)
+    return encryptionService
+  }
   const keys = Object.keys(values)
   for (const fieldKey of keys) {
     const raw = values[fieldKey]
     if (raw === undefined) continue
 
     const def = defsByKey?.[fieldKey]
+    const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const isArray = Array.isArray(raw)
     // When array: remove existing values for key and create multiple rows
     if (isArray) {
@@ -94,23 +106,29 @@ export async function setRecordCustomFields(
       const existing = await em.find(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
       if (existing.length) existing.forEach((e) => em.remove(e))
       for (const val of arr) {
-        const col: keyof CustomFieldValue = def ? columnFromKind(def.kind) : columnFromJsValue(val)
+        const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
         clearValueColumns(cf)
+        const stored = encrypted
+          ? await encryptCustomFieldValue(val, tenantId, getEncryptionService(), encryptionCache)
+          : val
         switch (col) {
-          case 'valueText': cf.valueText = val == null ? null : String(val); break
-          case 'valueMultiline': cf.valueMultiline = val == null ? null : String(val); break
-          case 'valueInt': cf.valueInt = val == null ? null : Number(val); break
-          case 'valueFloat': cf.valueFloat = val == null ? null : Number(val); break
-          case 'valueBool': cf.valueBool = val == null ? null : Boolean(val); break
-          default: cf.valueText = val == null ? null : String(val); break
+          case 'valueText': cf.valueText = stored == null ? null : String(stored); break
+          case 'valueMultiline': cf.valueMultiline = stored == null ? null : String(stored); break
+          case 'valueInt': cf.valueInt = stored == null ? null : Number(stored); break
+          case 'valueFloat': cf.valueFloat = stored == null ? null : Number(stored); break
+          case 'valueBool': cf.valueBool = stored == null ? null : Boolean(stored); break
+          default: cf.valueText = stored == null ? null : String(stored); break
         }
         toPersist.push(cf)
       }
       continue
     }
 
-    const column: keyof CustomFieldValue = def ? columnFromKind(def.kind) : columnFromJsValue(raw as Primitive)
+    const column: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(raw as Primitive)
+    const storedValue = encrypted
+      ? await encryptCustomFieldValue(raw as Primitive, tenantId, getEncryptionService(), encryptionCache)
+      : raw
 
     let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
     if (!cf) {
@@ -120,22 +138,22 @@ export async function setRecordCustomFields(
     clearValueColumns(cf)
     switch (column) {
       case 'valueText':
-        cf.valueText = (raw as Primitive) == null ? null : String(raw as Primitive)
+        cf.valueText = (storedValue as Primitive) == null ? null : String(storedValue as Primitive)
         break
       case 'valueMultiline':
-        cf.valueMultiline = (raw as Primitive) == null ? null : String(raw as Primitive)
+        cf.valueMultiline = (storedValue as Primitive) == null ? null : String(storedValue as Primitive)
         break
       case 'valueInt':
-        cf.valueInt = (raw as Primitive) == null ? null : Number(raw as Primitive)
+        cf.valueInt = (storedValue as Primitive) == null ? null : Number(storedValue as Primitive)
         break
       case 'valueFloat':
-        cf.valueFloat = (raw as Primitive) == null ? null : Number(raw as Primitive)
+        cf.valueFloat = (storedValue as Primitive) == null ? null : Number(storedValue as Primitive)
         break
       case 'valueBool':
-        cf.valueBool = (raw as Primitive) == null ? null : Boolean(raw as Primitive)
+        cf.valueBool = (storedValue as Primitive) == null ? null : Boolean(storedValue as Primitive)
         break
       default:
-        cf.valueText = (raw as Primitive) == null ? null : String(raw as Primitive)
+        cf.valueText = (storedValue as Primitive) == null ? null : String(storedValue as Primitive)
         break
     }
   }

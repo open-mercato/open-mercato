@@ -13,6 +13,7 @@ const createResponse = (payload: unknown, ok = true) => {
     status: ok ? 200 : 500,
     result: payload,
     response: {} as Response,
+    cacheStatus: null,
   }
 }
 

@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, ManyToOne, Unique } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index } from '@mikro-orm/core'
 
 @Entity({ tableName: 'users' })
 export class User {
@@ -13,6 +13,10 @@ export class User {
 
   @Property({ type: 'text', unique: true })
   email!: string
+
+  @Property({ name: 'email_hash', type: 'text', nullable: true })
+  @Index({ name: 'users_email_hash_idx' })
+  emailHash?: string | null
 
   @Property({ type: 'text', nullable: true })
   name?: string

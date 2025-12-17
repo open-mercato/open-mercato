@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesOrderLine, SalesShipment, SalesShipmentItem } from '../../data/entities'
 import type { ShipmentItemSnapshot } from './types'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const cloneJson = <T>(value: T): T => {
   if (value === null || value === undefined) return value
@@ -121,7 +122,14 @@ export const refreshShipmentItemsSnapshot = async (
   options?: { items?: SalesShipmentItem[]; lineMap?: Map<string, SalesOrderLine> }
 ): Promise<ShipmentItemSnapshot[]> => {
   const items =
-    options?.items ?? (await em.find(SalesShipmentItem, { shipment }, { populate: ['orderLine'] }))
+    options?.items ??
+    (await findWithDecryption(
+      em,
+      SalesShipmentItem,
+      { shipment },
+      { populate: ['orderLine'] },
+      { tenantId: shipment.tenantId ?? null, organizationId: shipment.organizationId ?? null },
+    ))
   const map = await ensureLineMap(em, items, options?.lineMap)
   const snapshot = buildShipmentItemSnapshots(items, { lineMap: map })
   shipment.itemsSnapshot = snapshot.length ? snapshot : null

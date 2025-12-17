@@ -1,6 +1,7 @@
 import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
 import type { EntityId } from '@/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Knex } from 'knex'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -10,8 +11,15 @@ import {
   type NormalizedFilter,
   type ResolvedJoin,
 } from './join-utils'
+import { resolveSearchConfig } from '../search/config'
+import { tokenizeText } from '../search/tokenize'
 
 const entityTableCache = new Map<string, string>()
+
+type EncryptionResolver = () => {
+  decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  isEnabled?: () => boolean
+} | null
 
 type ResolvedCustomFieldSource = {
   entityId: EntityId
@@ -19,6 +27,8 @@ type ResolvedCustomFieldSource = {
   table: string
   recordIdExpr: any
 }
+
+type ResultRow = Record<string, unknown>
 
 const pluralizeBaseName = (name: string): string => {
   if (!name) return name
@@ -74,8 +84,22 @@ export function resolveEntityTableName(em: EntityManager | undefined, entity: En
 
 export class BasicQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
+  private tableCache = new Map<string, boolean>()
+  private searchAliasSeq = 0
 
-  constructor(private em: EntityManager, private getKnexFn?: () => any) {}
+  constructor(
+    private em: EntityManager,
+    private getKnexFn?: () => any,
+    private resolveEncryptionService?: EncryptionResolver,
+  ) {}
+
+  private getEncryptionService() {
+    try {
+      return this.resolveEncryptionService?.() ?? null
+    } catch {
+      return null
+    }
+  }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
     // Heuristic: map '<module>:user' -> table 'users'
@@ -85,6 +109,7 @@ export class BasicQueryEngine implements QueryEngine {
     let q = knex(table)
     const qualify = (col: string) => `${table}.${col}`
     const orgScope = this.resolveOrganizationScope(opts)
+    this.searchAliasSeq = 0
     // Require tenant scope for all queries
     if (!opts.tenantId) {
       throw new Error(
@@ -118,8 +143,82 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
+    const searchConfig = resolveSearchConfig()
+    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
+    const hasSearchTokens = searchEnabled
+      ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
+      : false
+    const searchActive = searchEnabled && hasSearchTokens
+    const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+    if (searchFilters.length) {
+      const fields = searchFilters.map((filter) => String(filter.field))
+      this.logSearchDebug('search:init', {
+        entity: String(entity),
+        table,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: orgScope,
+        fields,
+        searchEnabled,
+        hasSearchTokens,
+        searchActive,
+        searchConfig: {
+          enabled: searchConfig.enabled,
+          minTokenLength: searchConfig.minTokenLength,
+          enablePartials: searchConfig.enablePartials,
+          hashAlgorithm: searchConfig.hashAlgorithm,
+          blocklistedFields: searchConfig.blocklistedFields,
+        },
+      })
+      if (!searchEnabled) {
+        this.logSearchDebug('search:disabled', { entity: String(entity), table })
+      } else if (!hasSearchTokens) {
+        this.logSearchDebug('search:no-search-tokens', {
+          entity: String(entity),
+          table,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: orgScope,
+        })
+      }
+    }
+    const recordIdColumn = qualify('id')
 
-    const applyFilterOp = (builder: any, column: string, op: any, value: any) => {
+    const applyFilterOp = (builder: any, column: string, op: any, value: any, fieldName?: string) => {
+      if (
+        (op === 'like' || op === 'ilike') &&
+        searchActive &&
+        typeof value === 'string' &&
+        fieldName
+      ) {
+        const tokens = tokenizeText(String(value), searchConfig)
+        const hashes = tokens.hashes
+        if (hashes.length) {
+          const applied = this.applySearchTokens(builder, {
+            entity: String(entity),
+            field: fieldName,
+            hashes,
+            recordIdColumn,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
+            tokens: tokens.tokens,
+          })
+          this.logSearchDebug('search:filter', {
+            entity: String(entity),
+            field: fieldName,
+            tokens: tokens.tokens,
+            hashes,
+            applied,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
+          })
+          if (applied) return builder
+        } else {
+          this.logSearchDebug('search:skip-empty-hashes', {
+            entity: String(entity),
+            field: fieldName,
+            value,
+          })
+        }
+      }
       switch (op) {
         case 'eq': builder.where(column, value); break
         case 'ne': builder.whereNot(column, value); break
@@ -144,7 +243,7 @@ export class BasicQueryEngine implements QueryEngine {
         if (!column) continue
         qualified = qualify(column)
       }
-      applyFilterOp(q, qualified, filter.op, filter.value)
+      applyFilterOp(q, qualified, filter.op, filter.value, String(filter.field))
     }
 
     const applyAliasScopes = async (builder: any, aliasName: string) => {
@@ -345,6 +444,37 @@ export class BasicQueryEngine implements QueryEngine {
       const key = f.field.slice(3)
       const expr = cfValueExprByKey[key]
       if (!expr) continue
+      if ((f.op === 'like' || f.op === 'ilike') && searchActive && typeof f.value === 'string') {
+        const tokens = tokenizeText(String(f.value), searchConfig)
+        const hashes = tokens.hashes
+        if (hashes.length) {
+          const applied = this.applySearchTokens(q, {
+            entity: String(entity),
+            field: f.field,
+            hashes,
+            recordIdColumn,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
+            tokens: tokens.tokens,
+          })
+          this.logSearchDebug('search:cf-filter', {
+            entity: String(entity),
+            field: f.field,
+            tokens: tokens.tokens,
+            hashes,
+            applied,
+            tenantId: opts.tenantId ?? null,
+            organizationScope: orgScope,
+          })
+          if (applied) continue
+        } else {
+          this.logSearchDebug('search:cf-skip-empty-hashes', {
+            entity: String(entity),
+            field: f.field,
+            value: f.value,
+          })
+        }
+      }
       switch (f.op) {
         case 'eq': q = q.where(expr, '=', f.value); break
         case 'ne': q = q.where(expr, '!=', f.value); break
@@ -438,7 +568,40 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
-    return { items, page, pageSize, total }
+    const svc = this.getEncryptionService()
+    const decryptPayload =
+      svc?.decryptEntityPayload?.bind(svc) as
+        | ((
+            entityId: EntityId,
+            payload: Record<string, unknown>,
+            tenantId: string | null,
+            organizationId: string | null,
+          ) => Promise<Record<string, unknown>>)
+        | null
+    let decryptedItems = items
+    if (decryptPayload) {
+      const fallbackOrgId =
+        opts.organizationId
+        ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
+      decryptedItems = await Promise.all(
+        (items as any[]).map(async (item) => {
+          try {
+            const decrypted = await decryptPayload(
+              entity,
+              item,
+              item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+              item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null,
+            )
+            return { ...item, ...decrypted }
+          } catch (err) {
+            console.error('QueryEngine: error decrypting entity payload', err);
+            return item
+          }
+        })
+      )
+    }
+
+    return { items: decryptedItems, page, pageSize, total }
   }
 
   private async resolveBaseColumn(table: string, field: string): Promise<string | null> {
@@ -462,6 +625,98 @@ export class BasicQueryEngine implements QueryEngine {
     if (present) this.columnCache.set(key, true)
     else this.columnCache.delete(key)
     return present
+  }
+
+  private async tableExists(table: string): Promise<boolean> {
+    if (this.tableCache.has(table)) return this.tableCache.get(table) ?? false
+    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
+    const exists = await knex('information_schema.tables')
+      .where({ table_name: table })
+      .first()
+    const present = !!exists
+    this.tableCache.set(table, present)
+    return present
+  }
+
+  private async hasSearchTokens(
+    entity: string,
+    tenantId: string | null,
+    orgScope?: { ids: string[]; includeNull: boolean } | null
+  ): Promise<boolean> {
+    try {
+      const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
+      const query = knex('search_tokens').select(1).where('entity_type', entity).limit(1)
+      if (tenantId !== undefined) {
+        query.andWhereRaw('tenant_id is not distinct from ?', [tenantId])
+      }
+      if (orgScope) {
+        this.applyOrganizationScope(query as any, 'search_tokens.organization_id', orgScope)
+      }
+      const row = await query.first()
+      return !!row
+    } catch (err) {
+      this.logSearchDebug('search:has-tokens-error', {
+        entity,
+        tenantId,
+        organizationScope: orgScope,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return false
+    }
+  }
+
+  private applySearchTokens<TRecord extends ResultRow, TResult>(
+    q: Knex.QueryBuilder<TRecord, TResult>,
+    opts: {
+      entity: string
+      field: string
+      hashes: string[]
+      recordIdColumn: string
+      tenantId?: string | null
+      organizationScope?: { ids: string[]; includeNull: boolean } | null
+      combineWith?: 'and' | 'or'
+      tokens?: string[]
+    }
+  ): boolean {
+    if (!opts.hashes.length) {
+      this.logSearchDebug('search:skip-no-hashes', {
+        entity: opts.entity,
+        field: opts.field,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: opts.organizationScope,
+      })
+      return false
+    }
+    const alias = `st_${this.searchAliasSeq++}`
+    const combineWith = opts.combineWith === 'or' ? 'orWhereExists' : 'whereExists'
+    const engine = this
+    this.logSearchDebug('search:apply-search-tokens', {
+      entity: opts.entity,
+      field: opts.field,
+      alias,
+      tokenCount: opts.hashes.length,
+      tokens: opts.tokens,
+      tenantId: opts.tenantId ?? null,
+      organizationScope: opts.organizationScope,
+      combineWith: opts.combineWith ?? 'and',
+    })
+    ;(q as any)[combineWith](function (this: Knex.QueryBuilder) {
+      this.select(1)
+        .from({ [alias]: 'search_tokens' })
+        .where(`${alias}.entity_type`, opts.entity)
+        .andWhere(`${alias}.field`, opts.field)
+        .andWhereRaw('?? = ??::text', [`${alias}.entity_id`, opts.recordIdColumn])
+        .whereIn(`${alias}.token_hash`, opts.hashes)
+        .groupBy(`${alias}.entity_id`, `${alias}.field`)
+        .havingRaw(`count(distinct ${alias}.token_hash) >= ?`, [opts.hashes.length])
+      if (opts.tenantId !== undefined) {
+        this.andWhereRaw(`${alias}.tenant_id is not distinct from ?`, [opts.tenantId ?? null])
+      }
+      if (opts.organizationScope) {
+        engine.applyOrganizationScope(this as any, `${alias}.organization_id`, opts.organizationScope)
+      }
+    })
+    return true
   }
 
   private configureCustomFieldSources(
@@ -504,6 +759,14 @@ export class BasicQueryEngine implements QueryEngine {
       })
     })
     return sources
+  }
+
+  private logSearchDebug(event: string, payload: Record<string, unknown>) {
+    try {
+      console.info('[query:search]', event, JSON.stringify(payload))
+    } catch {
+      console.info('[query:search]', event, payload)
+    }
   }
 
   private resolveOrganizationScope(opts: QueryOptions): { ids: string[]; includeNull: boolean } | null {

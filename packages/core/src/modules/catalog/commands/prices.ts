@@ -27,6 +27,7 @@ import {
   requirePriceKind,
   toNumericString,
 } from './shared'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type PriceSnapshot = {
   id: string
@@ -115,10 +116,11 @@ async function resolveSnapshotAssociations(
 }
 
 async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSnapshot | null> {
-  const record = await em.findOne(
+  const record = await findOneWithDecryption(
+    em,
     CatalogProductPrice,
     { id },
-    { populate: ['priceKind', 'product', 'variant', 'offer'] }
+    { populate: ['priceKind', 'product', 'variant', 'offer'] },
   )
   if (!record) return null
   const variantId =
@@ -411,7 +413,13 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductPrice, { id: parsed.id }, { populate: ['priceKind'] })
+    const record = await findOneWithDecryption(
+      em,
+      CatalogProductPrice,
+      { id: parsed.id },
+      { populate: ['priceKind'] },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
     if (!record) throw new CrudHttpError(404, { error: 'Catalog price not found' })
     const currentVariantRef = record.variant
     let targetVariant: CatalogProductVariant | null = null

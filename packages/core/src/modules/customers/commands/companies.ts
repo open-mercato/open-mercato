@@ -49,6 +49,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 
@@ -163,22 +164,34 @@ async function loadCompanySnapshot(em: EntityManager, id: string): Promise<Compa
   const profile = await em.findOne(CustomerCompanyProfile, { entity })
   if (!profile) return null
   const tagIds = await loadEntityTagIds(em, entity)
-  const deals = await em.find(
+  const deals = await findWithDecryption(
+    em,
     CustomerDealCompanyLink,
     { company: entity },
-    { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
   )
-  const members = await em.find(
+  const members = await findWithDecryption(
+    em,
     CustomerPersonProfile,
     { company: entity },
-    { orderBy: { createdAt: 'asc' }, populate: ['entity'] }
+    { orderBy: { createdAt: 'asc' }, populate: ['entity'] },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
   )
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
-  const comments = await em.find(CustomerComment, { entity }, { orderBy: { createdAt: 'asc' }, populate: ['deal'] })
-  const activities = await em.find(
+  const comments = await findWithDecryption(
+    em,
+    CustomerComment,
+    { entity },
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+  )
+  const activities = await findWithDecryption(
+    em,
     CustomerActivity,
     { entity },
-    { orderBy: { createdAt: 'asc' }, populate: ['deal'] }
+    { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
   )
   const todoLinks = await em.find(CustomerTodoLink, { entity }, { orderBy: { createdAt: 'asc' } })
   const custom = await loadCustomFieldSnapshot(em, {

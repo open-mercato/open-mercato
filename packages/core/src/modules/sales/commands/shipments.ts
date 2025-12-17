@@ -32,6 +32,7 @@ import {
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 
@@ -527,7 +528,13 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(SalesShipment, { id: after.id }, { populate: ['order'] })
+    const existing = await findOneWithDecryption(
+      em,
+      SalesShipment,
+      { id: after.id },
+      { populate: ['order'] },
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
     if (existing) {
       const order = existing.order as SalesOrder | null
       await deleteShipmentWithItems(em, existing)
@@ -558,10 +565,12 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const shipment = await em.findOne(
+    const shipment = await findOneWithDecryption(
+      em,
       SalesShipment,
       { id: input.id },
-      { populate: ['order'] }
+      { populate: ['order'] },
+      { tenantId: input.tenantId, organizationId: input.organizationId },
     )
     const { translate } = await resolveTranslations()
     if (!shipment || !shipment.order) {
@@ -791,10 +800,12 @@ const deleteShipmentCommand: CommandHandler<
       throw error
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const shipment = await em.findOne(
+    const shipment = await findOneWithDecryption(
+      em,
       SalesShipment,
       { id: payload.id },
-      { populate: ['order'] }
+      { populate: ['order'] },
+      { tenantId: payload.tenantId, organizationId: payload.organizationId },
     )
     if (!shipment || !shipment.order) {
       throw new CrudHttpError(404, { error: translate('sales.shipments.not_found', 'Shipment not found') })

@@ -1,13 +1,15 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
-import { CustomEntity, CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { CustomEntity, CustomFieldDef, EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import {
   installCustomEntitiesFromModules,
   getAggregatedCustomEntityConfigs,
 } from './lib/install-from-ce'
 import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -235,5 +237,57 @@ const addField: ModuleCli = {
   },
 }
 
+async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
+  for (const spec of DEFAULT_ENCRYPTION_MAPS) {
+    const existing = await em.findOne(EncryptionMap, {
+      entityId: spec.entityId,
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    })
+    if (existing) {
+      existing.fieldsJson = spec.fields
+      existing.isActive = true
+      existing.updatedAt = new Date()
+      logger(`🔒 Updated encryption map for ${spec.entityId} ✨`)
+      await em.persistAndFlush(existing)
+      continue
+    }
+    const map = em.create(EncryptionMap, {
+      entityId: spec.entityId,
+      tenantId,
+      organizationId,
+      fieldsJson: spec.fields,
+      isActive: true,
+    })
+    await em.persistAndFlush(map)
+    logger(`Created encryption map for ${spec.entityId}`)
+  }
+}
+
+const seedEncryptionMaps: ModuleCli = {
+  command: 'seed-encryption',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = (args.tenant as string) || (args.tenantId as string)
+    const organizationId = (args.org as string) || (args.organization as string) || (args.organizationId as string) || null
+
+    if (!tenantId) {
+      console.error('tenant id is required (use --tenant <uuid>)')
+      return
+    }
+    if (!isTenantDataEncryptionEnabled()) {
+      console.warn('TENANT_DATA_ENCRYPTION is disabled; skipping encryption map seeding.')
+      return
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    const logger = (msg: string) => console.log(msg)
+    await upsertEncryptionMaps(em, tenantId, organizationId, logger)
+    console.log('✅ Encryption maps seeded')
+  },
+}
+
 // Keep default export stable (install first for help listing)
-export default [seedDefs, reinstallDefs, addField]
+export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps]

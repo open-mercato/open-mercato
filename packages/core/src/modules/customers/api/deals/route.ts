@@ -13,6 +13,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -202,6 +203,20 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
 
       const items = Array.isArray(payload.items) ? payload.items : []
       if (!items.length) return
+      const scopeSource = (items[0] ?? {}) as Record<string, unknown>
+      const fallbackTenantId =
+        (typeof scopeSource.tenantId === 'string' && scopeSource.tenantId.trim().length
+          ? scopeSource.tenantId
+          : typeof (scopeSource as any).tenant_id === 'string' && (scopeSource as any).tenant_id.trim().length
+            ? (scopeSource as any).tenant_id
+            : null) ?? (ctx as any)?.auth?.tenantId ?? null
+      const fallbackOrganizationId =
+        (typeof scopeSource.organizationId === 'string' && scopeSource.organizationId.trim().length
+          ? scopeSource.organizationId
+          : typeof (scopeSource as any).organization_id === 'string' &&
+              (scopeSource as any).organization_id.trim().length
+            ? (scopeSource as any).organization_id
+            : null) ?? (ctx as any)?.auth?.orgId ?? null
       const ids = items
         .map((item: unknown) => {
           if (!item || typeof item !== 'object') return null
@@ -217,8 +232,20 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       try {
         const em = (ctx.container.resolve('em') as EntityManager)
         const [allPersonLinks, allCompanyLinks] = await Promise.all([
-          em.find(CustomerDealPersonLink, { deal: { $in: ids } }, { populate: ['person'] }),
-          em.find(CustomerDealCompanyLink, { deal: { $in: ids } }, { populate: ['company'] }),
+          findWithDecryption(
+            em,
+            CustomerDealPersonLink,
+            { deal: { $in: ids } },
+            { populate: ['person'] },
+            { tenantId: fallbackTenantId, organizationId: fallbackOrganizationId },
+          ),
+          findWithDecryption(
+            em,
+            CustomerDealCompanyLink,
+            { deal: { $in: ids } },
+            { populate: ['company'] },
+            { tenantId: fallbackTenantId, organizationId: fallbackOrganizationId },
+          ),
         ])
 
         const personAssignments = new Map<string, { id: string; label: string }[]>()

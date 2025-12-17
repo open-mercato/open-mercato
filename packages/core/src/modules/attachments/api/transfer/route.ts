@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
-import { mergeAttachmentMetadata, readAttachmentMetadata } from '../../../lib/metadata'
+import { mergeAttachmentMetadata, readAttachmentMetadata } from '../../lib/metadata'
 
 const transferSchema = z.object({
   entityId: z.string().min(1),

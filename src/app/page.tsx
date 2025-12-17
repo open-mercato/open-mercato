@@ -1,10 +1,11 @@
-import { getEm } from '@/lib/db/mikro'
 import { modules } from '@/generated/modules.generated'
 import { StartPageContent } from '@/components/StartPageContent'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createRequestContainer } from '@/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 function FeatureBadge({ label }: { label: string }) {
   return (
@@ -28,7 +29,8 @@ export default async function Home() {
   let tenantsCount = 0
   let orgsCount = 0
   try {
-    const em = await getEm()
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
     usersCount = await em.count('User', {})
     tenantsCount = await em.count('Tenant', {})
     orgsCount = await em.count('Organization', {})

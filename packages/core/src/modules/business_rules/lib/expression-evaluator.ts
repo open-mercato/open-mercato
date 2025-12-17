@@ -335,7 +335,10 @@ function matches(str: any, pattern: any): boolean {
     return result
   } catch (error) {
     // Log the error for debugging but don't expose to user
-    console.error('Regex matching failed:', error instanceof Error ? error.message : 'Unknown error')
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    if (process.env.NODE_ENV !== 'test') {
+      console.error('Regex matching failed:', message)
+    }
     return false
   }
 }

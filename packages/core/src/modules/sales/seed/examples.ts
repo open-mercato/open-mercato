@@ -35,6 +35,7 @@ import {
   CustomerEntity,
   CustomerPersonProfile,
 } from '@open-mercato/core/modules/customers/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type ExampleAddress = {
   role: 'billing' | 'shipping'
@@ -883,6 +884,8 @@ type CustomerLookup = {
   displayName: string
 }
 
+type CustomerLookupSpec = CustomerLookup & { normalizedName: string }
+
 type CustomerContext = {
   entity: CustomerEntity
   contact: CustomerPersonProfile | null
@@ -963,41 +966,118 @@ async function loadCustomerLookups(
   lookups: CustomerLookup[]
 ): Promise<Map<string, CustomerContext>> {
   const map = new Map<string, CustomerContext>()
-  for (const lookup of lookups) {
-    const entity = await em.findOne(
-      CustomerEntity,
-      {
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        displayName: lookup.displayName,
-        deletedAt: null,
-      },
-      { populate: ['personProfile', 'companyProfile'] }
+  if (lookups.length === 0) return map
+  const lookupSpecs: CustomerLookupSpec[] = lookups.map((lookup) => ({
+    ...lookup,
+    normalizedName: normalizeKey(lookup.displayName),
+  }))
+  const unresolved = new Map<string, CustomerLookupSpec>()
+  for (const spec of lookupSpecs) {
+    unresolved.set(spec.key, spec)
+  }
+
+  const customers = await findWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    { populate: ['personProfile', 'companyProfile'] },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  )
+
+  const doesMatch = (candidate: string, spec: CustomerLookupSpec): boolean => {
+    if (!candidate) return false
+    return (
+      candidate === spec.normalizedName ||
+      candidate.includes(spec.normalizedName) ||
+      spec.normalizedName.includes(candidate)
     )
-    if (!entity) {
-      console.warn(`[sales.examples] Customer "${lookup.displayName}" not found; skipping seeded linkage.`)
-      continue
+  }
+
+  const matchedPairs: Array<{ spec: CustomerLookupSpec; customer: CustomerEntity }> = []
+
+  for (const customer of customers) {
+    if (unresolved.size === 0) break
+    const tokens = new Set<string>()
+    tokens.add(normalizeKey(customer.displayName))
+    if (customer.companyProfile) {
+      tokens.add(normalizeKey(customer.companyProfile.legalName ?? ''))
+      tokens.add(normalizeKey(customer.companyProfile.brandName ?? ''))
+      tokens.add(normalizeKey(customer.companyProfile.domain ?? ''))
     }
-    const address = await em.findOne(
-      CustomerAddress,
-      { entity, organizationId: scope.organizationId, tenantId: scope.tenantId },
-      { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any }
+    if (customer.personProfile) {
+      tokens.add(normalizeKey(customer.personProfile.firstName ?? ''))
+      tokens.add(normalizeKey(customer.personProfile.lastName ?? ''))
+      const fullName = [customer.personProfile.firstName, customer.personProfile.lastName]
+        .filter((part) => (part ?? '').trim().length > 0)
+        .join(' ')
+      tokens.add(normalizeKey(fullName))
+    }
+
+    const matchedSpec = lookupSpecs.find(
+      (spec) => unresolved.has(spec.key) && Array.from(tokens).some((token) => doesMatch(token, spec))
     )
-    const contact = await em.findOne(
-      CustomerPersonProfile,
-      { company: entity, organizationId: scope.organizationId, tenantId: scope.tenantId },
-      { populate: ['entity'] }
-    )
-    const snapshot = buildCustomerSnapshot(entity, contact)
-    const addresses = toExampleAddresses(entity, address)
-    map.set(lookup.key, {
-      entity,
+    if (!matchedSpec) continue
+    matchedPairs.push({ spec: matchedSpec, customer })
+    unresolved.delete(matchedSpec.key)
+  }
+
+  const matchIds = matchedPairs.map(({ customer }) => customer.id)
+
+  const addresses = matchIds.length
+    ? await findWithDecryption(
+        em,
+        CustomerAddress,
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, entity: { $in: matchIds } },
+        { orderBy: { isPrimary: 'desc', createdAt: 'asc' } as any },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      )
+    : []
+  const addressByCustomer = new Map<string, CustomerAddress>()
+  for (const address of addresses) {
+    const entityId = typeof address.entity === 'string' ? address.entity : address.entity?.id
+    if (!entityId || addressByCustomer.has(entityId)) continue
+    addressByCustomer.set(entityId, address)
+  }
+
+  const contacts = matchIds.length
+    ? await findWithDecryption(
+        em,
+        CustomerPersonProfile,
+        { organizationId: scope.organizationId, tenantId: scope.tenantId, company: { $in: matchIds } },
+        { populate: ['entity', 'company'] },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId }
+      )
+    : []
+  const contactByCompany = new Map<string, CustomerPersonProfile>()
+  for (const contact of contacts) {
+    const companyId = typeof contact.company === 'string' ? contact.company : contact.company?.id
+    if (!companyId || contactByCompany.has(companyId)) continue
+    contactByCompany.set(companyId, contact)
+  }
+
+  for (const { spec, customer } of matchedPairs) {
+    const contact = contactByCompany.get(customer.id) ?? null
+    const snapshot = buildCustomerSnapshot(customer, contact)
+    const addresses = toExampleAddresses(customer, addressByCustomer.get(customer.id) ?? null)
+    map.set(spec.key, {
+      entity: customer,
       contact,
       contactId: contact?.id ?? null,
       snapshot,
       addresses,
     })
   }
+
+  for (const lookup of lookups) {
+    if (!map.has(lookup.key)) {
+      console.warn(`[sales.examples] Customer "${lookup.displayName}" not found; skipping seeded linkage.`)
+    }
+  }
+
   return map
 }
 

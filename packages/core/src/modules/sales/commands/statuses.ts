@@ -14,6 +14,7 @@ import {
   statusDictionaryCreateSchema,
   statusDictionaryUpdateSchema,
 } from '../data/validators'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 function ensureScope(ctx: Parameters<typeof ensureTenantScope>[0], scope: { tenantId: string; organizationId: string }): void {
   ensureTenantScope(ctx, scope.tenantId)
@@ -49,7 +50,7 @@ function registerStatusDictionaryCommands(kind: SalesDictionaryKind): void {
       return { dictionary, scope }
     },
     resolveEntry: async ({ em, ctx, id }) => {
-      const entry = await em.findOne(DictionaryEntry, id, { populate: ['dictionary'] })
+      const entry = await findOneWithDecryption(em, DictionaryEntry, id, { populate: ['dictionary'] })
       if (!entry) {
         throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
       }
