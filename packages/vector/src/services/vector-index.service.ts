@@ -1,6 +1,7 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   type VectorModuleConfig,
   type VectorEntityConfig,
@@ -18,10 +19,13 @@ import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
 
 type ContainerResolver = () => unknown
+const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
 
 const ENRICHMENT_FIELD_HINTS: Record<EntityId, string[]> = {
   'customers:customer_entity': [
     'id',
+    'organization_id',
+    'tenant_id',
     'display_name',
     'description',
     'status',
@@ -31,12 +35,14 @@ const ENRICHMENT_FIELD_HINTS: Record<EntityId, string[]> = {
     'kind',
     'customer_kind',
   ],
-  'customers:customer_comment': ['id', 'entity_id', 'body', 'appearance_icon', 'appearance_color'],
-  'customers:customer_activity': ['id', 'entity_id', 'activity_type', 'subject', 'body', 'deal_id'],
-  'customers:customer_deal': ['id', 'title', 'pipeline_stage', 'status', 'value_amount', 'value_currency'],
-  'customers:customer_todo_link': ['id', 'entity_id', 'todo_id', 'todo_source'],
+  'customers:customer_comment': ['id', 'organization_id', 'tenant_id', 'entity_id', 'body', 'appearance_icon', 'appearance_color'],
+  'customers:customer_activity': ['id', 'organization_id', 'tenant_id', 'entity_id', 'activity_type', 'subject', 'body', 'deal_id'],
+  'customers:customer_deal': ['id', 'organization_id', 'tenant_id', 'title', 'pipeline_stage', 'status', 'value_amount', 'value_currency'],
+  'customers:customer_todo_link': ['id', 'organization_id', 'tenant_id', 'entity_id', 'todo_id', 'todo_source'],
   'customers:customer_person_profile': [
     'id',
+    'organization_id',
+    'tenant_id',
     'entity_id',
     'first_name',
     'last_name',
@@ -46,6 +52,8 @@ const ENRICHMENT_FIELD_HINTS: Record<EntityId, string[]> = {
   ],
   'customers:customer_company_profile': [
     'id',
+    'organization_id',
+    'tenant_id',
     'entity_id',
     'brand_name',
     'legal_name',
@@ -107,6 +115,165 @@ export class VectorIndexService {
         if (entity.enabled === false) continue
         const targetDriver = entity.driverId ?? driverId
         this.entityConfig.set(entity.entityId, { config: entity, driverId: targetDriver })
+      }
+    }
+  }
+
+  private resolveEncryptionService(): TenantDataEncryptionService | null {
+    if (!this.opts.containerResolver) return null
+    try {
+      const container = this.opts.containerResolver() as any
+      if (!container || typeof container.resolve !== 'function') return null
+      return container.resolve('tenantEncryptionService') as TenantDataEncryptionService
+    } catch {
+      return null
+    }
+  }
+
+  private async encryptResultFields(args: {
+    tenantId: string
+    organizationId: string | null
+    resultTitle: string
+    resultSubtitle: string | null
+    resultIcon: string | null
+    resultSnapshot: string | null
+    primaryLinkHref: string | null
+    primaryLinkLabel: string | null
+    links: VectorLinkDescriptor[] | string | null
+    payload: Record<string, unknown> | string | null
+  }): Promise<{
+    resultTitle: string
+    resultSubtitle: string | null
+    resultIcon: string | null
+    resultSnapshot: string | null
+    primaryLinkHref: string | null
+    primaryLinkLabel: string | null
+    links: VectorLinkDescriptor[] | string | null
+    payload: Record<string, unknown> | string | null
+  }> {
+    const service = this.resolveEncryptionService()
+    if (!service || !service.isEnabled?.()) {
+      return {
+        resultTitle: args.resultTitle,
+        resultSubtitle: args.resultSubtitle,
+        resultIcon: args.resultIcon,
+        resultSnapshot: args.resultSnapshot,
+        primaryLinkHref: args.primaryLinkHref,
+        primaryLinkLabel: args.primaryLinkLabel,
+        links: args.links,
+        payload: args.payload,
+      }
+    }
+    try {
+      const encrypted = await service.encryptEntityPayload(
+        VECTOR_ENTRY_ENCRYPTION_ENTITY_ID,
+        {
+          resultTitle: args.resultTitle,
+          resultSubtitle: args.resultSubtitle,
+          resultIcon: args.resultIcon,
+          resultSnapshot: args.resultSnapshot,
+          primaryLinkHref: args.primaryLinkHref,
+          primaryLinkLabel: args.primaryLinkLabel,
+          links: args.links,
+          payload: args.payload,
+        },
+        args.tenantId,
+        args.organizationId,
+      )
+      return {
+        resultTitle: String((encrypted as any).resultTitle ?? args.resultTitle),
+        resultSubtitle: ((encrypted as any).resultSubtitle ?? args.resultSubtitle) as any,
+        resultIcon: ((encrypted as any).resultIcon ?? args.resultIcon) as any,
+        resultSnapshot: ((encrypted as any).resultSnapshot ?? args.resultSnapshot) as any,
+        primaryLinkHref: ((encrypted as any).primaryLinkHref ?? args.primaryLinkHref) as any,
+        primaryLinkLabel: ((encrypted as any).primaryLinkLabel ?? args.primaryLinkLabel) as any,
+        links: ((encrypted as any).links ?? args.links) as any,
+        payload: ((encrypted as any).payload ?? args.payload) as any,
+      }
+    } catch {
+      return {
+        resultTitle: args.resultTitle,
+        resultSubtitle: args.resultSubtitle,
+        resultIcon: args.resultIcon,
+        resultSnapshot: args.resultSnapshot,
+        primaryLinkHref: args.primaryLinkHref,
+        primaryLinkLabel: args.primaryLinkLabel,
+        links: args.links,
+        payload: args.payload,
+      }
+    }
+  }
+
+  private async decryptResultFields(args: {
+    tenantId: string
+    organizationId: string | null
+    resultTitle: string
+    resultSubtitle: string | null
+    resultIcon: string | null
+    resultSnapshot: string | null
+    primaryLinkHref: string | null
+    primaryLinkLabel: string | null
+    links: VectorLinkDescriptor[] | string | null
+    payload: Record<string, unknown> | string | null
+  }): Promise<{
+    resultTitle: string
+    resultSubtitle: string | null
+    resultIcon: string | null
+    resultSnapshot: string | null
+    primaryLinkHref: string | null
+    primaryLinkLabel: string | null
+    links: VectorLinkDescriptor[] | string | null
+    payload: Record<string, unknown> | string | null
+  }> {
+    const service = this.resolveEncryptionService()
+    if (!service || !service.isEnabled?.() || typeof service.decryptEntityPayload !== 'function') {
+      return {
+        resultTitle: args.resultTitle,
+        resultSubtitle: args.resultSubtitle,
+        resultIcon: args.resultIcon,
+        resultSnapshot: args.resultSnapshot,
+        primaryLinkHref: args.primaryLinkHref,
+        primaryLinkLabel: args.primaryLinkLabel,
+        links: args.links,
+        payload: args.payload,
+      }
+    }
+    try {
+      const decrypted = await service.decryptEntityPayload(
+        VECTOR_ENTRY_ENCRYPTION_ENTITY_ID,
+        {
+          resultTitle: args.resultTitle,
+          resultSubtitle: args.resultSubtitle,
+          resultIcon: args.resultIcon,
+          resultSnapshot: args.resultSnapshot,
+          primaryLinkHref: args.primaryLinkHref,
+          primaryLinkLabel: args.primaryLinkLabel,
+          links: args.links,
+          payload: args.payload,
+        },
+        args.tenantId,
+        args.organizationId,
+      )
+      return {
+        resultTitle: String((decrypted as any).resultTitle ?? args.resultTitle),
+        resultSubtitle: ((decrypted as any).resultSubtitle ?? args.resultSubtitle) as any,
+        resultIcon: ((decrypted as any).resultIcon ?? args.resultIcon) as any,
+        resultSnapshot: ((decrypted as any).resultSnapshot ?? args.resultSnapshot) as any,
+        primaryLinkHref: ((decrypted as any).primaryLinkHref ?? args.primaryLinkHref) as any,
+        primaryLinkLabel: ((decrypted as any).primaryLinkLabel ?? args.primaryLinkLabel) as any,
+        links: ((decrypted as any).links ?? args.links) as any,
+        payload: ((decrypted as any).payload ?? args.payload) as any,
+      }
+    } catch {
+      return {
+        resultTitle: args.resultTitle,
+        resultSubtitle: args.resultSubtitle,
+        resultIcon: args.resultIcon,
+        resultSnapshot: args.resultSnapshot,
+        primaryLinkHref: args.primaryLinkHref,
+        primaryLinkLabel: args.primaryLinkLabel,
+        links: args.links,
+        payload: args.payload,
       }
     }
   }
@@ -215,11 +382,12 @@ export class VectorIndexService {
   ): Promise<VectorIndexOperationResult> {
     const scopeOrg = args.organizationId ?? null
     const { record, customFields } = this.extractRecordPayload(args.entityId, raw)
+    const resolvedOrgId = scopeOrg ?? (record.organization_id ?? record.organizationId ?? null)
     const source = await this.resolveSource(args.entityId, entry.config, {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: scopeOrg,
+      organizationId: resolvedOrgId,
     })
     if (!source) {
       const existing = await driver.getChecksum(args.entityId, args.recordId, args.tenantId)
@@ -229,14 +397,14 @@ export class VectorIndexService {
           action: 'deleted',
           existed: true,
           tenantId: args.tenantId,
-          organizationId: scopeOrg,
+          organizationId: resolvedOrgId,
         }
       }
       return {
         action: 'skipped',
         existed: Boolean(existing),
         tenantId: args.tenantId,
-        organizationId: scopeOrg,
+        organizationId: resolvedOrgId,
         reason: 'missing_record',
       }
     }
@@ -261,7 +429,7 @@ export class VectorIndexService {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: scopeOrg,
+      organizationId: resolvedOrgId,
     }, source.presenter ?? null)
     if (!presenter?.title) {
       if (process.env.VECTOR_DEBUG === '1') {
@@ -283,28 +451,41 @@ export class VectorIndexService {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: scopeOrg,
+      organizationId: resolvedOrgId,
     }, source.links ?? null)
     const url = await this.resolveUrl(entry.config, {
       record,
       customFields,
       tenantId: args.tenantId,
-      organizationId: scopeOrg,
+      organizationId: resolvedOrgId,
     })
 
     const normalizedPresenter = this.ensurePresenter(presenter, record, customFields, args.recordId, args.entityId)
     const normalizedLinks = Array.isArray(links) && links.length ? links : null
     const snapshot = this.deriveSnapshot(record, customFields)
-    const resultTitle = this.resolveResultTitle(normalizedPresenter, record, customFields, args.recordId)
-    const resultSubtitle = normalizedPresenter.subtitle ?? snapshot ?? null
-    const resultIcon = normalizedPresenter.icon ?? this.mapDefaultIcon(args.entityId)
+    const rawResultTitle = this.resolveResultTitle(normalizedPresenter, record, customFields, args.recordId)
+    const rawResultSubtitle = normalizedPresenter.subtitle ?? snapshot ?? null
+    const rawResultIcon = normalizedPresenter.icon ?? this.mapDefaultIcon(args.entityId)
     const resultBadge = normalizedPresenter.badge ?? null
-    const primaryLink = this.resolvePrimaryLink(normalizedLinks, url, resultTitle)
+    const primaryLink = this.resolvePrimaryLink(normalizedLinks, url, rawResultTitle)
+
+    const encryptedResult = await this.encryptResultFields({
+      tenantId: args.tenantId,
+      organizationId: resolvedOrgId,
+      resultTitle: rawResultTitle,
+      resultSubtitle: rawResultSubtitle,
+      resultIcon: rawResultIcon ?? null,
+      resultSnapshot: snapshot ?? null,
+      primaryLinkHref: primaryLink?.href ?? null,
+      primaryLinkLabel: primaryLink?.label ?? null,
+      links: normalizedLinks,
+      payload: source.payload ?? null,
+    })
 
     const presenterForStorage: VectorResultPresenter = {
-      title: resultTitle,
-      subtitle: resultSubtitle ?? undefined,
-      icon: resultIcon ?? undefined,
+      title: encryptedResult.resultTitle,
+      subtitle: encryptedResult.resultSubtitle ?? undefined,
+      icon: encryptedResult.resultIcon ?? undefined,
       badge: resultBadge ?? undefined,
     }
 
@@ -313,20 +494,20 @@ export class VectorIndexService {
       entityId: args.entityId,
       recordId: args.recordId,
       tenantId: args.tenantId,
-      organizationId: scopeOrg,
+      organizationId: resolvedOrgId,
       checksum,
       embedding,
       url: url ?? null,
       presenter: presenterForStorage,
-      links: normalizedLinks,
-      payload: source.payload ?? null,
-      resultTitle,
-      resultSubtitle,
-      resultIcon: resultIcon ?? null,
+      links: (encryptedResult.links as any) ?? normalizedLinks,
+      payload: (encryptedResult.payload as any) ?? source.payload ?? null,
+      resultTitle: encryptedResult.resultTitle,
+      resultSubtitle: encryptedResult.resultSubtitle,
+      resultIcon: encryptedResult.resultIcon ?? null,
       resultBadge,
-      resultSnapshot: snapshot,
-      primaryLinkHref: primaryLink?.href ?? null,
-      primaryLinkLabel: primaryLink?.label ?? null,
+      resultSnapshot: encryptedResult.resultSnapshot ?? snapshot,
+      primaryLinkHref: encryptedResult.primaryLinkHref ?? primaryLink?.href ?? null,
+      primaryLinkLabel: encryptedResult.primaryLinkLabel ?? null,
     })
 
     return {
@@ -334,7 +515,7 @@ export class VectorIndexService {
       created: !current,
       existed: true,
       tenantId: args.tenantId,
-      organizationId: scopeOrg,
+      organizationId: resolvedOrgId,
     }
   }
 
@@ -920,12 +1101,41 @@ export class VectorIndexService {
       return []
     }
 
-    return list.map((entry) => {
-      const presenter = entry.presenter ?? {
+    const decrypted = await Promise.all(
+      list.map(async (entry) => {
+        const decryptedResult = await this.decryptResultFields({
+          tenantId: args.tenantId,
+          organizationId: entry.organizationId ?? null,
+          resultTitle: entry.resultTitle,
+          resultSubtitle: entry.resultSubtitle ?? null,
+          resultIcon: entry.resultIcon ?? null,
+          resultSnapshot: entry.resultSnapshot ?? null,
+          primaryLinkHref: entry.primaryLinkHref ?? null,
+          primaryLinkLabel: entry.primaryLinkLabel ?? null,
+          links: (entry.links as any) ?? null,
+          payload: (entry.payload as any) ?? null,
+        })
+        return {
+          ...entry,
+          resultTitle: decryptedResult.resultTitle,
+          resultSubtitle: decryptedResult.resultSubtitle,
+          resultIcon: decryptedResult.resultIcon,
+          resultSnapshot: decryptedResult.resultSnapshot,
+          primaryLinkHref: decryptedResult.primaryLinkHref,
+          primaryLinkLabel: decryptedResult.primaryLinkLabel,
+          links: decryptedResult.links as any,
+          payload: decryptedResult.payload as any,
+          metadata: (decryptedResult.payload as any) ?? null,
+        }
+      }),
+    )
+
+    return decrypted.map((entry) => {
+      const presenter = {
         title: entry.resultTitle,
         subtitle: entry.resultSubtitle ?? undefined,
         icon: entry.resultIcon ?? undefined,
-        badge: entry.resultBadge ?? undefined,
+        badge: entry.presenter?.badge ?? entry.resultBadge ?? undefined,
       }
       const links = entry.links ?? (entry.primaryLinkHref
         ? [{ href: entry.primaryLinkHref, label: entry.primaryLinkLabel ?? entry.resultTitle, kind: 'primary' as const }]
@@ -964,12 +1174,40 @@ export class VectorIndexService {
 
     if (!hits.length) return []
 
-    return hits.map((hit) => {
-      const presenter = hit.presenter ?? {
+    const decrypted = await Promise.all(
+      hits.map(async (hit) => {
+        const decryptedResult = await this.decryptResultFields({
+          tenantId: request.tenantId,
+          organizationId: hit.organizationId ?? request.organizationId ?? null,
+          resultTitle: hit.resultTitle,
+          resultSubtitle: hit.resultSubtitle ?? null,
+          resultIcon: hit.resultIcon ?? null,
+          resultSnapshot: hit.resultSnapshot ?? null,
+          primaryLinkHref: hit.primaryLinkHref ?? null,
+          primaryLinkLabel: hit.primaryLinkLabel ?? null,
+          links: (hit.links as any) ?? null,
+          payload: (hit.payload as any) ?? null,
+        })
+        return {
+          ...hit,
+          resultTitle: decryptedResult.resultTitle,
+          resultSubtitle: decryptedResult.resultSubtitle,
+          resultIcon: decryptedResult.resultIcon,
+          resultSnapshot: decryptedResult.resultSnapshot,
+          primaryLinkHref: decryptedResult.primaryLinkHref,
+          primaryLinkLabel: decryptedResult.primaryLinkLabel,
+          links: decryptedResult.links as any,
+          payload: decryptedResult.payload as any,
+        }
+      }),
+    )
+
+    return decrypted.map((hit) => {
+      const presenter = {
         title: hit.resultTitle,
         subtitle: hit.resultSubtitle ?? undefined,
         icon: hit.resultIcon ?? undefined,
-        badge: hit.resultBadge ?? undefined,
+        badge: hit.presenter?.badge ?? hit.resultBadge ?? undefined,
       }
       const links = hit.links ?? (hit.primaryLinkHref
         ? [{ href: hit.primaryLinkHref, label: hit.primaryLinkLabel ?? hit.resultTitle, kind: 'primary' as const }]

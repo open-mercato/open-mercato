@@ -57,6 +57,7 @@ export type VectorDriverQuery = {
 export type VectorDriverQueryResult = {
   entityId: EntityId
   recordId: string
+  organizationId?: string | null
   score: number
   checksum: string
   url?: string | null

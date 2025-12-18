@@ -8,6 +8,7 @@ import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/vector'
+import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -713,6 +714,7 @@ export class HybridQueryEngine implements QueryEngine {
 
     let items = itemsRaw as any[]
     const encSvc = this.getEncryptionService()
+    const dekKeyCache = new Map<string | null, string | null>()
     if (encSvc?.decryptEntityPayload) {
       const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
         entityId: EntityId,
@@ -735,6 +737,25 @@ export class HybridQueryEngine implements QueryEngine {
             return item
           }
         })
+      )
+    }
+    if (encSvc) {
+      items = await Promise.all(
+        items.map(async (item) => {
+          try {
+            return await decryptIndexDocCustomFields(
+              item,
+              {
+                tenantId: item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+                organizationId: item?.organization_id ?? item?.organizationId ?? null,
+              },
+              encSvc as any,
+              dekKeyCache,
+            )
+          } catch {
+            return item
+          }
+        }),
       )
     }
 
