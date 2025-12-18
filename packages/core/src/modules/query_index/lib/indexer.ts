@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import type { Knex } from 'knex'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
 
@@ -70,21 +71,12 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
 
   try {
     const encryption = resolveTenantEncryptionService(em as any)
-    const decryptFor = async (entityId: string) => {
-      if (!encryption || typeof encryption.decryptEntityPayload !== 'function') return
-      if (encryption.isEnabled?.() === false) return
-      const decrypted = await encryption.decryptEntityPayload(
-        entityId,
-        doc,
-        params.tenantId ?? null,
-        params.organizationId ?? null,
-      )
-      if (decrypted) doc = { ...doc, ...decrypted }
-    }
-    await decryptFor(params.entityType)
-    if (parentEntityRow) {
-      await decryptFor('customers:customer_entity')
-    }
+    doc = await encryptIndexDocForStorage(
+      params.entityType,
+      doc,
+      { tenantId: params.tenantId ?? null, organizationId: params.organizationId ?? null },
+      encryption,
+    )
   } catch {}
 
   return doc
@@ -174,12 +166,21 @@ export async function upsertIndexRow(
   const created = !existed
   const revived = existed && wasDeleted
   try {
+    const encryption = resolveTenantEncryptionService(em as any)
+    const dekKeyCache = new Map<string | null, string | null>()
+    const tokenDoc = await decryptIndexDocForSearch(
+      args.entityType,
+      doc,
+      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+      encryption,
+      dekKeyCache,
+    )
     await replaceSearchTokensForRecord(knex, {
       entityType: args.entityType,
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
-      doc,
+      doc: tokenDoc,
     })
   } catch {}
   return { doc, existed, wasDeleted, created, revived }

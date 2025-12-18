@@ -105,7 +105,7 @@ describe('Indexer', () => {
     expect(doc!['cf:tags']).toEqual(['a','b'])
   })
 
-  test('buildIndexDoc decrypts indexed payload when encryption is available', async () => {
+  test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {
     resolveEncryptionMock.mockReturnValue({
       isEnabled: () => true,
       decryptEntityPayload: async (_entityId: string, payload: Record<string, unknown>) => ({
@@ -116,13 +116,13 @@ describe('Indexer', () => {
     const fakeKnex = createFakeKnex({
       baseTable: 'todos',
       baseRows: [{ id: '1', title: 'Encrypted', organization_id: 'org1', tenant_id: 't1' }],
-      cfValues: [],
+      cfValues: [{ field_key: 'secret', value_text: 'enc' }],
     })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const doc = await buildIndexDoc(em, { entityType: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1' })
     expect(doc).toBeTruthy()
-    expect(doc!.title).toBe('Decrypted')
-    expect(resolveEncryptionMock).toHaveBeenCalled()
+    expect(doc!.title).toBe('Encrypted')
+    expect(doc!['cf:secret']).toBe('enc')
   })
 
   test('upsertIndexRow inserts or merges index row with built doc', async () => {
