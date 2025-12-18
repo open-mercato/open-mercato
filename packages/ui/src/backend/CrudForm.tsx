@@ -57,6 +57,7 @@ import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/v
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
+import { useInjectionSpotEvents, InjectionSpot } from './injection/InjectionSpot'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -162,6 +163,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   contentHeader?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
+  // Optional injection spot ID for widget injection
+  injectionSpotId?: string
 }
 
 // Group-level custom component context
@@ -273,6 +276,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   extraActions,
   contentHeader,
   customFieldsetBindings,
+  injectionSpotId,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -331,6 +335,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
+  
+  // Injection spot events for widget lifecycle management
+  const injectionContext = React.useMemo(() => ({
+    formId,
+    entityId: primaryEntityId,
+    isLoading,
+    pending,
+  }), [formId, primaryEntityId, isLoading, pending])
+  
+  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(injectionSpotId ?? '')
+  
   React.useEffect(() => {
     const root = rootRef.current
     if (!root) return
@@ -968,9 +983,46 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       parsedValues = values as TValues
     }
 
+    // Trigger onBeforeSave event for injection widgets
+    if (injectionSpotId) {
+      try {
+        const canProceed = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
+        if (!canProceed) {
+          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+          setPending(false)
+          return
+        }
+      } catch (err) {
+        console.error('[CrudForm] Error in onBeforeSave:', err)
+        flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        setPending(false)
+        return
+      }
+    }
+
     setPending(true)
+    
+    // Trigger onSave event for injection widgets
+    if (injectionSpotId) {
+      try {
+        await triggerInjectionEvent('onSave', parsedValues, injectionContext)
+      } catch (err) {
+        console.error('[CrudForm] Error in onSave:', err)
+      }
+    }
+    
     try {
       await onSubmit?.(parsedValues)
+      
+      // Trigger onAfterSave event for injection widgets
+      if (injectionSpotId) {
+        try {
+          await triggerInjectionEvent('onAfterSave', parsedValues, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onAfterSave:', err)
+        }
+      }
+      
       if (successRedirect) router.push(successRedirect)
     } catch (err: unknown) {
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
@@ -1441,6 +1493,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           className="min-h-[400px]"
         >
           <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            {injectionSpotId ? (
+              <InjectionSpot
+                spotId={injectionSpotId}
+                context={injectionContext}
+                data={values}
+                onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+                disabled={pending}
+              />
+            ) : null}
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
               <div className="space-y-3">{col1Content}</div>
               <div className="space-y-3">{col2Content}</div>
