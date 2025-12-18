@@ -1,15 +1,15 @@
-import { ColumnConfig } from "./index";
+
 
 export type CellValidatorFunction = (
     value: any,
     rowData: any,
-    columnConfig: ColumnConfig
-  ) => { valid: boolean; error?: string };
-  
+    columnConfig: any
+) => { valid: boolean; error?: string };
+
 
 export const defaultValidator: CellValidatorFunction = (value, rowData, columnConfig) => {
     return { valid: true, error: undefined };
-};  
+};
 
 
 export const requiredValidator: CellValidatorFunction = (value, rowData, columnConfig) => {
@@ -17,14 +17,14 @@ export const requiredValidator: CellValidatorFunction = (value, rowData, columnC
         return { valid: false, error: 'Value is required' };
     }
     return { valid: true, error: undefined };
-};  
+};
 
 export const emailValidator: CellValidatorFunction = (value, rowData, columnConfig) => {
     if (!value || !value.includes('@')) {
         return { valid: false, error: 'Invalid email address' };
     }
     return { valid: true, error: undefined };
-};  
+};
 
 
 export const numberValidator: CellValidatorFunction = (value, rowData, columnConfig) => {
@@ -32,7 +32,7 @@ export const numberValidator: CellValidatorFunction = (value, rowData, columnCon
         return { valid: false, error: 'Value is not a number' };
     }
     return { valid: true, error: undefined };
-};  
+};
 
 export const dateValidator: CellValidatorFunction = (value, rowData, columnConfig) => {
     const isValidDate = isNaN(new Date(value).getTime());

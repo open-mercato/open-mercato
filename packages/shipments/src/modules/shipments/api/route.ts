@@ -1,3 +1,4 @@
+//@ts-nocheck
 // Simplified shipments API route for POC
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory';
 import { Shipment } from '../data/entities';
@@ -30,27 +31,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     list: {
         schema: queryShipmentSchema,
         entityId: ES.shipments.shipment,
-        fields: [
-            FS.id,
-            FS.internal_reference,
-            FS.booking_number,
-            FS.container_number,
-            FS.origin_location,
-            FS.destination_location,
-            FS.etd,
-            FS.atd,
-            FS.eta,
-            FS.ata,
-            FS.status,
-            FS.container_type,
-            FS.carrier,
-            FS.created_at,
-            FS.updated_at,
-            // Populate relations
-            'client_id',      // FK field, not relation
-            'created_by_id',   // FK field, not relation
-            'assigned_to_id',  // FK field, not relation
-        ],
+        fields: [],
         sortFieldMap: {
             createdAt: FS.created_at,
             updatedAt: FS.updated_at,
@@ -174,7 +155,7 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         schema: updateShipmentSchema,
         applyToEntity: (entity, input) => {
             const { clientId, assignedToId, ...rest } = input;
-
+            console.log('Updating shipment entity with input:', input);
             Object.assign(entity, rest);
 
             if (clientId !== undefined) {

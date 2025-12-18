@@ -1,9 +1,8 @@
 import React, { useState, useCallback } from 'react';
 import { FilterRow, FilterOperator, getOperatorsForType, needsValueInput, needsMultipleValues } from './filterTypes';
-import { ColumnConfig } from './renderers';
 
 interface FilterBuilderProps {
-  columns: ColumnConfig[];
+  columns: any[];
   filterRows: FilterRow[];
   onFilterRowsChange: (rows: FilterRow[]) => void;
   onClear: () => void;
@@ -38,7 +37,7 @@ const FilterBuilder: React.FC<FilterBuilderProps> = ({
   }, [filterRows, onFilterRowsChange]);
 
   const updateFilterRow = useCallback((id: string, updates: Partial<FilterRow>) => {
-    onFilterRowsChange(filterRows.map(row => 
+    onFilterRowsChange(filterRows.map(row =>
       row.id === id ? { ...row, ...updates } : row
     ));
   }, [filterRows, onFilterRowsChange]);
@@ -77,13 +76,13 @@ const FilterBuilder: React.FC<FilterBuilderProps> = ({
               <button onClick={onClear} className="filter-btn filter-btn-secondary">
                 Clear All
               </button>
-              <button 
+              <button
                 onClick={() => {
                   if (filterName.trim()) {
                     onSave(filterName.trim());
                     setFilterName('');
                   }
-                }} 
+                }}
                 className="filter-btn filter-btn-secondary"
                 disabled={!filterName.trim()}
               >

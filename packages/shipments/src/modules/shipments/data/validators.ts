@@ -6,9 +6,9 @@ import { ContainerType, ShipmentStatus, Incoterms, ShipmentMode, ContainerStatus
 const containerNumberSchema = z.string().regex(/^[A-Z]{4}[0-9]{7}$/, 'Must be 4 letters + 7 digits (ISO 6346)').nullable().optional();
 
 export const createShipmentSchema = z.object({
-    // Multi-tenancy (required)
-    tenantId: z.string().uuid(),
-    organizationId: z.string().uuid(),
+    // // Multi-tenancy (required)
+    // tenantId: z.string().uuid(),
+    // organizationId: z.string().uuid(),
 
     // Relationships
     clientId: z.string().uuid().nullable().optional(),

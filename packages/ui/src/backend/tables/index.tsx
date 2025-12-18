@@ -1,18 +1,25 @@
+//@ts-nocheck
+
+'use client'
+
 import React, { useState, memo, useCallback, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import './HOT.css';
-import { getCellRenderer, ColumnConfig } from './renderers';
-import {dispatch, useMediator} from "./events/events"
+import { getCellRenderer } from './renderers';
+import { dispatch, useMediator } from "./events/events"
 import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents, NewRowSaveEvent, NewRowSaveStartEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent, FilterChangeEvent } from './events/types';
-import FilterBuilder from './FilterBuilder';
-import FilterTabs from './FilterTabs';
+import FilterBuilder from './Filterbuilder';
+import FilterTabs from './Filtertabs';
 import { FilterRow, SavedFilter, applyFilters } from './filterTypes';
+
+if (typeof window !== 'undefined') {
+  import('./HOT.css');
+}
 
 interface TableCellProps {
   value: any;
   rowIndex: number;
   colIndex: number;
-  col: ColumnConfig;
+  col: any;
   rowData: any;
   isRowHeader?: boolean;
   isCellSelected?: boolean;
@@ -57,10 +64,10 @@ interface CellSaveState {
 }
 
 // Memoized TableCell component
-const TableCell = memo<TableCellProps>(({ 
-  value, 
-  rowIndex, 
-  colIndex, 
+const TableCell = memo<TableCellProps>(({
+  value,
+  rowIndex,
+  colIndex,
   col,
   rowData,
   isRowHeader,
@@ -90,8 +97,8 @@ const TableCell = memo<TableCellProps>(({
 }) => {
   if (isRowHeader) {
     return (
-      <td 
-        className="hot-row-header" 
+      <td
+        className="hot-row-header"
         data-row={rowIndex}
         data-row-header="true"
         data-has-selected-cell={hasCellSelected}
@@ -129,7 +136,7 @@ const TableCell = memo<TableCellProps>(({
   const renderedValue = renderer(value, rowData, col, rowIndex, colIndex);
   const isCustomRenderer = typeof col.renderer === 'function';
 
-  const cellStyle: React.CSSProperties = { 
+  const cellStyle: React.CSSProperties = {
     width: col.width || 100,
     flexBasis: col.width || 100,
     flexShrink: 0,
@@ -218,7 +225,7 @@ interface EditingState {
 
 interface HOTProps {
   data?: any[];
-  columns?: ColumnConfig[];
+  columns?: any[];
   colHeaders?: boolean | string[];
   rowHeaders?: boolean;
   height?: string | number;
@@ -228,8 +235,8 @@ interface HOTProps {
   tableRef: React.RefObject<HTMLDivElement | null>;
 }
 
-const HOT: React.FC<HOTProps> = ({ 
-  data = [], 
+const HOT: React.FC<HOTProps> = ({
+  data = [],
   columns = [],
   colHeaders = true,
   rowHeaders = false,
@@ -267,7 +274,7 @@ const HOT: React.FC<HOTProps> = ({
 
   const getCellKey = (row: number, col: number) => `${row},${col}`;
 
-  const getColumns = (): ColumnConfig[] => {
+  const getColumns = (): any[] => {
     if (columns.length > 0) return columns;
     if (isObjectData && tableData.length > 0) {
       return Object.keys(tableData[0]).filter(key => key !== '_isNew').map(key => ({ data: key }));
@@ -301,7 +308,7 @@ const HOT: React.FC<HOTProps> = ({
   useEffect(() => {
     const activeFilter = savedFilters.find(f => f.id === activeFilterId);
     const filtersToEmit = activeFilter ? activeFilter.rows : filterRows;
-    
+
     dispatch(
       tableRef?.current as HTMLElement,
       TableEvents.FILTER_CHANGE,
@@ -313,7 +320,7 @@ const HOT: React.FC<HOTProps> = ({
   }, [filterRows, savedFilters, activeFilterId, tableRef]);
 
   // Actions column configuration (always present, sticky right)
-  const actionsColumn: ColumnConfig = {
+  const actionsColumn: any = {
     data: '_actions',
     title: 'Actions',
     width: 80,
@@ -328,7 +335,7 @@ const HOT: React.FC<HOTProps> = ({
   const calculateStickyOffsets = () => {
     const leftOffsets: number[] = [];
     const rightOffsets: number[] = [];
-    
+
     let leftOffset = rowHeaders ? 50 : 0;
     let rightOffset = 0;
 
@@ -347,14 +354,14 @@ const HOT: React.FC<HOTProps> = ({
 
   const { leftOffsets, rightOffsets } = calculateStickyOffsets();
 
-  const getCellValue = useCallback((row: any, col: ColumnConfig) => {
+  const getCellValue = useCallback((row: any, col: any) => {
     if (isObjectData) {
       return row[col.data];
     }
     return row[col.data];
   }, [isObjectData]);
 
-  const getColHeader = (col: ColumnConfig, index: number): string => {
+  const getColHeader = (col: any, index: number): string => {
     if (Array.isArray(colHeaders)) return colHeaders[index];
     if (col.title) return col.title;
     if (isObjectData) return String(col.data);
@@ -416,7 +423,7 @@ const HOT: React.FC<HOTProps> = ({
 
     const oldValue = tableData[editing.row][cols[editing.col].data];
     const newValue = editing.value;
-    
+
     // Only proceed if value changed
     if (String(oldValue ?? '') === newValue) {
       setEditing({ row: null, col: null, value: '' });
@@ -429,12 +436,10 @@ const HOT: React.FC<HOTProps> = ({
     } else {
       tableData[editing.row][cols[editing.col].data] = newValue;
     }
-    
-    // Force re-render
-    setTableData([...tableData]);
-    
+
     // Only dispatch save event if NOT a new row
     if (!tableData[editing.row]._isNew) {
+      const parsedValue = parseValueByType(newValue, cols[editing.col!]);
       dispatch(
         tableRef?.current as HTMLElement,
         TableEvents.CELL_EDIT_SAVE,
@@ -442,13 +447,14 @@ const HOT: React.FC<HOTProps> = ({
           rowIndex: editing.row,
           colIndex: editing.col,
           oldValue: oldValue,
-          newValue: newValue,
+          newValue: parsedValue,
+          prop: cols[editing.col!].data,
           rowData: tableData[editing.row],
           id: isObjectData ? tableData[editing.row][idColumName] : undefined
         }
       );
     }
-    
+
     setEditing({ row: null, col: null, value: '' });
   }, [editing, tableData, cols, isObjectData, idColumName]);
 
@@ -456,10 +462,10 @@ const HOT: React.FC<HOTProps> = ({
     if (editing.row !== null) {
       handleEditSave();
     }
-    
+
     const cell = (e.target as HTMLElement).closest('td');
     if (!cell) return;
-    
+
     // Ignore clicks on action buttons
     if ((e.target as HTMLElement).closest('.hot-row-cancel-btn-header, .hot-row-save-btn')) {
       return;
@@ -469,40 +475,40 @@ const HOT: React.FC<HOTProps> = ({
     if (cell.getAttribute('data-actions-cell') === 'true') {
       return;
     }
-    
+
     const isRowHeader = cell.getAttribute('data-row-header') === 'true';
     const row = parseInt(cell.getAttribute('data-row') || '', 10);
-    
+
     if (isRowHeader) {
       dragStartRef.current = row;
       dragTypeRef.current = 'row';
       setIsDragging(true);
-      setSelection({ 
-        type: 'rowRange', 
-        row: null, 
-        col: null, 
-        range: null, 
+      setSelection({
+        type: 'rowRange',
+        row: null,
+        col: null,
+        range: null,
         rowRange: { start: row, end: row },
-        colRange: null 
+        colRange: null
       });
       e.preventDefault();
       return;
     }
-  
+
     const col = parseInt(cell.getAttribute('data-col') || '', 10);
-    
+
     dragStartRef.current = { row, col };
     dragTypeRef.current = 'cell';
     setIsDragging(true);
-    setSelection({ 
-      type: 'range', 
-      row: null, 
-      col: null, 
+    setSelection({
+      type: 'range',
+      row: null,
+      col: null,
       range: { startRow: row, endRow: row, startCol: col, endCol: col },
       rowRange: null,
       colRange: null
     });
-    
+
     e.preventDefault();
   }, [editing.row, editing.col, handleEditSave]);
 
@@ -531,14 +537,14 @@ const HOT: React.FC<HOTProps> = ({
     } else if (dragTypeRef.current === 'cell') {
       if (cell.getAttribute('data-row-header') === 'true') return;
       if (cell.getAttribute('data-actions-cell') === 'true') return;
-      
+
       const row = parseInt(cell.getAttribute('data-row') || '', 10);
       const col = parseInt(cell.getAttribute('data-col') || '', 10);
-      
+
       if (isNaN(row) || isNaN(col)) return;
 
       const { row: startRow, col: startCol } = dragStartRef.current;
-      
+
       setSelection(prev => ({
         ...prev,
         range: {
@@ -568,17 +574,43 @@ const HOT: React.FC<HOTProps> = ({
     dragStartRef.current = col;
     dragTypeRef.current = 'column';
     setIsDragging(true);
-    setSelection({ 
-      type: 'colRange', 
-      row: null, 
-      col: null, 
+    setSelection({
+      type: 'colRange',
+      row: null,
+      col: null,
       range: null,
       rowRange: null,
       colRange: { start: col, end: col }
     });
-    
+
     e.preventDefault();
   }, []);
+
+  const parseValueByType = (value: string, col: any): any => {
+    if (!col.type) return value;
+
+    // Handle empty values
+    if (value === '' || value === null || value === undefined) {
+      return null;
+    }
+
+    switch (col.type) {
+      case 'numeric':
+      case 'number':
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? null : parsed;
+
+      case 'date':
+        const date = new Date(value);
+        return isNaN(date.getTime()) ? null : date;
+
+      case 'boolean':
+        return value === 'true' || value === '1' || value === 'yes';
+
+      default:
+        return value;
+    }
+  };
 
   const handleColHeaderMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDragging || dragStartRef.current == null || dragTypeRef.current !== 'column') return;
@@ -607,12 +639,12 @@ const HOT: React.FC<HOTProps> = ({
     const cell = (e.target as HTMLElement).closest('td');
     if (!cell || cell.getAttribute('data-row-header') === 'true') return;
     if (cell.getAttribute('data-actions-cell') === 'true') return;
-    
+
     const row = parseInt(cell.getAttribute('data-row') || '', 10);
     const col = parseInt(cell.getAttribute('data-col') || '', 10);
-    
+
     if (isNaN(row) || isNaN(col)) return;
-    
+
     setSelection({
       type: 'range',
       row: null,
@@ -621,7 +653,7 @@ const HOT: React.FC<HOTProps> = ({
       rowRange: null,
       colRange: null
     });
-    
+
     const currentValue = getCellValue(tableData[row], cols[col]);
     setEditing({ row, col, value: String(currentValue ?? '') });
   }, [tableData, cols, getCellValue]);
@@ -635,10 +667,10 @@ const HOT: React.FC<HOTProps> = ({
       e.preventDefault();
       const editedRow = editing.row!;
       const editedCol = editing.col!;
-      
+
       const oldValue = tableData[editedRow][cols[editedCol].data];
       const newValue = editing.value;
-      
+
       const newData = [...tableData];
       if (isObjectData) {
         newData[editedRow] = { ...newData[editedRow], [cols[editedCol].data]: newValue };
@@ -647,9 +679,10 @@ const HOT: React.FC<HOTProps> = ({
         newData[editedRow][cols[editedCol].data] = newValue;
       }
       setTableData(newData);
-      
+
       // Dispatch save event if NOT a new row and value changed
       if (!newData[editedRow]._isNew && String(oldValue ?? '') !== newValue) {
+        const parsedValue = parseValueByType(newValue, cols[editing.col!]);
         dispatch(
           tableRef?.current as HTMLElement,
           TableEvents.CELL_EDIT_SAVE,
@@ -657,13 +690,14 @@ const HOT: React.FC<HOTProps> = ({
             rowIndex: editedRow,
             colIndex: editedCol,
             oldValue: oldValue,
-            newValue: newValue,
+            newValue: parsedValue,
+            prop: cols[editing.col!].data,
             rowData: newData[editedRow],
             id: isObjectData ? newData[editedRow][idColumName] : undefined
           }
         );
       }
-      
+
       const nextRow = editedRow + 1;
       if (nextRow < tableData.length) {
         const nextValue = getCellValue(newData[nextRow], cols[editedCol]);
@@ -694,10 +728,10 @@ const HOT: React.FC<HOTProps> = ({
   }, [editing, tableData, cols, isObjectData, getCellValue, handleEditCancel, idColumName, tableRef]);
 
   const handleAddRow = useCallback(() => {
-    const newRow = isObjectData 
+    const newRow = isObjectData
       ? { ...Object.keys(tableData[0] || {}).filter(k => k !== '_isNew').reduce((acc, key) => ({ ...acc, [key]: '' }), {}), _isNew: true }
       : new Array(cols.length).fill('');
-    
+
     tableData.unshift(newRow);
     setTableData([...tableData]);
 
@@ -717,7 +751,7 @@ const HOT: React.FC<HOTProps> = ({
   const handleToggleFilter = useCallback(() => {
     const newExpanded = !filterExpanded;
     setFilterExpanded(newExpanded);
-    
+
     // Auto-add first filter row when expanding
     if (newExpanded && filterRows.length === 0) {
       const newRow: FilterRow = {
@@ -771,7 +805,7 @@ const HOT: React.FC<HOTProps> = ({
   }, [savedFilters]);
 
   const handleFilterRename = useCallback((id: string, newName: string) => {
-    const updated = savedFilters.map(f => 
+    const updated = savedFilters.map(f =>
       f.id === id ? { ...f, name: newName } : f
     );
     setSavedFilters(updated);
@@ -842,7 +876,7 @@ const HOT: React.FC<HOTProps> = ({
         });
         return next;
       });
-      
+
       // Clear success state after 2 seconds
       setTimeout(() => {
         setCellSaveStates(prev => {
@@ -866,7 +900,7 @@ const HOT: React.FC<HOTProps> = ({
         });
         return next;
       });
-      
+
       // Clear error state after 3 seconds
       setTimeout(() => {
         setCellSaveStates(prev => {
@@ -909,7 +943,7 @@ const HOT: React.FC<HOTProps> = ({
         next.set(payload.rowIndex, 'success');
         return next;
       });
-      
+
       // Clear success state after 2 seconds
       setTimeout(() => {
         setRowSaveStates(prev => {
@@ -930,7 +964,7 @@ const HOT: React.FC<HOTProps> = ({
         next.set(payload.rowIndex, 'error');
         return next;
       });
-      
+
       // Clear error state after 3 seconds
       setTimeout(() => {
         setRowSaveStates(prev => {
@@ -973,7 +1007,7 @@ const HOT: React.FC<HOTProps> = ({
         const row = tableData[selection.row!];
         const col = cols[selection.col!];
         textData = String(getCellValue(row, col) ?? '');
-      } 
+      }
       else if (selection.type === 'range' && selection.range) {
         const { startRow, endRow, startCol, endCol } = selection.range;
         const rows = [];
@@ -1027,14 +1061,14 @@ const HOT: React.FC<HOTProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
         e.preventDefault();
-        
+
         if (editing.row !== null) {
           isTabbing.current = true;
-          
+
           // Manually save the current cell
           const oldValue = tableData[editing.row][cols[editing.col!].data];
           const newValue = editing.value;
-          
+
           if (String(oldValue ?? '') !== newValue) {
             if (isObjectData) {
               tableData[editing.row][cols[editing.col!].data] = newValue;
@@ -1042,8 +1076,9 @@ const HOT: React.FC<HOTProps> = ({
               tableData[editing.row][cols[editing.col!].data] = newValue;
             }
             setTableData([...tableData]);
-            
+
             if (!tableData[editing.row]._isNew) {
+              const parsedValue = parseValueByType(newValue, cols[editing.col!]);
               dispatch(
                 tableRef?.current as HTMLElement,
                 TableEvents.CELL_EDIT_SAVE,
@@ -1051,18 +1086,19 @@ const HOT: React.FC<HOTProps> = ({
                   rowIndex: editing.row,
                   colIndex: editing.col!,
                   oldValue: oldValue,
-                  newValue: newValue,
+                  newValue: parsedValue,
                   rowData: tableData[editing.row],
+                  prop: cols[editing.col!].data,
                   id: isObjectData ? tableData[editing.row][idColumName] : undefined
                 }
               );
             }
           }
-          
+
           const direction = e.shiftKey ? -1 : 1;
           let nextCol = editing.col! + direction;
           let nextRow = editing.row;
-          
+
           if (nextCol >= cols.length) {
             nextCol = 0;
             nextRow++;
@@ -1070,7 +1106,7 @@ const HOT: React.FC<HOTProps> = ({
             nextCol = cols.length - 1;
             nextRow--;
           }
-          
+
           if (nextRow >= 0 && nextRow < tableData.length) {
             const nextValue = getCellValue(tableData[nextRow], cols[nextCol]);
             setSelection({
@@ -1082,7 +1118,7 @@ const HOT: React.FC<HOTProps> = ({
               colRange: null
             });
             setEditing({ row: nextRow, col: nextCol, value: String(nextValue ?? '') });
-            
+
             // Reset flag after state updates
             setTimeout(() => {
               isTabbing.current = false;
@@ -1092,7 +1128,7 @@ const HOT: React.FC<HOTProps> = ({
           }
           return;
         }
-        
+
         let currentRow: number, currentCol: number;
         if (selection.type === 'range' && selection.range) {
           const { startRow, startCol, endRow, endCol } = selection.range;
@@ -1105,11 +1141,11 @@ const HOT: React.FC<HOTProps> = ({
         } else {
           return;
         }
-        
+
         const direction = e.shiftKey ? -1 : 1;
         let nextCol = currentCol + direction;
         let nextRow = currentRow;
-        
+
         if (nextCol >= cols.length) {
           nextCol = 0;
           nextRow++;
@@ -1117,7 +1153,7 @@ const HOT: React.FC<HOTProps> = ({
           nextCol = cols.length - 1;
           nextRow--;
         }
-        
+
         if (nextRow >= 0 && nextRow < tableData.length) {
           const nextValue = getCellValue(tableData[nextRow], cols[nextCol]);
           setSelection({
@@ -1132,7 +1168,7 @@ const HOT: React.FC<HOTProps> = ({
           setEditing({ row: nextRow, col: nextCol, value: String(nextValue ?? '') });
         }
       }
-      
+
       if (e.key === 'Enter' && editing.row === null) {
         e.preventDefault();
         if (selection.type === 'range' && selection.range) {
@@ -1151,12 +1187,12 @@ const HOT: React.FC<HOTProps> = ({
           }
         }
       }
-      
+
       if (editing.row === null && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
-        
+
         let currentRow: number, currentCol: number;
-        
+
         if (selection.type === 'range' && selection.range) {
           const { startRow, startCol, endRow, endCol } = selection.range;
           if (startRow === endRow && startCol === endCol) {
@@ -1171,10 +1207,10 @@ const HOT: React.FC<HOTProps> = ({
         } else {
           return;
         }
-        
+
         let nextRow = currentRow;
         let nextCol = currentCol;
-        
+
         switch (e.key) {
           case 'ArrowUp':
             nextRow = Math.max(0, currentRow - 1);
@@ -1189,7 +1225,7 @@ const HOT: React.FC<HOTProps> = ({
             nextCol = Math.min(cols.length - 1, currentCol + 1);
             break;
         }
-        
+
         setSelection({
           type: 'range',
           row: null,
@@ -1220,7 +1256,7 @@ const HOT: React.FC<HOTProps> = ({
         <h3 className="text-base font-semibold text-gray-900">
           {tableName}
         </h3>
-        
+
         <div className="flex items-center gap-2">
           <button
             onClick={handleToggleFilter}
@@ -1250,7 +1286,7 @@ const HOT: React.FC<HOTProps> = ({
         onToggle={handleToggleFilter}
       />
 
-      <div 
+      <div
         ref={tableRef}
         className="hot-virtual-container"
         onMouseDown={handleMouseDown}
@@ -1263,7 +1299,7 @@ const HOT: React.FC<HOTProps> = ({
         }}
       >
         {colHeaders && (
-          <div 
+          <div
             className="hot-headers-sticky"
             onMouseDown={handleColHeaderMouseDown}
             onMouseMove={handleColHeaderMouseMove}
@@ -1272,12 +1308,12 @@ const HOT: React.FC<HOTProps> = ({
               <thead>
                 <tr style={{ display: 'flex' }}>
                   {rowHeaders && (
-                    <th 
-                      className="hot-row-header" 
-                      style={{ 
-                        width: 50, 
-                        flexBasis: 50, 
-                        flexShrink: 0, 
+                    <th
+                      className="hot-row-header"
+                      style={{
+                        width: 50,
+                        flexBasis: 50,
+                        flexShrink: 0,
                         flexGrow: 0,
                         position: 'sticky',
                         left: 0,
@@ -1290,12 +1326,12 @@ const HOT: React.FC<HOTProps> = ({
                     const hasCellSelected = selection.type === 'cell' && selection.col === colIndex;
                     const inColRange = isInColRange(colIndex);
                     const colEdges = getColRangeEdges(colIndex);
-                    
-                    const headerStyle: React.CSSProperties = { 
-                      width: col.width || 100, 
-                      flexBasis: col.width || 100, 
-                      flexShrink: 0, 
-                      flexGrow: 0 
+
+                    const headerStyle: React.CSSProperties = {
+                      width: col.width || 100,
+                      flexBasis: col.width || 100,
+                      flexShrink: 0,
+                      flexGrow: 0
                     };
 
                     if (leftOffsets[colIndex] !== undefined) {
@@ -1309,7 +1345,7 @@ const HOT: React.FC<HOTProps> = ({
                     }
 
                     return (
-                      <th 
+                      <th
                         key={colIndex}
                         className="hot-col-header"
                         style={headerStyle}
@@ -1367,11 +1403,11 @@ const HOT: React.FC<HOTProps> = ({
                   }}
                 >
                   {rowHeaders && (
-                    <TableCell 
+                    <TableCell
                       value={undefined}
                       rowIndex={rowIndex}
                       colIndex={-1}
-                      col={{} as ColumnConfig}
+                      col={{} as any}
                       rowData={row}
                       isRowHeader={true}
                       hasCellSelected={hasCellSelected}
@@ -1382,12 +1418,12 @@ const HOT: React.FC<HOTProps> = ({
                     />
                   )}
                   {cols.map((col, colIndex) => {
-                    const isCellSelected = 
-                      selection.type === 'cell' && 
-                      selection.row === rowIndex && 
+                    const isCellSelected =
+                      selection.type === 'cell' &&
+                      selection.row === rowIndex &&
                       selection.col === colIndex;
-                    const isColSelected = 
-                      selection.type === 'column' && 
+                    const isColSelected =
+                      selection.type === 'column' &&
                       selection.col === colIndex;
                     const cellInRange = isInRange(rowIndex, colIndex);
                     const rangeEdges = getRangeEdges(rowIndex, colIndex);

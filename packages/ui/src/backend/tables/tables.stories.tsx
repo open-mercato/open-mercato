@@ -1,3 +1,4 @@
+//@ts-nocheck
 import type { Meta, StoryObj } from '@storybook/react';
 import Table from './index';
 
@@ -27,7 +28,7 @@ const generateLargeData = () => {
     const cities = ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix', 'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'San Jose'];
     const departments = ['Sales', 'Engineering', 'Marketing', 'HR', 'Finance', 'Operations', 'IT', 'Support', 'Legal', 'Design'];
     const products = ['Product A', 'Product B', 'Product C', 'Product D', 'Product E', 'Product F', 'Product G', 'Product H', 'Product I', 'Product J'];
-    
+
     for (let i = 0; i < 1000; i++) {
         const row = {
             id: i + 1,
@@ -78,7 +79,7 @@ const generateLargeData = () => {
         };
         data.push(row);
     }
-    
+
     return data;
 };
 
@@ -87,16 +88,18 @@ const largeDataColumns = [
     { data: 'firstName', width: 120, title: 'First Name' },
     { data: 'lastName', width: 120, title: 'Last Name' },
     { data: 'email', width: 200, title: 'Email' },
-    { data: 'age', width: 60, title: 'Age', type: 'numeric', numericFormat: { 
-        style: 'currency', 
-        currency: 'PLN',
-        locale: 'pl-PL'
-      } },
+    {
+        data: 'age', width: 60, title: 'Age', type: 'numeric', numericFormat: {
+            style: 'currency',
+            currency: 'PLN',
+            locale: 'pl-PL'
+        }
+    },
     { data: 'salary', width: 100, title: 'Salary' },
     { data: 'department', width: 120, title: 'Department' },
     { data: 'city', width: 120, title: 'City' },
-    { data: 'startDate', width: 100, title: 'Start Date',  type: 'date', dateFormat: 'MM/dd/yyyy' },
-    { data: 'active', width: 80, title: 'Active', renderer: (value) => <div style={{color: value ? 'green' : 'red', background: 'red'}}>{value}</div>},
+    { data: 'startDate', width: 100, title: 'Start Date', type: 'date', dateFormat: 'MM/dd/yyyy' },
+    { data: 'active', width: 80, title: 'Active', renderer: (value) => <div style={{ color: value ? 'green' : 'red', background: 'red' }}>{value}</div> },
     { data: 'score1', width: 80, title: 'Score 1' },
     { data: 'score2', width: 80, title: 'Score 2' },
     { data: 'score3', width: 80, title: 'Score 3' },
