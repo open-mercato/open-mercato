@@ -10,7 +10,8 @@ The `vector` module centralises embeddings and similarity search for enabled ent
 - The JSONB query index (`entity_indexes.doc`) is stored encrypted at rest (same ciphertext values as base tables/custom fields).
 - `VectorIndexService` fetches records via the Query Engine, which decrypts entity fields and `cf:*` custom fields on read before embeddings/checksums are computed.
 - Vector result metadata stored in `vector_search` (`result_title`, `result_subtitle`, `result_icon`) is encrypted at rest by default and decrypted only when returning hits/list entries to the UI.
-- This keeps encryption/decryption logic centralized and avoids leaking plaintext into the query index table or vector index storage.
+- **Embeddings themselves are not encrypted**: the pgvector driver stores the raw numeric vector in `vector_search.embedding` exactly as returned by the embedding model. This means a database leak could expose information indirectly encoded in the vector (reconstruction/inference attacks are non-trivial, but possible in some settings).
+- This keeps encryption/decryption logic centralized and avoids storing plaintext chunks in the query index table or vector index storage; treat embeddings as sensitive and prefer redacting/transforming inputs in `buildSource` for high-sensitivity data.
 
 ## Module anatomy
 
