@@ -15,6 +15,15 @@ Use tenant data encryption to protect sensitive columns with per-tenant DEKs, ke
 
 Note: changing encryption maps or toggling the **Encrypted** flag on a custom field only applies to data written after the change; previously stored values stay as they were unless you re-save or migrate them.
 
+## Vector search embeddings (important)
+
+When using the `vector` module (vector search / embeddings), be aware that **embeddings are stored unencrypted** (for example, in Postgres pgvector the raw vector is stored in `vector_search.embedding`). Even though the source text is decrypted only transiently to compute the embedding and result metadata is encrypted by default, embeddings can still indirectly encode information about the underlying text.
+
+In practice, reconstructing the original text from embeddings is difficult, but treat embeddings as sensitive data:
+
+- Avoid embedding raw PII/high-sensitivity text; redact or transform inputs in your module’s `buildSource`.
+- Limit database access to the vector store and rely on disk-level / managed database encryption-at-rest where possible.
+
 ## Vault setup (KMS)
 
 1. Enable KV v2 and pick a mount, e.g. `secret/`:
