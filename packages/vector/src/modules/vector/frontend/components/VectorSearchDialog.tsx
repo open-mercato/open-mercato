@@ -254,16 +254,16 @@ export function VectorSearchDialog({ apiKeyAvailable, missingKeyMessage }: { api
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex flex-col gap-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-base">{presenter?.title ?? result.recordId}</span>
+                            <span className="font-medium text-base whitespace-normal break-all">{presenter?.title ?? result.recordId}</span>
                             <span className="rounded-full border border-muted-foreground/30 px-2 py-0.5 text-xs text-muted-foreground">
                               {formatEntityId(result.entityId)}
                             </span>
                           </div>
                           {presenter?.subtitle ? (
-                            <div className="text-sm text-muted-foreground">{presenter.subtitle}</div>
+                            <div className="text-sm text-muted-foreground whitespace-normal break-words">{presenter.subtitle}</div>
                           ) : null}
                           {snapshot && (!presenter?.subtitle || presenter.subtitle !== snapshot) ? (
-                            <div className="text-sm text-muted-foreground">{snapshot}</div>
+                            <div className="text-sm text-muted-foreground whitespace-normal break-words">{snapshot}</div>
                           ) : null}
                           {normalizeLinks(result.links).length ? (
                             <div className="mt-1 flex flex-wrap items-center gap-2">

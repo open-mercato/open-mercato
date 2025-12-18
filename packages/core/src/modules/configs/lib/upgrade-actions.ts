@@ -10,6 +10,9 @@ import { collectCrudCacheStats, purgeCrudCacheSegment } from '@open-mercato/shar
 import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import * as semver from 'semver'
 import type { VectorIndexService } from '@open-mercato/vector'
+import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 function resolveVectorService(container: AwilixContainer): VectorIndexService | null {
   try {
@@ -17,6 +20,70 @@ function resolveVectorService(container: AwilixContainer): VectorIndexService | 
   } catch {
     return null
   }
+}
+
+function resolveEncryptionService(container: AwilixContainer): TenantDataEncryptionService | null {
+  try {
+    return container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    return null
+  }
+}
+
+async function ensureVectorSearchEncryptionMap(
+  em: EntityManager,
+  tenantId: string,
+  organizationId: string | null,
+): Promise<boolean> {
+  const spec = DEFAULT_ENCRYPTION_MAPS.find((entry) => entry.entityId === 'vector:vector_search')
+  const required = spec?.fields ?? []
+  if (!required.length) return false
+
+  const repo = em.getRepository(EncryptionMap)
+  const existing = await repo.findOne({
+    entityId: 'vector:vector_search',
+    tenantId,
+    organizationId,
+    deletedAt: null,
+  })
+
+  if (!existing) {
+    em.persist(
+      em.create(EncryptionMap, {
+        entityId: 'vector:vector_search',
+        tenantId,
+        organizationId,
+        fieldsJson: required,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    )
+    await em.flush()
+    return true
+  }
+
+  const existingFields = Array.isArray(existing.fieldsJson) ? existing.fieldsJson : []
+  const byField = new Map<string, { field: string; hashField?: string | null }>()
+  for (const item of existingFields) {
+    if (!item?.field) continue
+    byField.set(item.field, item)
+  }
+  for (const req of required) {
+    if (!req?.field) continue
+    if (byField.has(req.field)) continue
+    byField.set(req.field, req)
+  }
+
+  const merged = Array.from(byField.values())
+  const changed = merged.length !== existingFields.length
+  if (!changed && existing.isActive) return false
+
+  existing.fieldsJson = merged
+  existing.isActive = true
+  existing.updatedAt = new Date()
+  await em.flush()
+  return true
 }
 
 export type UpgradeActionContext = CatalogSeedScope & {
@@ -148,6 +215,36 @@ export const upgradeActions: UpgradeActionDefinition[] = [
       const vectorService = resolveVectorService(container)
       await reindexModules(em, ['sales', 'catalog'], { tenantId, organizationId, vectorService })
       await purgeCatalogCrudCache(container, tenantId)
+    },
+  },
+  {
+    id: 'configs.upgrades.vector.encryption_vector_search',
+    version: '0.3.6',
+    messageKey: 'upgrades.v036_vector_encryption.message',
+    ctaKey: 'upgrades.v036_vector_encryption.cta',
+    successKey: 'upgrades.v036_vector_encryption.success',
+    loadingKey: 'upgrades.v036_vector_encryption.loading',
+    async run({ container, em, tenantId, organizationId }) {
+      const normalizedTenantId = tenantId.trim()
+      const normalizedOrgId = organizationId ?? null
+
+      const encryptionService = resolveEncryptionService(container)
+      if (!encryptionService?.isEnabled?.()) {
+        return
+      }
+
+      const updated = await em.transactional(async (tem) => {
+        return ensureVectorSearchEncryptionMap(tem, normalizedTenantId, normalizedOrgId)
+      })
+
+      if (updated) {
+        await encryptionService.invalidateMap('vector:vector_search', normalizedTenantId, normalizedOrgId)
+      }
+
+      const vectorService = resolveVectorService(container)
+      if (vectorService) {
+        await vectorService.reindexAll({ tenantId: normalizedTenantId, organizationId: normalizedOrgId, purgeFirst: false })
+      }
     },
   },
 ]

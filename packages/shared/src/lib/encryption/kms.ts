@@ -277,22 +277,23 @@ export class HashicorpVaultKmsService implements KmsService {
   }
 }
 
-let loggedDerivedKeyBanner = false
+let loggedDerivedKeyFallbackBanner = false
 
-function logDerivedKeyBanner(opts: DerivedSecret): void {
-  if (process.env.NODE_ENV === 'test' || loggedDerivedKeyBanner) return
-  loggedDerivedKeyBanner = true
+function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
+  if (process.env.NODE_ENV === 'test' || loggedDerivedKeyFallbackBanner) return
+  loggedDerivedKeyFallbackBanner = true
   const redBg = '\x1b[41m'
   const white = '\x1b[97m'
   const reset = '\x1b[0m'
   const width = 110
   const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
+  const isProduction = process.env.NODE_ENV === 'production'
+  const sourceLine =
+    opts.source === 'explicit' ? `Source: ${opts.envName}` : 'Source: dev default secret (do NOT use in production)'
   const body = [
-    '🚨 Using derived tenant encryption keys (Vault unavailable)',
-    opts.source === 'explicit'
-      ? `Source: ${opts.envName}`
-      : 'Source: dev default secret (do NOT use in production)',
-    `Secret: ${opts.secret}`,
+    '🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)',
+    sourceLine,
+    isProduction ? 'Secret: [redacted in production]' : `Secret: ${opts.secret}`,
     'Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.',
   ]
   console.warn(border)
@@ -311,13 +312,7 @@ export function createKmsService(): KmsService {
   const fallback = derived ? new DerivedKmsService(derived.secret) : null
   const notifyFallback = derived
     ? () => {
-        const level = derived.source === 'dev-default' ? 'warn' : 'info'
-        if(isEncryptionDebugEnabled()) {
-          console[level](
-            `⚠️ [encryption][kms] Vault unavailable; using derived tenant keys (${derived.source === 'dev-default' ? 'dev default' : 'env-provided'} secret).`,
-          )
-          logDerivedKeyBanner(derived)
-        }
+        logDerivedKeyFallbackBanner(derived)
       }
     : undefined
 

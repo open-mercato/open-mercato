@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { upsertIndexBatch, type AnyRow } from './batch'
 import { refreshCoverageSnapshot, writeCoverageCounts, applyCoverageAdjustments } from './coverage'
 import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './jobs'
@@ -336,50 +337,50 @@ export async function reindexEntity(
       const rows = await query as AnyRow[]
       if (!rows.length) break
 
-          const decryptDoc = async (
-            targetEntity: string,
-            doc: Record<string, unknown>,
-            scope: { organizationId: string | null; tenantId: string | null },
-          ) => {
-            try {
-              const encryption = resolveTenantEncryptionService(em as any)
-              if (!encryption || typeof encryption.decryptEntityPayload !== 'function') return doc
-              if (encryption.isEnabled?.() === false) return doc
-              let working = doc
-              const maybeDecrypt = async (entityId: string) => {
-                const decrypted = await encryption.decryptEntityPayload(
-                  entityId,
-                  working,
-                  scope.tenantId ?? null,
-                  scope.organizationId ?? null,
-                )
-                if (decrypted) working = { ...working, ...decrypted }
-              }
-              await maybeDecrypt(targetEntity)
-              if (targetEntity === 'customers:customer_person_profile' || targetEntity === 'customers:customer_company_profile') {
-                await maybeDecrypt('customers:customer_entity')
-              }
-              if (isSearchDebugEnabled()) {
-                const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
-                const snapshot: Record<string, unknown> = {}
-                for (const key of keysOfInterest) {
-                  if (key in working) snapshot[key] = (working as Record<string, unknown>)[key]
-                }
-                console.info('[reindex:decrypt]', {
-                  entityType: targetEntity,
-                  tenantId: scope.tenantId ?? null,
-                  organizationId: scope.organizationId ?? null,
-                  keys: Object.keys(snapshot),
-                  sample: snapshot,
-                })
-              }
-              return working
-            } catch {
-              return doc
-            }
+      const encryption = resolveTenantEncryptionService(em as any)
+      const dekKeyCache = new Map<string | null, string | null>()
+      const encryptDoc = async (
+        targetEntity: string,
+        doc: Record<string, unknown>,
+        scope: { organizationId: string | null; tenantId: string | null },
+      ) => {
+        return await encryptIndexDocForStorage(
+          targetEntity,
+          doc,
+          { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+          encryption,
+        )
+      }
+      const decryptDoc = async (
+        targetEntity: string,
+        doc: Record<string, unknown>,
+        scope: { organizationId: string | null; tenantId: string | null },
+      ) => {
+        const result = await decryptIndexDocForSearch(
+          targetEntity,
+          doc,
+          { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+          encryption,
+          dekKeyCache,
+        )
+        if (isSearchDebugEnabled()) {
+          const keysOfInterest = ['display_name', 'first_name', 'last_name', 'brand_name', 'legal_name', 'primary_email', 'primary_phone']
+          const snapshot: Record<string, unknown> = {}
+          for (const key of keysOfInterest) {
+            if (key in result) snapshot[key] = (result as Record<string, unknown>)[key]
           }
+          console.info('[reindex:decrypt]', {
+            entityType: targetEntity,
+            tenantId: scope.tenantId ?? null,
+            organizationId: scope.organizationId ?? null,
+            keys: Object.keys(snapshot),
+            sample: snapshot,
+          })
+        }
+        return result
+      }
 
-      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, decryptDoc })
+      await upsertIndexBatch(knex, entityType, rows, scopeOverrides, { deriveOrganizationId: deriveOrg, encryptDoc, decryptDoc })
 
       const coverageDeltas = new Map<string, { tenantId: string | null; organizationId: string | null; delta: number }>()
       for (const row of rows) {

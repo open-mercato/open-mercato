@@ -3,6 +3,8 @@ import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 
 type ProgressBarHandle = {
   update(completed: number): void
@@ -93,6 +95,7 @@ function toNonNegativeInt(value: number | undefined, fallback = 0): number {
 const DEFAULT_BATCH_SIZE = 200
 
 type RebuildExecutionOptions = {
+  em: EntityManager
   knex: Knex
   entityType: string
   tableName: string
@@ -116,6 +119,7 @@ type RebuildResult = {
 }
 async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<RebuildResult> {
   const {
+    em,
     knex,
     entityType,
     tableName,
@@ -133,6 +137,44 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     supportsDeletedFilter,
   } = options
 
+  const encryption = resolveTenantEncryptionService(em as any)
+  const dekKeyCache = new Map<string | null, string | null>()
+
+  const encryptDoc = async (
+    targetEntity: string,
+    doc: Record<string, unknown>,
+    scope: { organizationId: string | null; tenantId: string | null },
+  ) => {
+    try {
+      return await encryptIndexDocForStorage(
+        targetEntity,
+        doc,
+        { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+        encryption,
+      )
+    } catch {
+      return doc
+    }
+  }
+
+  const decryptDoc = async (
+    targetEntity: string,
+    doc: Record<string, unknown>,
+    scope: { organizationId: string | null; tenantId: string | null },
+  ) => {
+    try {
+      return await decryptIndexDocForSearch(
+        targetEntity,
+        doc,
+        { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+        encryption,
+        dekKeyCache,
+      )
+    } catch {
+      return doc
+    }
+  }
+
   const filters: Record<string, unknown> = {}
   if (!global) {
     if (orgOverride !== undefined && supportsOrgFilter) filters.organization_id = orgOverride
@@ -146,7 +188,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     const row = await baseQuery.clone().where({ id: recordId }).first<AnyRow>()
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    await upsertIndexBatch(knex, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride })
+    await upsertIndexBatch(knex, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
     bar.update(1)
     bar.complete()
     return { processed: 1, matched: 1 }
@@ -181,7 +223,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     await upsertIndexBatch(knex, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
-    })
+    }, { encryptDoc, decryptDoc })
 
     processed += chunk.length
     cursorOffset += chunk.length
@@ -267,6 +309,7 @@ const rebuild: ModuleCli = {
       }
 
       const result = await rebuildEntityIndexes({
+        em,
         knex,
         entityType: entity,
         tableName,
@@ -394,6 +437,7 @@ const rebuildAll: ModuleCli = {
 
         console.log(`[${idx + 1}/${entityIds.length}] Rebuilding ${entity}${scopeLabel}`)
         const result = await rebuildEntityIndexes({
+          em,
           knex,
           entityType: entity,
           tableName,

@@ -5,6 +5,13 @@ description: Configure vector-aware entities, drivers, and runtime services.
 
 The `vector` module centralises embeddings and similarity search for enabled entities. It complements the JSON-based query index by storing dense vectors in a configurable backend (pgvector by default) and exposes shared helpers for frontends and APIs.
 
+## Encryption notes
+
+- The JSONB query index (`entity_indexes.doc`) is stored encrypted at rest (same ciphertext values as base tables/custom fields).
+- `VectorIndexService` fetches records via the Query Engine, which decrypts entity fields and `cf:*` custom fields on read before embeddings/checksums are computed.
+- Vector result metadata stored in `vector_search` (`result_title`, `result_subtitle`, `result_icon`) is encrypted at rest by default and decrypted only when returning hits/list entries to the UI.
+- This keeps encryption/decryption logic centralized and avoids leaking plaintext into the query index table or vector index storage.
+
 ## Module anatomy
 
 - **Package**: `@open-mercato/vector`
