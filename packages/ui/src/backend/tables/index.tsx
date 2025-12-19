@@ -11,6 +11,7 @@ import FilterBuilder from './Filterbuilder';
 import FilterTabs from './Filtertabs';
 import { FilterRow, SavedFilter, applyFilters } from './filterTypes';
 import SearchBar from './components/search/SearchBar';
+import ContextMenu, { ContextMenuAction } from './components/context-menu/ContextMenu';
 
 if (typeof window !== 'undefined') {
   import('./HOT.css');
@@ -57,6 +58,7 @@ interface TableCellProps {
   stickyLeft?: number;
   stickyRight?: number;
   rowSaveState?: 'saving' | 'success' | 'error' | null;
+  onDoubleClick?: (e: React.MouseEvent) => void;
 }
 
 interface CellSaveState {
@@ -94,7 +96,8 @@ const TableCell = memo<TableCellProps>(({
   onCancelRow,
   stickyLeft,
   stickyRight,
-  rowSaveState
+  rowSaveState,
+  onDoubleClick
 }) => {
   if (isRowHeader) {
     return (
@@ -104,6 +107,9 @@ const TableCell = memo<TableCellProps>(({
         data-row-header="true"
         data-has-selected-cell={hasCellSelected}
         data-in-row-range={isInRowRange}
+        onDoubleClick={(e) => {
+          onDoubleClick?.(e);
+        }}
         style={{
           width: 50,
           flexBasis: 50,
@@ -234,6 +240,8 @@ interface HOTProps {
   idColumName?: string;
   tableName?: string;
   tableRef: React.RefObject<HTMLDivElement | null>;
+  columnActions?: (column: any, colIndex: number) => ContextMenuAction[];
+  rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
 }
 
 const HOT: React.FC<HOTProps> = ({
@@ -245,7 +253,9 @@ const HOT: React.FC<HOTProps> = ({
   width = 'auto',
   idColumName = 'id',
   tableName = 'Table Name',
-  tableRef
+  tableRef,
+  columnActions,
+  rowActions
 }) => {
   const [tableData, setTableData] = useState(data);
   const [filterRows, setFilterRows] = useState<FilterRow[]>([]);
@@ -280,6 +290,14 @@ const HOT: React.FC<HOTProps> = ({
     columnIndex: null,
     direction: null
   });
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+    actions: ContextMenuAction[];
+    type: 'column' | 'row' | null;
+    index: number | null;
+  } | null>(null);
+  
   const THROTTLE_MS = 50;
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
@@ -412,12 +430,74 @@ const HOT: React.FC<HOTProps> = ({
     );
   }, [sortState, allColumns, tableRef]);
 
+  const handleColHeaderDoubleClick = useCallback((e: React.MouseEvent, colIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!columnActions) return;
+    
+    const actions = columnActions(allColumns[colIndex], colIndex);
+    
+    setContextMenu({
+      isOpen: true,
+      position: { x: e.clientX, y: e.clientY },
+      actions,
+      type: 'column',
+      index: colIndex,
+    });
+  }, [columnActions, allColumns]);
+
   const getCellValue = useCallback((row: any, col: any) => {
     if (isObjectData) {
       return row[col.data];
     }
     return row[col.data];
   }, [isObjectData]);
+
+  const handleRowHeaderDoubleClick = useCallback((e: React.MouseEvent, rowIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!rowActions) return;
+    
+    const actions = rowActions(tableData[rowIndex], rowIndex);
+    
+    setContextMenu({
+      isOpen: true,
+      position: { x: e.clientX, y: e.clientY },
+      actions,
+      type: 'row',
+      index: rowIndex,
+    });
+  }, [rowActions, tableData]);
+
+  const handleContextMenuAction = useCallback((actionId: string) => {
+    if (!contextMenu) return;
+    
+    if (contextMenu.type === 'column') {
+      dispatch(
+        tableRef?.current as HTMLElement,
+        TableEvents.COLUMN_CONTEXT_MENU_ACTION,
+        {
+          columnIndex: contextMenu.index,
+          columnName: allColumns[contextMenu.index!].data,
+          actionId,
+        } as ColumnContextMenuEvent
+      );
+    } else if (contextMenu.type === 'row') {
+      dispatch(
+        tableRef?.current as HTMLElement,
+        TableEvents.ROW_CONTEXT_MENU_ACTION,
+        {
+          rowIndex: contextMenu.index,
+          rowData: tableData[contextMenu.index!],
+          actionId,
+        } as RowContextMenuEvent
+      );
+    }
+    
+    setContextMenu(null);
+  }, [contextMenu, allColumns, tableData, tableRef]);
 
   const getColHeader = (col: any, index: number): string => {
     if (Array.isArray(colHeaders)) return colHeaders[index];
@@ -1453,6 +1533,7 @@ const HOT: React.FC<HOTProps> = ({
                       <th
                         key={colIndex}
                         className="hot-col-header"
+                        onDoubleClick={(e) => handleColHeaderDoubleClick(e, colIndex)}
                         style={headerStyle}
                         data-col={colIndex}
                         data-col-selected={isColSelected}
@@ -1563,6 +1644,7 @@ const HOT: React.FC<HOTProps> = ({
                       rowRangeEdges={rowRangeEdges}
                       isNewRow={isNewRow}
                       onCancelRow={() => handleCancelNewRow(rowIndex)}
+                      onDoubleClick={(e) => handleRowHeaderDoubleClick(e, rowIndex)}
                     />
                   )}
                   {cols.map((col, colIndex) => {
@@ -1658,6 +1740,15 @@ const HOT: React.FC<HOTProps> = ({
         onFilterRename={handleFilterRename}
         onFilterDelete={handleFilterDelete}
       />
+      {contextMenu && (
+        <ContextMenu
+          isOpen={contextMenu.isOpen}
+          position={contextMenu.position}
+          actions={contextMenu.actions}
+          onClose={() => setContextMenu(null)}
+          onActionClick={handleContextMenuAction}
+        />
+      )}
     </div>
   );
 };

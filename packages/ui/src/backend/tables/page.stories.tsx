@@ -5,10 +5,12 @@ import type { Meta, StoryObj } from '@storybook/react';
 import Table from './index';
 import { TableEvents } from './events/types';
 import { dispatch, useMediator } from './events/events';
-import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent } from './events/types';
+import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent,  ColumnContextMenuEvent,
+  RowContextMenuEvent } from './events/types';
 import { ApiCallResult } from '../utils/apiCall';
 import { emailValidator } from "./validators";
 import { ColumnSortEvent, SearchEvent } from './events/types';
+import { ContextMenuAction } from './components/context-menu/ContextMenu';
 
 const meta: Meta<typeof Table> = {
   title: 'Backend/Tables/Dynamic Example',
@@ -331,6 +333,146 @@ const DynamicTableExample = () => {
     }, []),
     tableRef
   );
+  const columnActions = useCallback((column: any, colIndex: number): ContextMenuAction[] => {
+    return [
+      { id: 'sort-asc', label: 'Sort Ascending', icon: '↑' },
+      { id: 'sort-desc', label: 'Sort Descending', icon: '↓' },
+      { id: 'separator-1', label: '', separator: true },
+      { id: 'filter', label: 'Filter by this column', icon: '🔍' },
+      { id: 'hide', label: 'Hide column', icon: '👁️' },
+      { id: 'separator-2', label: '', separator: true },
+      { id: 'freeze', label: 'Freeze column', icon: '📌' },
+    ];
+  }, []);
+
+  const rowActions = useCallback((rowData: any, rowIndex: number): ContextMenuAction[] => {
+    return [
+      { id: 'edit', label: 'Edit row', icon: '✏️' },
+      { id: 'duplicate', label: 'Duplicate row', icon: '📋' },
+      { id: 'separator-1', label: '', separator: true },
+      { id: 'delete', label: 'Delete row', icon: '🗑️' },
+      { id: 'separator-2', label: '', separator: true },
+      { id: 'insert-above', label: 'Insert row above', icon: '⬆️' },
+      { id: 'insert-below', label: 'Insert row below', icon: '⬇️' },
+    ];
+  }, []);
+
+
+  // Example of handling column context menu actions
+  useMediator<ColumnContextMenuEvent>(
+    TableEvents.COLUMN_CONTEXT_MENU_ACTION,
+    useCallback((payload: ColumnContextMenuEvent) => {
+      console.log('Column context menu action:', payload);
+      
+      switch (payload.actionId) {
+        case 'sort-asc':
+          console.log(`Sorting column ${payload.columnName} (index ${payload.columnIndex}) ascending`);
+          // Trigger your sort logic here
+          break;
+        case 'sort-desc':
+          console.log(`Sorting column ${payload.columnName} (index ${payload.columnIndex}) descending`);
+          // Trigger your sort logic here
+          break;
+        case 'filter':
+          console.log(`Filtering by column ${payload.columnName}`);
+          // Open filter dialog for this column
+          break;
+        case 'hide':
+          console.log(`Hiding column ${payload.columnName}`);
+          // Hide column logic
+          break;
+        case 'freeze':
+          console.log(`Freezing column ${payload.columnName}`);
+          // Make column sticky
+          break;
+        default:
+          console.log(`Unknown action: ${payload.actionId}`);
+      }
+    }, []),
+    tableRef
+  );
+
+
+  // Example of handling row context menu actions
+  useMediator<RowContextMenuEvent>(
+    TableEvents.ROW_CONTEXT_MENU_ACTION,
+    useCallback((payload: RowContextMenuEvent) => {
+      console.log('Row context menu action:', payload);
+      
+      switch (payload.actionId) {
+        case 'edit':
+          console.log(`Editing row ${payload.rowIndex}:`, payload.rowData);
+          // Open edit modal or enable edit mode for the row
+          break;
+        case 'duplicate':
+          console.log(`Duplicating row ${payload.rowIndex}:`, payload.rowData);
+          setData(prevData => {
+            const newRow = { ...payload.rowData, id: Math.max(...prevData.map(r => r.id)) + 1 };
+            return [...prevData, newRow];
+          });
+          break;
+        case 'delete':
+          console.log(`Deleting row ${payload.rowIndex}:`, payload.rowData);
+          // Confirm and delete
+          if (confirm(`Are you sure you want to delete ${payload.rowData.name}?`)) {
+            setData(prevData => prevData.filter(row => row.id !== payload.rowData.id));
+          }
+          break;
+        case 'insert-above':
+          console.log(`Inserting row above ${payload.rowIndex}`);
+          setData(prevData => {
+            const newData = [...prevData];
+            const newRow = {
+              id: Math.max(...prevData.map(r => r.id)) + 1,
+              name: 'New Person',
+              email: '',
+              phone: '',
+              age: 25,
+              role: '',
+              department: '',
+              location: '',
+              country: '',
+              startDate: new Date().toISOString().split('T')[0],
+              rating: 0,
+              salary: 0,
+              active: true,
+              notes: ''
+            };
+            newData.splice(payload.rowIndex, 0, newRow);
+            return newData;
+          });
+          break;
+        case 'insert-below':
+          console.log(`Inserting row below ${payload.rowIndex}`);
+          setData(prevData => {
+            const newData = [...prevData];
+            const newRow = {
+              id: Math.max(...prevData.map(r => r.id)) + 1,
+              name: 'New Person',
+              email: '',
+              phone: '',
+              age: 25,
+              role: '',
+              department: '',
+              location: '',
+              country: '',
+              startDate: new Date().toISOString().split('T')[0],
+              rating: 0,
+              salary: 0,
+              active: true,
+              notes: ''
+            };
+            newData.splice(payload.rowIndex + 1, 0, newRow);
+            return newData;
+          });
+          break;
+        default:
+          console.log(`Unknown action: ${payload.actionId}`);
+      }
+    }, []),
+    tableRef
+  );
+
 
 
   return (
@@ -341,6 +483,8 @@ const DynamicTableExample = () => {
         columns={columns}
         colHeaders={true}
         rowHeaders={true}
+        columnActions={columnActions}
+        rowActions={rowActions}
       />
     </div>
   );

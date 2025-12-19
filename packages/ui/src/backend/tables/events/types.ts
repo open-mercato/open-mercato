@@ -56,6 +56,18 @@ export interface CellEditSaveEvent {
     timestamp: number;
   }
 
+  export interface ColumnContextMenuEvent {
+    columnIndex: number;
+    columnName: string;
+    actionId: string;
+  }
+  
+  export interface RowContextMenuEvent {
+    rowIndex: number;
+    rowData: any;
+    actionId: string;
+  }
+
   // Event names constants
   export const TableEvents = {
     CELL_EDIT_SAVE: 'table:cell:edit:save',
@@ -68,5 +80,7 @@ export interface CellEditSaveEvent {
     NEW_ROW_SAVE_ERROR: 'table:new:row:save:error',
     FILTER_CHANGE: 'table:filter:change',
     COLUMN_SORT: 'table:column:sort',
-    SEARCH: 'table:search'
+    SEARCH: 'table:search',
+    COLUMN_CONTEXT_MENU_ACTION: 'table:column:context:action',
+    ROW_CONTEXT_MENU_ACTION: 'table:row:context:action'
   } as const;
