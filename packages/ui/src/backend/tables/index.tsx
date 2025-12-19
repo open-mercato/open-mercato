@@ -272,6 +272,13 @@ const HOT: React.FC<HOTProps> = ({
   const [resizingCol, setResizingCol] = useState<number | null>(null);
   const resizeStartX = useRef<number>(0);
   const resizeStartWidth = useRef<number>(0);
+  const [sortState, setSortState] = useState<{
+    columnIndex: number | null;
+    direction: 'asc' | 'desc' | null;
+  }>({
+    columnIndex: null,
+    direction: null
+  });
   const THROTTLE_MS = 50;
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
@@ -290,7 +297,6 @@ const HOT: React.FC<HOTProps> = ({
   };
 
   const cols = getColumns();
-
 
 
   // Load saved filters from localStorage
@@ -365,6 +371,45 @@ const HOT: React.FC<HOTProps> = ({
   };
 
   const { leftOffsets, rightOffsets } = calculateStickyOffsets();
+
+
+  const handleColumnSort = useCallback((colIndex: number) => {
+    const col = allColumns[colIndex];
+    
+    // Cycle through: null -> asc -> desc -> null
+    let newDirection: 'asc' | 'desc' | null;
+    
+    if (sortState.columnIndex === colIndex) {
+      // Same column clicked, cycle through directions
+      if (sortState.direction === null) {
+        newDirection = 'asc';
+      } else if (sortState.direction === 'asc') {
+        newDirection = 'desc';
+      } else {
+        newDirection = null;
+      }
+    } else {
+      // Different column clicked, start with asc
+      newDirection = 'asc';
+    }
+    
+    // Update state
+    setSortState({
+      columnIndex: newDirection === null ? null : colIndex,
+      direction: newDirection
+    });
+    
+    // Dispatch event
+    dispatch(
+      tableRef?.current as HTMLElement,
+      TableEvents.COLUMN_SORT,
+      {
+        columnIndex: colIndex,
+        columnName: col.data,
+        direction: newDirection
+      } as ColumnSortEvent
+    );
+  }, [sortState, allColumns, tableRef]);
 
   const getCellValue = useCallback((row: any, col: any) => {
     if (isObjectData) {
@@ -1413,7 +1458,37 @@ const HOT: React.FC<HOTProps> = ({
                         data-sticky-left={leftOffsets[colIndex] !== undefined}
                         data-sticky-right={rightOffsets[colIndex] !== undefined}
                       >
-                        {getColHeader(col, colIndex)}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+
+                        <span>{getColHeader(col, colIndex)}</span>
+                        <button
+      className="hot-col-sort-btn"
+      onClick={(e) => {
+        e.stopPropagation();
+        handleColumnSort(colIndex);
+      }}
+      title={
+        sortState.columnIndex === colIndex && sortState.direction
+          ? `Sorted ${sortState.direction === 'asc' ? 'ascending' : 'descending'}`
+          : 'Click to sort'
+      }
+      style={{
+        border: 'none',
+        background: 'transparent',
+        cursor: 'pointer',
+        padding: '2px 4px',
+        display: 'flex',
+        alignItems: 'center',
+        fontSize: '12px',
+        color: sortState.columnIndex === colIndex ? '#3b82f6' : '#9ca3af',
+        transition: 'color 0.2s'
+      }}
+    >
+      {sortState.columnIndex === colIndex && sortState.direction === 'asc' && '↑'}
+      {sortState.columnIndex === colIndex && sortState.direction === 'desc' && '↓'}
+      {(sortState.columnIndex !== colIndex || sortState.direction === null) && '⇅'}
+    </button>
+    </div>
                         <div
                           className="hot-col-resize-handle"
                           onMouseDown={(e) => handleResizeMouseDown(e, colIndex)}

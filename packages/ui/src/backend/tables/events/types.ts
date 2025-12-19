@@ -45,6 +45,12 @@ export interface CellEditSaveEvent {
     savedFilterId?: string | null;
   }
   
+  export interface ColumnSortEvent {
+    columnIndex: number;
+    columnName: string;
+    direction: 'asc' | 'desc' | null;
+  }
+
   // Event names constants
   export const TableEvents = {
     CELL_EDIT_SAVE: 'table:cell:edit:save',
@@ -56,4 +62,5 @@ export interface CellEditSaveEvent {
     NEW_ROW_SAVE_SUCCESS: 'table:new:row:save:success',
     NEW_ROW_SAVE_ERROR: 'table:new:row:save:error',
     FILTER_CHANGE: 'table:filter:change',
+    COLUMN_SORT: 'table:column:sort',
   } as const;

@@ -8,6 +8,7 @@ import { dispatch, useMediator } from './events/events';
 import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent } from './events/types';
 import { ApiCallResult } from '../utils/apiCall';
 import { emailValidator } from "./validators";
+import { ColumnSortEvent } from './events/types';
 
 const meta: Meta<typeof Table> = {
   title: 'Backend/Tables/Dynamic Example',
@@ -296,6 +297,22 @@ const DynamicTableExample = () => {
       }
     }, []),
     tableRef as React.RefObject<HTMLElement>
+  );
+
+  useMediator<ColumnSortEvent>(
+    TableEvents.COLUMN_SORT,
+    useCallback((payload: ColumnSortEvent) => {
+      console.log('Sort triggered:', payload);
+      
+      // Make your API call here
+      if (payload.direction) {
+        console.log('Sort triggered:', payload);
+      } else {
+        // direction is null, clear sorting
+        console.log('Sort cleared');
+      }
+    }, []),
+    tableRef
   );
 
   return (

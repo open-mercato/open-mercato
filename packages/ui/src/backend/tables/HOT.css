@@ -1127,18 +1127,33 @@ td[data-row-save-state="error"] {
     cursor: col-resize;
     user-select: none;
     z-index: 10;
-  }
+}
   
-  .hot-col-resize-handle:hover {
+.hot-col-resize-handle:hover {
     background-color: rgba(59, 130, 246, 0.3);
-  }
-  
-  .hot-col-resize-handle:active {
+}
+
+.hot-col-resize-handle:active {
     background-color: rgba(59, 130, 246, 0.5);
-  }
-  
-  /* Prevent text selection during resize */
-  body.resizing-column {
+}
+
+/* Prevent text selection during resize */
+body.resizing-column {
     user-select: none;
     cursor: col-resize !important;
-  }
+}
+
+.hot-col-sort-btn:hover {
+    color: #3b82f6 !important;
+    background-color: rgba(59, 130, 246, 0.1);
+    border-radius: 3px;
+}
+
+.hot-col-header {
+    position: relative;
+    user-select: none;
+}
+
+.hot-col-header > div {
+    padding: 0 4px;
+}
