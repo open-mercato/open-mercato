@@ -1116,3 +1116,29 @@ td[data-row-save-state="error"] {
 .table-skeleton .hot-col-header {
     border-color: #e8e8e8;
 }
+
+/* Column resize handle */
+.hot-col-resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    user-select: none;
+    z-index: 10;
+  }
+  
+  .hot-col-resize-handle:hover {
+    background-color: rgba(59, 130, 246, 0.3);
+  }
+  
+  .hot-col-resize-handle:active {
+    background-color: rgba(59, 130, 246, 0.5);
+  }
+  
+  /* Prevent text selection during resize */
+  body.resizing-column {
+    user-select: none;
+    cursor: col-resize !important;
+  }

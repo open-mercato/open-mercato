@@ -268,6 +268,10 @@ const HOT: React.FC<HOTProps> = ({
   const lastUpdateRef = useRef(0);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const isTabbing = useRef(false);
+  const [columnWidths, setColumnWidths] = useState<Map<number, number>>(new Map());
+  const [resizingCol, setResizingCol] = useState<number | null>(null);
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(0);
   const THROTTLE_MS = 50;
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
@@ -286,6 +290,8 @@ const HOT: React.FC<HOTProps> = ({
   };
 
   const cols = getColumns();
+
+
 
   // Load saved filters from localStorage
   useEffect(() => {
@@ -331,6 +337,10 @@ const HOT: React.FC<HOTProps> = ({
   // All columns including actions
   const allColumns = [...cols, actionsColumn];
 
+  const getColumnWidth = useCallback((colIndex: number): number => {
+    return columnWidths.get(colIndex) ?? allColumns[colIndex]?.width ?? 100;
+  }, [columnWidths, allColumns]);
+
   // Calculate sticky offsets
   const calculateStickyOffsets = () => {
     const leftOffsets: number[] = [];
@@ -340,12 +350,14 @@ const HOT: React.FC<HOTProps> = ({
     let rightOffset = 0;
 
     allColumns.forEach((col, index) => {
+      const colWidth = getColumnWidth(index);
+
       if (col.sticky === 'left') {
         leftOffsets[index] = leftOffset;
-        leftOffset += col.width || 100;
+        leftOffset += colWidth;
       } else if (col.sticky === 'right') {
         rightOffsets[index] = rightOffset;
-        rightOffset += col.width || 100;
+        rightOffset += colWidth;
       }
     });
 
@@ -584,6 +596,33 @@ const HOT: React.FC<HOTProps> = ({
     });
 
     e.preventDefault();
+  }, []);
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, colIndex: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const currentWidth = getColumnWidth(colIndex);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = currentWidth;
+    setResizingCol(colIndex);
+  }, [getColumnWidth]);
+  
+  const handleResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (resizingCol === null) return;
+    
+    const diff = e.clientX - resizeStartX.current;
+    const newWidth = Math.max(50, resizeStartWidth.current + diff); // Minimum width of 50px
+    
+    setColumnWidths(prev => {
+      const next = new Map(prev);
+      next.set(resizingCol, newWidth);
+      return next;
+    });
+  }, [resizingCol]);
+  
+  const handleResizeMouseUp = useCallback(() => {
+    setResizingCol(null);
   }, []);
 
   const parseValueByType = (value: string, col: any): any => {
@@ -956,6 +995,17 @@ const HOT: React.FC<HOTProps> = ({
     tableRef as React.RefObject<HTMLElement>
   );
 
+  useEffect(() => {
+    if (resizingCol !== null) {
+      document.addEventListener('mousemove', handleResizeMouseMove);
+      document.addEventListener('mouseup', handleResizeMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleResizeMouseMove);
+        document.removeEventListener('mouseup', handleResizeMouseUp);
+      };
+    }
+  }, [resizingCol, handleResizeMouseMove, handleResizeMouseUp]);
+
   useMediator<NewRowSaveErrorEvent>(
     TableEvents.NEW_ROW_SAVE_ERROR,
     useCallback((payload: NewRowSaveErrorEvent) => {
@@ -1248,7 +1298,9 @@ const HOT: React.FC<HOTProps> = ({
   });
 
   const virtualRows = rowVirtualizer.getVirtualItems();
-  const totalWidth = allColumns.reduce((sum, col) => sum + (col.width || 100), 0) + (rowHeaders ? 50 : 0);
+  const totalWidth = allColumns.reduce((sum, col, idx) => 
+    sum + getColumnWidth(idx), 0
+  ) + (rowHeaders ? 50 : 0);
 
   return (
     <div className="hot-container" style={{ height, width, position: 'relative' }}>
@@ -1326,12 +1378,15 @@ const HOT: React.FC<HOTProps> = ({
                     const hasCellSelected = selection.type === 'cell' && selection.col === colIndex;
                     const inColRange = isInColRange(colIndex);
                     const colEdges = getColRangeEdges(colIndex);
+                    const colWidth = getColumnWidth(colIndex);
+
 
                     const headerStyle: React.CSSProperties = {
-                      width: col.width || 100,
-                      flexBasis: col.width || 100,
+                      width: colWidth,
+                      flexBasis: colWidth,
                       flexShrink: 0,
-                      flexGrow: 0
+                      flexGrow: 0,
+                      position: 'relative',
                     };
 
                     if (leftOffsets[colIndex] !== undefined) {
@@ -1359,6 +1414,19 @@ const HOT: React.FC<HOTProps> = ({
                         data-sticky-right={rightOffsets[colIndex] !== undefined}
                       >
                         {getColHeader(col, colIndex)}
+                        <div
+                          className="hot-col-resize-handle"
+                          onMouseDown={(e) => handleResizeMouseDown(e, colIndex)}
+                          style={{
+                            position: 'absolute',
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: '5px',
+                            cursor: 'col-resize',
+                            zIndex: 10
+                          }}
+                        />
                       </th>
                     );
                   })}
@@ -1438,7 +1506,7 @@ const HOT: React.FC<HOTProps> = ({
                         value={getCellValue(row, col)}
                         rowIndex={rowIndex}
                         colIndex={colIndex}
-                        col={col}
+                        col={{ ...col, width: getColumnWidth(colIndex) }}
                         rowData={row}
                         isCellSelected={isCellSelected}
                         isRowSelected={isRowSelected}
