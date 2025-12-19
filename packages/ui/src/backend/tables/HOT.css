@@ -990,3 +990,129 @@ td[data-row-save-state="error"] {
     outline: none;
     min-width: 100px;
 }
+
+/* Table Skeleton Styles */
+.table-skeleton {
+    pointer-events: none;
+    user-select: none;
+}
+
+.skeleton-header {
+    position: relative;
+    overflow: hidden;
+    background: #e8e8e8 !important;
+    min-height: 32px;
+}
+
+.skeleton-header::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.5) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    animation: pulse-skeleton 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.skeleton-cell {
+    position: relative;
+    overflow: hidden;
+    background: #f5f5f5 !important;
+    min-height: 32px;
+}
+
+.skeleton-cell::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.6) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    animation: pulse-skeleton 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+/* Stagger animation for a more organic feel */
+.skeleton-cell:nth-child(2n)::after {
+    animation-delay: 0.1s;
+}
+
+.skeleton-cell:nth-child(3n)::after {
+    animation-delay: 0.2s;
+}
+
+.skeleton-text {
+    position: relative;
+    overflow: hidden;
+    background: #e8e8e8;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+}
+
+.skeleton-text::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.5) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    animation: pulse-skeleton 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.skeleton-button {
+    position: relative;
+    overflow: hidden;
+    background: #e8e8e8;
+    border-radius: 4px;
+}
+
+.skeleton-button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg,
+            rgba(255, 255, 255, 0) 0%,
+            rgba(255, 255, 255, 0.5) 50%,
+            rgba(255, 255, 255, 0) 100%);
+    animation: pulse-skeleton 1.5s ease-in-out infinite;
+    pointer-events: none;
+}
+
+/* Skeleton specific overrides */
+.table-skeleton .hot-cell:hover {
+    background: #f5f5f5 !important;
+    cursor: default;
+}
+
+.table-skeleton .hot-row-header {
+    background: #e8e8e8 !important;
+}
+
+.table-skeleton .hot-col-header {
+    background: #e8e8e8 !important;
+}
+
+/* Remove borders for cleaner skeleton look */
+.table-skeleton .hot-cell,
+.table-skeleton .hot-row-header,
+.table-skeleton .hot-col-header {
+    border-color: #e8e8e8;
+}
