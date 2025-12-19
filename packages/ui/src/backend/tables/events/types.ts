@@ -51,6 +51,11 @@ export interface CellEditSaveEvent {
     direction: 'asc' | 'desc' | null;
   }
 
+  export interface SearchEvent {
+    query: string;
+    timestamp: number;
+  }
+
   // Event names constants
   export const TableEvents = {
     CELL_EDIT_SAVE: 'table:cell:edit:save',
@@ -63,4 +68,5 @@ export interface CellEditSaveEvent {
     NEW_ROW_SAVE_ERROR: 'table:new:row:save:error',
     FILTER_CHANGE: 'table:filter:change',
     COLUMN_SORT: 'table:column:sort',
+    SEARCH: 'table:search'
   } as const;

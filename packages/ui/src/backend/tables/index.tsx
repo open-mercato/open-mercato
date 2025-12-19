@@ -10,6 +10,7 @@ import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEven
 import FilterBuilder from './Filterbuilder';
 import FilterTabs from './Filtertabs';
 import { FilterRow, SavedFilter, applyFilters } from './filterTypes';
+import SearchBar from './components/search/SearchBar';
 
 if (typeof window !== 'undefined') {
   import('./HOT.css');
@@ -1353,7 +1354,11 @@ const HOT: React.FC<HOTProps> = ({
         <h3 className="text-base font-semibold text-gray-900">
           {tableName}
         </h3>
-
+        <div className="flex items-center gap-2">
+        <SearchBar
+          tableRef={tableRef}
+          placeholder="Search..."
+        />
         <div className="flex items-center gap-2">
           <button
             onClick={handleToggleFilter}
@@ -1371,8 +1376,8 @@ const HOT: React.FC<HOTProps> = ({
             +
           </button>
         </div>
+        </div>
       </div>
-
       <FilterBuilder
         columns={cols}
         filterRows={filterRows}

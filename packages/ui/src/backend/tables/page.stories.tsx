@@ -8,7 +8,7 @@ import { dispatch, useMediator } from './events/events';
 import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent } from './events/types';
 import { ApiCallResult } from '../utils/apiCall';
 import { emailValidator } from "./validators";
-import { ColumnSortEvent } from './events/types';
+import { ColumnSortEvent, SearchEvent } from './events/types';
 
 const meta: Meta<typeof Table> = {
   title: 'Backend/Tables/Dynamic Example',
@@ -315,9 +315,26 @@ const DynamicTableExample = () => {
     tableRef
   );
 
+  useMediator<SearchEvent>(
+    TableEvents.SEARCH,
+    useCallback((payload: SearchEvent) => {
+      console.log('Search event received:', payload);
+      // Perform your search logic here
+      // For example, filter data or make an API call
+      if (payload.query) {
+        // Filter logic or API call
+        console.log('Searching for:', payload.query);
+      } else {
+        // Clear search
+        console.log('Search cleared');
+      }
+    }, []),
+    tableRef
+  );
+
+
   return (
     <div className="space-y-4">
-
       <Table
         tableRef={tableRef}
         data={data}
