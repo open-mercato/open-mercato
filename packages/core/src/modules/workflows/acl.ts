@@ -5,16 +5,25 @@
  */
 
 const workflowFeatures = [
-  'workflows.view', // View workflow definitions
-  'workflows.create', // Create new workflows
-  'workflows.edit', // Edit workflow definitions
-  'workflows.delete', // Delete workflows
-  'workflows.execute', // Start workflow instances
-  'workflows.view_instances', // View running instances
-  'workflows.manage_instances', // Cancel, retry instances
-  'workflows.view_tasks', // View user tasks
-  'workflows.complete_tasks', // Complete assigned tasks
-  'workflows.view_logs', // View execution history
+  // Workflow Definitions
+  'workflows.definitions.view', // View workflow definitions
+  'workflows.definitions.create', // Create new workflow definitions
+  'workflows.definitions.edit', // Edit workflow definitions
+  'workflows.definitions.delete', // Delete workflow definitions
+
+  // Workflow Instances
+  'workflows.instances.view', // View workflow instances
+  'workflows.instances.create', // Start new workflow instances
+  'workflows.instances.cancel', // Cancel running instances
+  'workflows.instances.retry', // Retry failed instances
+
+  // User Tasks
+  'workflows.tasks.view', // View user tasks
+  'workflows.tasks.claim', // Claim tasks from role queue
+  'workflows.tasks.complete', // Complete assigned tasks
+
+  // Logs and Events
+  'workflows.events.view', // View execution history and events
 ]
 
 export const features = workflowFeatures

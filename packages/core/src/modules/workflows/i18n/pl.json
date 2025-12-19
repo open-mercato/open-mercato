@@ -16,6 +16,102 @@
       "complete_tasks": "Ukończ Zadania Użytkownika",
       "view_logs": "Przeglądaj Logi Przepływów"
     },
+    "list": {
+      "title": "Definicje Przepływów Pracy"
+    },
+    "filters": {
+      "search": "Szukaj",
+      "searchPlaceholder": "Szukaj po nazwie lub ID przepływu...",
+      "status": "Status",
+      "workflowId": "ID Przepływu",
+      "workflowIdPlaceholder": "Filtruj po ID przepływu..."
+    },
+    "fields": {
+      "workflowId": "ID Przepływu",
+      "workflowName": "Nazwa Przepływu",
+      "description": "Opis",
+      "version": "Wersja",
+      "enabled": "Włączony",
+      "tags": "Tagi",
+      "createdAt": "Utworzono"
+    },
+    "actions": {
+      "create": "Utwórz Przepływ Pracy",
+      "toggleEnabled": "Kliknij aby włączyć/wyłączyć"
+    },
+    "confirm": {
+      "delete": "Czy na pewno chcesz usunąć przepływ '{{name}}'? Tej operacji nie można cofnąć."
+    },
+    "form": {
+      "workflowId": "ID Przepływu",
+      "workflowName": "Nazwa Przepływu",
+      "description": "Opis",
+      "version": "Wersja",
+      "enabled": "Włączony",
+      "effectiveFrom": "Obowiązuje Od",
+      "effectiveTo": "Obowiązuje Do",
+      "category": "Kategoria",
+      "tags": "Tagi",
+      "icon": "Ikona",
+      "placeholders": {
+        "workflowId": "obsluga_zamowien",
+        "workflowName": "Wprowadź opisową nazwę przepływu",
+        "description": "Opcjonalnie: Opisz cel tego przepływu",
+        "category": "np. Sprzedaż, Obsługa klienta, Finanse",
+        "tags": "Naciśnij Enter, aby dodać tagi",
+        "icon": "np. ShoppingCart, User, FileText"
+      },
+      "descriptions": {
+        "workflowId": "Unikalny identyfikator (tylko małe litery, cyfry, myślniki i podkreślenia)",
+        "version": "Numer wersji (zwiększaj dla większych zmian)",
+        "enabled": "Tylko włączone przepływy mogą być uruchamiane",
+        "effectiveFrom": "Przepływ staje się aktywny od tej daty",
+        "effectiveTo": "Przepływ zostaje dezaktywowany po tej dacie",
+        "tags": "Słowa kluczowe do kategoryzacji i wyszukiwania",
+        "icon": "Nazwa ikony do wizualnej identyfikacji",
+        "steps": "Zdefiniuj sekwencję kroków w przepływie. Każdy krok reprezentuje stan lub akcję.",
+        "transitions": "Zdefiniuj, jak przepływ przechodzi między krokami. Przejścia mogą mieć warunki i działania.",
+        "activities": "Zdefiniuj wielokrotnego użytku działania, które mogą być wykonywane podczas przejść."
+      },
+      "groups": {
+        "basic": "Podstawowe Informacje",
+        "metadata": "Metadane",
+        "steps": "Kroki Przepływu",
+        "transitions": "Przejścia",
+        "activities": "Działania"
+      },
+      "stepsLabel": "Kroki",
+      "transitionsLabel": "Przejścia",
+      "activitiesLabel": "Działania",
+      "addStep": "Dodaj Krok",
+      "addTransition": "Dodaj Przejście",
+      "addActivity": "Dodaj Działanie",
+      "noSteps": "Nie zdefiniowano jeszcze kroków. Dodaj pierwszy krok, aby rozpocząć.",
+      "noTransitions": "Nie zdefiniowano jeszcze przejść. Dodaj przejścia, aby połączyć kroki.",
+      "noActivities": "Nie zdefiniowano jeszcze działań. Działania są opcjonalne, ale przydatne w złożonych przepływach.",
+      "selectStep": "Wybierz krok",
+      "maxRetryAttempts": "Maksymalna Liczba Ponowień",
+      "retryDelay": "Opóźnienie Ponowienia",
+      "backoffMultiplier": "Mnożnik Wycofania",
+      "create": "Utwórz Przepływ",
+      "update": "Zaktualizuj Przepływ"
+    },
+    "create": {
+      "title": "Utwórz Definicję Przepływu",
+      "description": "Zdefiniuj nowy przepływ z krokami, przejściami i działaniami"
+    },
+    "edit": {
+      "title": "Edytuj Definicję Przepływu",
+      "description": "Modyfikuj kroki przepływu, przejścia i działania dla",
+      "loading": "Ładowanie przepływu..."
+    },
+    "backToList": "Powrót do przepływów",
+    "errors": {
+      "createFailed": "Nie udało się utworzyć przepływu",
+      "updateFailed": "Nie udało się zaktualizować przepływu",
+      "fetchFailed": "Nie udało się pobrać przepływu",
+      "loadFailed": "Nie udało się załadować przepływu. Spróbuj ponownie."
+    },
     "definitions": {
       "title": "Definicje Przepływów Pracy",
       "singular": "Definicja Przepływu Pracy",
@@ -49,23 +145,29 @@
       "title": "Instancje Przepływów Pracy",
       "singular": "Instancja Przepływu Pracy",
       "plural": "Instancje Przepływów Pracy",
-      "status": "Status",
-      "currentStep": "Bieżący Krok",
-      "context": "Dane Kontekstu",
-      "correlationKey": "Klucz Korelacji",
-      "startedAt": "Rozpoczęto",
-      "completedAt": "Ukończono",
-      "pausedAt": "Wstrzymano",
-      "cancelledAt": "Anulowano",
-      "duration": "Czas Trwania",
-      "errorMessage": "Komunikat Błędu",
-      "errorDetails": "Szczegóły Błędu",
-      "retryCount": "Liczba Ponowień",
-      "cancel": "Anuluj Przepływ",
-      "retry": "Ponów Przepływ",
-      "viewDetails": "Zobacz Szczegóły",
-      "viewEvents": "Zobacz Historię Zdarzeń",
-      "statuses": {
+      "fields": {
+        "instanceId": "ID Instancji",
+        "workflowId": "ID Przepływu Pracy",
+        "version": "Wersja",
+        "status": "Status",
+        "currentStep": "Bieżący Krok",
+        "correlationKey": "Klucz Korelacji",
+        "startedAt": "Rozpoczęto",
+        "completedAt": "Ukończono",
+        "pausedAt": "Wstrzymano",
+        "cancelledAt": "Anulowano",
+        "duration": "Czas Trwania",
+        "timing": "Czasy",
+        "retryCount": "Ponowienia",
+        "lastError": "Ostatni Błąd"
+      },
+      "sections": {
+        "overview": "Przegląd",
+        "context": "Dane Kontekstu",
+        "metadata": "Metadane",
+        "executionHistory": "Historia Wykonania"
+      },
+      "status": {
         "RUNNING": "W Toku",
         "PAUSED": "Wstrzymany",
         "COMPLETED": "Ukończony",
@@ -73,7 +175,29 @@
         "CANCELLED": "Anulowany",
         "COMPENSATING": "Kompensowanie",
         "COMPENSATED": "Skompensowany"
-      }
+      },
+      "filters": {
+        "search": "Szukaj",
+        "searchPlaceholder": "Szukaj po ID przepływu lub kluczu korelacji...",
+        "status": "Status",
+        "workflowId": "ID Przepływu Pracy",
+        "workflowIdPlaceholder": "Filtruj po ID przepływu...",
+        "correlationKey": "Klucz Korelacji",
+        "correlationKeyPlaceholder": "Filtruj po kluczu korelacji..."
+      },
+      "actions": {
+        "viewDetails": "Zobacz Szczegóły",
+        "cancel": "Anuluj",
+        "retry": "Ponów"
+      },
+      "list": {
+        "title": "Instancje Przepływów Pracy"
+      },
+      "confirmCancel": "Czy na pewno chcesz anulować tę instancję przepływu pracy?",
+      "confirmRetry": "Czy na pewno chcesz ponowić tę instancję przepływu pracy?",
+      "cancelFailed": "Nie udało się anulować instancji przepływu pracy",
+      "retryFailed": "Nie udało się ponowić instancji przepływu pracy",
+      "noExecutionHistory": "Brak historii wykonania"
     },
     "steps": {
       "title": "Kroki Przepływu Pracy",
@@ -286,7 +410,26 @@
       "instanceNotFound": "Instancja przepływu nie znaleziona",
       "taskNotFound": "Zadanie nie znalezione",
       "taskAlreadyClaimed": "Zadanie zostało już przejęte przez innego użytkownika",
-      "taskNotAvailable": "Zadanie nie jest dostępne"
+      "taskNotAvailable": "Zadanie nie jest dostępne",
+      "deleted": "Przepływ usunięty pomyślnie",
+      "deleteFailed": "Nie udało się usunąć przepływu",
+      "updated": "Przepływ zaktualizowany pomyślnie",
+      "updateFailed": "Nie udało się zaktualizować przepływu",
+      "loadFailed": "Nie udało się załadować przepływów",
+      "duplicateNotYetImplemented": "Funkcja duplikowania nie jest jeszcze zaimplementowana"
     }
+  },
+  "common": {
+    "all": "Wszystkie",
+    "enabled": "Włączone",
+    "disabled": "Wyłączone",
+    "yes": "Tak",
+    "no": "Nie",
+    "edit": "Edytuj",
+    "delete": "Usuń",
+    "duplicate": "Duplikuj",
+    "enable": "Włącz",
+    "disable": "Wyłącz",
+    "retry": "Ponów"
   }
 }

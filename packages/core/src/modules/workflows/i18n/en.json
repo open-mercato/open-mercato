@@ -16,6 +16,102 @@
       "complete_tasks": "Complete User Tasks",
       "view_logs": "View Workflow Logs"
     },
+    "list": {
+      "title": "Workflow Definitions"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search by workflow name or ID...",
+      "status": "Status",
+      "workflowId": "Workflow ID",
+      "workflowIdPlaceholder": "Filter by workflow ID..."
+    },
+    "fields": {
+      "workflowId": "Workflow ID",
+      "workflowName": "Workflow Name",
+      "description": "Description",
+      "version": "Version",
+      "enabled": "Enabled",
+      "tags": "Tags",
+      "createdAt": "Created At"
+    },
+    "actions": {
+      "create": "Create Workflow",
+      "toggleEnabled": "Click to enable/disable"
+    },
+    "confirm": {
+      "delete": "Are you sure you want to delete workflow '{{name}}'? This action cannot be undone."
+    },
+    "form": {
+      "workflowId": "Workflow ID",
+      "workflowName": "Workflow Name",
+      "description": "Description",
+      "version": "Version",
+      "enabled": "Enabled",
+      "effectiveFrom": "Effective From",
+      "effectiveTo": "Effective To",
+      "category": "Category",
+      "tags": "Tags",
+      "icon": "Icon",
+      "placeholders": {
+        "workflowId": "checkout_workflow",
+        "workflowName": "Enter a descriptive workflow name",
+        "description": "Optional: Describe the purpose of this workflow",
+        "category": "e.g., Sales, Customer Service, Finance",
+        "tags": "Press Enter to add tags",
+        "icon": "e.g., ShoppingCart, User, FileText"
+      },
+      "descriptions": {
+        "workflowId": "Unique identifier (lowercase letters, numbers, hyphens, underscores only)",
+        "version": "Version number (increment for major changes)",
+        "enabled": "Only enabled workflows can be started",
+        "effectiveFrom": "Workflow becomes active from this date",
+        "effectiveTo": "Workflow deactivates after this date",
+        "tags": "Keywords for categorization and search",
+        "icon": "Icon name for visual identification",
+        "steps": "Define the sequence of steps in your workflow. Each step represents a state or action.",
+        "transitions": "Define how the workflow moves between steps. Transitions can have conditions and activities.",
+        "activities": "Define reusable activities that can be executed during transitions."
+      },
+      "groups": {
+        "basic": "Basic Information",
+        "metadata": "Metadata",
+        "steps": "Workflow Steps",
+        "transitions": "Transitions",
+        "activities": "Activities"
+      },
+      "stepsLabel": "Steps",
+      "transitionsLabel": "Transitions",
+      "activitiesLabel": "Activities",
+      "addStep": "Add Step",
+      "addTransition": "Add Transition",
+      "addActivity": "Add Activity",
+      "noSteps": "No steps defined yet. Add your first step to get started.",
+      "noTransitions": "No transitions defined yet. Add transitions to connect your steps.",
+      "noActivities": "No activities defined yet. Activities are optional but useful for complex workflows.",
+      "selectStep": "Select a step",
+      "maxRetryAttempts": "Max Retry Attempts",
+      "retryDelay": "Retry Delay",
+      "backoffMultiplier": "Backoff Multiplier",
+      "create": "Create Workflow",
+      "update": "Update Workflow"
+    },
+    "create": {
+      "title": "Create Workflow Definition",
+      "description": "Define a new workflow with steps, transitions, and activities"
+    },
+    "edit": {
+      "title": "Edit Workflow Definition",
+      "description": "Modify workflow steps, transitions, and activities for",
+      "loading": "Loading workflow..."
+    },
+    "backToList": "Back to workflows",
+    "errors": {
+      "createFailed": "Failed to create workflow",
+      "updateFailed": "Failed to update workflow",
+      "fetchFailed": "Failed to fetch workflow",
+      "loadFailed": "Failed to load workflow. Please try again."
+    },
     "definitions": {
       "title": "Workflow Definitions",
       "singular": "Workflow Definition",
@@ -49,23 +145,29 @@
       "title": "Workflow Instances",
       "singular": "Workflow Instance",
       "plural": "Workflow Instances",
-      "status": "Status",
-      "currentStep": "Current Step",
-      "context": "Context Data",
-      "correlationKey": "Correlation Key",
-      "startedAt": "Started At",
-      "completedAt": "Completed At",
-      "pausedAt": "Paused At",
-      "cancelledAt": "Cancelled At",
-      "duration": "Duration",
-      "errorMessage": "Error Message",
-      "errorDetails": "Error Details",
-      "retryCount": "Retry Count",
-      "cancel": "Cancel Workflow",
-      "retry": "Retry Workflow",
-      "viewDetails": "View Details",
-      "viewEvents": "View Event History",
-      "statuses": {
+      "fields": {
+        "instanceId": "Instance ID",
+        "workflowId": "Workflow ID",
+        "version": "Version",
+        "status": "Status",
+        "currentStep": "Current Step",
+        "correlationKey": "Correlation Key",
+        "startedAt": "Started At",
+        "completedAt": "Completed At",
+        "pausedAt": "Paused At",
+        "cancelledAt": "Cancelled At",
+        "duration": "Duration",
+        "timing": "Timing",
+        "retryCount": "Retries",
+        "lastError": "Last Error"
+      },
+      "sections": {
+        "overview": "Overview",
+        "context": "Context Data",
+        "metadata": "Metadata",
+        "executionHistory": "Execution History"
+      },
+      "status": {
         "RUNNING": "Running",
         "PAUSED": "Paused",
         "COMPLETED": "Completed",
@@ -73,7 +175,29 @@
         "CANCELLED": "Cancelled",
         "COMPENSATING": "Compensating",
         "COMPENSATED": "Compensated"
-      }
+      },
+      "filters": {
+        "search": "Search",
+        "searchPlaceholder": "Search by workflow ID or correlation key...",
+        "status": "Status",
+        "workflowId": "Workflow ID",
+        "workflowIdPlaceholder": "Filter by workflow ID...",
+        "correlationKey": "Correlation Key",
+        "correlationKeyPlaceholder": "Filter by correlation key..."
+      },
+      "actions": {
+        "viewDetails": "View Details",
+        "cancel": "Cancel",
+        "retry": "Retry"
+      },
+      "list": {
+        "title": "Workflow Instances"
+      },
+      "confirmCancel": "Are you sure you want to cancel this workflow instance?",
+      "confirmRetry": "Are you sure you want to retry this workflow instance?",
+      "cancelFailed": "Failed to cancel workflow instance",
+      "retryFailed": "Failed to retry workflow instance",
+      "noExecutionHistory": "No execution history available"
     },
     "steps": {
       "title": "Workflow Steps",
@@ -203,7 +327,72 @@
       "eventData": "Event Data",
       "occurredAt": "Occurred At",
       "userId": "User ID",
+      "list": {
+        "title": "Workflow Events"
+      },
+      "fields": {
+        "occurredAt": "Occurred At",
+        "eventType": "Event Type",
+        "workflow": "Workflow",
+        "instance": "Instance",
+        "status": "Status",
+        "userId": "User ID",
+        "eventData": "Event Data"
+      },
+      "filters": {
+        "eventType": "Event Type",
+        "workflowInstanceId": "Workflow Instance ID",
+        "workflowInstanceIdPlaceholder": "Enter workflow instance ID...",
+        "userId": "User ID",
+        "userIdPlaceholder": "Enter user ID..."
+      },
+      "messages": {
+        "loadFailed": "Failed to load workflow events"
+      },
+      "workflowNotFound": "Workflow not found",
+      "notFound": "Event not found",
+      "backToList": "Back to Events",
+      "detail": {
+        "title": "Workflow Event Details",
+        "eventId": "Event ID",
+        "summary": "Event Summary",
+        "workflowInstance": "Workflow Instance",
+        "eventData": "Event Data",
+        "workflowContext": "Workflow Context",
+        "technicalDetails": "Technical Details",
+        "stepInstanceId": "Step Instance ID",
+        "tenantId": "Tenant ID",
+        "organizationId": "Organization ID"
+      },
       "types": {
+        "workflow_started": "Workflow Started",
+        "workflow_completed": "Workflow Completed",
+        "workflow_failed": "Workflow Failed",
+        "workflow_cancelled": "Workflow Cancelled",
+        "workflow_paused": "Workflow Paused",
+        "workflow_resumed": "Workflow Resumed",
+        "step_entered": "Step Entered",
+        "step_exited": "Step Exited",
+        "step_failed": "Step Failed",
+        "transition_executed": "Transition Executed",
+        "transition_rejected": "Transition Rejected",
+        "activity_started": "Activity Started",
+        "activity_completed": "Activity Completed",
+        "activity_failed": "Activity Failed",
+        "WORKFLOW_STARTED": "Workflow Started",
+        "WORKFLOW_COMPLETED": "Workflow Completed",
+        "WORKFLOW_FAILED": "Workflow Failed",
+        "WORKFLOW_CANCELLED": "Workflow Cancelled",
+        "WORKFLOW_PAUSED": "Workflow Paused",
+        "WORKFLOW_RESUMED": "Workflow Resumed",
+        "STEP_ENTERED": "Step Entered",
+        "STEP_EXITED": "Step Exited",
+        "STEP_FAILED": "Step Failed",
+        "TRANSITION_EXECUTED": "Transition Executed",
+        "TRANSITION_REJECTED": "Transition Rejected",
+        "ACTIVITY_STARTED": "Activity Started",
+        "ACTIVITY_COMPLETED": "Activity Completed",
+        "ACTIVITY_FAILED": "Activity Failed",
         "WorkflowStarted": "Workflow Started",
         "WorkflowCompleted": "Workflow Completed",
         "WorkflowFailed": "Workflow Failed",
@@ -286,7 +475,29 @@
       "instanceNotFound": "Workflow instance not found",
       "taskNotFound": "Task not found",
       "taskAlreadyClaimed": "Task is already claimed by another user",
-      "taskNotAvailable": "Task is not available"
+      "taskNotAvailable": "Task is not available",
+      "deleted": "Workflow deleted successfully",
+      "deleteFailed": "Failed to delete workflow",
+      "updated": "Workflow updated successfully",
+      "updateFailed": "Failed to update workflow",
+      "loadFailed": "Failed to load workflows",
+      "duplicateNotYetImplemented": "Duplicate functionality is not yet implemented"
     }
+  },
+  "common": {
+    "all": "All",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "yes": "Yes",
+    "no": "No",
+    "edit": "Edit",
+    "delete": "Delete",
+    "duplicate": "Duplicate",
+    "enable": "Enable",
+    "disable": "Disable",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "refreshing": "Refreshing...",
+    "details": "Details"
   }
 }

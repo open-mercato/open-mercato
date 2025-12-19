@@ -136,6 +136,18 @@ export const transitionConditionSchema = z.object({
   required: z.boolean().default(true),
 })
 
+// Activity definition (embedded in transitions)
+export const activityDefinitionSchema = z.object({
+  activityId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Activity ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  activityName: z.string().min(1).max(255),
+  activityType: activityTypeSchema,
+  config: z.record(z.string(), z.any()),
+  async: z.boolean().default(false).optional(), // For Phase 8
+  retryPolicy: activityRetryPolicySchema.optional(),
+  timeout: z.string().optional(), // ISO 8601 duration
+  compensate: z.boolean().default(false).optional(), // Flag to execute compensation on failure
+})
+
 // Transition definition
 export const workflowTransitionSchema = z.object({
   transitionId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Transition ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -145,32 +157,15 @@ export const workflowTransitionSchema = z.object({
   trigger: transitionTriggerSchema,
   preConditions: z.array(transitionConditionSchema).optional(),
   postConditions: z.array(transitionConditionSchema).optional(),
-  activities: z.array(z.string()).optional(), // Activity IDs to execute
+  activities: z.array(activityDefinitionSchema).optional(), // Activities to execute during transition
+  continueOnActivityFailure: z.boolean().default(true).optional(), // If false, transition fails when any activity fails
   priority: z.number().int().min(0).max(9999).default(0),
-})
-
-// Activity compensation
-export const activityCompensationSchema = z.object({
-  activityId: z.string().min(1).max(100), // Compensation activity
-})
-
-// Activity definition
-export const activityDefinitionSchema = z.object({
-  activityId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Activity ID must contain only lowercase letters, numbers, hyphens, and underscores'),
-  activityName: z.string().min(1).max(255),
-  activityType: activityTypeSchema,
-  config: z.record(z.string(), z.any()),
-  async: z.boolean().default(false), // For Phase 8
-  retryPolicy: activityRetryPolicySchema.optional(),
-  timeout: z.string().optional(),
-  compensation: activityCompensationSchema.optional(),
 })
 
 // Workflow definition data (JSONB structure)
 export const workflowDefinitionDataSchema = z.object({
   steps: z.array(workflowStepSchema).min(2, 'Workflow must have at least START and END steps'),
   transitions: z.array(workflowTransitionSchema).min(1, 'Workflow must have at least one transition'),
-  activities: z.array(activityDefinitionSchema).optional(),
   queries: z.array(z.any()).optional(), // For Phase 7
   signals: z.array(z.any()).optional(), // For Phase 9
   timers: z.array(z.any()).optional(), // For Phase 9
@@ -194,6 +189,7 @@ const dateOrNull = z.preprocess((value) => {
 // WorkflowDefinition Schemas
 // ============================================================================
 
+// Full schema for database entities (includes tenant fields)
 export const createWorkflowDefinitionSchema = z.object({
   workflowId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Workflow ID must contain only lowercase letters, numbers, hyphens, and underscores'),
   workflowName: z.string().min(1).max(255),
@@ -211,11 +207,32 @@ export const createWorkflowDefinitionSchema = z.object({
 
 export type CreateWorkflowDefinitionInput = z.infer<typeof createWorkflowDefinitionSchema>
 
+// API input schema (omits tenant fields - injected from auth context)
+export const createWorkflowDefinitionInputSchema = z.object({
+  workflowId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Workflow ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  workflowName: z.string().min(1).max(255),
+  description: z.string().max(2000).optional().nullable(),
+  version: z.number().int().positive().default(1),
+  definition: workflowDefinitionDataSchema,
+  metadata: workflowMetadataSchema.optional().nullable(),
+  enabled: z.boolean().default(true).optional(),
+})
+
+export type CreateWorkflowDefinitionApiInput = z.infer<typeof createWorkflowDefinitionInputSchema>
+
 export const updateWorkflowDefinitionSchema = createWorkflowDefinitionSchema.partial().extend({
   id: uuid,
 })
 
 export type UpdateWorkflowDefinitionInput = z.infer<typeof updateWorkflowDefinitionSchema>
+
+// API update schema (omits tenant fields and allows partial updates)
+export const updateWorkflowDefinitionInputSchema = z.object({
+  definition: workflowDefinitionDataSchema.optional(),
+  enabled: z.boolean().optional(),
+}).strict()
+
+export type UpdateWorkflowDefinitionApiInput = z.infer<typeof updateWorkflowDefinitionInputSchema>
 
 export const workflowDefinitionFilterSchema = z.object({
   workflowId: z.string().optional(),
@@ -235,7 +252,7 @@ export const workflowInstanceMetadataSchema = z.object({
   entityType: z.string().max(100).optional(),
   entityId: z.string().max(255).optional(),
   initiatedBy: z.string().max(255).optional(),
-  labels: z.record(z.string()).optional(),
+  labels: z.record(z.string(), z.string()).optional(),
 })
 
 export const createWorkflowInstanceSchema = z.object({
@@ -407,3 +424,14 @@ export const workflowExecutionContextSchema = z.looseObject({
 })
 
 export type WorkflowExecutionContextInput = z.infer<typeof workflowExecutionContextSchema>
+
+// API input schema (omits tenant fields - injected from auth context)
+export const startWorkflowInputSchema = z.object({
+  workflowId: z.string().min(1),
+  version: z.number().int().positive().optional(),
+  correlationKey: z.string().optional(),
+  initialContext: z.record(z.string(), z.any()).optional(),
+  metadata: workflowInstanceMetadataSchema.optional(),
+})
+
+export type StartWorkflowApiInput = z.infer<typeof startWorkflowInputSchema>
