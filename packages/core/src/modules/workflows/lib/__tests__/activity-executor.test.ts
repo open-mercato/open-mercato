@@ -209,7 +209,7 @@ describe('Activity Executor (Unit Tests)', () => {
   describe('EMIT_EVENT activity', () => {
     test('should execute EMIT_EVENT activity successfully', async () => {
       const mockEventBus = {
-        publish: jest.fn().mockResolvedValue(undefined),
+        emitEvent: jest.fn().mockResolvedValue(undefined),
       }
 
       mockContainer.resolve.mockReturnValue(mockEventBus)
@@ -236,7 +236,7 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.emitted).toBe(true)
       expect(result.output.eventName).toBe('order.created')
-      expect(mockEventBus.publish).toHaveBeenCalledWith(
+      expect(mockEventBus.emitEvent).toHaveBeenCalledWith(
         'order.created',
         expect.objectContaining({
           orderId: 'order-123',
@@ -276,7 +276,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail EMIT_EVENT if missing eventName', async () => {
       const mockEventBus = {
-        publish: jest.fn().mockResolvedValue(undefined),
+        emitEvent: jest.fn().mockResolvedValue(undefined),
       }
 
       mockContainer.resolve.mockReturnValue(mockEventBus)
@@ -769,7 +769,7 @@ describe('Activity Executor (Unit Tests)', () => {
   describe('executeActivities', () => {
     test('should execute multiple activities in sequence', async () => {
       const mockEventBus = {
-        publish: jest.fn().mockResolvedValue(undefined),
+        emitEvent: jest.fn().mockResolvedValue(undefined),
       }
 
       const mockQueryEngine = {
@@ -816,7 +816,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should stop execution if activity fails (fail-fast)', async () => {
       const mockEventBus = {
-        publish: jest.fn().mockRejectedValue(new Error('Event bus error')),
+        emitEvent: jest.fn().mockRejectedValue(new Error('Event bus error')),
       }
 
       const mockQueryEngine = {

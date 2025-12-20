@@ -22,6 +22,7 @@ import * as ruleEngine from '../../business_rules/lib/rule-engine'
 import type { RuleEngineContext } from '../../business_rules/lib/rule-engine'
 import * as activityExecutor from './activity-executor'
 import type { ActivityDefinition } from './activity-executor'
+import * as stepHandler from './step-handler'
 
 // ============================================================================
 // Types and Interfaces
@@ -433,6 +434,29 @@ export async function executeTransition(
     instance.updatedAt = new Date()
 
     await em.flush()
+
+    // Execute the new step (this will create USER_TASK, handle END steps, etc.)
+    console.log('[TRANSITION] Executing new step:', toStepId)
+    const stepExecutionResult = await stepHandler.executeStep(
+      em,
+      instance,
+      toStepId,
+      {
+        workflowContext: instance.context || {},
+        userId: context.userId,
+        triggerData: context.triggerData,
+      }
+    )
+
+    console.log('[TRANSITION] Step execution result:', stepExecutionResult)
+
+    // Handle step execution failure
+    if (stepExecutionResult.status === 'FAILED') {
+      return {
+        success: false,
+        error: stepExecutionResult.error || 'Step execution failed',
+      }
+    }
 
     // Evaluate post-conditions (business rules)
     const postConditionsResult = await evaluatePostConditions(

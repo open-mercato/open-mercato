@@ -76,6 +76,10 @@ const seedDemo: ModuleCli = {
       console.log('  1. View it in admin: /backend/definitions')
       console.log('  2. Try the demo page: /checkout-demo')
       console.log('  3. Start an instance via API: POST /api/workflows/instances')
+      console.log('')
+      console.log('Note: This workflow includes a USER_TASK step for customer information.')
+      console.log('When the workflow reaches this step, it will pause and require user input.')
+      console.log('Complete pending tasks at: /backend/tasks')
     } catch (error) {
       console.error('Error seeding demo workflow:', error)
       throw error

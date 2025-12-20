@@ -157,6 +157,7 @@
         "pausedAt": "Paused At",
         "cancelledAt": "Cancelled At",
         "duration": "Duration",
+        "elapsed": "Elapsed",
         "timing": "Timing",
         "retryCount": "Retries",
         "lastError": "Last Error"
@@ -165,7 +166,8 @@
         "overview": "Overview",
         "context": "Context Data",
         "metadata": "Metadata",
-        "executionHistory": "Execution History"
+        "executionTimeline": "Execution Timeline",
+        "executionHistory": "Event Log"
       },
       "status": {
         "RUNNING": "Running",
@@ -183,20 +185,36 @@
         "workflowId": "Workflow ID",
         "workflowIdPlaceholder": "Filter by workflow ID...",
         "correlationKey": "Correlation Key",
-        "correlationKeyPlaceholder": "Filter by correlation key..."
+        "correlationKeyPlaceholder": "Filter by correlation key...",
+        "entityType": "Entity Type",
+        "entityTypePlaceholder": "Filter by entity type...",
+        "entityId": "Entity ID",
+        "entityIdPlaceholder": "Filter by entity ID..."
       },
       "actions": {
         "viewDetails": "View Details",
         "cancel": "Cancel",
-        "retry": "Retry"
+        "retry": "Retry",
+        "backToList": "Back to instances"
+      },
+      "detail": {
+        "loading": "Loading workflow instance...",
+        "notFound": "Workflow instance not found."
       },
       "list": {
         "title": "Workflow Instances"
       },
-      "confirmCancel": "Are you sure you want to cancel this workflow instance?",
-      "confirmRetry": "Are you sure you want to retry this workflow instance?",
-      "cancelFailed": "Failed to cancel workflow instance",
-      "retryFailed": "Failed to retry workflow instance",
+      "confirm": {
+        "cancel": "Are you sure you want to cancel workflow '{{workflowId}}'?",
+        "retry": "Are you sure you want to retry workflow '{{workflowId}}'?"
+      },
+      "messages": {
+        "loadFailed": "Failed to load workflow instances",
+        "cancelled": "Workflow instance cancelled successfully",
+        "cancelFailed": "Failed to cancel workflow instance",
+        "retried": "Workflow instance retried successfully",
+        "retryFailed": "Failed to retry workflow instance"
+      },
       "noExecutionHistory": "No execution history available"
     },
     "steps": {
@@ -482,6 +500,78 @@
       "updateFailed": "Failed to update workflow",
       "loadFailed": "Failed to load workflows",
       "duplicateNotYetImplemented": "Duplicate functionality is not yet implemented"
+    },
+    "tasks": {
+      "list": {
+        "title": "User Tasks"
+      },
+      "fields": {
+        "taskName": "Task Name",
+        "status": "Status",
+        "assignment": "Assignment",
+        "dueDate": "Due Date",
+        "createdAt": "Created At"
+      },
+      "status": {
+        "PENDING": "Pending",
+        "IN_PROGRESS": "In Progress",
+        "COMPLETED": "Completed",
+        "CANCELLED": "Cancelled"
+      },
+      "filters": {
+        "status": "Status",
+        "view": "View",
+        "myTasks": "My Tasks",
+        "allTasks": "All Tasks",
+        "overdue": "Overdue",
+        "overdueOnly": "Overdue Only",
+        "workflowInstanceId": "Workflow Instance ID",
+        "workflowInstanceIdPlaceholder": "Filter by workflow instance..."
+      },
+      "actions": {
+        "viewDetails": "View Details",
+        "claim": "Claim Task",
+        "complete": "Complete Task"
+      },
+      "confirm": {
+        "claim": "Are you sure you want to claim task '{{name}}'?"
+      },
+      "messages": {
+        "claimed": "Task claimed successfully",
+        "claimFailed": "Failed to claim task",
+        "completed": "Task completed successfully",
+        "completeFailed": "Failed to complete task",
+        "loadFailed": "Failed to load user tasks"
+      },
+      "overdue": "⚠ OVERDUE",
+      "claimedBy": "Claimed by",
+      "roles": "Roles",
+      "detail": {
+        "loading": "Loading task...",
+        "notFound": "Task not found",
+        "backToList": "Back to Tasks",
+        "overdueWarning": "⚠ This task is overdue!",
+        "cannotComplete": "This task has already been completed or cancelled and cannot be modified.",
+        "noFormSchema": "This task has no form to complete. You can add optional comments and submit.",
+        "assignedTo": "Assigned To",
+        "workflowInstance": "Workflow Instance",
+        "comments": "Comments",
+        "optional": "optional",
+        "commentsPlaceholder": "Add any comments or notes about this task...",
+        "completeTask": "Complete Task",
+        "submitting": "Submitting...",
+        "sections": {
+          "taskInfo": "Task Information",
+          "form": "Task Form",
+          "submittedData": "Submitted Data"
+        },
+        "form": {
+          "selectOption": "-- Select an option --"
+        },
+        "validation": {
+          "requiredField": "Required field is missing: {{field}}"
+        }
+      }
     }
   },
   "common": {
@@ -498,6 +588,15 @@
     "retry": "Retry",
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
-    "details": "Details"
+    "details": "Details",
+    "cancel": "Cancel"
+  },
+  "demo": {
+    "userTask": {
+      "title": "User Action Required",
+      "description": "This workflow is paused waiting for user input. Please complete the task below to continue.",
+      "completeButton": "Complete Task",
+      "dueLabel": "Due"
+    }
   }
 }

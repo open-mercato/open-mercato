@@ -420,12 +420,8 @@ async function handleUserTaskStep(
     status: 'PENDING',
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
-    assignedTo: typeof userTaskConfig.assignedTo === 'string'
-      ? userTaskConfig.assignedTo
-      : null,
-    assignedToRoles: Array.isArray(userTaskConfig.assignedTo)
-      ? userTaskConfig.assignedTo
-      : null,
+    assignedTo: userTaskConfig.assignedTo || null,
+    assignedToRoles: userTaskConfig.assignedToRoles || null,
     dueDate: userTaskConfig.slaDuration ? calculateDueDate(userTaskConfig.slaDuration) : null,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
@@ -433,7 +429,19 @@ async function handleUserTaskStep(
     updatedAt: now,
   })
 
+  console.log('[UserTask] Creating task:', {
+    id: userTask.id,
+    taskName: userTask.taskName,
+    workflowInstanceId: instance.id,
+    assignedTo: userTask.assignedTo,
+    assignedToRoles: userTask.assignedToRoles,
+    tenantId: userTask.tenantId,
+    organizationId: userTask.organizationId,
+  })
+
   await em.persistAndFlush(userTask)
+
+  console.log('[UserTask] Task persisted to database:', userTask.id)
 
   // Log USER_TASK_CREATED event
   await logStepEvent(em, {
@@ -449,6 +457,11 @@ async function handleUserTaskStep(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+
+  // Pause workflow execution - workflow waits for user task completion
+  instance.status = 'PAUSED'
+  instance.updatedAt = now
+  await em.flush()
 
   return {
     status: 'WAITING',

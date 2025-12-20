@@ -3,10 +3,14 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Separator } from '@open-mercato/ui/primitives/separator'
+import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import type { WorkflowInstance } from '../../../data/entities'
+import type { WorkflowInstance, WorkflowEvent } from '../../../data/entities'
 
 interface PageProps {
   params?: {
@@ -19,7 +23,9 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
   const t = useT()
   const router = useRouter()
   const [instance, setInstance] = useState<WorkflowInstance | null>(null)
+  const [events, setEvents] = useState<WorkflowEvent[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [eventsLoading, setEventsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
 
@@ -49,6 +55,49 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
     fetchInstance()
   }, [id, t])
 
+  useEffect(() => {
+    if (!instance) {
+      return
+    }
+
+    const fetchEvents = async () => {
+      try {
+        setEventsLoading(true)
+        const response = await apiFetch(
+          `/api/workflows/events?workflowInstanceId=${instance.id}&sortField=occurredAt&sortDir=desc&pageSize=100`
+        )
+        if (response.ok) {
+          const data = await response.json()
+          setEvents(data.items || [])
+        }
+      } catch (err) {
+        console.error('Error fetching events:', err)
+      } finally {
+        setEventsLoading(false)
+      }
+    }
+
+    fetchEvents()
+  }, [instance])
+
+  const calculateDuration = (startedAt: string | Date, completedAt: string | Date | null | undefined) => {
+    const start = typeof startedAt === 'string' ? new Date(startedAt).getTime() : startedAt.getTime()
+    const end = completedAt ? (typeof completedAt === 'string' ? new Date(completedAt).getTime() : completedAt.getTime()) : Date.now()
+    const duration = end - start
+
+    if (duration < 1000) {
+      return `${duration}ms`
+    } else if (duration < 60000) {
+      return `${Math.floor(duration / 1000)}s`
+    } else if (duration < 3600000) {
+      return `${Math.floor(duration / 60000)}m ${Math.floor((duration % 60000) / 1000)}s`
+    } else {
+      const hours = Math.floor(duration / 3600000)
+      const minutes = Math.floor((duration % 3600000) / 60000)
+      return `${hours}h ${minutes}m`
+    }
+  }
+
   const getStatusBadgeClass = (status: WorkflowInstance['status']) => {
     switch (status) {
       case 'RUNNING':
@@ -67,6 +116,22 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
         return 'bg-purple-100 text-purple-800'
       default:
         return 'bg-gray-100 text-gray-600'
+    }
+  }
+
+  const getEventTypeBadgeClass = (eventType: string) => {
+    if (eventType.includes('STARTED') || eventType.includes('ENTERED')) {
+      return 'bg-blue-100 text-blue-800'
+    } else if (eventType.includes('COMPLETED') || eventType.includes('EXITED')) {
+      return 'bg-green-100 text-green-800'
+    } else if (eventType.includes('FAILED') || eventType.includes('REJECTED')) {
+      return 'bg-red-100 text-red-800'
+    } else if (eventType.includes('CANCELLED')) {
+      return 'bg-gray-100 text-gray-800'
+    } else if (eventType.includes('PAUSED')) {
+      return 'bg-yellow-100 text-yellow-800'
+    } else {
+      return 'bg-gray-100 text-gray-700'
     }
   }
 
@@ -122,185 +187,343 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">{t('common.loading') || 'Loading...'}</div>
-      </div>
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Spinner className="h-6 w-6" />
+            <span>{t('workflows.instances.detail.loading') || 'Loading workflow instance...'}</span>
+          </div>
+        </PageBody>
+      </Page>
     )
   }
 
   if (error || !instance) {
     return (
-      <div className="space-y-4">
-        <div className="text-red-600">{error}</div>
-        <Link href="/backend/instances" className="text-blue-600 hover:text-blue-800">
-          ← {t('workflows.backToList') || 'Back to list'}
-        </Link>
-      </div>
+      <Page>
+        <PageBody>
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <p>{error || t('workflows.instances.detail.notFound') || 'Workflow instance not found.'}</p>
+            <Button asChild variant="outline">
+              <Link href="/backend/instances">
+                {t('workflows.instances.actions.backToList') || 'Back to instances'}
+              </Link>
+            </Button>
+          </div>
+        </PageBody>
+      </Page>
     )
   }
 
   const canCancel = ['RUNNING', 'PAUSED'].includes(instance.status)
   const canRetry = instance.status === 'FAILED'
 
-  return (
-    <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-gray-600">
-        <Link href="/backend/instances" className="hover:text-gray-900">
-          {t('workflows.instances.title')}
-        </Link>
-        <span>/</span>
-        <span className="text-gray-900">{instance.workflowId}</span>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-start justify-between">
+  const overviewFields: DetailFieldConfig[] = [
+    {
+      key: 'workflowId',
+      kind: 'custom',
+      label: t('workflows.instances.fields.workflowId'),
+      emptyLabel: '-',
+      render: () => (
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{instance.workflowId}</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {t('workflows.instances.fields.instanceId')}: {instance.id}
-          </p>
+          <div className="font-mono text-sm">{instance.workflowId}</div>
+          <div className="text-xs text-muted-foreground">v{instance.version}</div>
         </div>
-        <div className="flex items-center gap-3">
-          <span
-            className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(
-              instance.status
-            )}`}
-          >
-            {t(`workflows.instances.status.${instance.status}`)}
-          </span>
-          {canCancel && (
-            <Button
-              onClick={handleCancel}
-              disabled={actionLoading}
-              variant="outline"
-              size="sm"
-            >
-              {t('workflows.instances.actions.cancel')}
-            </Button>
-          )}
-          {canRetry && (
-            <Button
-              onClick={handleRetry}
-              disabled={actionLoading}
-              variant="outline"
-              size="sm"
-            >
-              {t('workflows.instances.actions.retry')}
-            </Button>
-          )}
-        </div>
-      </div>
+      ),
+    },
+    {
+      key: 'status',
+      kind: 'custom',
+      label: t('workflows.instances.fields.status'),
+      emptyLabel: '-',
+      render: () => (
+        <span
+          className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(
+            instance.status
+          )}`}
+        >
+          {t(`workflows.instances.status.${instance.status}`)}
+        </span>
+      ),
+    },
+    {
+      key: 'currentStep',
+      kind: 'custom',
+      label: t('workflows.instances.fields.currentStep'),
+      emptyLabel: '-',
+      render: () => <span className="font-mono text-sm">{instance.currentStepId || '-'}</span>,
+    },
+    {
+      key: 'correlationKey',
+      kind: 'custom',
+      label: t('workflows.instances.fields.correlationKey'),
+      emptyLabel: '-',
+      render: () => <span className="text-sm">{instance.correlationKey || '-'}</span>,
+    },
+    {
+      key: 'startedAt',
+      kind: 'custom',
+      label: t('workflows.instances.fields.startedAt'),
+      emptyLabel: '-',
+      render: () => <span className="text-sm">{new Date(instance.startedAt).toLocaleString()}</span>,
+    },
+    {
+      key: 'completedAt',
+      kind: 'custom',
+      label: t('workflows.instances.fields.completedAt'),
+      emptyLabel: '-',
+      render: () => (
+        <span className="text-sm">
+          {instance.completedAt ? new Date(instance.completedAt).toLocaleString() : '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'duration',
+      kind: 'custom',
+      label: t('workflows.instances.fields.duration'),
+      emptyLabel: '-',
+      render: () => (
+        <span className="text-sm">{calculateDuration(instance.startedAt, instance.completedAt)}</span>
+      ),
+    },
+    {
+      key: 'retryCount',
+      kind: 'custom',
+      label: t('workflows.instances.fields.retryCount'),
+      emptyLabel: '0',
+      render: () => (
+        <span className={instance.retryCount > 0 ? 'text-orange-600 font-medium' : ''}>
+          {instance.retryCount}
+        </span>
+      ),
+    },
+  ]
 
-      {/* Overview Card */}
-      <div className="bg-white shadow rounded-lg border border-gray-200">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            {t('workflows.instances.sections.overview')}
-          </h2>
-          <div className="grid grid-cols-2 gap-6">
+  if (instance.errorMessage) {
+    overviewFields.push({
+      key: 'errorMessage',
+      kind: 'custom',
+      label: t('workflows.instances.fields.lastError'),
+      emptyLabel: '-',
+      gridClassName: 'sm:col-span-2 xl:col-span-3',
+      render: () => (
+        <div className="bg-red-50 p-3 rounded border border-red-200">
+          <p className="text-sm text-red-700 whitespace-pre-wrap">{instance.errorMessage}</p>
+          {instance.errorDetails && (
+            <pre className="mt-2 text-xs font-mono text-red-600 overflow-x-auto">
+              {JSON.stringify(instance.errorDetails, null, 2)}
+            </pre>
+          )}
+        </div>
+      ),
+    })
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <div className="space-y-8">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Link href="/backend/instances" className="hover:text-foreground">
+              {t('workflows.instances.title')}
+            </Link>
+            <span>/</span>
+            <span className="text-foreground">{instance.workflowId}</span>
+          </div>
+
+          {/* Header */}
+          <div className="flex items-start justify-between">
             <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.workflowId')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">{instance.workflowId}</dd>
+              <h1 className="text-2xl font-bold">{instance.workflowId}</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t('workflows.instances.fields.instanceId')}: {instance.id}
+              </p>
             </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.version')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">{instance.version}</dd>
+            <div className="flex items-center gap-3">
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(
+                  instance.status
+                )}`}
+              >
+                {t(`workflows.instances.status.${instance.status}`)}
+              </span>
+              {canCancel && (
+                <Button
+                  onClick={handleCancel}
+                  disabled={actionLoading}
+                  variant="outline"
+                  size="sm"
+                >
+                  {t('workflows.instances.actions.cancel')}
+                </Button>
+              )}
+              {canRetry && (
+                <Button
+                  onClick={handleRetry}
+                  disabled={actionLoading}
+                  variant="outline"
+                  size="sm"
+                >
+                  {t('workflows.instances.actions.retry')}
+                </Button>
+              )}
             </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.currentStep')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">{instance.currentStepId || '-'}</dd>
+          </div>
+
+          {/* Overview */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.overview')}</h2>
+            <DetailFieldsSection fields={overviewFields} />
+          </div>
+
+          <Separator />
+
+          {/* Context */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.context')}</h2>
+            <pre className="bg-muted p-4 rounded text-xs font-mono overflow-x-auto border">
+              {JSON.stringify(instance.context, null, 2)}
+            </pre>
+          </div>
+
+          {/* Metadata */}
+          {instance.metadata && Object.keys(instance.metadata).length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold">{t('workflows.instances.sections.metadata')}</h2>
+              <pre className="bg-muted p-4 rounded text-xs font-mono overflow-x-auto border">
+                {JSON.stringify(instance.metadata, null, 2)}
+              </pre>
             </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.correlationKey')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">{instance.correlationKey || '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.startedAt')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {new Date(instance.startedAt).toLocaleString()}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.completedAt')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {instance.completedAt ? new Date(instance.completedAt).toLocaleString() : '-'}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-sm font-medium text-gray-500">
-                {t('workflows.instances.fields.retryCount')}
-              </dt>
-              <dd className="mt-1 text-sm text-gray-900">{instance.retryCount}</dd>
-            </div>
-            {instance.errorMessage && (
-              <div className="col-span-2">
-                <dt className="text-sm font-medium text-red-500">
-                  {t('workflows.instances.fields.lastError')}
-                </dt>
-                <dd className="mt-1 text-sm text-red-700 bg-red-50 p-3 rounded">
-                  <p className="whitespace-pre-wrap">{instance.errorMessage}</p>
-                  {instance.errorDetails && (
-                    <pre className="mt-2 whitespace-pre-wrap font-mono text-xs">
-                      {JSON.stringify(instance.errorDetails, null, 2)}
-                    </pre>
-                  )}
-                </dd>
+          )}
+
+          <Separator />
+
+          {/* Execution Timeline */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.executionTimeline') || 'Execution Timeline'}</h2>
+            {eventsLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Spinner className="h-4 w-4" />
+                <span className="text-sm">{t('common.loading')}</span>
+              </div>
+            ) : events.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {t('workflows.instances.noExecutionHistory')}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {events
+                  .filter(
+                    (e) =>
+                      e.eventType.includes('STEP_') ||
+                      e.eventType.includes('WORKFLOW_STARTED') ||
+                      e.eventType.includes('WORKFLOW_COMPLETED') ||
+                      e.eventType.includes('WORKFLOW_FAILED')
+                  )
+                  .reverse()
+                  .map((event, idx) => (
+                    <div key={event.id} className="flex items-start gap-3 p-3 bg-muted rounded-lg border">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-background border-2 border-border flex items-center justify-center text-xs font-medium">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getEventTypeBadgeClass(
+                              event.eventType
+                            )}`}
+                          >
+                            {t(`workflows.events.types.${event.eventType}`) || event.eventType}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(event.occurredAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        {event.eventData && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {event.eventData.toStepId && `→ ${event.eventData.toStepId}`}
+                            {event.eventData.fromStepId && `${event.eventData.fromStepId} → ${event.eventData.toStepId}`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <Separator />
+
+          {/* Event Log */}
+          <div className="space-y-3">
+            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.executionHistory')}</h2>
+            {eventsLoading ? (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Spinner className="h-4 w-4" />
+                <span className="text-sm">{t('common.loading')}</span>
+              </div>
+            ) : events.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {t('workflows.instances.noExecutionHistory')}
+              </p>
+            ) : (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="min-w-full divide-y divide-border">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                        {t('workflows.events.occurredAt')}
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                        {t('workflows.events.eventType')}
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                        {t('workflows.events.eventData')}
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                        {t('workflows.events.userId')}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-background divide-y divide-border">
+                    {events.map((event) => (
+                      <tr key={event.id} className="hover:bg-muted/50">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm">
+                          {new Date(event.occurredAt).toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getEventTypeBadgeClass(
+                              event.eventType
+                            )}`}
+                          >
+                            {t(`workflows.events.types.${event.eventType}`) || event.eventType}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <details className="cursor-pointer">
+                            <summary className="text-primary hover:underline">
+                              {t('common.details')}
+                            </summary>
+                            <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-x-auto">
+                              {JSON.stringify(event.eventData, null, 2)}
+                            </pre>
+                          </details>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">
+                          {event.userId || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Context Card */}
-      <div className="bg-white shadow rounded-lg border border-gray-200">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            {t('workflows.instances.sections.context')}
-          </h2>
-          <pre className="bg-gray-50 p-4 rounded text-xs font-mono overflow-x-auto">
-            {JSON.stringify(instance.context, null, 2)}
-          </pre>
-        </div>
-      </div>
-
-      {/* Metadata Card */}
-      {instance.metadata && Object.keys(instance.metadata).length > 0 && (
-        <div className="bg-white shadow rounded-lg border border-gray-200">
-          <div className="p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              {t('workflows.instances.sections.metadata')}
-            </h2>
-            <pre className="bg-gray-50 p-4 rounded text-xs font-mono overflow-x-auto">
-              {JSON.stringify(instance.metadata, null, 2)}
-            </pre>
-          </div>
-        </div>
-      )}
-
-      {/* Execution History - TODO: Implement when execution logging is added */}
-      {/*
-      <div className="bg-white shadow rounded-lg border border-gray-200">
-        <div className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            {t('workflows.instances.sections.executionHistory')}
-          </h2>
-          <p className="text-sm text-gray-500">{t('workflows.instances.noExecutionHistory')}</p>
-        </div>
-      </div>
-      */}
-    </div>
+      </PageBody>
+    </Page>
   )
 }

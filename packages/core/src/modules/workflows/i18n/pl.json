@@ -157,6 +157,7 @@
         "pausedAt": "Wstrzymano",
         "cancelledAt": "Anulowano",
         "duration": "Czas Trwania",
+        "elapsed": "Upłynęło",
         "timing": "Czasy",
         "retryCount": "Ponowienia",
         "lastError": "Ostatni Błąd"
@@ -165,7 +166,8 @@
         "overview": "Przegląd",
         "context": "Dane Kontekstu",
         "metadata": "Metadane",
-        "executionHistory": "Historia Wykonania"
+        "executionTimeline": "Oś Czasu Wykonania",
+        "executionHistory": "Dziennik Zdarzeń"
       },
       "status": {
         "RUNNING": "W Toku",
@@ -183,20 +185,36 @@
         "workflowId": "ID Przepływu Pracy",
         "workflowIdPlaceholder": "Filtruj po ID przepływu...",
         "correlationKey": "Klucz Korelacji",
-        "correlationKeyPlaceholder": "Filtruj po kluczu korelacji..."
+        "correlationKeyPlaceholder": "Filtruj po kluczu korelacji...",
+        "entityType": "Typ Encji",
+        "entityTypePlaceholder": "Filtruj po typie encji...",
+        "entityId": "ID Encji",
+        "entityIdPlaceholder": "Filtruj po ID encji..."
       },
       "actions": {
         "viewDetails": "Zobacz Szczegóły",
         "cancel": "Anuluj",
-        "retry": "Ponów"
+        "retry": "Ponów",
+        "backToList": "Powrót do instancji"
+      },
+      "detail": {
+        "loading": "Ładowanie instancji przepływu...",
+        "notFound": "Instancja przepływu nie znaleziona."
       },
       "list": {
         "title": "Instancje Przepływów Pracy"
       },
-      "confirmCancel": "Czy na pewno chcesz anulować tę instancję przepływu pracy?",
-      "confirmRetry": "Czy na pewno chcesz ponowić tę instancję przepływu pracy?",
-      "cancelFailed": "Nie udało się anulować instancji przepływu pracy",
-      "retryFailed": "Nie udało się ponowić instancji przepływu pracy",
+      "confirm": {
+        "cancel": "Czy na pewno chcesz anulować przepływ '{{workflowId}}'?",
+        "retry": "Czy na pewno chcesz ponowić przepływ '{{workflowId}}'?"
+      },
+      "messages": {
+        "loadFailed": "Nie udało się załadować instancji przepływów",
+        "cancelled": "Instancja przepływu anulowana pomyślnie",
+        "cancelFailed": "Nie udało się anulować instancji przepływu",
+        "retried": "Instancja przepływu ponowiona pomyślnie",
+        "retryFailed": "Nie udało się ponowić instancji przepływu"
+      },
       "noExecutionHistory": "Brak historii wykonania"
     },
     "steps": {
@@ -417,6 +435,78 @@
       "updateFailed": "Nie udało się zaktualizować przepływu",
       "loadFailed": "Nie udało się załadować przepływów",
       "duplicateNotYetImplemented": "Funkcja duplikowania nie jest jeszcze zaimplementowana"
+    },
+    "tasks": {
+      "list": {
+        "title": "Zadania użytkowników"
+      },
+      "fields": {
+        "taskName": "Nazwa zadania",
+        "status": "Status",
+        "assignment": "Przypisanie",
+        "dueDate": "Termin",
+        "createdAt": "Data utworzenia"
+      },
+      "status": {
+        "PENDING": "Oczekujące",
+        "IN_PROGRESS": "W trakcie",
+        "COMPLETED": "Zakończone",
+        "CANCELLED": "Anulowane"
+      },
+      "filters": {
+        "status": "Status",
+        "view": "Widok",
+        "myTasks": "Moje zadania",
+        "allTasks": "Wszystkie zadania",
+        "overdue": "Przeterminowane",
+        "overdueOnly": "Tylko przeterminowane",
+        "workflowInstanceId": "ID instancji przepływu",
+        "workflowInstanceIdPlaceholder": "Filtruj po ID instancji..."
+      },
+      "actions": {
+        "viewDetails": "Zobacz szczegóły",
+        "claim": "Przejmij zadanie",
+        "complete": "Zakończ zadanie"
+      },
+      "confirm": {
+        "claim": "Czy na pewno chcesz przejąć zadanie '{{name}}'?"
+      },
+      "messages": {
+        "claimed": "Zadanie przejęte pomyślnie",
+        "claimFailed": "Nie udało się przejąć zadania",
+        "completed": "Zadanie zakończone pomyślnie",
+        "completeFailed": "Nie udało się zakończyć zadania",
+        "loadFailed": "Nie udało się załadować zadań użytkowników"
+      },
+      "overdue": "⚠ PRZETERMINOWANE",
+      "claimedBy": "Przejęte przez",
+      "roles": "Role",
+      "detail": {
+        "loading": "Ładowanie zadania...",
+        "notFound": "Zadanie nie znalezione",
+        "backToList": "Powrót do zadań",
+        "overdueWarning": "⚠ To zadanie jest przeterminowane!",
+        "cannotComplete": "To zadanie zostało już zakończone lub anulowane i nie może być modyfikowane.",
+        "noFormSchema": "To zadanie nie ma formularza do wypełnienia. Możesz dodać opcjonalne komentarze i wysłać.",
+        "assignedTo": "Przypisane do",
+        "workflowInstance": "Instancja przepływu",
+        "comments": "Komentarze",
+        "optional": "opcjonalne",
+        "commentsPlaceholder": "Dodaj komentarze lub notatki dotyczące tego zadania...",
+        "completeTask": "Zakończ zadanie",
+        "submitting": "Wysyłanie...",
+        "sections": {
+          "taskInfo": "Informacje o zadaniu",
+          "form": "Formularz zadania",
+          "submittedData": "Wysłane dane"
+        },
+        "form": {
+          "selectOption": "-- Wybierz opcję --"
+        },
+        "validation": {
+          "requiredField": "Brakuje wymaganego pola: {{field}}"
+        }
+      }
     }
   },
   "common": {
@@ -430,6 +520,15 @@
     "duplicate": "Duplikuj",
     "enable": "Włącz",
     "disable": "Wyłącz",
-    "retry": "Ponów"
+    "retry": "Ponów",
+    "cancel": "Anuluj"
+  },
+  "demo": {
+    "userTask": {
+      "title": "Wymagane działanie użytkownika",
+      "description": "Ten proces jest wstrzymany w oczekiwaniu na dane wejściowe użytkownika. Proszę wykonać zadanie poniżej, aby kontynuować.",
+      "completeButton": "Wykonaj zadanie",
+      "dueLabel": "Termin"
+    }
   }
 }

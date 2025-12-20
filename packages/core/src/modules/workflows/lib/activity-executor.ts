@@ -290,7 +290,7 @@ async function executeEmitEvent(
   // Get event bus from container
   const eventBus = container.resolve('eventBus')
 
-  if (!eventBus || typeof eventBus.publish !== 'function') {
+  if (!eventBus || typeof eventBus.emitEvent !== 'function') {
     throw new Error('Event bus not available in container')
   }
 
@@ -305,7 +305,7 @@ async function executeEmitEvent(
     },
   }
 
-  await eventBus.publish(eventName, enrichedPayload)
+  await eventBus.emitEvent(eventName, enrichedPayload)
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }

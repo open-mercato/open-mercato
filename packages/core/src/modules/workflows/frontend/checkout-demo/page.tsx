@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface CartItem {
   id: string
@@ -35,12 +35,16 @@ interface WorkflowEvent {
 }
 
 export default function CheckoutDemoPage() {
+  const queryClient = useQueryClient()
   const [loading, setLoading] = useState(false)
   const [advancing, setAdvancing] = useState(false)
   const [result, setResult] = useState<WorkflowResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState<StepInfo | null>(null)
   const [availableSteps, setAvailableSteps] = useState<StepInfo[]>([])
+  const [formData, setFormData] = useState<Record<string, any>>({})
+  const [submittingTask, setSubmittingTask] = useState(false)
+  const [taskError, setTaskError] = useState<string | null>(null)
 
   // Poll workflow instance for real-time status updates
   const { data: instanceData } = useQuery({
@@ -55,7 +59,7 @@ export default function CheckoutDemoPage() {
       return json.data // API returns { data: instance }
     },
     enabled: !!result?.instanceId,
-    refetchInterval: result?.status === 'RUNNING' ? 500 : false, // Poll every 500ms while running
+    refetchInterval: (result?.status === 'RUNNING' || result?.status === 'PAUSED') ? 500 : false, // Poll while running or paused
   })
 
   // Update result when instance data changes
@@ -87,7 +91,46 @@ export default function CheckoutDemoPage() {
       return data.items || []
     },
     enabled: !!result?.instanceId,
-    refetchInterval: result?.status === 'RUNNING' ? 1000 : false,
+    refetchInterval: (result?.status === 'RUNNING' || result?.status === 'PAUSED') ? 1000 : false,
+  })
+
+  // Fetch pending user tasks for this workflow instance
+  const { data: userTasks = [], isLoading: tasksLoading, error: tasksError, refetch: refetchTasks } = useQuery({
+    queryKey: ['workflow-user-tasks', result?.instanceId],
+    queryFn: async () => {
+      if (!result?.instanceId) return []
+
+      console.log('[UserTasks] Fetching tasks for instance:', result.instanceId)
+
+      const response = await fetch(
+        `/api/workflows/tasks?workflowInstanceId=${result.instanceId}&status=PENDING`
+      )
+
+      console.log('[UserTasks] Response status:', response.status)
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('[UserTasks] Error response:', errorData)
+        throw new Error(errorData.error || `HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      console.log('[UserTasks] Fetched tasks:', data.data?.length || 0, 'tasks', data.data)
+      return data.data || []
+    },
+    enabled: !!result?.instanceId && result?.status === 'PAUSED',
+    refetchInterval: result?.status === 'PAUSED' ? 2000 : false,
+  })
+
+  // Fetch workflow definition to get dynamic steps
+  const { data: workflowDefinition } = useQuery({
+    queryKey: ['workflow-definition', 'checkout_simple_v1'],
+    queryFn: async () => {
+      const response = await fetch('/api/workflows/definitions?workflowId=checkout_simple_v1')
+      if (!response.ok) return null
+      const json = await response.json()
+      return json.items?.[0] || null
+    },
   })
 
   // Demo cart data
@@ -102,10 +145,11 @@ export default function CheckoutDemoPage() {
   const shipping = 9.99
   const total = subtotal + tax + shipping
 
-  // Workflow steps for UI
-  const workflowSteps: StepInfo[] = [
+  // Workflow steps for UI - use dynamic definition or fallback
+  const workflowSteps: StepInfo[] = workflowDefinition?.definition?.steps || [
     { stepId: 'start', stepName: 'Start', stepType: 'START', description: 'Workflow initiated' },
     { stepId: 'cart_validation', stepName: 'Cart Validation', stepType: 'AUTOMATED', description: 'Validate cart and reserve inventory' },
+    { stepId: 'customer_info', stepName: 'Customer Information', stepType: 'USER_TASK', description: 'Collect customer shipping and contact information' },
     { stepId: 'payment_processing', stepName: 'Payment Processing', stepType: 'AUTOMATED', description: 'Process payment' },
     { stepId: 'order_confirmation', stepName: 'Order Confirmation', stepType: 'AUTOMATED', description: 'Create order and send confirmation' },
     { stepId: 'end', stepName: 'Complete', stepType: 'END', description: 'Checkout completed' },
@@ -281,8 +325,13 @@ export default function CheckoutDemoPage() {
     const currentIndex = workflowSteps.findIndex(s => s.stepId === result.currentStepId)
     const stepIndex = workflowSteps.findIndex(s => s.stepId === stepId)
 
+    if (currentIndex === -1 || stepIndex === -1) return 'pending'
+
     if (stepIndex < currentIndex) return 'completed'
-    if (stepIndex === currentIndex) return 'current'
+    if (stepIndex === currentIndex) {
+      // If workflow is paused at this step, show it as paused
+      return result.status === 'PAUSED' ? 'paused' : 'current'
+    }
     return 'pending'
   }
 
@@ -292,6 +341,8 @@ export default function CheckoutDemoPage() {
         return 'bg-green-100 text-green-600 border-green-300'
       case 'current':
         return 'bg-blue-100 text-blue-600 border-blue-300'
+      case 'paused':
+        return 'bg-yellow-100 text-yellow-600 border-yellow-300'
       default:
         return 'bg-gray-100 text-gray-600 border-gray-300'
     }
@@ -308,6 +359,257 @@ export default function CheckoutDemoPage() {
 
   const formatEventType = (eventType: string) => {
     return eventType.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+  }
+
+  const handleFieldChange = (fieldName: string, value: any) => {
+    setFormData(prev => ({
+      ...prev,
+      [fieldName]: value,
+    }))
+  }
+
+  const handleTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!userTasks || userTasks.length === 0) return
+
+    const task = userTasks[0]
+
+    // Validate required fields
+    if (task.formSchema?.required) {
+      for (const requiredField of task.formSchema.required) {
+        if (!formData[requiredField] || formData[requiredField] === '') {
+          setTaskError(`Required field is missing: ${requiredField}`)
+          return
+        }
+      }
+    }
+
+    setSubmittingTask(true)
+    setTaskError(null)
+
+    try {
+      const response = await fetch(`/api/workflows/tasks/${task.id}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          formData,
+        }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to complete task')
+      }
+
+      // Reset form
+      setFormData({})
+      setTaskError(null)
+
+      // Invalidate all workflow-related queries to force immediate refresh
+      await queryClient.invalidateQueries({ queryKey: ['workflow-instance', result?.instanceId] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-user-tasks', result?.instanceId] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-events', result?.instanceId] })
+    } catch (err) {
+      console.error('Error completing task:', err)
+      setTaskError(err instanceof Error ? err.message : 'Failed to complete task')
+    } finally {
+      setSubmittingTask(false)
+    }
+  }
+
+  const renderFormField = (fieldName: string, fieldSchema: any, required: boolean) => {
+    const fieldType = fieldSchema.type || 'string'
+    const fieldTitle = fieldSchema.title || fieldName
+    const fieldDescription = fieldSchema.description
+    const enumValues = fieldSchema.enum
+
+    const inputClasses = "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+    const labelClasses = "block text-sm font-medium text-gray-700 mb-1"
+
+    // Handle enum (select dropdown)
+    if (enumValues && Array.isArray(enumValues)) {
+      return (
+        <div key={fieldName} className="space-y-1">
+          <label htmlFor={fieldName} className={labelClasses}>
+            {fieldTitle}
+            {required && <span className="text-red-600 ml-1">*</span>}
+          </label>
+          {fieldDescription && (
+            <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+          )}
+          <select
+            id={fieldName}
+            value={formData[fieldName] || ''}
+            onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+            required={required}
+            className={inputClasses}
+          >
+            <option value="">-- Select an option --</option>
+            {enumValues.map((value: any) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </div>
+      )
+    }
+
+    // Handle different field types
+    switch (fieldType) {
+      case 'string':
+        if (fieldSchema.format === 'email') {
+          return (
+            <div key={fieldName} className="space-y-1">
+              <label htmlFor={fieldName} className={labelClasses}>
+                {fieldTitle}
+                {required && <span className="text-red-600 ml-1">*</span>}
+              </label>
+              {fieldDescription && (
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+              )}
+              <input
+                type="email"
+                id={fieldName}
+                value={formData[fieldName] || ''}
+                onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                required={required}
+                className={inputClasses}
+              />
+            </div>
+          )
+        }
+        if (fieldSchema.format === 'date') {
+          return (
+            <div key={fieldName} className="space-y-1">
+              <label htmlFor={fieldName} className={labelClasses}>
+                {fieldTitle}
+                {required && <span className="text-red-600 ml-1">*</span>}
+              </label>
+              {fieldDescription && (
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+              )}
+              <input
+                type="date"
+                id={fieldName}
+                value={formData[fieldName] || ''}
+                onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                required={required}
+                className={inputClasses}
+              />
+            </div>
+          )
+        }
+        if (fieldSchema.maxLength && fieldSchema.maxLength > 200) {
+          return (
+            <div key={fieldName} className="space-y-1">
+              <label htmlFor={fieldName} className={labelClasses}>
+                {fieldTitle}
+                {required && <span className="text-red-600 ml-1">*</span>}
+              </label>
+              {fieldDescription && (
+                <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+              )}
+              <textarea
+                id={fieldName}
+                value={formData[fieldName] || ''}
+                onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                required={required}
+                rows={3}
+                className={inputClasses}
+              />
+            </div>
+          )
+        }
+        return (
+          <div key={fieldName} className="space-y-1">
+            <label htmlFor={fieldName} className={labelClasses}>
+              {fieldTitle}
+              {required && <span className="text-red-600 ml-1">*</span>}
+            </label>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+            )}
+            <input
+              type="text"
+              id={fieldName}
+              value={formData[fieldName] || ''}
+              onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+              required={required}
+              className={inputClasses}
+            />
+          </div>
+        )
+
+      case 'number':
+      case 'integer':
+        return (
+          <div key={fieldName} className="space-y-1">
+            <label htmlFor={fieldName} className={labelClasses}>
+              {fieldTitle}
+              {required && <span className="text-red-600 ml-1">*</span>}
+            </label>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+            )}
+            <input
+              type="number"
+              id={fieldName}
+              value={formData[fieldName] || ''}
+              onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
+              required={required}
+              step={fieldType === 'integer' ? 1 : 'any'}
+              className={inputClasses}
+            />
+          </div>
+        )
+
+      case 'boolean':
+        return (
+          <div key={fieldName} className="space-y-1">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id={fieldName}
+                checked={!!formData[fieldName]}
+                onChange={(e) => handleFieldChange(fieldName, e.target.checked)}
+                className="w-4 h-4 text-yellow-600 border-gray-300 rounded focus:ring-yellow-500"
+              />
+              <label htmlFor={fieldName} className="text-sm font-medium text-gray-700">
+                {fieldTitle}
+                {required && <span className="text-red-600 ml-1">*</span>}
+              </label>
+            </div>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 ml-6">{fieldDescription}</p>
+            )}
+          </div>
+        )
+
+      default:
+        return (
+          <div key={fieldName} className="space-y-1">
+            <label htmlFor={fieldName} className={labelClasses}>
+              {fieldTitle}
+              {required && <span className="text-red-600 ml-1">*</span>}
+            </label>
+            {fieldDescription && (
+              <p className="text-xs text-gray-500 mb-1">{fieldDescription}</p>
+            )}
+            <input
+              type="text"
+              id={fieldName}
+              value={formData[fieldName] || ''}
+              onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+              required={required}
+              className={inputClasses}
+            />
+          </div>
+        )
+    }
   }
 
   return (
@@ -399,6 +701,96 @@ export default function CheckoutDemoPage() {
                   <div className="pt-2 border-t border-gray-200">
                     <p className="text-sm font-medium text-gray-900">Total: ${total.toFixed(2)}</p>
                   </div>
+                </div>
+              </>
+            )}
+
+            {/* Customer Information Step - USER_TASK */}
+            {result && result.currentStepId === 'customer_info' && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-yellow-600 rounded-full animate-pulse"></span>
+                  Customer Information Required
+                </h2>
+                <div className="space-y-4">
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <p className="text-sm text-yellow-800 font-medium mb-2">
+                      Please provide your shipping information
+                    </p>
+                    <p className="text-xs text-yellow-700">
+                      The workflow is paused waiting for customer details. Complete the form to continue checkout.
+                    </p>
+                  </div>
+
+                  {tasksError ? (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <p className="text-sm text-red-800 font-medium mb-2">
+                        Error loading task
+                      </p>
+                      <p className="text-xs text-red-700 mb-3">
+                        {tasksError instanceof Error ? tasksError.message : 'Unknown error'}
+                      </p>
+                      <Button
+                        onClick={() => refetchTasks()}
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  ) : tasksLoading ? (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center justify-center py-4">
+                        <div className="inline-block w-8 h-8 border-4 border-yellow-600 border-t-transparent rounded-full animate-spin"></div>
+                        <p className="ml-3 text-sm text-gray-600">Loading task...</p>
+                      </div>
+                    </div>
+                  ) : userTasks.length > 0 ? (
+                    <form onSubmit={handleTaskSubmit} className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+                      {taskError && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                          <p className="text-sm text-red-800">{taskError}</p>
+                        </div>
+                      )}
+
+                      {userTasks[0].formSchema?.properties && (
+                        <div className="space-y-3">
+                          {Object.keys(userTasks[0].formSchema.properties).map((fieldName) => {
+                            const required = userTasks[0].formSchema.required?.includes(fieldName) || false
+                            return renderFormField(fieldName, userTasks[0].formSchema.properties[fieldName], required)
+                          })}
+                        </div>
+                      )}
+
+                      <div className="pt-3 border-t border-gray-200">
+                        <Button
+                          type="submit"
+                          disabled={submittingTask}
+                          className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-medium"
+                        >
+                          {submittingTask ? 'Submitting...' : 'Complete & Continue Checkout'}
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                      <p className="text-sm text-orange-800 font-medium mb-2">
+                        No task found
+                      </p>
+                      <p className="text-xs text-orange-700 mb-3">
+                        The user task may still be creating. This usually takes less than a second.
+                      </p>
+                      <Button
+                        onClick={() => refetchTasks()}
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                      >
+                        Refresh
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -638,16 +1030,18 @@ export default function CheckoutDemoPage() {
                     {workflowSteps.map((step, index) => {
                       const status = getStepStatus(step.stepId)
                       const isLastStep = step.stepType === 'END'
+                      const isPaused = status === 'paused'
+
                       return (
                         <div
                           key={step.stepId}
                           className={`p-3 rounded-lg border-2 ${getStepColor(status)} transition-all duration-300 ${
-                            status === 'current' && !isLastStep ? 'animate-pulse' : ''
+                            (status === 'current' || isPaused) && !isLastStep ? 'animate-pulse' : ''
                           }`}
                         >
                           <div className="flex items-center">
                             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white flex items-center justify-center font-bold text-sm">
-                              {status === 'completed' ? '✓' : index + 1}
+                              {status === 'completed' ? '✓' : isPaused ? '⏸' : index + 1}
                             </div>
                             <div className="ml-3 flex-1">
                               <p className="font-medium">{step.stepName}</p>
@@ -655,10 +1049,16 @@ export default function CheckoutDemoPage() {
                                 <p className="text-xs opacity-75 mt-0.5">{step.description}</p>
                               )}
                             </div>
-                            {status === 'current' && !isLastStep && (
+                            {status === 'current' && !isLastStep && !isPaused && (
                               <span className="ml-2 text-xs font-medium flex items-center gap-1">
                                 <span className="inline-block w-2 h-2 bg-current rounded-full animate-pulse"></span>
                                 Processing...
+                              </span>
+                            )}
+                            {isPaused && (
+                              <span className="ml-2 text-xs font-medium flex items-center gap-1">
+                                <span className="inline-block w-2 h-2 bg-current rounded-full"></span>
+                                Waiting for input
                               </span>
                             )}
                           </div>
@@ -667,6 +1067,63 @@ export default function CheckoutDemoPage() {
                     })}
                   </div>
                 </div>
+
+                {/* User Task Required */}
+                {result.status === 'PAUSED' && userTasks.length > 0 && (
+                  <div className="border-t border-gray-200 pt-4">
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-start mb-3">
+                        <svg
+                          className="h-5 w-5 text-yellow-600 mt-0.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
+                        </svg>
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-yellow-800">
+                            User Action Required
+                          </h3>
+                          <p className="text-sm text-yellow-700 mt-1">
+                            This workflow is paused waiting for user input. Please complete the task below to continue.
+                          </p>
+                        </div>
+                      </div>
+
+                      {userTasks.map((task: any) => (
+                        <div key={task.id} className="mt-3 bg-white rounded-md p-3 border border-yellow-200">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h4 className="text-sm font-semibold text-gray-900">{task.taskName}</h4>
+                              {task.description && (
+                                <p className="text-sm text-gray-600 mt-1">{task.description}</p>
+                              )}
+                              {task.dueDate && (
+                                <p className="text-xs text-gray-500 mt-2">
+                                  Due: {new Date(task.dueDate).toLocaleString()}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <a
+                              href={`/backend/tasks/${task.id}`}
+                              className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+                            >
+                              Complete Task →
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Manual Progression */}
                 {result.status === 'RUNNING' && currentStep && currentStep.stepType !== 'END' && (

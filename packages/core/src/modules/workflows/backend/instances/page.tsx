@@ -45,7 +45,7 @@ type InstancesResponse = {
 
 export default function WorkflowInstancesListPage() {
   const [page, setPage] = React.useState(1)
-  const [pageSize] = React.useState(20)
+  const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const t = useT()
@@ -64,7 +64,8 @@ export default function WorkflowInstancesListPage() {
       if (filterValues.status) params.set('status', filterValues.status as string)
       if (filterValues.workflowId) params.set('workflowId', filterValues.workflowId as string)
       if (filterValues.correlationKey) params.set('correlationKey', filterValues.correlationKey as string)
-      if (filterValues.search) params.set('search', filterValues.search as string)
+      if (filterValues.entityType) params.set('entityType', filterValues.entityType as string)
+      if (filterValues.entityId) params.set('entityId', filterValues.entityId as string)
 
       const result = await apiCall<InstancesResponse>(
         `/api/workflows/instances?${params.toString()}`
@@ -156,12 +157,6 @@ export default function WorkflowInstancesListPage() {
 
   const filters: FilterDef[] = [
     {
-      id: 'search',
-      type: 'text',
-      label: t('workflows.instances.filters.search'),
-      placeholder: t('workflows.instances.filters.searchPlaceholder'),
-    },
-    {
       id: 'status',
       type: 'select',
       label: t('workflows.instances.filters.status'),
@@ -187,6 +182,18 @@ export default function WorkflowInstancesListPage() {
       type: 'text',
       label: t('workflows.instances.filters.correlationKey'),
       placeholder: t('workflows.instances.filters.correlationKeyPlaceholder'),
+    },
+    {
+      id: 'entityType',
+      type: 'text',
+      label: t('workflows.instances.filters.entityType'),
+      placeholder: t('workflows.instances.filters.entityTypePlaceholder'),
+    },
+    {
+      id: 'entityId',
+      type: 'text',
+      label: t('workflows.instances.filters.entityId'),
+      placeholder: t('workflows.instances.filters.entityIdPlaceholder'),
     },
   ]
 
