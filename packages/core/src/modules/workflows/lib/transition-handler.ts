@@ -287,6 +287,12 @@ export async function executeTransition(
     const transition = evaluation.transition!
 
     // Evaluate pre-conditions (business rules)
+    console.log('[TRANSITION] Evaluating pre-conditions for transition:', {
+      transitionId: transition.transitionId,
+      fromStepId,
+      toStepId,
+    })
+
     const preConditionsResult = await evaluatePreConditions(
       em,
       instance,
@@ -294,8 +300,30 @@ export async function executeTransition(
       context
     )
 
+    console.log('[TRANSITION] Pre-conditions result:', {
+      allowed: preConditionsResult.allowed,
+      executedRulesCount: preConditionsResult.executedRules.length,
+      errors: preConditionsResult.errors,
+    })
+
     if (!preConditionsResult.allowed) {
-      const failedRules = preConditionsResult.errors?.join(', ') || 'Unknown pre-condition failure'
+      // Build detailed failure information
+      const failedRules = preConditionsResult.executedRules
+        .filter((r) => !r.conditionResult)
+        .map((r) => ({
+          ruleId: r.rule.ruleId,
+          ruleName: r.rule.ruleName,
+          error: r.error,
+        }))
+
+      const failedRulesDetails = failedRules.length > 0
+        ? failedRules.map(r => `${r.ruleId}: ${r.error || 'condition failed'}`).join('; ')
+        : preConditionsResult.errors?.join(', ') || 'Unknown pre-condition failure'
+
+      console.log('[TRANSITION] ✗ Pre-conditions FAILED:', {
+        failedRules,
+        errors: preConditionsResult.errors,
+      })
 
       await logTransitionEvent(em, {
         workflowInstanceId: instance.id,
@@ -305,7 +333,8 @@ export async function executeTransition(
           toStepId,
           transitionId: transition.transitionId || `${fromStepId}->${toStepId}`,
           reason: 'Pre-conditions failed',
-          failedRules,
+          failedRules: failedRulesDetails,
+          failedRulesDetail: failedRules,
         },
         userId: context.userId,
         tenantId: instance.tenantId,
@@ -314,7 +343,7 @@ export async function executeTransition(
 
       return {
         success: false,
-        error: `Pre-conditions failed: ${failedRules}`,
+        error: `Pre-conditions failed: ${failedRulesDetails}`,
         conditionsEvaluated: {
           preConditions: false,
           postConditions: false,
@@ -600,6 +629,14 @@ async function evaluatePreConditions(
       organizationId: instance.organizationId,
       executedBy: context.userId,
     }
+
+    console.log('[PRE-CONDITIONS] Rule engine context:', {
+      entityType: ruleContext.entityType,
+      entityId: ruleContext.entityId,
+      eventType: ruleContext.eventType,
+      dataKeys: Object.keys(ruleContext.data),
+      workflowContextKeys: Object.keys(ruleContext.data.workflowContext),
+    })
 
     // Execute rules - only GUARD rules will affect the 'allowed' status
     const result = await ruleEngine.executeRules(em, ruleContext)

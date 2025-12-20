@@ -80,7 +80,19 @@ function evaluateSimpleCondition(
     rightValue = resolveStaticOrSpecialValue(condition.value, context)
   }
 
-  return applyOperator(leftValue, condition.operator, rightValue)
+  const result = applyOperator(leftValue, condition.operator, rightValue)
+
+  // Detailed logging for debugging
+  console.log('[RULE EVAL] Simple condition:', {
+    field: condition.field,
+    operator: condition.operator,
+    expectedValue: rightValue,
+    actualValue: leftValue,
+    actualValueType: typeof leftValue,
+    result: result ? '✓ PASS' : '✗ FAIL',
+  })
+
+  return result
 }
 
 /**
@@ -97,24 +109,36 @@ function evaluateGroupCondition(
     return true
   }
 
+  console.log(`[RULE EVAL] Group condition: ${operator} with ${rules.length} rules`)
+
+  let result: boolean
+
   switch (operator) {
     case 'AND':
-      return rules.every((rule) => evaluateExpression(rule, data, context))
+      result = rules.every((rule) => evaluateExpression(rule, data, context))
+      break
 
     case 'OR':
-      return rules.some((rule) => evaluateExpression(rule, data, context))
+      result = rules.some((rule) => evaluateExpression(rule, data, context))
+      break
 
     case 'NOT':
       // NOT operator - negate the first rule (or all rules combined with AND)
       if (rules.length === 1) {
-        return !evaluateExpression(rules[0], data, context)
+        result = !evaluateExpression(rules[0], data, context)
+      } else {
+        // Multiple rules - combine with AND then negate
+        result = !rules.every((rule) => evaluateExpression(rule, data, context))
       }
-      // Multiple rules - combine with AND then negate
-      return !rules.every((rule) => evaluateExpression(rule, data, context))
+      break
 
     default:
       throw new Error(`Unknown logical operator: ${operator}`)
   }
+
+  console.log(`[RULE EVAL] Group ${operator} result: ${result ? '✓ PASS' : '✗ FAIL'}`)
+
+  return result
 }
 
 /**

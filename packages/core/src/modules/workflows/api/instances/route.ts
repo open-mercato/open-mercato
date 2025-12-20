@@ -190,14 +190,28 @@ export async function POST(request: NextRequest) {
       organizationId,
     })
 
-    // Execute workflow (first step)
-    const result = await workflowExecutor.executeWorkflow(em, container, instance.id)
+    // Execute workflow in background (non-blocking for demo visibility)
+    // This allows the frontend to see step-by-step progress via polling
+    setImmediate(async () => {
+      try {
+        // Create new container and EM for background execution
+        const bgContainer = await createRequestContainer()
+        const bgEm = bgContainer.resolve('em')
+        await workflowExecutor.executeWorkflow(bgEm, bgContainer, instance.id)
+      } catch (error) {
+        console.error('Background workflow execution error:', error)
+      }
+    })
 
     return NextResponse.json(
       {
         data: {
           instance,
-          execution: result,
+          execution: {
+            status: instance.status,
+            currentStep: instance.currentStepId,
+            message: 'Workflow execution started in background',
+          },
         },
         message: 'Workflow started successfully',
       },
