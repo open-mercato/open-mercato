@@ -95,9 +95,10 @@ export const createWebhookSchema = webhookBaseSchema.superRefine((data, ctx) => 
 
 export type CreateWebhookInput = z.infer<typeof createWebhookSchema>
 
-// Update webhook schema - all fields optional except id
+// Update webhook schema - id required, other fields optional
 export const updateWebhookSchema = z
   .object({
+    id: z.string().uuid(),
     name: z.string().min(1).max(255).optional(),
     description: z.string().max(2000).optional().nullable(),
     deliveryType: webhookDeliveryTypeSchema.optional(),
@@ -138,6 +139,7 @@ export type UpdateWebhookInput = z.infer<typeof updateWebhookSchema>
 export const webhookFilterSchema = z.object({
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
+  id: z.string().uuid().optional(),
   search: z.string().optional(),
   deliveryType: webhookDeliveryTypeSchema.optional(),
   active: z
@@ -148,7 +150,7 @@ export const webhookFilterSchema = z.object({
       if (val === 'false') return false
       return undefined
     }),
-  event: z.string().optional(),
+  // Note: event filter removed - QueryEngine doesn't support $contains for array fields
   sortField: z.string().optional(),
   sortDir: z.enum(['asc', 'desc']).optional().default('desc'),
 })
