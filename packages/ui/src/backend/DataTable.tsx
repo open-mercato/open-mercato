@@ -390,16 +390,16 @@ function shouldSkipTruncation(columnId: string): boolean {
 
 function ExportMenu({ config, sections }: { config: DataTableExportConfig; sections: ResolvedExportSection[] }) {
   const t = useT()
-  if (!sections.length) return null
   const { label } = config
   const defaultLabel = label ?? t('ui.dataTable.export.label', 'Export')
   const disabled = Boolean(config.disabled)
+  const hasSections = sections.length > 0
   const [open, setOpen] = React.useState(false)
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const menuRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
-    if (!open) return
+    if (!open || !hasSections) return
     const onDocClick = (event: MouseEvent) => {
       const target = event.target as Node
       if (menuRef.current && !menuRef.current.contains(target) && buttonRef.current && !buttonRef.current.contains(target)) {
@@ -418,7 +418,9 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
       document.removeEventListener('mousedown', onDocClick)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [open])
+  }, [hasSections, open])
+
+  if (!hasSections) return null
 
   const handleSelect = async (section: ResolvedExportSection, format: DataTableExportFormat) => {
     try {

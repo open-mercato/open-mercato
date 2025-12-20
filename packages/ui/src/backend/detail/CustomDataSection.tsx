@@ -228,7 +228,8 @@ export function CustomDataSection({
   definitionHref: explicitDefinitionHref,
 }: CustomDataSectionProps) {
   const queryClient = useQueryClient()
-  const scopeVersion = scopeVersionProp ?? useOrganizationScopeVersion()
+  const defaultScopeVersion = useOrganizationScopeVersion()
+  const scopeVersion = scopeVersionProp ?? defaultScopeVersion
   const resolvedScopeVersion = React.useMemo(
     () => (typeof scopeVersion === 'number' ? scopeVersion : Number(scopeVersion) || 0),
     [scopeVersion],

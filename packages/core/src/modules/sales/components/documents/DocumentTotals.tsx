@@ -19,7 +19,6 @@ type DocumentTotalsProps = {
 }
 
 export function DocumentTotals({ title, currency, items, className }: DocumentTotalsProps) {
-  if (!items.length) return null
   const emphasizedRows = items.filter((item) => item.emphasize)
   const heading = title ?? null
   const [expanded, setExpanded] = React.useState(false)
@@ -48,6 +47,8 @@ export function DocumentTotals({ title, currency, items, className }: DocumentTo
   const visibleItems = expanded ? items : collapsedItems
   const uniqueItemCount = React.useMemo(() => new Set(items.map((item) => item.key)).size, [items])
   const hiddenCount = Math.max(0, uniqueItemCount - visibleItems.length)
+
+  if (!items.length) return null
 
   return (
     <div className={cn('space-y-3', className)}>
