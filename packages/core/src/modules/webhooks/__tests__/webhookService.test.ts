@@ -194,6 +194,7 @@ describe('webhooks - validators', () => {
   describe('updateWebhookSchema', () => {
     it('should allow partial updates', () => {
       const update = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
         name: 'Updated Name',
       }
       const result = updateWebhookSchema.safeParse(update)
@@ -202,6 +203,7 @@ describe('webhooks - validators', () => {
 
     it('should validate config if both deliveryType and config are provided', () => {
       const update = {
+        id: '550e8400-e29b-41d4-a716-446655440000',
         deliveryType: 'http' as const,
         config: {
           url: 'https://example.com/webhook',
@@ -209,6 +211,14 @@ describe('webhooks - validators', () => {
       }
       const result = updateWebhookSchema.safeParse(update)
       expect(result.success).toBe(true)
+    })
+
+    it('should require id field', () => {
+      const update = {
+        name: 'Updated Name',
+      }
+      const result = updateWebhookSchema.safeParse(update)
+      expect(result.success).toBe(false)
     })
   })
 

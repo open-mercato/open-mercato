@@ -381,6 +381,7 @@ async function ensureDefaultRoleAcls(
       'dashboards.*',
       'dashboards.admin.assign-widgets',
       'api_keys.*',
+      'webhooks.*',
       'perspectives.use',
       'perspectives.role_defaults',
       'business_rules.*',
