@@ -11,3 +11,28 @@ export const metadata: ModuleInfo = {
 }
 
 export { features } from './acl'
+
+// Export entities
+export { Webhook, WebhookDelivery } from './data/entities'
+export type {
+  WebhookDeliveryType,
+  WebhookDeliveryStatus,
+  RetryBackoff,
+  WebhookRetryConfig,
+  HttpWebhookConfig,
+  SqsWebhookConfig,
+  SnsWebhookConfig,
+  WebhookConfig,
+} from './data/entities'
+
+// Export types
+export type {
+  WebhookEventType,
+  WebhookTriggerPayload,
+  WebhookDeliveryPayload,
+  WebhookQueueJob,
+} from './data/types'
+
+// Export services
+export { getWebhookQueue } from './services/webhookQueue'
+export { generateDeliveryId } from './subscribers/webhook-trigger'

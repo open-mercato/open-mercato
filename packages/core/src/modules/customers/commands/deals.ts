@@ -35,6 +35,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { WebhookTriggerPayload } from '@/modules/webhooks/data/types'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -226,6 +227,30 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       },
       indexer: dealCrudIndexer,
     })
+
+    // Trigger webhooks for deal.created event
+    try {
+      const eventBus = ctx.container.resolve('eventBus') as { emitEvent: (event: string, payload: unknown) => Promise<void> }
+      await eventBus.emitEvent('webhooks.trigger', {
+        event: 'deal.created',
+        tenantId: deal.tenantId,
+        data: {
+          id: deal.id,
+          status: deal.status,
+          pipelineStage: deal.pipelineStage,
+          valueAmount: deal.valueAmount,
+          valueCurrency: deal.valueCurrency,
+          probability: deal.probability,
+          expectedCloseAt: deal.expectedCloseAt,
+          ownerUserId: deal.ownerUserId,
+          source: deal.source,
+          createdAt: deal.createdAt,
+          updatedAt: deal.updatedAt,
+        },
+      } satisfies WebhookTriggerPayload)
+    } catch {
+      // Webhook trigger failure should not block deal creation
+    }
 
     return { dealId: deal.id }
   },
