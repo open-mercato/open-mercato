@@ -227,30 +227,6 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       indexer: dealCrudIndexer,
     })
 
-    // Trigger webhooks for deal.created event
-    try {
-      const eventBus = ctx.container.resolve('eventBus') as { emitEvent: (event: string, payload: unknown) => Promise<void> }
-      await eventBus.emitEvent('webhooks.trigger', {
-        event: 'deal.created',
-        tenantId: deal.tenantId,
-        data: {
-          id: deal.id,
-          status: deal.status,
-          pipelineStage: deal.pipelineStage,
-          valueAmount: deal.valueAmount,
-          valueCurrency: deal.valueCurrency,
-          probability: deal.probability,
-          expectedCloseAt: deal.expectedCloseAt,
-          ownerUserId: deal.ownerUserId,
-          source: deal.source,
-          createdAt: deal.createdAt,
-          updatedAt: deal.updatedAt,
-        },
-      })
-    } catch {
-      // Webhook trigger failure should not block deal creation
-    }
-
     return { dealId: deal.id }
   },
   captureAfter: async (_input, result, ctx) => {

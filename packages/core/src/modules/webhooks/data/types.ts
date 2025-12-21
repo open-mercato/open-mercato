@@ -1,10 +1,10 @@
 import type { WebhookConfig, WebhookRetryConfig, WebhookDeliveryType } from './entities'
 
-// Typed union of all available webhook events
+// Typed union of all available webhook events (domain event format: module.entity.action)
 export type WebhookEventType =
-  | 'deal.created'
-  | 'deal.updated'
-  | 'deal.deleted'
+  | 'catalog.product.created'
+  | 'catalog.product.updated'
+  | 'catalog.product.deleted'
 // Add more events as needed
 
 // Payload for 'webhooks.trigger' event bus event

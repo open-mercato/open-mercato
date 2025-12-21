@@ -1,12 +1,12 @@
 "use client"
 import * as React from 'react'
 
-// Available webhook events grouped by entity
+// Available webhook events grouped by entity (domain event format: module.entity.action)
 const WEBHOOK_EVENTS = {
-  deal: [
-    { id: 'deal.created', label: 'Deal Created', description: 'When a new deal is created' },
-    { id: 'deal.updated', label: 'Deal Updated', description: 'When a deal is modified' },
-    { id: 'deal.deleted', label: 'Deal Deleted', description: 'When a deal is removed' },
+  product: [
+    { id: 'catalog.product.created', label: 'Product Created', description: 'When a new product is created' },
+    { id: 'catalog.product.updated', label: 'Product Updated', description: 'When a product is modified' },
+    { id: 'catalog.product.deleted', label: 'Product Deleted', description: 'When a product is removed' },
   ],
 } as const
 

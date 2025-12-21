@@ -1,4 +1,4 @@
-import { generateDeliveryId } from '../subscribers/webhook-trigger'
+import { generateDeliveryId } from '../services/triggerWebhooks'
 import type { WebhookTriggerPayload, WebhookQueueJob, WebhookDeliveryPayload } from '../data/types'
 
 describe('webhooks - trigger', () => {
@@ -30,20 +30,20 @@ describe('webhooks - trigger', () => {
   describe('WebhookTriggerPayload', () => {
     it('should accept valid payload', () => {
       const payload: WebhookTriggerPayload = {
-        event: 'deal.created',
+        event: 'catalog.product.created',
         tenantId: 'tenant-123',
         data: {
-          id: 'deal-123',
-          status: 'open',
+          id: 'product-123',
+          title: 'Test Product',
         },
       }
-      expect(payload.event).toBe('deal.created')
+      expect(payload.event).toBe('catalog.product.created')
       expect(payload.tenantId).toBe('tenant-123')
       expect(payload.data).toBeDefined()
     })
 
     it('should accept all valid event types', () => {
-      const events: Array<WebhookTriggerPayload['event']> = ['deal.created', 'deal.updated', 'deal.deleted']
+      const events: Array<WebhookTriggerPayload['event']> = ['catalog.product.created', 'catalog.product.updated', 'catalog.product.deleted']
       events.forEach(event => {
         const payload: WebhookTriggerPayload = {
           event,
@@ -58,30 +58,30 @@ describe('webhooks - trigger', () => {
   describe('WebhookDeliveryPayload', () => {
     it('should have correct structure', () => {
       const payload: WebhookDeliveryPayload = {
-        type: 'deal.created',
+        type: 'catalog.product.created',
         timestamp: new Date().toISOString(),
         id: 'msg_abc123',
         tenantId: 'tenant-123',
-        data: { object: { id: 'deal-123' } },
+        data: { object: { id: 'product-123' } },
       }
-      expect(payload.type).toBe('deal.created')
+      expect(payload.type).toBe('catalog.product.created')
       expect(payload.id).toMatch(/^msg_/)
       expect(payload.data.object).toBeDefined()
     })
 
     it('should support previous object for update events', () => {
-      const payload: WebhookDeliveryPayload<{ id: string; status: string }> = {
-        type: 'deal.updated',
+      const payload: WebhookDeliveryPayload<{ id: string; title: string }> = {
+        type: 'catalog.product.updated',
         timestamp: new Date().toISOString(),
         id: 'msg_abc123',
         tenantId: 'tenant-123',
         data: {
-          object: { id: 'deal-123', status: 'won' },
-          previous: { id: 'deal-123', status: 'open' },
+          object: { id: 'product-123', title: 'Updated Product' },
+          previous: { id: 'product-123', title: 'Original Product' },
         },
       }
       expect(payload.data.previous).toBeDefined()
-      expect(payload.data.previous?.status).toBe('open')
+      expect(payload.data.previous?.title).toBe('Original Product')
     })
   })
 
@@ -90,15 +90,15 @@ describe('webhooks - trigger', () => {
       const job: WebhookQueueJob = {
         webhookId: 'webhook-123',
         deliveryId: 'msg_abc123',
-        event: 'deal.created',
+        event: 'catalog.product.created',
         tenantId: 'tenant-123',
         timestamp: Math.floor(Date.now() / 1000),
         payload: {
-          type: 'deal.created',
+          type: 'catalog.product.created',
           timestamp: new Date().toISOString(),
           id: 'msg_abc123',
           tenantId: 'tenant-123',
-          data: { object: { id: 'deal-123' } },
+          data: { object: { id: 'product-123' } },
         },
         webhook: {
           deliveryType: 'http',
@@ -119,15 +119,15 @@ describe('webhooks - trigger', () => {
       const job: WebhookQueueJob = {
         webhookId: 'webhook-123',
         deliveryId: 'msg_abc123',
-        event: 'deal.created',
+        event: 'catalog.product.created',
         tenantId: 'tenant-123',
         timestamp: Math.floor(Date.now() / 1000),
         payload: {
-          type: 'deal.created',
+          type: 'catalog.product.created',
           timestamp: new Date().toISOString(),
           id: 'msg_abc123',
           tenantId: 'tenant-123',
-          data: { object: { id: 'deal-123' } },
+          data: { object: { id: 'product-123' } },
         },
         webhook: {
           deliveryType: 'sqs',
@@ -145,15 +145,15 @@ describe('webhooks - trigger', () => {
       const job: WebhookQueueJob = {
         webhookId: 'webhook-123',
         deliveryId: 'msg_abc123',
-        event: 'deal.created',
+        event: 'catalog.product.created',
         tenantId: 'tenant-123',
         timestamp: Math.floor(Date.now() / 1000),
         payload: {
-          type: 'deal.created',
+          type: 'catalog.product.created',
           timestamp: new Date().toISOString(),
           id: 'msg_abc123',
           tenantId: 'tenant-123',
-          data: { object: { id: 'deal-123' } },
+          data: { object: { id: 'product-123' } },
         },
         webhook: {
           deliveryType: 'sns',

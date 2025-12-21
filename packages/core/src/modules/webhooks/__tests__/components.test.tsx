@@ -29,31 +29,31 @@ describe('EventsMultiSelect', () => {
   it('renders all available event groups', () => {
     render(<EventsMultiSelect value={[]} onChange={() => {}} />)
 
-    expect(screen.getByText('Deal Events')).toBeInTheDocument()
+    expect(screen.getByText('Product Events')).toBeInTheDocument()
   })
 
   it('shows all events within a group', () => {
     render(<EventsMultiSelect value={[]} onChange={() => {}} />)
 
-    expect(screen.getByText('Deal Created')).toBeInTheDocument()
-    expect(screen.getByText('Deal Updated')).toBeInTheDocument()
-    expect(screen.getByText('Deal Deleted')).toBeInTheDocument()
+    expect(screen.getByText('Product Created')).toBeInTheDocument()
+    expect(screen.getByText('Product Updated')).toBeInTheDocument()
+    expect(screen.getByText('Product Deleted')).toBeInTheDocument()
   })
 
   it('calls onChange when an event is toggled', () => {
     const handleChange = jest.fn()
     render(<EventsMultiSelect value={[]} onChange={handleChange} />)
 
-    fireEvent.click(screen.getByText('Deal Created'))
+    fireEvent.click(screen.getByText('Product Created'))
 
-    expect(handleChange).toHaveBeenCalledWith(['deal.created'])
+    expect(handleChange).toHaveBeenCalledWith(['catalog.product.created'])
   })
 
   it('removes event from selection when clicking selected event', () => {
     const handleChange = jest.fn()
-    render(<EventsMultiSelect value={['deal.created']} onChange={handleChange} />)
+    render(<EventsMultiSelect value={['catalog.product.created']} onChange={handleChange} />)
 
-    fireEvent.click(screen.getByText('Deal Created'))
+    fireEvent.click(screen.getByText('Product Created'))
 
     expect(handleChange).toHaveBeenCalledWith([])
   })
@@ -62,12 +62,12 @@ describe('EventsMultiSelect', () => {
     const handleChange = jest.fn()
     render(<EventsMultiSelect value={[]} onChange={handleChange} />)
 
-    // Click the "All" checkbox for the Deal group
+    // Click the "All" checkbox for the Product group
     const allCheckbox = screen.getByLabelText('All')
     fireEvent.click(allCheckbox)
 
     expect(handleChange).toHaveBeenCalledWith(
-      expect.arrayContaining(['deal.created', 'deal.updated', 'deal.deleted'])
+      expect.arrayContaining(['catalog.product.created', 'catalog.product.updated', 'catalog.product.deleted'])
     )
   })
 
@@ -75,7 +75,7 @@ describe('EventsMultiSelect', () => {
     const handleChange = jest.fn()
     render(
       <EventsMultiSelect
-        value={['deal.created', 'deal.updated', 'deal.deleted']}
+        value={['catalog.product.created', 'catalog.product.updated', 'catalog.product.deleted']}
         onChange={handleChange}
       />
     )
@@ -90,7 +90,7 @@ describe('EventsMultiSelect', () => {
   it('shows All checkbox as checked when all events in group are selected', () => {
     render(
       <EventsMultiSelect
-        value={['deal.created', 'deal.updated', 'deal.deleted']}
+        value={['catalog.product.created', 'catalog.product.updated', 'catalog.product.deleted']}
         onChange={() => {}}
       />
     )
@@ -100,16 +100,16 @@ describe('EventsMultiSelect', () => {
   })
 
   it('exports all available events', () => {
-    expect(ALL_WEBHOOK_EVENTS).toContain('deal.created')
-    expect(ALL_WEBHOOK_EVENTS).toContain('deal.updated')
-    expect(ALL_WEBHOOK_EVENTS).toContain('deal.deleted')
+    expect(ALL_WEBHOOK_EVENTS).toContain('catalog.product.created')
+    expect(ALL_WEBHOOK_EVENTS).toContain('catalog.product.updated')
+    expect(ALL_WEBHOOK_EVENTS).toContain('catalog.product.deleted')
   })
 
   it('disables interactions when disabled prop is true', () => {
     const handleChange = jest.fn()
     render(<EventsMultiSelect value={[]} onChange={handleChange} disabled />)
 
-    fireEvent.click(screen.getByText('Deal Created'))
+    fireEvent.click(screen.getByText('Product Created'))
 
     expect(handleChange).not.toHaveBeenCalled()
   })

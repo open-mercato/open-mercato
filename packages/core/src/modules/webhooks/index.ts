@@ -35,4 +35,7 @@ export type {
 
 // Export services
 export { getWebhookQueue } from './services/webhookQueue'
-export { generateDeliveryId } from './subscribers/webhook-trigger'
+export { generateDeliveryId, triggerWebhooksForEvent } from './services/triggerWebhooks'
+
+// Export DI registration
+export { register } from './di'

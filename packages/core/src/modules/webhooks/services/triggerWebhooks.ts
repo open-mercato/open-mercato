@@ -1,24 +1,20 @@
 import crypto from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Webhook } from '../data/entities'
-import type { WebhookTriggerPayload, WebhookDeliveryPayload, WebhookQueueJob } from '../data/types'
-import { getWebhookQueue } from '../services/webhookQueue'
-
-export const metadata = {
-  event: 'webhooks.trigger',
-  persistent: false,
-}
+import type { WebhookEventType, WebhookDeliveryPayload, WebhookQueueJob } from '../data/types'
+import { getWebhookQueue } from './webhookQueue'
 
 export function generateDeliveryId(): string {
   const bytes = crypto.randomBytes(16)
   return `msg_${bytes.toString('base64url')}`
 }
 
-export default async function onWebhookTrigger(
-  payload: WebhookTriggerPayload,
+export async function triggerWebhooksForEvent(
+  event: WebhookEventType,
+  tenantId: string,
+  data: unknown,
   ctx: { resolve: <T = unknown>(name: string) => T }
-) {
-  const { event, tenantId, data } = payload
+): Promise<void> {
   if (!tenantId) return
 
   const em = (ctx.resolve('em') as EntityManager).fork()
