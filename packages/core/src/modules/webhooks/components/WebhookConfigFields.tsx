@@ -63,7 +63,7 @@ export function WebhookConfigFields({
   disabled,
   errors = {},
 }: WebhookConfigFieldsProps) {
-  const updateConfig = <K extends keyof WebhookConfig>(key: K, value: WebhookConfig[K]) => {
+  const updateConfig = (key: string, value: unknown) => {
     onChange({ ...config, [key]: value })
   }
 
@@ -79,7 +79,7 @@ export function WebhookConfigFields({
             type="url"
             placeholder="https://api.example.com/webhooks"
             value={httpConfig.url || ''}
-            onChange={(e) => updateConfig('url' as keyof WebhookConfig, e.target.value as any)}
+            onChange={(e) => updateConfig('url', e.target.value)}
             disabled={disabled}
             className={errors.url ? 'border-destructive' : ''}
           />
@@ -96,7 +96,7 @@ export function WebhookConfigFields({
               <button
                 key={method}
                 type="button"
-                onClick={() => updateConfig('method' as keyof WebhookConfig, method as any)}
+                onClick={() => updateConfig('method', method)}
                 disabled={disabled}
                 className={`
                   px-4 py-2 rounded-md text-sm font-medium transition-all
@@ -117,7 +117,7 @@ export function WebhookConfigFields({
           <label className="block text-sm font-medium mb-1.5">Custom Headers</label>
           <HeadersEditor
             value={httpConfig.headers || {}}
-            onChange={(headers) => updateConfig('headers' as keyof WebhookConfig, headers as any)}
+            onChange={(headers) => updateConfig('headers', headers)}
             disabled={disabled}
           />
           <p className="text-xs text-muted-foreground mt-1">
@@ -152,7 +152,7 @@ export function WebhookConfigFields({
             type="url"
             placeholder="https://sqs.us-east-1.amazonaws.com/123456789012/my-queue"
             value={sqsConfig.queueUrl || ''}
-            onChange={(e) => updateConfig('queueUrl' as keyof WebhookConfig, e.target.value as any)}
+            onChange={(e) => updateConfig('queueUrl', e.target.value)}
             disabled={disabled}
             className={errors.queueUrl ? 'border-destructive' : ''}
           />
@@ -165,7 +165,7 @@ export function WebhookConfigFields({
           </label>
           <select
             value={sqsConfig.region || ''}
-            onChange={(e) => updateConfig('region' as keyof WebhookConfig, e.target.value as any)}
+            onChange={(e) => updateConfig('region', e.target.value)}
             disabled={disabled}
             className={`
               w-full h-9 rounded-md border bg-background px-3 text-sm
@@ -191,7 +191,7 @@ export function WebhookConfigFields({
               type="text"
               placeholder="AKIA..."
               value={sqsConfig.accessKeyId || ''}
-              onChange={(e) => updateConfig('accessKeyId' as keyof WebhookConfig, e.target.value as any)}
+              onChange={(e) => updateConfig('accessKeyId', e.target.value)}
               disabled={disabled}
               autoComplete="off"
             />
@@ -202,7 +202,7 @@ export function WebhookConfigFields({
               type="password"
               placeholder="••••••••"
               value={sqsConfig.secretAccessKey || ''}
-              onChange={(e) => updateConfig('secretAccessKey' as keyof WebhookConfig, e.target.value as any)}
+              onChange={(e) => updateConfig('secretAccessKey', e.target.value)}
               disabled={disabled}
               autoComplete="off"
             />
@@ -218,7 +218,7 @@ export function WebhookConfigFields({
             type="text"
             placeholder="webhooks"
             value={sqsConfig.messageGroupId || ''}
-            onChange={(e) => updateConfig('messageGroupId' as keyof WebhookConfig, e.target.value as any)}
+            onChange={(e) => updateConfig('messageGroupId', e.target.value)}
             disabled={disabled}
           />
           <p className="text-xs text-muted-foreground mt-1">
@@ -253,7 +253,7 @@ export function WebhookConfigFields({
             type="text"
             placeholder="arn:aws:sns:us-east-1:123456789012:my-topic"
             value={snsConfig.topicArn || ''}
-            onChange={(e) => updateConfig('topicArn' as keyof WebhookConfig, e.target.value as any)}
+            onChange={(e) => updateConfig('topicArn', e.target.value)}
             disabled={disabled}
             className={errors.topicArn ? 'border-destructive' : ''}
           />
@@ -266,7 +266,7 @@ export function WebhookConfigFields({
           </label>
           <select
             value={snsConfig.region || ''}
-            onChange={(e) => updateConfig('region' as keyof WebhookConfig, e.target.value as any)}
+            onChange={(e) => updateConfig('region', e.target.value)}
             disabled={disabled}
             className={`
               w-full h-9 rounded-md border bg-background px-3 text-sm
@@ -292,7 +292,7 @@ export function WebhookConfigFields({
               type="text"
               placeholder="AKIA..."
               value={snsConfig.accessKeyId || ''}
-              onChange={(e) => updateConfig('accessKeyId' as keyof WebhookConfig, e.target.value as any)}
+              onChange={(e) => updateConfig('accessKeyId', e.target.value)}
               disabled={disabled}
               autoComplete="off"
             />
@@ -303,7 +303,7 @@ export function WebhookConfigFields({
               type="password"
               placeholder="••••••••"
               value={snsConfig.secretAccessKey || ''}
-              onChange={(e) => updateConfig('secretAccessKey' as keyof WebhookConfig, e.target.value as any)}
+              onChange={(e) => updateConfig('secretAccessKey', e.target.value)}
               disabled={disabled}
               autoComplete="off"
             />

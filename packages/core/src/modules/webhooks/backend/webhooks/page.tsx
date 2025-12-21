@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -112,8 +113,7 @@ export default function WebhooksListPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
-  const [deliveryTypeFilter, setDeliveryTypeFilter] = React.useState<string>('')
-  const [activeFilter, setActiveFilter] = React.useState<string>('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
@@ -128,8 +128,10 @@ export default function WebhooksListPage() {
         params.set('page', String(page))
         params.set('pageSize', '20')
         if (search) params.set('search', search)
-        if (deliveryTypeFilter) params.set('deliveryType', deliveryTypeFilter)
-        if (activeFilter) params.set('active', activeFilter)
+        const deliveryType = filterValues.deliveryType as string | undefined
+        const active = filterValues.active as string | undefined
+        if (deliveryType) params.set('deliveryType', deliveryType)
+        if (active) params.set('active', active)
 
         const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
         const call = await apiCall<ResponsePayload>(
@@ -160,7 +162,7 @@ export default function WebhooksListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search, deliveryTypeFilter, activeFilter, reloadToken, scopeVersion, t])
+  }, [page, search, filterValues, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: WebhookRow) => {
     if (!window.confirm(t('webhooks.list.confirmDelete').replace('{name}', row.name))) return
@@ -221,14 +223,12 @@ export default function WebhooksListPage() {
     },
   ], [t])
 
-  const filters = React.useMemo(() => [
+  const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'deliveryType',
       label: t('webhooks.list.filters.deliveryType'),
-      value: deliveryTypeFilter,
-      onChange: (value: string) => { setDeliveryTypeFilter(value); setPage(1) },
+      type: 'select',
       options: [
-        { value: '', label: t('webhooks.list.filters.allTypes') },
         { value: 'http', label: 'HTTP' },
         { value: 'sqs', label: 'AWS SQS' },
         { value: 'sns', label: 'AWS SNS' },
@@ -237,15 +237,23 @@ export default function WebhooksListPage() {
     {
       id: 'active',
       label: t('webhooks.list.filters.status'),
-      value: activeFilter,
-      onChange: (value: string) => { setActiveFilter(value); setPage(1) },
+      type: 'select',
       options: [
-        { value: '', label: t('webhooks.list.filters.allStatuses') },
         { value: 'true', label: t('webhooks.list.filters.active') },
         { value: 'false', label: t('webhooks.list.filters.inactive') },
       ],
     },
-  ], [deliveryTypeFilter, activeFilter, t])
+  ], [t])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+  }, [])
 
   return (
     <Page>
@@ -277,6 +285,9 @@ export default function WebhooksListPage() {
           searchPlaceholder={t('webhooks.list.searchPlaceholder')}
           perspective={{ tableId: 'webhooks.list' }}
           filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           rowActions={(row) => (
             <RowActions items={[
               {
@@ -292,15 +303,17 @@ export default function WebhooksListPage() {
           )}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
-          emptyState={{
-            title: t('webhooks.list.empty.title'),
-            description: t('webhooks.list.empty.description'),
-            action: (
-              <Button asChild variant="outline">
-                <Link href="/backend/webhooks/create">{t('webhooks.list.empty.action')}</Link>
-              </Button>
-            ),
-          }}
+          emptyState={
+            <div className="py-10 text-center">
+              <h3 className="text-lg font-medium">{t('webhooks.list.empty.title')}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{t('webhooks.list.empty.description')}</p>
+              <div className="mt-4">
+                <Button asChild variant="outline">
+                  <Link href="/backend/webhooks/create">{t('webhooks.list.empty.action')}</Link>
+                </Button>
+              </div>
+            </div>
+          }
         />
       </PageBody>
     </Page>

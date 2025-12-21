@@ -35,7 +35,6 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import type { WebhookTriggerPayload } from '@/modules/webhooks/data/types'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -247,7 +246,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           createdAt: deal.createdAt,
           updatedAt: deal.updatedAt,
         },
-      } satisfies WebhookTriggerPayload)
+      })
     } catch {
       // Webhook trigger failure should not block deal creation
     }

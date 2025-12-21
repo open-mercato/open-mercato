@@ -115,13 +115,14 @@ export default function EditWebhookPage({ params }: { params?: { id?: string } }
   // Load webhook data
   React.useEffect(() => {
     if (!id) return
+    const webhookId = id // Capture for TypeScript narrowing
     let cancelled = false
 
     async function load() {
       setIsLoading(true)
       try {
         const { ok, result } = await apiCall<{ items?: WebhookData[] }>(
-          `/api/webhooks?id=${encodeURIComponent(id)}`,
+          `/api/webhooks?id=${encodeURIComponent(webhookId)}`,
         )
 
         if (!ok || cancelled) {

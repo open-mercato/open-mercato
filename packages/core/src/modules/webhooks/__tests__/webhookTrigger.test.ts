@@ -70,7 +70,7 @@ describe('webhooks - trigger', () => {
     })
 
     it('should support previous object for update events', () => {
-      const payload: WebhookDeliveryPayload = {
+      const payload: WebhookDeliveryPayload<{ id: string; status: string }> = {
         type: 'deal.updated',
         timestamp: new Date().toISOString(),
         id: 'msg_abc123',
