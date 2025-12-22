@@ -1,4 +1,4 @@
-import type { Module, ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
+import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type {
   InjectionWidgetMetadata,
   InjectionWidgetModule,
@@ -48,15 +48,9 @@ export function invalidateInjectionWidgetCache() {
 
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = import('@/generated/modules.generated').then((registry) => {
-      const list = (registry.modules ?? []) as Module[]
-      return list.flatMap((mod) => {
-        const entries = mod.injectionWidgets ?? []
-        return entries.map((entry) => ({
-          ...entry,
-          moduleId: mod.id,
-        }))
-      })
+    widgetEntriesPromise = import('@/generated/injection-widgets.generated').then((registry) => {
+      const list = (registry.injectionWidgetEntries ?? []) as ModuleInjectionWidgetEntry[]
+      return list.map((entry) => ({ ...entry }))
     })
   }
   return widgetEntriesPromise
@@ -64,25 +58,25 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
 
 async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>> {
   if (!injectionTablePromise) {
-    injectionTablePromise = import('@/generated/modules.generated').then((registry) => {
-      const list = (registry.modules ?? []) as Module[]
+    injectionTablePromise = import('@/generated/injection-tables.generated').then((registry) => {
+      const list = (registry.injectionTables ?? []) as Array<{ moduleId: string; table: ModuleInjectionTable }>
       const table = new Map<InjectionSpotId, TableEntry[]>()
-      
-      for (const mod of list) {
-        const injectionTable = (mod.injectionTable ?? {}) as ModuleInjectionTable
+
+      for (const entry of list) {
+        const injectionTable = entry.table ?? {}
         for (const [spotId, widgetIds] of Object.entries(injectionTable)) {
           const widgets = Array.isArray(widgetIds) ? widgetIds : [widgetIds]
           const existing = table.get(spotId) ?? []
-          for (const entry of widgets) {
-            if (typeof entry === 'string') {
-              existing.push({ widgetId: entry, moduleId: mod.id, priority: 0 })
+          for (const widgetEntry of widgets) {
+            if (typeof widgetEntry === 'string') {
+              existing.push({ widgetId: widgetEntry, moduleId: entry.moduleId, priority: 0 })
               continue
             }
-            if (entry && typeof entry === 'object' && 'widgetId' in entry) {
-              const { widgetId, priority = 0, ...placement } = entry as ModuleInjectionSlot & { widgetId: string; priority?: number }
+            if (widgetEntry && typeof widgetEntry === 'object' && 'widgetId' in widgetEntry) {
+              const { widgetId, priority = 0, ...placement } = widgetEntry as ModuleInjectionSlot & { widgetId: string; priority?: number }
               existing.push({
                 widgetId,
-                moduleId: mod.id,
+                moduleId: entry.moduleId,
                 priority: typeof priority === 'number' ? priority : 0,
                 placement,
               })
@@ -92,12 +86,11 @@ async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>>
           table.set(spotId, existing)
         }
       }
-      
-      // Sort by priority (higher priority first)
+
       for (const [spotId, widgets] of table.entries()) {
         table.set(spotId, widgets.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)))
       }
-      
+
       return table
     })
   }
