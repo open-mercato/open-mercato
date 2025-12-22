@@ -62,7 +62,9 @@ function parseJsonColumn<T>(value: unknown): T | null {
     try {
       return JSON.parse(value) as T
     } catch {
-      return null
+      // When `jsonb` stores a JSON string, node-postgres parses it into a plain JS string.
+      // In that case, there is nothing to JSON.parse — return the raw string value.
+      return value as unknown as T
     }
   }
   if (typeof value === 'object') {
@@ -289,6 +291,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     const res = await pool.query<{
       entity_id: string
       record_id: string
+      organization_id: string | null
       checksum: string
       url: string | null
       presenter: string | null
@@ -307,6 +310,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         SELECT
           entity_id,
           record_id,
+          organization_id,
           checksum,
           url,
           presenter,
@@ -341,6 +345,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       return {
         entityId: row.entity_id,
         recordId: row.record_id,
+        organizationId: row.organization_id ?? null,
         checksum: row.checksum,
         url: row.url ?? null,
         presenter: parseJsonColumn<VectorResultPresenter>(row.presenter),

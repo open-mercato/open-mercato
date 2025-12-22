@@ -7,7 +7,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -1126,97 +1126,133 @@ export function ShipmentDialog({
       'sales.documents.shipments.addShippingAdjustmentHelp',
       'Create a shipping adjustment using this carrier’s calculated cost.',
     )
+    function ShipmentItemsField({ value, setValue }: CrudCustomFieldRenderProps) {
+      const quantities = (value as Record<string, string | number> | null) ?? {}
+      const [lineErrors, setLineErrors] = React.useState<Record<string, string | undefined>>({})
+
+      React.useEffect(() => {
+        registerItemErrors(setLineErrors)
+        return () => {
+          if (itemErrorSetterRef.current === setLineErrors) {
+            itemErrorSetterRef.current = null
+          }
+        }
+      }, [])
+
+      if (lines.length === 0) {
+        return (
+          <p className="text-sm text-muted-foreground">
+            {t('sales.documents.shipments.noLines', 'No order lines available.')}
+          </p>
+        )
+      }
+
+      return (
+        <div className="space-y-2 rounded-lg border p-3">
+          {lines.map((line) => {
+            const available = computeAvailable(line.id, shipment?.id ?? null)
+            const rawValue = quantities[line.id]
+            const valueString =
+              typeof rawValue === 'number'
+                ? rawValue.toString()
+                : typeof rawValue === 'string'
+                  ? rawValue
+                  : ''
+            const disabled = available <= 0 && !valueString
+            const lineError = lineErrors[line.id]
+            return (
+              <div
+                key={line.id}
+                className={cn(
+                  'grid gap-3 md:grid-cols-[1fr,140px]',
+                  disabled ? 'opacity-60' : null,
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  {line.thumbnail ? (
+                    <img
+                      src={line.thumbnail}
+                      alt={line.title}
+                      className="h-12 w-12 rounded-md border object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-muted text-[10px] text-muted-foreground">
+                      N/A
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">
+                      {line.lineNumber ? `#${line.lineNumber} · ` : null}
+                      {line.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t('sales.documents.shipments.available', '{{count}} available', {
+                        count: available,
+                      })}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={valueString}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      const next = event.target.value
+                      setValue({ ...(quantities ?? {}), [line.id]: next })
+                      setLineErrors((prev) => ({ ...prev, [line.id]: undefined }))
+                    }}
+                  />
+                  {lineError ? <p className="text-xs text-destructive">{lineError}</p> : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
+
+    function ShipmentAddressField({ value, setValue }: CrudCustomFieldRenderProps) {
+      const currentValue = typeof value === 'string' ? value : ''
+      React.useEffect(() => {
+        if (!currentValue && addressOptions.length) {
+          setValue(addressOptions[0].id)
+        }
+      }, [addressOptions, currentValue, setValue])
+      const disabled = addressLoading || !addressOptions.length
+      return (
+        <div className="space-y-2">
+          <LookupSelect
+            value={currentValue || null}
+            onChange={(next) => setValue(next ?? '')}
+            fetchItems={fetchAddressItems}
+            placeholder={t('sales.documents.shipments.addressPlaceholder', 'Select address')}
+            searchPlaceholder={t('sales.documents.shipments.addressSearch', 'Search address')}
+            minQuery={0}
+            disabled={disabled}
+            loading={addressLoading}
+            defaultOpen
+          />
+          {!addressLoading && !addressOptions.length ? (
+            <p className="text-xs text-destructive">
+              {t(
+                'sales.documents.shipments.addressMissing',
+                'Add an address to this document before creating a shipment.',
+              )}
+            </p>
+          ) : null}
+          {addressError ? <p className="text-xs text-destructive">{addressError}</p> : null}
+        </div>
+      )
+    }
+
     const itemsField: CrudField = {
       id: 'items',
       label: t('sales.documents.shipments.items', 'Items to ship'),
       type: 'custom',
-      component: ({ value, setValue, error }) => {
-        const quantities = (value as Record<string, string | number> | null) ?? {}
-        const [lineErrors, setLineErrors] = React.useState<Record<string, string | undefined>>({})
-
-        React.useEffect(() => {
-          registerItemErrors(setLineErrors)
-          return () => {
-            if (itemErrorSetterRef.current === setLineErrors) {
-              itemErrorSetterRef.current = null
-            }
-          }
-        }, [])
-
-        if (lines.length === 0) {
-          return (
-            <p className="text-sm text-muted-foreground">
-              {t('sales.documents.shipments.noLines', 'No order lines available.')}
-            </p>
-          )
-        }
-
-        return (
-          <div className="space-y-2 rounded-lg border p-3">
-            {lines.map((line) => {
-              const available = computeAvailable(line.id, shipment?.id ?? null)
-              const rawValue = quantities[line.id]
-              const valueString =
-                typeof rawValue === 'number'
-                  ? rawValue.toString()
-                  : typeof rawValue === 'string'
-                    ? rawValue
-                    : ''
-              const disabled = available <= 0 && !valueString
-              const lineError = lineErrors[line.id]
-              return (
-                <div
-                  key={line.id}
-                  className={cn(
-                    'grid gap-3 md:grid-cols-[1fr,140px]',
-                    disabled ? 'opacity-60' : null,
-                  )}
-                >
-                  <div className="flex items-start gap-3">
-                    {line.thumbnail ? (
-                      <img
-                        src={line.thumbnail}
-                        alt={line.title}
-                        className="h-12 w-12 rounded-md border object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-muted text-[10px] text-muted-foreground">
-                        N/A
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">
-                        {line.lineNumber ? `#${line.lineNumber} · ` : null}
-                        {line.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {t('sales.documents.shipments.available', '{{count}} available', {
-                          count: available,
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={valueString}
-                      disabled={disabled}
-                      onChange={(event) => {
-                        const next = event.target.value
-                        setValue({ ...(quantities ?? {}), [line.id]: next })
-                        setLineErrors((prev) => ({ ...prev, [line.id]: undefined }))
-                      }}
-                    />
-                    {lineError ? <p className="text-xs text-destructive">{lineError}</p> : null}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )
-      },
+      component: ShipmentItemsField,
     }
 
     return [
@@ -1331,39 +1367,7 @@ export function ShipmentDialog({
         label: t('sales.documents.shipments.address', 'Ship to'),
         type: 'custom',
         required: true,
-        component: ({ value, setValue }) => {
-          const currentValue = typeof value === 'string' ? value : ''
-          React.useEffect(() => {
-            if (!currentValue && addressOptions.length) {
-              setValue(addressOptions[0].id)
-            }
-          }, [addressOptions, currentValue, setValue])
-          const disabled = addressLoading || !addressOptions.length
-          return (
-            <div className="space-y-2">
-              <LookupSelect
-                value={currentValue || null}
-                onChange={(next) => setValue(next ?? '')}
-                fetchItems={fetchAddressItems}
-                placeholder={t('sales.documents.shipments.addressPlaceholder', 'Select address')}
-                searchPlaceholder={t('sales.documents.shipments.addressSearch', 'Search address')}
-                minQuery={0}
-                disabled={disabled}
-                loading={addressLoading}
-                defaultOpen
-              />
-              {!addressLoading && !addressOptions.length ? (
-                <p className="text-xs text-destructive">
-                  {t(
-                    'sales.documents.shipments.addressMissing',
-                    'Add an address to this document before creating a shipment.',
-                  )}
-                </p>
-              ) : null}
-              {addressError ? <p className="text-xs text-destructive">{addressError}</p> : null}
-            </div>
-          )
-        },
+        component: ShipmentAddressField,
       },
       {
         id: 'shippedAt',

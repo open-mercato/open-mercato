@@ -8,35 +8,44 @@ While the [CRUD factory](./crud-factory) covers most cases, sometimes you need b
 ## File structure
 
 ```
-packages/<module>/src/modules/<module>/api/<method>/<path>.ts
+src/modules/<module>/api/<path>/route.ts
 ```
 
-Example: `api/post/organizations/invite.ts` handles `POST /api/organizations/invite`.
+Example: `api/organizations/invite/route.ts` handles `/api/organizations/invite`.
 
-Each handler exports an async function that receives the request, response helpers, and the request-scoped DI container:
+Each file exports handlers for HTTP methods (GET, POST, PUT, DELETE, etc.) following Next.js App Router conventions.
 
-```ts title="api/post/organizations/invite.ts"
-import { z } from 'zod';
-import type { ApiHandler } from '@open-mercato/shared/modules/api/types';
+```ts title="api/organizations/invite/route.ts"
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createRequestContainer } from "@/lib/di/container";
+import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
 
 const inputSchema = z.object({
   email: z.string().email(),
   roleId: z.string().uuid(),
 });
 
-const handler: ApiHandler = async ({ request, container, organization }) => {
-  const body = inputSchema.parse(await request.json());
-  const invitations = container.resolve('organizationInvitationService');
-  await invitations.inviteUser({ ...body, organizationId: organization.id });
-  return Response.json({ ok: true });
-};
+export async function POST(req: Request, { auth }: { auth: AuthContext }) {
+  const body = inputSchema.parse(await req.json());
+
+  const container = await createRequestContainer();
+  const invitations = container.resolve("organizationInvitationService");
+
+  await invitations.inviteUser({
+    ...body,
+    organizationId: auth.organizationId,
+  });
+
+  return NextResponse.json({ ok: true });
+}
 
 export const metadata = {
-  requireAuth: true,
-  requireFeatures: ['directory.invite'],
+  POST: {
+    requireAuth: true,
+    requireFeatures: ["directory.invite"],
+  },
 };
-
-export default handler;
 ```
 
 ## Best practices

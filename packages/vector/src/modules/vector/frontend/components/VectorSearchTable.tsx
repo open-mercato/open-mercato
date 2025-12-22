@@ -51,13 +51,13 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
             {Icon ? <Icon className="mt-0.5 h-5 w-5 text-muted-foreground" /> : null}
             <div className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{title}</span>
+                <span className="font-medium whitespace-normal break-all">{title}</span>
                 <span className="rounded border border-muted-foreground/40 px-2 py-0.5 text-xs text-muted-foreground">
                   {typeLabel}
                 </span>
               </div>
               {snapshot ? (
-                <span className="text-sm text-muted-foreground">{snapshot}</span>
+                <span className="text-sm text-muted-foreground whitespace-normal break-words">{snapshot}</span>
               ) : null}
               {links.length ? (
                 <div className="mt-1 flex flex-wrap items-center gap-2">

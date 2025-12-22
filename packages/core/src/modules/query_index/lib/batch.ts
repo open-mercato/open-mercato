@@ -23,6 +23,11 @@ type CustomFieldRow = {
 
 export type IndexBatchOptions = {
   deriveOrganizationId?: (row: AnyRow) => string | null | undefined
+  encryptDoc?: (
+    entityType: string,
+    doc: Record<string, unknown>,
+    scope: { organizationId: string | null; tenantId: string | null },
+  ) => Promise<Record<string, unknown> | null | undefined>
   decryptDoc?: (
     entityType: string,
     doc: Record<string, unknown>,
@@ -97,6 +102,7 @@ export async function upsertIndexBatch(
     organization_id: string | null
     tenant_id: string | null
     doc: Record<string, unknown>
+    tokenDoc: Record<string, unknown>
     index_version: number
   }> = []
 
@@ -141,6 +147,21 @@ export async function upsertIndexBatch(
       organizationId: scopeOrg ?? null,
       tenantId: scopeTenant ?? null,
     })
+    let tokenDoc: Record<string, unknown> = doc
+    if (typeof options.encryptDoc === 'function') {
+      try {
+        const encrypted = await options.encryptDoc(entityType, doc, {
+          organizationId: scopeOrg ?? null,
+          tenantId: scopeTenant ?? null,
+        })
+        if (encrypted && typeof encrypted === 'object') {
+          doc = encrypted
+          tokenDoc = encrypted
+        }
+      } catch {
+        // best-effort; ignore encrypt errors during indexing
+      }
+    }
     if (typeof options.decryptDoc === 'function') {
       try {
         const decrypted = await options.decryptDoc(entityType, doc, {
@@ -148,7 +169,7 @@ export async function upsertIndexBatch(
           tenantId: scopeTenant ?? null,
         })
         if (decrypted && typeof decrypted === 'object') {
-          doc = decrypted
+          tokenDoc = decrypted
         }
       } catch {
         // best-effort; ignore decrypt errors during indexing
@@ -160,15 +181,16 @@ export async function upsertIndexBatch(
       organization_id: scopeOrg ?? null,
       tenant_id: scopeTenant ?? null,
       doc,
+      tokenDoc,
       index_version: 1,
     })
     if (debugEnabled) {
       const sample = {
-        display_name: (doc as any).display_name,
-        first_name: (doc as any).first_name,
-        last_name: (doc as any).last_name,
-        brand_name: (doc as any).brand_name,
-        legal_name: (doc as any).legal_name,
+        display_name: (tokenDoc as any).display_name,
+        first_name: (tokenDoc as any).first_name,
+        last_name: (tokenDoc as any).last_name,
+        brand_name: (tokenDoc as any).brand_name,
+        legal_name: (tokenDoc as any).legal_name,
       }
       console.info('[reindex:batch:doc]', {
         entityType,
@@ -181,7 +203,12 @@ export async function upsertIndexBatch(
   }
 
   const insertRows = basePayloads.map((payload) => ({
-    ...payload,
+    entity_type: payload.entity_type,
+    entity_id: payload.entity_id,
+    organization_id: payload.organization_id,
+    tenant_id: payload.tenant_id,
+    doc: payload.doc,
+    index_version: payload.index_version,
     created_at: knex.fn.now(),
     updated_at: knex.fn.now(),
     deleted_at: null,
@@ -192,7 +219,7 @@ export async function upsertIndexBatch(
     recordId: payload.entity_id,
     organizationId: payload.organization_id,
     tenantId: payload.tenant_id,
-    doc: payload.doc,
+    doc: payload.tokenDoc,
   }))
 
   try {
@@ -240,7 +267,12 @@ export async function upsertIndexBatch(
         if (updated) continue
         try {
           await trx('entity_indexes').insert({
-            ...payload,
+            entity_type: payload.entity_type,
+            entity_id: payload.entity_id,
+            organization_id: payload.organization_id,
+            tenant_id: payload.tenant_id,
+            doc: payload.doc,
+            index_version: payload.index_version,
             created_at: now,
             updated_at: now,
             deleted_at: null,
