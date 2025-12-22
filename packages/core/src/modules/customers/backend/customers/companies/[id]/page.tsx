@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -472,12 +473,12 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
             <p>{error || t('customers.companies.detail.error.notFound', 'Company not found.')}</p>
             <Button asChild variant="outline">
-              <a href="/backend/customers/companies">
+              <Link href="/backend/customers/companies">
                 {t('customers.companies.detail.actions.backToList', 'Back to companies')}
-              </a>
+              </Link>
             </Button>
           </div>
         </PageBody>
