@@ -337,6 +337,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
   
   // Injection spot events for widget lifecycle management
+  const resolvedInjectionSpotId = React.useMemo(() => {
+    if (injectionSpotId) return injectionSpotId
+    if (resolvedEntityIds.length) {
+      const normalized = resolvedEntityIds[0].replace(/[:]+/g, '.')
+      return `crud-form:${normalized}`
+    }
+    return undefined
+  }, [injectionSpotId, resolvedEntityIds])
+  
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
@@ -344,12 +353,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     pending,
   }), [formId, primaryEntityId, isLoading, pending])
   
-  const { widgets: injectionWidgets } = useInjectionWidgets(injectionSpotId, {
+  const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
     triggerOnLoad: true,
   })
   
-  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(injectionSpotId ?? '', injectionWidgets)
+  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
   
   React.useEffect(() => {
     const root = rootRef.current
@@ -1027,7 +1036,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     // Trigger onBeforeSave event for injection widgets
-    if (injectionSpotId) {
+    if (resolvedInjectionSpotId) {
       try {
         const canProceed = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
         if (!canProceed) {
@@ -1046,7 +1055,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setPending(true)
     
     // Trigger onSave event for injection widgets
-    if (injectionSpotId) {
+    if (resolvedInjectionSpotId) {
       try {
         await triggerInjectionEvent('onSave', parsedValues, injectionContext)
       } catch (err) {
@@ -1058,7 +1067,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       await onSubmit?.(parsedValues)
       
       // Trigger onAfterSave event for injection widgets
-      if (injectionSpotId) {
+      if (resolvedInjectionSpotId) {
         try {
           await triggerInjectionEvent('onAfterSave', parsedValues, injectionContext)
         } catch (err) {
@@ -1536,9 +1545,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             className="min-h-[400px]"
           >
             <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
-            {injectionSpotId ? (
+            {resolvedInjectionSpotId ? (
               <InjectionSpot
-                spotId={injectionSpotId}
+                spotId={resolvedInjectionSpotId}
                 context={injectionContext}
                 data={values}
                 onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
@@ -1625,9 +1634,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             onSubmit={handleSubmit}
             className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
           >
-            {injectionSpotId ? (
+            {resolvedInjectionSpotId ? (
               <InjectionSpot
-                spotId={injectionSpotId}
+                spotId={resolvedInjectionSpotId}
                 context={injectionContext}
                 data={values}
                 onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}

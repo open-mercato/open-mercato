@@ -26,7 +26,7 @@ export const injectionTable: ModuleInjectionTable = {
 
 ## Available slots
 
-- **CrudForm** – whichever spot id you pass to `CrudForm` (`injectionSpotId`). Widgets with `kind: 'group'` render as new groups; others stack above the form. Helpers: `generateCrudFormInjectionSpotId()` and `CrudFormInjectionSpots` from `@open-mercato/ui/backend/injection/helpers`.
+- **CrudForm** – whichever spot id you pass to `CrudForm` (`injectionSpotId`). If omitted, it auto-derives `crud-form:<entityId>` (colon → dot) from the first `entityId`, so most forms pick up widgets by entity. Widgets with `kind: 'group'` render as new groups; others stack above the form. Helpers: `generateCrudFormInjectionSpotId()` and `CrudFormInjectionSpots` from `@open-mercato/ui/backend/injection/helpers`.
 - **DataTable** – `data-table:<tableId>:header` and `data-table:<tableId>:footer` (auto when `perspective.tableId` is set; or pass `injectionSpotId`).
 - **Dashboard** – `dashboard:before` and `dashboard:after` wrap the widget grid.
 - **Sales documents** – `sales.document.detail.quote:tabs`, `sales.document.detail.order:tabs` (new tabs) and `sales.document.detail.<kind>:details` for blocks beneath the details section.
