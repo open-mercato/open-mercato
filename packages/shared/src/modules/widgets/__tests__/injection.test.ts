@@ -21,9 +21,12 @@ describe('Widget Injection Types', () => {
     const table: ModuleInjectionTable = {
       'crud-form:test': 'test.widget',
       'crud-form:test2': ['widget1', 'widget2'],
+      'crud-form:grouped': [{ widgetId: 'widget3', kind: 'group', groupLabel: 'Extra fields' }],
     }
     expect(table['crud-form:test']).toBe('test.widget')
     expect(Array.isArray(table['crud-form:test2'])).toBe(true)
+    const grouped = table['crud-form:grouped'] as any[]
+    expect(grouped[0].groupLabel).toBe('Extra fields')
   })
 
   it('should type event handlers correctly', () => {

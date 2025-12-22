@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import type { InjectionSpotId, InjectionWidgetModule, WidgetInjectionEventHandlers } from '@open-mercato/shared/modules/widgets/injection'
-import { loadInjectionWidgetsForSpot } from '@open-mercato/core/modules/widgets/lib/injection'
+import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/core/modules/widgets/lib/injection'
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   spotId: InjectionSpotId
@@ -10,6 +10,7 @@ export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
   onDataChange?: (data: TData) => void
   disabled?: boolean
   onEvent?: (event: 'onLoad' | 'onBeforeSave' | 'onSave' | 'onAfterSave', widgetId: string) => void
+  widgetsOverride?: LoadedWidget[]
 }
 
 type LoadedWidget = {
@@ -17,22 +18,29 @@ type LoadedWidget = {
   module: InjectionWidgetModule<any, any>
   moduleId: string
   key: string
+  placement?: LoadedInjectionWidget['placement']
 }
 
-export function InjectionSpot<TContext = unknown, TData = unknown>({
-  spotId,
-  context,
-  data,
-  onDataChange,
-  disabled,
-  onEvent,
-}: InjectionSpotProps<TContext, TData>) {
+export function useInjectionWidgets<TContext = unknown>(
+  spotId: InjectionSpotId | null | undefined,
+  options?: {
+    context?: TContext
+    triggerOnLoad?: boolean
+    onEvent?: (event: 'onLoad', widgetId: string) => void
+  }
+) {
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const loadedRef = React.useRef(false)
 
   React.useEffect(() => {
+    if (!spotId) {
+      setWidgets([])
+      setLoading(false)
+      setError(null)
+      return
+    }
     let mounted = true
     const load = async () => {
       try {
@@ -45,17 +53,18 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
           module: w,
           moduleId: w.moduleId,
           key: w.key,
+          placement: w.placement,
         }))
         setWidgets(widgetList)
         
         // Trigger onLoad for all widgets
-        if (!loadedRef.current) {
+        if (!loadedRef.current && options?.triggerOnLoad) {
           loadedRef.current = true
           for (const widget of widgetList) {
             if (widget.module.eventHandlers?.onLoad) {
               try {
-                await widget.module.eventHandlers.onLoad(context)
-                onEvent?.('onLoad', widget.widgetId)
+                await widget.module.eventHandlers.onLoad(options.context as TContext)
+                options.onEvent?.('onLoad', widget.widgetId)
               } catch (err) {
                 console.error(`[InjectionSpot] Error in onLoad for widget ${widget.widgetId}:`, err)
               }
@@ -74,24 +83,46 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
     return () => {
       mounted = false
     }
-  }, [spotId, context, onEvent])
+  }, [spotId, options?.context, options?.triggerOnLoad, options?.onEvent])
 
-  if (loading) {
+  return { widgets, loading, error }
+}
+
+export function InjectionSpot<TContext = unknown, TData = unknown>({
+  spotId,
+  context,
+  data,
+  onDataChange,
+  disabled,
+  onEvent,
+  widgetsOverride,
+}: InjectionSpotProps<TContext, TData>) {
+  const useSpotId = widgetsOverride ? null : spotId
+  const { widgets, loading, error } = useInjectionWidgets<TContext>(useSpotId, {
+    context,
+    triggerOnLoad: !widgetsOverride,
+    onEvent: onEvent ? (event, id) => onEvent(event, id) : undefined,
+  })
+  const effectiveWidgets = widgetsOverride ?? widgets
+  const effectiveLoading = widgetsOverride ? false : loading
+  const effectiveError = widgetsOverride ? null : error
+
+  if (effectiveLoading) {
     return null
   }
 
-  if (error) {
-    console.error(`[InjectionSpot] Error loading widgets for spot ${spotId}:`, error)
+  if (effectiveError) {
+    console.error(`[InjectionSpot] Error loading widgets for spot ${spotId}:`, effectiveError)
     return null
   }
 
-  if (widgets.length === 0) {
+  if (effectiveWidgets.length === 0) {
     return null
   }
 
   return (
     <>
-      {widgets.map((widget) => {
+      {effectiveWidgets.map((widget) => {
         const { Widget } = widget.module
         return (
           <Widget
@@ -110,10 +141,14 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
 /**
  * Hook to trigger injection widget events imperatively
  */
-export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spotId: InjectionSpotId) {
+export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spotId: InjectionSpotId, prefetchedWidgets?: LoadedWidget[]) {
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
 
   React.useEffect(() => {
+    if (prefetchedWidgets && prefetchedWidgets.length) {
+      setWidgets(prefetchedWidgets)
+      return
+    }
     let mounted = true
     const load = async () => {
       try {
@@ -125,6 +160,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
             module: w,
             moduleId: w.moduleId,
             key: w.key,
+            placement: w.placement,
           }))
         )
       } catch (err) {
@@ -135,7 +171,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
     return () => {
       mounted = false
     }
-  }, [spotId])
+  }, [spotId, prefetchedWidgets])
 
   const triggerEvent = React.useCallback(
     async (

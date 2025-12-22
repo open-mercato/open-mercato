@@ -1,12 +1,40 @@
 import type { Module, ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
-import type { InjectionWidgetMetadata, InjectionWidgetModule, InjectionSpotId, ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+import type {
+  InjectionWidgetMetadata,
+  InjectionWidgetModule,
+  InjectionSpotId,
+  ModuleInjectionSlot,
+  ModuleInjectionTable,
+} from '@open-mercato/shared/modules/widgets/injection'
 
 type LoadedWidgetModule = InjectionWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }
+export type LoadedInjectionWidget = LoadedWidgetModule & {
+  moduleId: string
+  key: string
+  placement?: {
+    groupId?: string
+    groupLabel?: string
+    groupDescription?: string
+    column?: 1 | 2
+    kind?: 'tab' | 'group' | 'stack'
+    [k: string]: unknown
+  }
+}
 
 type WidgetEntry = ModuleInjectionWidgetEntry & { moduleId: string }
 
 let widgetEntriesPromise: Promise<WidgetEntry[]> | null = null
-let injectionTablePromise: Promise<Map<InjectionSpotId, Array<{ widgetId: string; moduleId: string; priority: number }>>> | null = null
+type TableEntry = {
+  widgetId: string
+  moduleId: string
+  priority: number
+  placement?: ModuleInjectionSlot extends infer S
+    ? S extends { widgetId: string }
+      ? Omit<S, 'widgetId' | 'priority'>
+      : never
+    : never
+}
+let injectionTablePromise: Promise<Map<InjectionSpotId, TableEntry[]>> | null = null
 
 /**
  * Invalidate the widget entries and widget module cache.
@@ -34,19 +62,32 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   return widgetEntriesPromise
 }
 
-async function loadInjectionTable(): Promise<Map<InjectionSpotId, Array<{ widgetId: string; moduleId: string; priority: number }>>> {
+async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>> {
   if (!injectionTablePromise) {
     injectionTablePromise = import('@/generated/modules.generated').then((registry) => {
       const list = (registry.modules ?? []) as Module[]
-      const table = new Map<InjectionSpotId, Array<{ widgetId: string; moduleId: string; priority: number }>>()
+      const table = new Map<InjectionSpotId, TableEntry[]>()
       
       for (const mod of list) {
         const injectionTable = (mod.injectionTable ?? {}) as ModuleInjectionTable
         for (const [spotId, widgetIds] of Object.entries(injectionTable)) {
           const widgets = Array.isArray(widgetIds) ? widgetIds : [widgetIds]
           const existing = table.get(spotId) ?? []
-          for (const widgetId of widgets) {
-            existing.push({ widgetId, moduleId: mod.id, priority: 0 })
+          for (const entry of widgets) {
+            if (typeof entry === 'string') {
+              existing.push({ widgetId: entry, moduleId: mod.id, priority: 0 })
+              continue
+            }
+            if (entry && typeof entry === 'object' && 'widgetId' in entry) {
+              const { widgetId, priority = 0, ...placement } = entry as ModuleInjectionSlot & { widgetId: string; priority?: number }
+              existing.push({
+                widgetId,
+                moduleId: mod.id,
+                priority: typeof priority === 'number' ? priority : 0,
+                placement,
+              })
+              continue
+            }
           }
           table.set(spotId, existing)
         }
@@ -98,7 +139,7 @@ async function loadEntry(entry: WidgetEntry): Promise<LoadedWidgetModule> {
   return widgetCache.get(entry.key)!
 }
 
-export async function loadAllInjectionWidgets(): Promise<Array<LoadedWidgetModule & { moduleId: string; key: string }>> {
+export async function loadAllInjectionWidgets(): Promise<LoadedInjectionWidget[]> {
   const widgetEntries = await loadWidgetEntries()
   const loaded = await Promise.all(widgetEntries.map(async (entry) => {
     const widget = await loadEntry(entry)
@@ -113,7 +154,7 @@ export async function loadAllInjectionWidgets(): Promise<Array<LoadedWidgetModul
   return Array.from(byId.values())
 }
 
-export async function loadInjectionWidgetById(widgetId: string): Promise<(LoadedWidgetModule & { moduleId: string; key: string }) | null> {
+export async function loadInjectionWidgetById(widgetId: string): Promise<LoadedInjectionWidget | null> {
   const widgetEntries = await loadWidgetEntries()
   for (const entry of widgetEntries) {
     const widget = await loadEntry(entry)
@@ -124,13 +165,16 @@ export async function loadInjectionWidgetById(widgetId: string): Promise<(Loaded
   return null
 }
 
-export async function loadInjectionWidgetsForSpot(spotId: InjectionSpotId): Promise<Array<LoadedWidgetModule & { moduleId: string; key: string }>> {
+export async function loadInjectionWidgetsForSpot(spotId: InjectionSpotId): Promise<LoadedInjectionWidget[]> {
   const table = await loadInjectionTable()
   const entries = table.get(spotId) ?? []
   const widgets = await Promise.all(
-    entries.map(async ({ widgetId }) => {
+    entries.map(async ({ widgetId, placement, priority }) => {
       const widget = await loadInjectionWidgetById(widgetId)
-      return widget
+      const combinedPlacement = placement
+        ? { ...placement, priority: typeof priority === 'number' ? priority : 0 }
+        : { priority: typeof priority === 'number' ? priority : 0 }
+      return widget ? { ...widget, placement: combinedPlacement } : null
     })
   )
   return widgets.filter((w): w is NonNullable<typeof w> => w !== null)

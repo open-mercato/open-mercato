@@ -39,6 +39,36 @@ export type InjectionWidgetMetadata = {
 }
 
 /**
+ * Optional placement metadata declared per injection spot entry.
+ * Lets hosts render widgets in tabs, grouped cards, or plain stacks.
+ */
+export type InjectionWidgetPlacement = {
+  /**
+   * Optional stable identifier for grouping (e.g., tab id or card id)
+   */
+  groupId?: string
+  /**
+   * Display label for the group or tab. Falls back to widget title.
+   */
+  groupLabel?: string
+  /**
+   * Optional helper text shown with the widget when rendered as a group.
+   */
+  groupDescription?: string
+  /**
+   * Preferred column for grouped layouts (1 = left, 2 = right)
+   */
+  column?: 1 | 2
+  /**
+   * Rendering hint for hosts that support categorized widgets.
+   * - 'tab'   → render as a tab with the widget as tab content
+   * - 'group' → render inside a grouped card/section
+   * - 'stack' → render inline (default)
+   */
+  kind?: 'tab' | 'group' | 'stack'
+}
+
+/**
  * Props passed to injection widget components
  */
 export type InjectionWidgetComponentProps<TContext = unknown, TData = unknown> = {
@@ -69,9 +99,12 @@ export type InjectionTableEntry = {
   spotId: InjectionSpotId
   widgetId: string
   priority?: number
+  placement?: InjectionWidgetPlacement
 }
+
+export type ModuleInjectionSlot = string | (InjectionWidgetPlacement & { widgetId: string; priority?: number })
 
 /**
  * Module's injection table - maps spots to widgets
  */
-export type ModuleInjectionTable = Record<InjectionSpotId, string | string[]>
+export type ModuleInjectionTable = Record<InjectionSpotId, ModuleInjectionSlot | ModuleInjectionSlot[]>

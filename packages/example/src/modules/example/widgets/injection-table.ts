@@ -10,6 +10,24 @@ export const injectionTable: ModuleInjectionTable = {
   
   // Can also inject into variant form
   'crud-form:catalog.variant': 'example.injection.crud-validation',
+
+  // Add example todos tab to sales quote/order detail pages
+  'sales.document.detail.quote:tabs': [
+    {
+      widgetId: 'example.injection.sales-todos',
+      kind: 'tab',
+      groupLabel: 'Todos (example)',
+      priority: -10,
+    },
+  ],
+  'sales.document.detail.order:tabs': [
+    {
+      widgetId: 'example.injection.sales-todos',
+      kind: 'tab',
+      groupLabel: 'Todos (example)',
+      priority: -10,
+    },
+  ],
 }
 
 export default injectionTable
