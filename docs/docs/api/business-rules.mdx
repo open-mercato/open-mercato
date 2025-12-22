@@ -28,6 +28,7 @@ curl -X GET "$BASE_URL/api/business_rules/rules" \
 All endpoints are automatically scoped to your tenant and organization based on your authentication context. You cannot access rules, sets, or logs from other tenants.
 
 The API automatically injects:
+
 - `tenant_id` - From your authentication token
 - `organization_id` - From your authentication token
 
@@ -35,14 +36,14 @@ The API automatically injects:
 
 Access to Business Rules API is controlled by these features:
 
-| Feature | Description |
-|---------|-------------|
-| `business_rules.rules.view` | List and view rules |
-| `business_rules.rules.create` | Create new rules |
-| `business_rules.rules.edit` | Update existing rules |
-| `business_rules.rules.delete` | Delete rules |
+| Feature                        | Description            |
+| ------------------------------ | ---------------------- |
+| `business_rules.rules.view`    | List and view rules    |
+| `business_rules.rules.create`  | Create new rules       |
+| `business_rules.rules.edit`    | Update existing rules  |
+| `business_rules.rules.delete`  | Delete rules           |
 | `business_rules.rules.execute` | Execute rules manually |
-| `business_rules.logs.view` | View execution logs |
+| `business_rules.logs.view`     | View execution logs    |
 
 Contact your administrator if you receive 403 Forbidden responses.
 
@@ -57,6 +58,7 @@ Successful responses return JSON with appropriate HTTP status codes:
 - `204 No Content` - Request succeeded, no data returned
 
 **List Response**:
+
 ```json
 {
   "data": [...],
@@ -70,6 +72,7 @@ Successful responses return JSON with appropriate HTTP status codes:
 ```
 
 **Single Resource**:
+
 ```json
 {
   "id": "uuid",
@@ -91,6 +94,7 @@ Errors return JSON with error details:
 ```
 
 **Common Status Codes**:
+
 - `400 Bad Request` - Invalid input, validation errors
 - `401 Unauthorized` - Missing or invalid authentication
 - `403 Forbidden` - Insufficient permissions
@@ -106,6 +110,7 @@ API requests are rate-limited to prevent abuse:
 - **Execute endpoint**: 10 requests per minute (to prevent runaway automation)
 
 Rate limit headers are included in responses:
+
 ```
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 95
@@ -120,11 +125,13 @@ List endpoints support pagination with query parameters:
 - `pageSize` - Items per page (default: 20, max: 100)
 
 **Example**:
+
 ```bash
 curl -X GET "$BASE_URL/api/business_rules/rules?page=2&pageSize=50"
 ```
 
 **Response**:
+
 ```json
 {
   "data": [...],
@@ -142,16 +149,19 @@ curl -X GET "$BASE_URL/api/business_rules/rules?page=2&pageSize=50"
 List endpoints support filtering and sorting:
 
 **Filters**: Pass as query parameters
+
 ```
 ?ruleType=GUARD&enabled=true&entityType=WorkOrder
 ```
 
 **Sorting**: Use `sortField` and `sortDir`
+
 ```
 ?sortField=priority&sortDir=desc
 ```
 
 **Search**: Use `search` parameter
+
 ```
 ?search=material
 ```
@@ -173,7 +183,7 @@ List endpoints support filtering and sorting:
 ### Execution Logs
 
 - [**GET /api/business_rules/logs**](./business-rules/logs#list-logs) - List execution logs with filters
-- [**GET /api/business_rules/logs/[id]**](./business-rules/logs#get-log) - Get log details
+- [**GET /api/business_rules/logs/[id]**](./business-rules/logs#get-log-details) - Get log details
 
 ### Rule Sets
 
@@ -181,10 +191,10 @@ List endpoints support filtering and sorting:
 - [**POST /api/business_rules/sets**](./business-rules/sets#create-set) - Create a rule set
 - [**PUT /api/business_rules/sets**](./business-rules/sets#update-set) - Update a rule set
 - [**DELETE /api/business_rules/sets**](./business-rules/sets#delete-set) - Delete a rule set
-- [**GET /api/business_rules/sets/[id]**](./business-rules/sets#get-set) - Get set with members
-- [**POST /api/business_rules/sets/[id]/members**](./business-rules/sets#add-member) - Add rule to set
-- [**PUT /api/business_rules/sets/[id]/members**](./business-rules/sets#update-member) - Update member
-- [**DELETE /api/business_rules/sets/[id]/members**](./business-rules/sets#remove-member) - Remove rule from set
+- [**GET /api/business_rules/sets/[id]**](./business-rules/sets#get-set-details) - Get set with members
+- [**POST /api/business_rules/sets/[id]/members**](./business-rules/sets#add-rule-to-set) - Add rule to set
+- [**PUT /api/business_rules/sets/[id]/members**](./business-rules/sets#update-set-member) - Update member
+- [**DELETE /api/business_rules/sets/[id]/members**](./business-rules/sets#remove-rule-from-set) - Remove rule from set
 
 ## Environment Setup
 
@@ -283,20 +293,20 @@ Official client libraries are available:
 Install and use:
 
 ```typescript
-import { BusinessRulesClient } from '@open-mercato/api-client'
+import { BusinessRulesClient } from "@open-mercato/api-client";
 
 const client = new BusinessRulesClient({
-  baseUrl: 'http://localhost:3000',
-  apiKey: process.env.API_KEY
-})
+  baseUrl: "http://localhost:3000",
+  apiKey: process.env.API_KEY,
+});
 
-const rules = await client.rules.list({ ruleType: 'GUARD' })
+const rules = await client.rules.list({ ruleType: "GUARD" });
 const result = await client.execute({
-  entityType: 'Order',
-  entityId: 'order-123',
-  eventType: 'afterCreate',
-  data: { total: 1500 }
-})
+  entityType: "Order",
+  entityId: "order-123",
+  eventType: "afterCreate",
+  data: { total: 1500 },
+});
 ```
 
 ## Webhooks and Events
@@ -315,6 +325,7 @@ Business rules can emit events that trigger webhooks. Configure webhook URLs in 
 ```
 
 Webhook requests include:
+
 - JSON payload from action config
 - Header: `X-Open-Mercato-Event: rule.executed`
 - Header: `X-Open-Mercato-Signature: hmac-sha256-signature`

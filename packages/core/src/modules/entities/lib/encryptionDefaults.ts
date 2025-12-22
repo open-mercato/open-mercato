@@ -146,4 +146,18 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'context_json' },
     ],
   },
+  {
+    entityId: 'vector:vector_search',
+    fields: [
+      { field: 'links' },
+      { field: 'payload' },
+      { field: 'result_title' },
+      { field: 'result_subtitle' },
+      { field: 'result_icon' },
+      { field: 'result_badge' },
+      { field: 'result_snapshot' },
+      { field: 'primary_link_href' },
+      { field: 'primary_link_label' },
+    ],
+  },
 ]

@@ -81,9 +81,7 @@ export default function ExecutionLogDetailPage() {
           <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
             <p>{error ? t('business_rules.logs.errors.loadFailed') : t('business_rules.logs.errors.notFound')}</p>
             <Button asChild variant="outline">
-              <a href="/backend/logs">
-                {t('business_rules.logs.backToList')}
-              </a>
+              <Link href="/backend/logs">{t('business_rules.logs.backToList')}</Link>
             </Button>
           </div>
         </PageBody>
