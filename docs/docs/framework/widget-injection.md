@@ -292,6 +292,14 @@ function MyPage() {
 
 ## Examples
 
+Here’s how injected widgets look in the admin UI:
+
+![Injected form widget banner](/screenshots/open-mercato-widget-injection-form.png)
+
+![Injected validation card that blocks save](/screenshots/open-mercato-widget-injection-validation.png)
+
+![Injected data table widget in products list](/screenshots/open-mercato-injection-data-table.png)
+
 See these modules for reference implementations:
 
 - `packages/example/src/modules/example/widgets/injection/crud-validation` - Basic validation widget
