@@ -81,7 +81,8 @@ export async function requestOcrProcessing(
   }
 
   setImmediate(() => {
-    processAttachmentOcr(em.fork(), payload).catch((error) => {
+    const workerEm = typeof (em as any)?.fork === 'function' ? (em as any).fork() : em
+    processAttachmentOcr(workerEm, payload).catch((error) => {
       console.error(`[attachments.ocr] Background processing error:`, error)
     })
   })

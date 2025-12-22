@@ -200,7 +200,8 @@ const sidebars: SidebarsConfig = {
             "framework/admin-ui/crud-form",
             "framework/admin-ui/field-registry",
             "framework/admin-ui/custom-field-validation",
-            "framework/admin-ui/perspectives",
+            "framework/admin-ui/widget-injection",
+            "framework/admin-ui/perspectives"
           ],
         },
         {

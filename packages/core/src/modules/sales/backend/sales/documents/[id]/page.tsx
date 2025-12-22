@@ -52,6 +52,7 @@ import {
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
+import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 
 function CurrencyInlineEditor({
   label,
@@ -1845,7 +1846,7 @@ export default function SalesDocumentDetailPage({
   const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
-  const [activeTab, setActiveTab] = React.useState<'comments' | 'addresses' | 'items' | 'shipments' | 'payments' | 'adjustments'>('comments')
+  const [activeTab, setActiveTab] = React.useState<string>('comments')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const detailSectionRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
@@ -3664,9 +3665,38 @@ export default function SalesDocumentDetailPage({
     []
   )
 
-  const tabButtons = React.useMemo<Array<{ id: typeof activeTab; label: string }>>(
+  const injectionContext = React.useMemo(() => ({ kind, record }), [kind, record])
+  const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
+  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  const injectedTabs = React.useMemo(
+    () =>
+      (injectedTabWidgets ?? [])
+        .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
+        .map((widget) => {
+          const id = widget.placement?.groupId ?? widget.widgetId
+          const label = widget.placement?.groupLabel ?? widget.module.metadata.title
+          const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
+          const render = () => (
+            <widget.module.Widget
+              context={injectionContext}
+              data={record}
+              onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
+            />
+          )
+          return { id, label, priority, render }
+        })
+        .sort((a, b) => b.priority - a.priority),
+    [injectedTabWidgets, injectionContext, record, setRecord],
+  )
+  const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
+
+  const tabButtons = React.useMemo<Array<{ id: string; label: string }>>(
     () => {
-      const tabs: Array<{ id: typeof activeTab; label: string }> = [
+      const tabs: Array<{ id: string; label: string }> = [
         { id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') },
         { id: 'addresses', label: t('sales.documents.detail.tabs.addresses', 'Addresses') },
         { id: 'items', label: t('sales.documents.detail.tabs.items', 'Items') },
@@ -3678,9 +3708,12 @@ export default function SalesDocumentDetailPage({
         )
       }
       tabs.push({ id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') })
+      injectedTabs.forEach((tab) => {
+        tabs.push({ id: tab.id, label: tab.label })
+      })
       return tabs
     },
-    [kind, t],
+    [injectedTabs, kind, t],
   )
 
   React.useEffect(() => {
@@ -3793,9 +3826,7 @@ export default function SalesDocumentDetailPage({
     sectionAction.onClick()
   }, [sectionAction])
 
-  const tabEmptyStates = React.useMemo<
-    Record<'items' | 'shipments' | 'payments' | 'adjustments', { title: string; description?: string }>
-  >(
+  const tabEmptyStates = React.useMemo<Record<string, { title: string; description?: string }>>(
     () => ({
       items: {
         title: t('sales.documents.detail.empty.items.title', 'No items yet.'),
@@ -3824,6 +3855,10 @@ export default function SalesDocumentDetailPage({
   )
 
   const renderTabContent = () => {
+    const injectedRenderer = injectedTabMap.get(activeTab)
+    if (injectedRenderer) {
+      return injectedRenderer()
+    }
     if (activeTab === 'comments') {
       return (
         <NotesSection
@@ -3947,7 +3982,12 @@ export default function SalesDocumentDetailPage({
         />
       )
     }
-    const placeholder = tabEmptyStates[activeTab]
+    const placeholder =
+      tabEmptyStates[activeTab] ??
+      {
+        title: t('sales.documents.detail.empty.generic', 'Nothing to show here yet.'),
+        description: undefined,
+      }
     return (
       <TabEmptyState
         title={placeholder.title}
@@ -4462,6 +4502,12 @@ export default function SalesDocumentDetailPage({
         <div className="space-y-4" ref={detailSectionRef}>
           <p className="text-sm font-semibold">{t('sales.documents.detail.details', 'Details')}</p>
           <DetailFieldsSection fields={detailFields} />
+          <InjectionSpot
+            spotId={detailsInjectionSpotId}
+            context={injectionContext}
+            data={record}
+            onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
+          />
         </div>
 
         <div className="space-y-4">

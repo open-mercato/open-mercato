@@ -25,6 +25,7 @@ import type { AwilixContainer } from 'awilix'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
+import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
 
 type NavItem = {
   href: string
@@ -292,6 +293,12 @@ export default async function BackendLayout({ children, params }: { children: Re
   )
 
   const productName = translate('appShell.productName', 'Open Mercato')
+  const injectionContext = {
+    path,
+    userId: auth?.sub ?? null,
+    tenantId: auth?.tenantId ?? null,
+    organizationId: auth?.orgId ?? null,
+  }
 
   return (
     <>
@@ -308,7 +315,9 @@ export default async function BackendLayout({ children, params }: { children: Re
         adminNavApi="/api/auth/admin/nav"
         version={APP_VERSION}
       >
-        {children}
+        <PageInjectionBoundary path={path} context={injectionContext}>
+          {children}
+        </PageInjectionBoundary>
       </AppShell>
     </>
   )

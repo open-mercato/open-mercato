@@ -18,7 +18,7 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
-    documentId: z.string().uuid().optional(),
+    documentId: z.string().uuid(),
     documentKind: z.enum(['order', 'quote']).optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -76,27 +76,8 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
-      const documentFilters: Array<Record<string, any>> = []
-
-      if (query.documentId) {
-        documentFilters.push({ document_id: { $eq: query.documentId } })
-        if (query.documentKind === 'order') {
-          documentFilters.push({ order_id: { $eq: query.documentId } })
-        } else if (query.documentKind === 'quote') {
-          documentFilters.push({ quote_id: { $eq: query.documentId } })
-        } else {
-          documentFilters.push(
-            { order_id: { $eq: query.documentId } },
-            { quote_id: { $eq: query.documentId } }
-          )
-        }
-      }
-
-      if (documentFilters.length === 1) {
-        Object.assign(filters, documentFilters[0])
-      } else if (documentFilters.length > 1) {
-        filters.$or = documentFilters
+      const filters: Record<string, any> = {
+        document_id: { $eq: query.documentId },
       }
 
       if (query.documentKind) filters.document_kind = { $eq: query.documentKind }

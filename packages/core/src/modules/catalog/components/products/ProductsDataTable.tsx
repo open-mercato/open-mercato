@@ -629,6 +629,13 @@ export default function ProductsDataTable() {
       onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
       sorting={sorting}
       onSortingChange={setSorting}
+      injectionSpotId="data-table:catalog.products"
+      injectionContext={{
+        search,
+        filters: filterValues,
+        page,
+        scopeVersion,
+      }}
       pagination={{
         page,
         pageSize: PAGE_SIZE,

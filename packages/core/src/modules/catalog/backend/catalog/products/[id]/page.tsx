@@ -705,6 +705,7 @@ function normalizeVariantOptionValues(input: unknown): Record<string, string> | 
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
+          injectionSpotId="crud-form:catalog.product"
           entityId={E.catalog.catalog_product}
           customFieldsetBindings={{ [E.catalog.catalog_product]: { valueKey: 'customFieldsetCode' } }}
           initialValues={initialValues ?? undefined}

@@ -46,6 +46,7 @@ import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
+import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 
 type PersonOverview = {
   person: {
@@ -90,7 +91,7 @@ type PersonOverview = {
   } | null
 }
 
-type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks'
+type SectionKey = 'notes' | 'activities' | 'deals' | 'addresses' | 'tasks' | string
 
 type ProfileEditableField = 'firstName' | 'lastName' | 'jobTitle' | 'department' | 'linkedInUrl' | 'twitterUrl'
 
@@ -158,6 +159,37 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     },
   }), [t])
 
+  const personId = data?.person?.id ?? null
+  const injectionContext = React.useMemo(
+    () => ({ personId, data }),
+    [data, personId],
+  )
+  const { widgets: injectedTabWidgets } = useInjectionWidgets('customers.person.detail:tabs', {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  const injectedTabs = React.useMemo(
+    () =>
+      (injectedTabWidgets ?? [])
+        .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
+        .map((widget) => {
+          const id = widget.placement?.groupId ?? widget.widgetId
+          const label = widget.placement?.groupLabel ?? widget.module.metadata.title
+          const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
+          const render = () => (
+            <widget.module.Widget
+              context={injectionContext}
+              data={data}
+              onDataChange={(next) => setData(next as PersonOverview)}
+            />
+          )
+          return { id, label, priority, render }
+        })
+        .sort((a, b) => b.priority - a.priority),
+    [data, injectedTabWidgets, injectionContext],
+  )
+  const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])
+
   const tabs = React.useMemo(
     () => [
       { id: 'notes' as const, label: t('customers.people.detail.tabs.notes') },
@@ -165,8 +197,9 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       { id: 'deals' as const, label: t('customers.people.detail.tabs.deals') },
       { id: 'addresses' as const, label: t('customers.people.detail.tabs.addresses') },
       { id: 'tasks' as const, label: t('customers.people.detail.tabs.tasks') },
+      ...injectedTabs.map((tab) => ({ id: tab.id as SectionKey, label: tab.label })),
     ],
-    [t]
+    [injectedTabs, t]
   )
 
   const personName = React.useMemo(
@@ -174,7 +207,6 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
     [data?.person?.displayName, t]
   )
 
-  const personId = data?.person?.id ?? null
   const dealsScope = React.useMemo(
     () => (personId ? ({ kind: 'person', entityId: personId } as const) : null),
     [personId],
@@ -703,90 +735,105 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
               ) : null}
             </div>
             <div>
-              {activeTab === 'notes' && (
-                <NotesSection
-                  entityId={personId}
-                  dealOptions={dealSelectOptions}
-                  emptyLabel={t('customers.people.detail.empty.comments')}
-                  viewerUserId={data.viewer?.userId ?? null}
-                  viewerName={data.viewer?.name ?? null}
-                  viewerEmail={data.viewer?.email ?? null}
-                  addActionLabel={t('customers.people.detail.notes.addLabel')}
-                  emptyState={{
-                    title: t('customers.people.detail.emptyState.notes.title'),
-                    actionLabel: t('customers.people.detail.emptyState.notes.action'),
-                  }}
-                  onActionChange={handleSectionActionChange}
-                  translator={detailTranslator}
-                  onLoadingChange={handleNotesLoadingChange}
-                  dataAdapter={notesAdapter}
-                  renderIcon={renderDictionaryIcon}
-                  renderColor={renderDictionaryColor}
-                  iconSuggestions={ICON_SUGGESTIONS}
-                  readMarkdownPreference={readMarkdownPreferenceCookie}
-                  writeMarkdownPreference={writeMarkdownPreferenceCookie}
-                />
-              )}
-              {activeTab === 'activities' && (
-                <ActivitiesSection
-                  entityId={personId}
-                  dealOptions={dealSelectOptions}
-                  defaultEntityId={personId ?? undefined}
-                  addActionLabel={t('customers.people.detail.activities.add')}
-                  emptyState={{
-                    title: t('customers.people.detail.emptyState.activities.title'),
-                    actionLabel: t('customers.people.detail.emptyState.activities.action'),
-                  }}
-                  onActionChange={handleSectionActionChange}
-                  onLoadingChange={handleActivitiesLoadingChange}
-                />
-              )}
-              {activeTab === 'deals' && (
-                <DealsSection
-                  scope={dealsScope}
-                  emptyLabel={t('customers.people.detail.empty.deals')}
-                  addActionLabel={t('customers.people.detail.actions.addDeal')}
-                  emptyState={{
-                    title: t('customers.people.detail.emptyState.deals.title'),
-                    actionLabel: t('customers.people.detail.emptyState.deals.action'),
-                  }}
-                  onActionChange={handleSectionActionChange}
-                  onLoadingChange={handleDealsLoadingChange}
-                  translator={detailTranslator}
-                />
-              )}
-              {activeTab === 'addresses' && (
-                <AddressesSection
-                  entityId={personId}
-                  emptyLabel={t('customers.people.detail.empty.addresses')}
-                  addActionLabel={t('customers.people.detail.addresses.add')}
-                  emptyState={{
-                    title: t('customers.people.detail.emptyState.addresses.title'),
-                    actionLabel: t('customers.people.detail.emptyState.addresses.action'),
-                  }}
-                  onActionChange={handleSectionActionChange}
-                  onLoadingChange={handleAddressesLoadingChange}
-                  translator={detailTranslator}
-                />
-              )}
-              {activeTab === 'tasks' && (
-                <TasksSection
-                  entityId={personId}
-                  initialTasks={data.todos}
-                  emptyLabel={t('customers.people.detail.empty.todos')}
-                  addActionLabel={t('customers.people.detail.tasks.add')}
-                  emptyState={{
-                    title: t('customers.people.detail.emptyState.tasks.title'),
-                    actionLabel: t('customers.people.detail.emptyState.tasks.action'),
-                  }}
-                  onActionChange={handleSectionActionChange}
-                  onLoadingChange={handleTasksLoadingChange}
-                  translator={detailTranslator}
-                  entityName={personName}
-                  dialogContextKey="customers.people.detail.tasks.dialog.context"
-                  dialogContextFallback="This task will be linked to {{name}}"
-                />
-              )}
+              {(() => {
+                const injected = injectedTabMap.get(activeTab)
+                if (injected) return injected()
+                if (activeTab === 'notes') {
+                  return (
+                    <NotesSection
+                      entityId={personId}
+                      dealOptions={dealSelectOptions}
+                      emptyLabel={t('customers.people.detail.empty.comments')}
+                      viewerUserId={data.viewer?.userId ?? null}
+                      viewerName={data.viewer?.name ?? null}
+                      viewerEmail={data.viewer?.email ?? null}
+                      addActionLabel={t('customers.people.detail.notes.addLabel')}
+                      emptyState={{
+                        title: t('customers.people.detail.emptyState.notes.title'),
+                        actionLabel: t('customers.people.detail.emptyState.notes.action'),
+                      }}
+                      onActionChange={handleSectionActionChange}
+                      translator={detailTranslator}
+                      onLoadingChange={handleNotesLoadingChange}
+                      dataAdapter={notesAdapter}
+                      renderIcon={renderDictionaryIcon}
+                      renderColor={renderDictionaryColor}
+                      iconSuggestions={ICON_SUGGESTIONS}
+                      readMarkdownPreference={readMarkdownPreferenceCookie}
+                      writeMarkdownPreference={writeMarkdownPreferenceCookie}
+                    />
+                  )
+                }
+                if (activeTab === 'activities') {
+                  return (
+                    <ActivitiesSection
+                      entityId={personId}
+                      dealOptions={dealSelectOptions}
+                      defaultEntityId={personId ?? undefined}
+                      addActionLabel={t('customers.people.detail.activities.add')}
+                      emptyState={{
+                        title: t('customers.people.detail.emptyState.activities.title'),
+                        actionLabel: t('customers.people.detail.emptyState.activities.action'),
+                      }}
+                      onActionChange={handleSectionActionChange}
+                      onLoadingChange={handleActivitiesLoadingChange}
+                    />
+                  )
+                }
+                if (activeTab === 'deals') {
+                  return (
+                    <DealsSection
+                      scope={dealsScope}
+                      emptyLabel={t('customers.people.detail.empty.deals')}
+                      addActionLabel={t('customers.people.detail.actions.addDeal')}
+                      emptyState={{
+                        title: t('customers.people.detail.emptyState.deals.title'),
+                        actionLabel: t('customers.people.detail.emptyState.deals.action'),
+                      }}
+                      onActionChange={handleSectionActionChange}
+                      onLoadingChange={handleDealsLoadingChange}
+                      translator={detailTranslator}
+                    />
+                  )
+                }
+                if (activeTab === 'addresses') {
+                  return (
+                    <AddressesSection
+                      entityId={personId}
+                      emptyLabel={t('customers.people.detail.empty.addresses')}
+                      addActionLabel={t('customers.people.detail.addresses.add')}
+                      emptyState={{
+                        title: t('customers.people.detail.emptyState.addresses.title'),
+                        actionLabel: t('customers.people.detail.emptyState.addresses.action'),
+                      }}
+                      onActionChange={handleSectionActionChange}
+                      onLoadingChange={handleAddressesLoadingChange}
+                      translator={detailTranslator}
+                    />
+                  )
+                }
+                if (activeTab === 'tasks') {
+                  return (
+                    <TasksSection
+                      entityId={personId}
+                      initialTasks={data.todos}
+                      emptyLabel={t('customers.people.detail.empty.todos')}
+                      addActionLabel={t('customers.people.detail.tasks.add')}
+                      emptyState={{
+                        title: t('customers.people.detail.emptyState.tasks.title'),
+                        actionLabel: t('customers.people.detail.emptyState.tasks.action'),
+                      }}
+                      onActionChange={handleSectionActionChange}
+                      onLoadingChange={handleTasksLoadingChange}
+                      translator={detailTranslator}
+                      entityName={personName}
+                      dialogContextKey="customers.people.detail.tasks.dialog.context"
+                      dialogContextFallback="This task will be linked to {{name}}"
+                    />
+                  )
+                }
+                return null
+              })()}
             </div>
           </div>
   
@@ -794,6 +841,12 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             <div className="space-y-3">
               <h2 className="text-sm font-semibold">{t('customers.people.detail.sections.details')}</h2>
               <DetailFieldsSection fields={detailFields} />
+              <InjectionSpot
+                spotId="customers.person.detail:details"
+                context={injectionContext}
+                data={data}
+                onDataChange={(next) => setData(next as PersonOverview)}
+              />
             </div>
 
             <CustomDataSection

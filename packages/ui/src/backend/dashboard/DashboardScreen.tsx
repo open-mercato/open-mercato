@@ -10,6 +10,7 @@ import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboa
 import { cn } from '@/lib/utils'
 import { GripVertical, Plus, RefreshCw, Settings2, Trash2, X, Loader2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InjectionSpot } from '../injection/InjectionSpot'
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -289,6 +290,20 @@ export function DashboardScreen() {
     load()
   }, [load])
 
+  const injectionContext = React.useMemo(
+    () => ({
+      layout,
+      widgetCatalog,
+      allowedWidgetIds,
+      canConfigure,
+      editing,
+      userContext: context,
+    }),
+    [allowedWidgetIds, canConfigure, context, editing, layout, widgetCatalog],
+  )
+  const dashboardBeforeSpotId = 'dashboard:before'
+  const dashboardAfterSpotId = 'dashboard:after'
+
   if (loading) {
     return (
       <div className="flex min-h-[320px] items-center justify-center">
@@ -337,6 +352,8 @@ export function DashboardScreen() {
           action={<Button variant="ghost" onClick={handleRefresh}>{t('dashboard.error.reload')}</Button>}
         />
       )}
+
+      <InjectionSpot spotId={dashboardBeforeSpotId} context={injectionContext} />
 
       {editing && availableWidgets.length > 0 && (
         <div className="rounded-lg border border-dashed bg-muted/40 p-4">
@@ -427,6 +444,8 @@ export function DashboardScreen() {
           {canConfigure ? t('dashboard.empty.configurable') : t('dashboard.empty.readonly')}
         </div>
       )}
+
+      <InjectionSpot spotId={dashboardAfterSpotId} context={injectionContext} />
     </div>
   )
 }
