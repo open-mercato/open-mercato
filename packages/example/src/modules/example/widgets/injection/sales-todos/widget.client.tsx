@@ -5,7 +5,6 @@ import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -144,7 +143,12 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
         <ul className="space-y-2">
           {items.map((item) => (
             <li key={item.id} className="flex items-center gap-2 rounded border px-2 py-1.5">
-              <Checkbox checked={item.is_done} onCheckedChange={(v) => toggleTodo(item.id, v === true)} />
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border"
+                checked={item.is_done}
+                onChange={(e) => toggleTodo(item.id, e.target.checked)}
+              />
               <span className={`text-sm ${item.is_done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
                 {item.title || t('example.widgets.salesTodos.untitled', 'Untitled todo')}
               </span>
