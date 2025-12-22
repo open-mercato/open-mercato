@@ -5,6 +5,7 @@ import type {
   InjectionSpotId,
   ModuleInjectionSlot,
   ModuleInjectionTable,
+  InjectionWidgetPlacement,
 } from '@open-mercato/shared/modules/widgets/injection'
 
 type LoadedWidgetModule = InjectionWidgetModule<any, any> & { metadata: InjectionWidgetMetadata }
@@ -35,6 +36,10 @@ type TableEntry = {
     : never
 }
 let injectionTablePromise: Promise<Map<InjectionSpotId, TableEntry[]>> | null = null
+
+function isInjectionSlotObject(value: ModuleInjectionSlot): value is InjectionWidgetPlacement & { widgetId: string; priority?: number } {
+  return typeof value === 'object' && value !== null && 'widgetId' in value
+}
 
 /**
  * Invalidate the widget entries and widget module cache.
@@ -72,8 +77,8 @@ async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>>
               existing.push({ widgetId: widgetEntry, moduleId: entry.moduleId, priority: 0 })
               continue
             }
-            if (widgetEntry && typeof widgetEntry === 'object' && 'widgetId' in widgetEntry) {
-              const { widgetId, priority = 0, ...placement } = widgetEntry as ModuleInjectionSlot & { widgetId: string; priority?: number }
+            if (isInjectionSlotObject(widgetEntry)) {
+              const { widgetId, priority = 0, ...placement } = widgetEntry
               existing.push({
                 widgetId,
                 moduleId: entry.moduleId,

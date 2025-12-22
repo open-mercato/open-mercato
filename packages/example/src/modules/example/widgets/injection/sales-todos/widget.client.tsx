@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
@@ -38,10 +38,12 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
     try {
       const params = new URLSearchParams({ pageSize: '10' })
       if (organizationId) params.set('organizationId', organizationId)
-      const call = await apiCallOrThrow<{ items?: TodoItem[] }>(`/api/example/todos?${params.toString()}`, {
-        allowNullResult: true,
-      })
-      const list = Array.isArray(call.result?.items) ? call.result!.items! : []
+      const payload = await readApiResultOrThrow<{ items?: TodoItem[] }>(
+        `/api/example/todos?${params.toString()}`,
+        undefined,
+        { allowNullResult: true },
+      )
+      const list = Array.isArray(payload?.items) ? payload.items : []
       setItems(
         list.map((item) => ({
           id: String((item as any).id ?? ''),
@@ -88,12 +90,11 @@ export default function SalesTodosWidget({ context }: InjectionWidgetComponentPr
       try {
         const body: Record<string, unknown> = { title }
         if (organizationId) body.organizationId = organizationId
-        const call = await apiCallOrThrow<{ result?: TodoItem }>('/api/example/todos', {
+        const created = await readApiResultOrThrow<TodoItem>('/api/example/todos', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
-        })
-        const created = call.result
+        }, { allowNullResult: true })
         if (created?.id) {
           setItems((prev) => [{ id: String(created.id), title: String(created.title ?? title), is_done: !!created.is_done }, ...prev])
         } else {
