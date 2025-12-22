@@ -1,11 +1,5 @@
-import dynamic from 'next/dynamic'
 import type { ReactNode } from 'react'
-
-// Client-only InjectionSpot; loaded dynamically so the boundary can stay a Server Component.
-const InjectionSpot = dynamic(
-  () => import('./InjectionSpot').then((mod) => mod.InjectionSpot),
-  { ssr: false },
-)
+import { InjectionSpot } from './InjectionSpot'
 
 function normalizePath(path: string): string {
   const trimmed = path.replace(/\?.*$/, '').replace(/\/+$/, '')
