@@ -82,5 +82,8 @@ package-lock.json
 # IDE related
 .idea
 .claude
+debug-storybook.log
+*storybook.log
+storybook-static
 packages/cache/node_modules/*
 newrelic_agent.log
