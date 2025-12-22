@@ -3,6 +3,12 @@ import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { subscribeProductSeoValidation } from './state'
 
+type SeoData = {
+  title?: string | null
+  name?: string | null
+  description?: string | null
+}
+
 type ValidationState = { ok: boolean; issues: string[]; message?: string }
 
 function computeIssues(title: string, description: string): string[] {
@@ -21,9 +27,9 @@ function computeIssues(title: string, description: string): string[] {
   return issues
 }
 
-export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps) {
-  const title = (data?.title || data?.name || '') as string
-  const description = (data?.description || '') as string
+export default function ProductSeoWidget({ data }: InjectionWidgetComponentProps<unknown, SeoData>) {
+  const title = (data?.title || data?.name || '') ?? ''
+  const description = data?.description ?? ''
   const baselineIssues = React.useMemo(() => computeIssues(title, description), [title, description])
   const [validation, setValidation] = React.useState<ValidationState>({ ok: baselineIssues.length === 0, issues: baselineIssues })
 
