@@ -1,5 +1,6 @@
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import ProductSeoWidget from './widget.client'
+import { publishProductSeoValidation } from './state'
 
 const widget: InjectionWidgetModule<any, any> = {
   metadata: {
@@ -13,25 +14,39 @@ const widget: InjectionWidgetModule<any, any> = {
   Widget: ProductSeoWidget,
   eventHandlers: {
     onBeforeSave: async (data, context) => {
-      // Example: Validate that title and description are SEO-friendly
+      const issues: string[] = []
+      const fieldErrors: Record<string, string> = {}
+
       const title = data?.title || data?.name
       if (typeof title === 'string' && title.length > 0) {
         if (title.length < 10) {
-          console.warn('[Product SEO] Title is too short for good SEO (< 10 characters)')
-        }
-        if (title.length > 60) {
-          console.warn('[Product SEO] Title is too long for optimal SEO (> 60 characters)')
+          issues.push('Title is too short (min 10 characters).')
+          fieldErrors.title = 'Title is too short for good SEO (min 10 characters).'
+        } else if (title.length > 60) {
+          issues.push('Title is too long (max 60 characters recommended).')
+          fieldErrors.title = 'Title is too long for optimal SEO (max 60 characters).'
         }
       }
-      
+
       const description = data?.description
-      if (typeof description === 'string' && description.length > 0) {
-        if (description.length < 50) {
-          console.warn('[Product SEO] Description is too short for good SEO (< 50 characters)')
+      if (typeof description === 'string') {
+        if (description.trim().length === 0) {
+          issues.push('Add a product description for better SEO.')
+          fieldErrors.description = 'Provide a description to help search engines understand this product.'
+        } else if (description.length < 50) {
+          issues.push('Description is too short (min 50 characters).')
+          fieldErrors.description = 'Description is too short for good SEO (min 50 characters).'
         }
       }
-      
-      return true
+
+      if (issues.length) {
+        const message = 'SEO helper blocked save. Improve the highlighted fields.'
+        publishProductSeoValidation({ ok: false, issues, message })
+        return { ok: false, message, fieldErrors }
+      }
+
+      publishProductSeoValidation({ ok: true, issues: [] })
+      return { ok: true }
     },
   },
 }

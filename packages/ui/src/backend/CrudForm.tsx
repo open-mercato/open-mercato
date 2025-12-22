@@ -676,7 +676,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const injectionGroupCards = React.useMemo<CrudFormGroup[]>(() => {
     if (!injectionWidgets || injectionWidgets.length === 0) return []
     const pairs = injectionWidgets
-      .filter((widget) => (widget.placement?.kind ?? 'group') === 'group')
+      .filter((widget) => (widget.placement?.kind ?? 'stack') === 'group')
       .map((widget) => {
         const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
         const group: CrudFormGroup = {
@@ -1038,9 +1038,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     // Trigger onBeforeSave event for injection widgets
     if (resolvedInjectionSpotId) {
       try {
-        const canProceed = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
-        if (!canProceed) {
-          flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
+        if (!result.ok) {
+          if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
+            setErrors(result.fieldErrors)
+          }
+          const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+          flash(message, 'error')
           setPending(false)
           return
         }

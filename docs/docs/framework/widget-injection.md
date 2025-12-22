@@ -9,6 +9,7 @@ The widget injection system allows modules to:
 - Map widgets to specific injection spots (e.g., CRUD forms, detail pages)
 - Respond to lifecycle events (`onLoad`, `onBeforeSave`, `onSave`, `onAfterSave`)
 - Block or augment standard behaviors (e.g., validation, side effects)
+- Render multiple widgets per spot with placement hints (stacked, grouped cards, or tabs)
 
 ## Architecture
 
@@ -30,6 +31,12 @@ src/modules/<module>/
 │   │       └── widget.client.tsx  # React component (client-side)
 │   └── injection-table.ts         # Spot ID → Widget ID mappings
 ```
+
+### Built-in Injection Spots
+
+- **CRUD forms**: `crud-form:<entityId>` (automatically derived from `entityId`/`entityIds` passed to `CrudForm`). Widgets can request `placement.kind: 'group'` to render as a side-card and `column: 2` to appear in the right column.
+- **Data tables**: `data-table:<tableId>` (or pass `injectionSpotId` to `DataTable`). Header/footer child spots: `:header`, `:footer`.
+- **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 
 ## Creating an Injection Widget
 
@@ -58,11 +65,15 @@ const widget: InjectionWidgetModule<ContextType, DataType> = {
     },
     onBeforeSave: async (data, context) => {
       // Called before save action
-      // Return false to prevent save
+      // Return false to prevent save, or provide a message/field errors
       if (!isValid(data)) {
-        return false
+        return {
+          ok: false,
+          message: 'Title is required before saving',
+          fieldErrors: { title: 'Title is required' },
+        }
       }
-      return true
+      return { ok: true }
     },
     onSave: async (data, context) => {
       // Called during save action
@@ -175,7 +186,7 @@ Called before a save action is executed. Can prevent the save by returning `fals
 
 **Signature:**
 ```typescript
-onBeforeSave?: (data: TData, context: TContext) => boolean | void | Promise<boolean | void>
+onBeforeSave?: (data: TData, context: TContext) => boolean | { ok?: boolean; message?: string; fieldErrors?: Record<string, string> } | void | Promise<boolean | { ok?: boolean; message?: string; fieldErrors?: Record<string, string> } | void>
 ```
 
 **Use Cases:**

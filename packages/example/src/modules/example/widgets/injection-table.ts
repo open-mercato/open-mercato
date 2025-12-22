@@ -30,6 +30,13 @@ export const injectionTable: ModuleInjectionTable = {
       priority: -10,
     },
   ],
+
+  // Catalog products table header: quick SEO health report
+  'data-table:catalog.products:header': {
+    widgetId: 'example.injection.catalog-seo-report',
+    kind: 'stack',
+    priority: 5,
+  },
 }
 
 export default injectionTable

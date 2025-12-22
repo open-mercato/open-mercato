@@ -1,6 +1,11 @@
 "use client"
 import * as React from 'react'
-import type { InjectionSpotId, InjectionWidgetModule, WidgetInjectionEventHandlers } from '@open-mercato/shared/modules/widgets/injection'
+import type {
+  InjectionSpotId,
+  InjectionWidgetModule,
+  WidgetInjectionEventHandlers,
+  WidgetBeforeSaveResult,
+} from '@open-mercato/shared/modules/widgets/injection'
 import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/core/modules/widgets/lib/injection'
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
@@ -178,27 +183,51 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       event: keyof WidgetInjectionEventHandlers<TContext, TData>,
       data: TData,
       context: TContext
-    ): Promise<boolean> => {
+    ): Promise<{ ok: boolean; message?: string; fieldErrors?: Record<string, string> }> => {
+      const normalizeBeforeSave = (result: WidgetBeforeSaveResult): { ok: boolean; message?: string; fieldErrors?: Record<string, string> } => {
+        if (result === false) return { ok: false }
+        if (result === true || typeof result === 'undefined') return { ok: true }
+        if (result && typeof result === 'object') {
+          const ok = typeof result.ok === 'boolean' ? result.ok : true
+          const message = typeof result.message === 'string' ? result.message : undefined
+          const fieldErrors =
+            result.fieldErrors && typeof result.fieldErrors === 'object'
+              ? Object.fromEntries(
+                  Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
+                )
+              : undefined
+          return { ok, message, fieldErrors }
+        }
+        return { ok: true }
+      }
+
       for (const widget of widgets) {
         const handler = widget.module.eventHandlers?.[event]
         if (handler) {
           try {
             const result = await (handler as any)(data, context)
-            // If onBeforeSave returns false, prevent the action
-            if (event === 'onBeforeSave' && result === false) {
-              console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
-              return false
+            if (event === 'onBeforeSave') {
+              const normalized = normalizeBeforeSave(result as WidgetBeforeSaveResult)
+              if (!normalized.ok) {
+                console.log(`[useInjectionSpotEvents] Widget ${widget.widgetId} prevented ${event}`)
+                return normalized
+              }
             }
           } catch (err) {
             console.error(`[useInjectionSpotEvents] Error in ${event} for widget ${widget.widgetId}:`, err)
-            // For onBeforeSave, treat errors as preventing the action
             if (event === 'onBeforeSave') {
-              return false
+              const message =
+                err instanceof Error
+                  ? err.message || 'Validation blocked'
+                  : typeof err === 'string'
+                    ? err
+                    : undefined
+              return { ok: false, message }
             }
           }
         }
       }
-      return true
+      return { ok: true }
     },
     [widgets]
   )

@@ -1,10 +1,4 @@
-import type { Metadata } from 'next'
 import { ContentLayout } from '../components/ContentLayout'
-
-export const metadata: Metadata = {
-  title: 'Privacy Policy',
-  description: 'How the Open Mercato demo environment processes data.',
-}
 
 export default function PrivacyPage() {
   return (

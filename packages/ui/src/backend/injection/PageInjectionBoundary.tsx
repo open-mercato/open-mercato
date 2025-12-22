@@ -1,7 +1,11 @@
-"use client"
+import dynamic from 'next/dynamic'
+import type { ReactNode } from 'react'
 
-import * as React from 'react'
-import { InjectionSpot } from './InjectionSpot'
+// Client-only InjectionSpot; loaded dynamically so the boundary can stay a Server Component.
+const InjectionSpot = dynamic(
+  () => import('./InjectionSpot').then((mod) => mod.InjectionSpot),
+  { ssr: false },
+)
 
 function normalizePath(path: string): string {
   const trimmed = path.replace(/\?.*$/, '').replace(/\/+$/, '')
@@ -17,11 +21,11 @@ export function PageInjectionBoundary({
 }: {
   path: string
   context?: Record<string, unknown>
-  children: React.ReactNode
+  children: ReactNode
 }) {
-  const handle = React.useMemo(() => normalizePath(path || '/'), [path])
-  const beforeSpotId = React.useMemo(() => `admin.page:${handle}:before`, [handle])
-  const afterSpotId = React.useMemo(() => `admin.page:${handle}:after`, [handle])
+  const handle = normalizePath(path || '/')
+  const beforeSpotId = `admin.page:${handle}:before`
+  const afterSpotId = `admin.page:${handle}:after`
 
   return (
     <>

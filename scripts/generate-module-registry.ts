@@ -707,8 +707,6 @@ function scan() {
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${vectorImportName ? `vector: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? undefined),` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
-      ${injectionWidgets.length ? `injectionWidgets: [${injectionWidgets.join(', ')}],` : ''}
-      ${injectionTableImportName ? `injectionTable: ((${injectionTableImportName}.default ?? ${injectionTableImportName}.injectionTable) as any) || {},` : ''}
     }`)
   }
 

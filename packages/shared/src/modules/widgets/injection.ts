@@ -11,9 +11,10 @@ export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = 
 
   /**
    * Called before save action is executed
-   * Return false or throw to prevent save
+   * Return false or throw to prevent save. Optionally return an object with
+   * `ok`, `message`, and `fieldErrors` to surface a user-facing reason.
    */
-  onBeforeSave?: (data: TData, context: TContext) => boolean | void | Promise<boolean | void>
+  onBeforeSave?: (data: TData, context: TContext) => WidgetBeforeSaveResult | Promise<WidgetBeforeSaveResult>
 
   /**
    * Called when save action is triggered
@@ -77,6 +78,15 @@ export type InjectionWidgetComponentProps<TContext = unknown, TData = unknown> =
   onDataChange?: (data: TData) => void
   disabled?: boolean
 }
+
+export type WidgetBeforeSaveResult =
+  | boolean
+  | void
+  | {
+      ok?: boolean
+      message?: string
+      fieldErrors?: Record<string, string>
+    }
 
 /**
  * Complete injection widget module definition
