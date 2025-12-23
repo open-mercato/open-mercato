@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2017",
     "lib": [
       "dom",
@@ -141,17 +142,17 @@
       "@open-mercato/shipments/generated/*": [
         "./packages/shipments/generated/*"
       ],
-      "@open-mercato/freighttech_tracking/*": [
-        "./packages/freighttech_tracking/src/*"
+      "@open-mercato/fms_tracking/*": [
+        "packages/fms_tracking/src/*"
       ],
-      "@open-mercato/freighttech_tracking/datamodel/entities": [
-        "./packages/freighttech_tracking/generated/entities.ids.generated.ts"
+      "@open-mercato/fms_tracking/datamodel/entities": [
+        "packages/fms_tracking/generated/entities.ids.generated.ts"
       ],
-      "@open-mercato/freighttech_tracking/datamodel/entities/*": [
-        "./packages/freighttech_tracking/generated/entities/*"
+      "@open-mercato/fms_tracking/datamodel/entities/*": [
+        "packages/fms_tracking/generated/entities/*"
       ],
-      "@open-mercato/freighttech_tracking/generated/*": [
-        "./packages/freighttech_tracking/generated/*"
+      "@open-mercato/fms_tracking/generated/*": [
+        "packages/fms_tracking/generated/*"
       ]
     }
   },

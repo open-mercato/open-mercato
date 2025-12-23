@@ -8,20 +8,22 @@ import { Shipment } from '../../data/entities'
 import { updateShipmentSchema } from '../../data/validators'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { EventBus } from '@open-mercato/events/types'
+import { CommandBus, CommandRuntimeContext } from '@/lib/commands'
 
 const paramsSchema = z.object({
-    id: z.string().uuid(),
+    id: z.uuid(),
 })
 
-export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
-    const auth = await getAuthFromRequest(_req)
+export async function GET(req: Request, ctx: { params?: { id?: string } }) {
+    const auth = await getAuthFromRequest(req)
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const parse = paramsSchema.safeParse({ id: ctx.params?.id })
     if (!parse.success) return NextResponse.json({ error: 'Invalid shipment id' }, { status: 400 })
 
     const container = await createRequestContainer()
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const em = container.resolve('em') as EntityManager
 
     const shipment = await em.findOne(Shipment, { id: parse.data.id }, {
@@ -45,24 +47,25 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     return NextResponse.json(shipment)
 }
 
-export async function PUT(_req: Request, ctx: { params?: { id?: string } }) {
-    const auth = await getAuthFromRequest(_req)
+export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
+    const auth = await getAuthFromRequest(req)
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const parse = paramsSchema.safeParse({ id: ctx.params?.id })
     if (!parse.success) return NextResponse.json({ error: 'Invalid shipment id' }, { status: 400 })
 
-    const body = await _req.json()
+    const body = await req.json()
     const validation = updateShipmentSchema.safeParse(body)
     if (!validation.success) {
         return NextResponse.json({ error: 'Invalid input', details: validation.error }, { status: 400 })
     }
 
     const container = await createRequestContainer()
-    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     const em = container.resolve('em') as EntityManager
 
     const shipment = await em.findOne(Shipment, { id: parse.data.id })
+    const before = shipment
 
     if (!shipment) return NextResponse.json({ error: 'Shipment not found' }, { status: 404 })
 
@@ -135,6 +138,46 @@ export async function PUT(_req: Request, ctx: { params?: { id?: string } }) {
         'assignedTo'
     ])
 
+    const eventBus = container.resolve<EventBus>('eventBus')
+    if (before?.id) {
+        await eventBus.emitEvent('shipment.updated', shipment)
+    } else {
+        await eventBus.emitEvent('shipment.created', shipment)
+    }
+
+    const cmdCtx: CommandRuntimeContext = {
+        container,
+        auth,
+        organizationScope: scope,
+        selectedOrganizationId: shipment.organizationId,
+        organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+        request: req,
+    }
+
+    // const commandBus = container.resolve<CommandBus>('commandBus')
+    // const cmdRes = await commandBus.execute('shipments.tracking.register', {
+    //     input: {
+    //         organizationId: shipment.organizationId,
+    //         tenantId: shipment.tenantId,
+    //         bookingNumber: shipment.bookingNumber,
+    //         carrierCode: shipment.carrier,
+    //     }, ctx: cmdCtx
+    // })
+
+    const command = container.resolve<CommandBus>('commandBus')
+    const cmdRes = await command.execute('fms_tracking.tracking.register', {
+        ctx: cmdCtx, input: {
+            organizationId: shipment.organizationId,
+            tenantId: shipment.tenantId,
+            bookingNumber: shipment.bookingNumber,
+            carrierCode: shipment.carrier,
+        }
+    })
+
+    // when we add tracking by bookingNumber: populate containers
+    // 
+
+    console.log(cmdRes)
 
     return NextResponse.json(shipment)
 }
@@ -166,7 +209,10 @@ export async function DELETE(_req: Request, ctx: { params?: { id?: string } }) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    await em.removeAndFlush(shipment)
+    await em.remove(shipment).flush()
+
+    const eventBus = container.resolve('eventBus') as EventBus
+    await eventBus.emitEvent('shipment.deleted', shipment)
 
     return NextResponse.json({ success: true })
 }
