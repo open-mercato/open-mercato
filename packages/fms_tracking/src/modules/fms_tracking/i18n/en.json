@@ -1,0 +1,30 @@
+{
+  "fms_tracking": {
+    "settings": {
+      "title": "FMS Tracking",
+      "configuration": "FMS Tracking Configuration",
+
+      "errors": {
+        "load": "Failed to load settings.",
+        "save": "Failed to save settings.",
+        "organization_required": "Organization context is required."
+      },
+      "actions": {
+        "save": "Save settings",
+        "saving": "Saving…",
+        "reset": "Reset changes"
+      },
+      "messages": {
+        "saved": "Configuration saved."
+      },
+      "api_key":{
+        "label": "API-Key",
+        "hint": "Authorization key for the tracking system"
+      },
+      "api_base_url":{
+        "label": "API URL",
+        "hint": "Base URL of the tracking system"
+      }
+    }
+  }
+}
