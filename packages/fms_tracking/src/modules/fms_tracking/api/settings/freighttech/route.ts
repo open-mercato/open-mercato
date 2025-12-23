@@ -124,22 +124,9 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Missing scope', schema: settingsErrorSchema },
       ],
     },
-    POST: {
-      summary: 'Create settings',
-      description: 'Create Freighttech tracking API settings for the current organization',
-      requestBody: {
-        contentType: 'application/json',
-        schema: freighttechSettingsSchema,
-      },
-      responses: [
-        { status: 201, description: 'Created settings', schema: settingsResponseSchema },
-        { status: 401, description: 'Unauthorized', schema: settingsErrorSchema },
-        { status: 400, description: 'Invalid payload', schema: settingsErrorSchema },
-      ],
-    },
     PUT: {
-      summary: 'Update settings',
-      description: 'Update Freighttech tracking API settings for the current organization',
+      summary: 'Upsert settings',
+      description: 'Upsert Freighttech tracking API settings for the current organization',
       requestBody: {
         contentType: 'application/json',
         schema: freighttechSettingsSchema,

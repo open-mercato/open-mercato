@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { decodeWebhookToken } from '../../../lib/webhookToken'
-import { ScopedWebhookInput, webhookSchema } from '../../../data/validators'
+import { ScopedWebhookInput, freighttechWebhookSchema } from '../../../data/validators'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@/lib/di/container'
 import { EntityManager } from '@mikro-orm/postgresql'
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     const { ctx, translate } = await resolveWebhookContext(req)
 
     const payload = await req.json().catch(() => ({}))
-    const data = webhookSchema.parse(payload)
+    const data = freighttechWebhookSchema.parse(payload)
     const input = withScopedPayload({ data }, ctx, translate) as ScopedWebhookInput
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
@@ -105,7 +105,7 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Push container data',
       requestBody: {
         contentType: 'application/json',
-        schema: webhookSchema,
+        schema: freighttechWebhookSchema,
       },
       responses: [
         { status: 200, description: 'Received data', schema: successSchema },

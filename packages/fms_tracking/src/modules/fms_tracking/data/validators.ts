@@ -77,7 +77,7 @@ const payloadSchema = z.object({
   inland_destination: locationSchema,
 })
 
-export const webhookSchema = z.object({
+export const freighttechWebhookSchema = z.object({
   id: z.string(),
   reference_id: z.string(),
   parent_reference_id: z.string().nullable(),
@@ -88,8 +88,8 @@ export const webhookSchema = z.object({
   updated_at: z.string(),
 })
 
-export const scopedWebhookSchema = scoped.extend({
-  data: webhookSchema
+export const scopedFreighttechWebhookSchema = scoped.extend({
+  data: freighttechWebhookSchema
 })
 
-export type ScopedWebhookInput = z.infer<typeof scopedWebhookSchema>
+export type ScopedWebhookInput = z.infer<typeof scopedFreighttechWebhookSchema>
