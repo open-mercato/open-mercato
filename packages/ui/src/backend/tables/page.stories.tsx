@@ -5,8 +5,10 @@ import type { Meta, StoryObj } from '@storybook/react';
 import Table from './index';
 import { TableEvents } from './events/types';
 import { dispatch, useMediator } from './events/events';
-import { CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent,  ColumnContextMenuEvent,
-  RowContextMenuEvent } from './events/types';
+import {
+  CellEditSaveEvent, CellSaveStartEvent, CellSaveSuccessEvent, CellSaveErrorEvent, NewRowSaveEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent, ColumnContextMenuEvent,
+  RowContextMenuEvent
+} from './events/types';
 import { ApiCallResult } from '../utils/apiCall';
 import { emailValidator } from "./validators";
 import { ColumnSortEvent, SearchEvent } from './events/types';
@@ -124,6 +126,7 @@ const generateData = (count: number) => {
   const roles = ['Manager', 'Developer', 'Designer', 'Analyst', 'Director', 'Lead', 'Specialist', 'Coordinator'];
   const locations = ['New York', 'Los Angeles', 'Chicago', 'San Francisco', 'Boston', 'Seattle', 'Austin', 'Miami'];
   const countries = ['USA', 'UK', 'Canada', 'Germany', 'France', 'Japan', 'Australia'];
+  const statuses = ['Active', 'Inactive', 'On Leave', 'Pending'];
 
   return Array.from({ length: count }, (_, i) => ({
     id: i + 1,
@@ -136,11 +139,71 @@ const generateData = (count: number) => {
     location: locations[Math.floor(Math.random() * locations.length)],
     country: countries[Math.floor(Math.random() * countries.length)],
     startDate: `20${15 + Math.floor(Math.random() * 10)}-${String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`,
+    birthDate: `19${70 + Math.floor(Math.random() * 30)}-${String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 28) + 1).padStart(2, '0')}`,
     rating: +(3.5 + Math.random() * 1.5).toFixed(1),
     salary: 50000 + Math.floor(Math.random() * 80000),
     active: Math.random() > 0.2,
-    notes: `Notes for person ${i + 1}`
+    status: statuses[Math.floor(Math.random() * statuses.length)],
+    notes: `Notes for person ${i + 1}`,
+    tags: ['tag1', 'tag2', 'tag3'].slice(0, Math.floor(Math.random() * 3) + 1)
   }));
+};
+
+// Custom Tags Editor Component
+const TagsEditor = ({ value, onChange, onSave, onCancel }: any) => {
+  const [localValue, setLocalValue] = React.useState(Array.isArray(value) ? value.join(', ') : '');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const tags = localValue.split(',').map(t => t.trim()).filter(t => t);
+      onChange(tags);
+      onSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      onCancel();
+    }
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onBlur={() => {
+        const tags = localValue.split(',').map(t => t.trim()).filter(t => t);
+        onChange(tags);
+        onSave();
+      }}
+      placeholder="Enter tags separated by commas"
+      className="hot-cell-editor"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        height: '100%',
+        border: 'none',
+        outline: 'none',
+        padding: '4px 6px',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '13px',
+        background: 'white',
+        boxShadow: 'inset 0 0 0 2px #1a42e8',
+        zIndex: 10,
+      }}
+    />
+  );
 };
 
 const DynamicTableExample = () => {
@@ -150,18 +213,86 @@ const DynamicTableExample = () => {
   const [editLog, setEditLog] = useState<Array<{ timestamp: string; row: number; col: number; value: any }>>([]);
 
   const columns = [
-    { data: 'id', width: 60, title: 'ID', readOnly: true, sticky: 'left' },
-    { data: 'name', width: 150, title: 'Name', },
-    { data: 'email', width: 220, title: 'Email', validator: emailValidator },
-    { data: 'phone', width: 130, title: 'Phone' },
-    { data: 'age', width: 70, title: 'Age' },
-    { data: 'role', width: 180, title: 'Role' },
-    { data: 'department', width: 120, title: 'Department' },
-    { data: 'location', width: 130, title: 'Location' },
-    { data: 'country', width: 100, title: 'Country' },
-    { data: 'startDate', width: 120, title: 'Start Date' },
     {
-      data: 'rating', width: 90, title: 'Rating', renderer: (value: number) => (
+      data: 'id',
+      width: 60,
+      title: 'ID',
+      readOnly: true,
+      sticky: 'left'
+    },
+    {
+      data: 'name',
+      width: 150,
+      title: 'Name',
+      // Default text editor (no type specified)
+    },
+    {
+      data: 'email',
+      width: 220,
+      title: 'Email',
+      validator: emailValidator
+    },
+    {
+      data: 'phone',
+      width: 130,
+      title: 'Phone'
+    },
+    {
+      data: 'age',
+      width: 70,
+      title: 'Age',
+      type: 'numeric', // Numeric editor
+    },
+    {
+      data: 'role',
+      width: 180,
+      title: 'Role'
+    },
+    {
+      data: 'department',
+      width: 120,
+      title: 'Department',
+      type: 'dropdown', // Dropdown editor
+      source: ['Engineering', 'Marketing', 'Sales', 'HR', 'Finance', 'Design', 'Operations', 'Legal']
+    },
+    {
+      data: 'location',
+      width: 130,
+      title: 'Location'
+    },
+    {
+      data: 'country',
+      width: 100,
+      title: 'Country',
+      type: 'dropdown', // Dropdown with object values
+      source: [
+        { value: 'USA', label: '🇺🇸 USA' },
+        { value: 'UK', label: '🇬🇧 UK' },
+        { value: 'Canada', label: '🇨🇦 Canada' },
+        { value: 'Germany', label: '🇩🇪 Germany' },
+        { value: 'France', label: '🇫🇷 France' },
+        { value: 'Japan', label: '🇯🇵 Japan' },
+        { value: 'Australia', label: '🇦🇺 Australia' }
+      ]
+    },
+    {
+      data: 'startDate',
+      width: 120,
+      title: 'Start Date',
+      type: 'date', // Date editor
+    },
+    {
+      data: 'birthDate',
+      width: 120,
+      title: 'Birth Date',
+      type: 'date', // Date editor
+    },
+    {
+      data: 'rating',
+      width: 90,
+      title: 'Rating',
+      type: 'numeric', // Numeric editor
+      renderer: (value: number) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           <span>{'⭐'.repeat(Math.floor(value))}</span>
           <span style={{ fontSize: '12px', color: '#666' }}>{value}</span>
@@ -169,14 +300,22 @@ const DynamicTableExample = () => {
       )
     },
     {
-      data: 'salary', width: 110, title: 'Salary', type: 'numeric', numericFormat: {
+      data: 'salary',
+      width: 110,
+      title: 'Salary',
+      type: 'numeric', // Numeric editor with formatting
+      numericFormat: {
         style: 'currency',
         currency: 'USD',
         locale: 'en-US'
       }
     },
     {
-      data: 'active', width: 100, title: 'Status', renderer: (value: boolean) => (
+      data: 'active',
+      width: 100,
+      title: 'Active',
+      type: 'boolean', // Boolean editor (checkbox)
+      renderer: (value: boolean) => (
         <span style={{
           color: value ? '#10b981' : '#ef4444',
           fontWeight: 'bold',
@@ -189,7 +328,56 @@ const DynamicTableExample = () => {
         </span>
       )
     },
-    { data: 'notes', width: 250, title: 'Notes' },
+    {
+      data: 'status',
+      width: 120,
+      title: 'Status',
+      type: 'dropdown', // Dropdown editor
+      source: ['Active', 'Inactive', 'On Leave', 'Pending']
+    },
+    {
+      data: 'notes',
+      width: 250,
+      title: 'Notes'
+    },
+    {
+      data: 'tags',
+      width: 200,
+      title: 'Tags',
+      // Custom editor
+      editor: (value, onChange, onSave, onCancel, rowData, col, rowIndex, colIndex) => {
+        return (
+          <TagsEditor
+            value={value}
+            onChange={onChange}
+            onSave={onSave}
+            onCancel={onCancel}
+          />
+        );
+      },
+      renderer: (value: string[]) => {
+        if (!Array.isArray(value)) return null;
+        return (
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+            {value.map((tag, idx) => (
+              <span
+                key={idx}
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: '#e8f0fe',
+                  color: '#1a42e8',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                }}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        );
+      }
+    },
   ];
 
   // Handle cell edits (not for new rows)
@@ -208,7 +396,7 @@ const DynamicTableExample = () => {
       );
 
       try {
-        const response = await mockApiSave(payload.rowIndex, payload.colIndex, payload.value);
+        const response = await mockApiSave(payload.rowIndex, payload.colIndex, payload.newValue);
 
         if (response.ok) {
           dispatch(
@@ -305,7 +493,7 @@ const DynamicTableExample = () => {
     TableEvents.COLUMN_SORT,
     useCallback((payload: ColumnSortEvent) => {
       console.log('Sort triggered:', payload);
-      
+
       // Make your API call here
       if (payload.direction) {
         console.log('Sort triggered:', payload);
@@ -363,7 +551,7 @@ const DynamicTableExample = () => {
     TableEvents.COLUMN_CONTEXT_MENU_ACTION,
     useCallback((payload: ColumnContextMenuEvent) => {
       console.log('Column context menu action:', payload);
-      
+
       switch (payload.actionId) {
         case 'sort-asc':
           console.log(`Sorting column ${payload.columnName} (index ${payload.columnIndex}) ascending`);
@@ -398,7 +586,7 @@ const DynamicTableExample = () => {
     TableEvents.ROW_CONTEXT_MENU_ACTION,
     useCallback((payload: RowContextMenuEvent) => {
       console.log('Row context menu action:', payload);
-      
+
       switch (payload.actionId) {
         case 'edit':
           console.log(`Editing row ${payload.rowIndex}:`, payload.rowData);
@@ -433,10 +621,13 @@ const DynamicTableExample = () => {
               location: '',
               country: '',
               startDate: new Date().toISOString().split('T')[0],
+              birthDate: '',
               rating: 0,
               salary: 0,
               active: true,
-              notes: ''
+              status: 'Pending',
+              notes: '',
+              tags: []
             };
             newData.splice(payload.rowIndex, 0, newRow);
             return newData;
@@ -457,10 +648,13 @@ const DynamicTableExample = () => {
               location: '',
               country: '',
               startDate: new Date().toISOString().split('T')[0],
+              birthDate: '',
               rating: 0,
               salary: 0,
               active: true,
-              notes: ''
+              status: 'Pending',
+              notes: '',
+              tags: []
             };
             newData.splice(payload.rowIndex + 1, 0, newRow);
             return newData;
@@ -477,6 +671,21 @@ const DynamicTableExample = () => {
 
   return (
     <div className="space-y-4">
+      <div style={{ padding: '16px', backgroundColor: '#f9f9f9', borderRadius: '8px', marginBottom: '16px' }}>
+        <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: 'bold' }}>Editor Types Demo</h3>
+        <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', lineHeight: '1.8' }}>
+          <li><strong>Text Editor (default):</strong> Name, Email, Phone, Location, Notes</li>
+          <li><strong>Numeric Editor:</strong> Age, Rating, Salary (try editing these fields)</li>
+          <li><strong>Date Editor:</strong> Start Date, Birth Date (double-click to see date picker)</li>
+          <li><strong>Dropdown Editor:</strong> Department, Country, Status (select from predefined options)</li>
+          <li><strong>Boolean Editor:</strong> Active (checkbox editor)</li>
+          <li><strong>Custom Editor:</strong> Tags (comma-separated input with custom rendering)</li>
+        </ul>
+        <p style={{ marginTop: '12px', fontSize: '12px', color: '#666' }}>
+          💡 <strong>Tip:</strong> Double-click any cell to start editing. Press Enter to save, Escape to cancel, Tab to move to next cell.
+        </p>
+      </div>
+
       <Table
         tableRef={tableRef}
         data={data}

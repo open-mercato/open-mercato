@@ -5,6 +5,7 @@
 import React, { useState, memo, useCallback, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { getCellRenderer } from './renderers';
+import { getCellEditor } from './editors';
 import { dispatch, useMediator } from "./events/events"
 import { CellSaveErrorEvent, CellSaveStartEvent, CellSaveSuccessEvent, TableEvents, NewRowSaveEvent, NewRowSaveStartEvent, NewRowSaveSuccessEvent, NewRowSaveErrorEvent, FilterChangeEvent } from './events/types';
 import FilterBuilder from './Filterbuilder';
@@ -46,11 +47,11 @@ interface TableCellProps {
     right?: boolean;
   };
   isEditing?: boolean;
-  editValue?: string;
-  onEditChange?: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  onEditKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  onEditBlur?: () => void;
-  editInputRef?: React.RefObject<HTMLTextAreaElement | null>;
+  editValue?: any;
+  onEditChange?: (value: any) => void;
+  onEditBlur?: (value?: any) => void;
+  onEditCancel?: () => void;
+  editInputRef?: React.RefObject<any>;
   saveState?: CellSaveState;
   isNewRow?: boolean;
   isFirstDataCell?: boolean;
@@ -87,8 +88,8 @@ const TableCell = memo<TableCellProps>(({
   isEditing,
   editValue,
   onEditChange,
-  onEditKeyDown,
   onEditBlur,
+  onEditCancel,
   editInputRef,
   saveState,
   isNewRow,
@@ -187,14 +188,17 @@ const TableCell = memo<TableCellProps>(({
       data-sticky-right={stickyRight !== undefined}
     >
       {isEditing ? (
-        <textarea
-          ref={editInputRef}
-          value={editValue}
-          onChange={onEditChange}
-          onKeyDown={onEditKeyDown}
-          onBlur={onEditBlur}
-          className="hot-cell-editor"
-        />
+        getCellEditor(
+          col,
+          editValue,
+          (newValue: any) => onEditChange?.(newValue),
+          () => onEditBlur?.(),
+          () => onEditCancel?.(),
+          rowData,
+          rowIndex,
+          colIndex,
+          editInputRef
+        )
       ) : (
         renderedValue
       )}
@@ -227,7 +231,7 @@ interface SelectionState {
 interface EditingState {
   row: number | null;
   col: number | null;
-  value: string;
+  value: any;
 }
 
 interface HOTProps {
@@ -272,12 +276,12 @@ const HOT: React.FC<HOTProps> = ({
   });
   const [cellSaveStates, setCellSaveStates] = useState<Map<string, CellSaveState>>(new Map());
   const [rowSaveStates, setRowSaveStates] = useState<Map<number, 'saving' | 'success' | 'error' | null>>(new Map());
-  const [editing, setEditing] = useState<EditingState>({ row: null, col: null, value: '' });
+  const [editing, setEditing] = useState<EditingState>({ row: null, col: null, value: null });
   const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<any>(null);
   const dragTypeRef = useRef<'cell' | 'row' | 'column' | null>(null);
   const lastUpdateRef = useRef(0);
-  const editInputRef = useRef<HTMLTextAreaElement>(null);
+  const editInputRef = useRef<any>(null);
   const isTabbing = useRef(false);
   const [columnWidths, setColumnWidths] = useState<Map<number, number>>(new Map());
   const [resizingCol, setResizingCol] = useState<number | null>(null);
@@ -297,7 +301,7 @@ const HOT: React.FC<HOTProps> = ({
     type: 'column' | 'row' | null;
     index: number | null;
   } | null>(null);
-  
+
   const THROTTLE_MS = 50;
 
   const isObjectData = tableData.length > 0 && typeof tableData[0] === 'object' && !Array.isArray(tableData[0]);
@@ -394,10 +398,10 @@ const HOT: React.FC<HOTProps> = ({
 
   const handleColumnSort = useCallback((colIndex: number) => {
     const col = allColumns[colIndex];
-    
+
     // Cycle through: null -> asc -> desc -> null
     let newDirection: 'asc' | 'desc' | null;
-    
+
     if (sortState.columnIndex === colIndex) {
       // Same column clicked, cycle through directions
       if (sortState.direction === null) {
@@ -411,13 +415,13 @@ const HOT: React.FC<HOTProps> = ({
       // Different column clicked, start with asc
       newDirection = 'asc';
     }
-    
+
     // Update state
     setSortState({
       columnIndex: newDirection === null ? null : colIndex,
       direction: newDirection
     });
-    
+
     // Dispatch event
     dispatch(
       tableRef?.current as HTMLElement,
@@ -433,11 +437,11 @@ const HOT: React.FC<HOTProps> = ({
   const handleColHeaderDoubleClick = useCallback((e: React.MouseEvent, colIndex: number) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!columnActions) return;
-    
+
     const actions = columnActions(allColumns[colIndex], colIndex);
-    
+
     setContextMenu({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },
@@ -457,11 +461,11 @@ const HOT: React.FC<HOTProps> = ({
   const handleRowHeaderDoubleClick = useCallback((e: React.MouseEvent, rowIndex: number) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!rowActions) return;
-    
+
     const actions = rowActions(tableData[rowIndex], rowIndex);
-    
+
     setContextMenu({
       isOpen: true,
       position: { x: e.clientX, y: e.clientY },
@@ -473,7 +477,7 @@ const HOT: React.FC<HOTProps> = ({
 
   const handleContextMenuAction = useCallback((actionId: string) => {
     if (!contextMenu) return;
-    
+
     if (contextMenu.type === 'column') {
       dispatch(
         tableRef?.current as HTMLElement,
@@ -495,7 +499,7 @@ const HOT: React.FC<HOTProps> = ({
         } as RowContextMenuEvent
       );
     }
-    
+
     setContextMenu(null);
   }, [contextMenu, allColumns, tableData, tableRef]);
 
@@ -553,18 +557,19 @@ const HOT: React.FC<HOTProps> = ({
     };
   }, [selection.colRange]);
 
-  const handleEditSave = useCallback(() => {
+  const handleEditSave = useCallback((providedValue?: any) => {
     if (editing.row === null || editing.col === null) return;
 
     // If we're tabbing, skip the blur-triggered save
     if (isTabbing.current) return;
 
     const oldValue = tableData[editing.row][cols[editing.col].data];
-    const newValue = editing.value;
+    // Use provided value if passed, otherwise use editing.value
+    const newValue = providedValue !== undefined ? providedValue : editing.value;
 
     // Only proceed if value changed
-    if (String(oldValue ?? '') === newValue) {
-      setEditing({ row: null, col: null, value: '' });
+    if (String(oldValue ?? '') === String(newValue ?? '')) {
+      setEditing({ row: null, col: null, value: null });
       return;
     }
 
@@ -593,8 +598,8 @@ const HOT: React.FC<HOTProps> = ({
       );
     }
 
-    setEditing({ row: null, col: null, value: '' });
-  }, [editing, tableData, cols, isObjectData, idColumName]);
+    setEditing({ row: null, col: null, value: null });
+  }, [editing, tableData, cols, isObjectData, idColumName, tableRef]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (editing.row !== null) {
@@ -727,31 +732,31 @@ const HOT: React.FC<HOTProps> = ({
   const handleResizeMouseDown = useCallback((e: React.MouseEvent, colIndex: number) => {
     e.stopPropagation();
     e.preventDefault();
-    
+
     const currentWidth = getColumnWidth(colIndex);
     resizeStartX.current = e.clientX;
     resizeStartWidth.current = currentWidth;
     setResizingCol(colIndex);
   }, [getColumnWidth]);
-  
+
   const handleResizeMouseMove = useCallback((e: MouseEvent) => {
     if (resizingCol === null) return;
-    
+
     const diff = e.clientX - resizeStartX.current;
     const newWidth = Math.max(50, resizeStartWidth.current + diff); // Minimum width of 50px
-    
+
     setColumnWidths(prev => {
       const next = new Map(prev);
       next.set(resizingCol, newWidth);
       return next;
     });
   }, [resizingCol]);
-  
+
   const handleResizeMouseUp = useCallback(() => {
     setResizingCol(null);
   }, []);
 
-  const parseValueByType = (value: string, col: any): any => {
+  const parseValueByType = (value: any, col: any): any => {
     if (!col.type) return value;
 
     // Handle empty values
@@ -770,7 +775,7 @@ const HOT: React.FC<HOTProps> = ({
         return isNaN(date.getTime()) ? null : date;
 
       case 'boolean':
-        return value === 'true' || value === '1' || value === 'yes';
+        return value === 'true' || value === '1' || value === 'yes' || value === true;
 
       default:
         return value;
@@ -820,77 +825,12 @@ const HOT: React.FC<HOTProps> = ({
     });
 
     const currentValue = getCellValue(tableData[row], cols[col]);
-    setEditing({ row, col, value: String(currentValue ?? '') });
+    setEditing({ row, col, value: currentValue });
   }, [tableData, cols, getCellValue]);
 
   const handleEditCancel = useCallback(() => {
-    setEditing({ row: null, col: null, value: '' });
+    setEditing({ row: null, col: null, value: null });
   }, []);
-
-  const handleEditKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      const editedRow = editing.row!;
-      const editedCol = editing.col!;
-
-      const oldValue = tableData[editedRow][cols[editedCol].data];
-      const newValue = editing.value;
-
-      const newData = [...tableData];
-      if (isObjectData) {
-        newData[editedRow] = { ...newData[editedRow], [cols[editedCol].data]: newValue };
-      } else {
-        newData[editedRow] = [...newData[editedRow]];
-        newData[editedRow][cols[editedCol].data] = newValue;
-      }
-      setTableData(newData);
-
-      // Dispatch save event if NOT a new row and value changed
-      if (!newData[editedRow]._isNew && String(oldValue ?? '') !== newValue) {
-        const parsedValue = parseValueByType(newValue, cols[editing.col!]);
-        dispatch(
-          tableRef?.current as HTMLElement,
-          TableEvents.CELL_EDIT_SAVE,
-          {
-            rowIndex: editedRow,
-            colIndex: editedCol,
-            oldValue: oldValue,
-            newValue: parsedValue,
-            prop: cols[editing.col!].data,
-            rowData: newData[editedRow],
-            id: isObjectData ? newData[editedRow][idColumName] : undefined
-          }
-        );
-      }
-
-      const nextRow = editedRow + 1;
-      if (nextRow < tableData.length) {
-        const nextValue = getCellValue(newData[nextRow], cols[editedCol]);
-        setSelection({
-          type: 'range',
-          row: null,
-          col: null,
-          range: { startRow: nextRow, endRow: nextRow, startCol: editedCol, endCol: editedCol },
-          rowRange: null,
-          colRange: null
-        });
-        setEditing({ row: nextRow, col: editedCol, value: String(nextValue ?? '') });
-      } else {
-        setEditing({ row: null, col: null, value: '' });
-        setSelection({
-          type: 'range',
-          row: null,
-          col: null,
-          range: { startRow: editedRow, endRow: editedRow, startCol: editedCol, endCol: editedCol },
-          rowRange: null,
-          colRange: null
-        });
-      }
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleEditCancel();
-    }
-  }, [editing, tableData, cols, isObjectData, getCellValue, handleEditCancel, idColumName, tableRef]);
 
   const handleAddRow = useCallback(() => {
     const newRow = isObjectData
@@ -910,7 +850,7 @@ const HOT: React.FC<HOTProps> = ({
       rowRange: null,
       colRange: null
     });
-    setEditing({ row: 0, col: 0, value: String(firstValue ?? '') });
+    setEditing({ row: 0, col: 0, value: firstValue });
   }, [tableData, cols, isObjectData, getCellValue]);
 
   const handleToggleFilter = useCallback(() => {
@@ -1162,12 +1102,16 @@ const HOT: React.FC<HOTProps> = ({
 
   useEffect(() => {
     if (editing.row !== null && editInputRef.current) {
-      // Use setTimeout to ensure textarea is mounted and ready
+      // Use setTimeout to ensure input is mounted and ready
       setTimeout(() => {
         if (editInputRef.current) {
           editInputRef.current.focus();
-          const length = editInputRef.current.value.length;
-          editInputRef.current.setSelectionRange(length, length);
+          if (editInputRef.current.select) {
+            editInputRef.current.select();
+          } else if (editInputRef.current.setSelectionRange) {
+            const length = String(editInputRef.current.value || '').length;
+            editInputRef.current.setSelectionRange(length, length);
+          }
         }
       }, 0);
     }
@@ -1245,7 +1189,7 @@ const HOT: React.FC<HOTProps> = ({
           const oldValue = tableData[editing.row][cols[editing.col!].data];
           const newValue = editing.value;
 
-          if (String(oldValue ?? '') !== newValue) {
+          if (String(oldValue ?? '') !== String(newValue ?? '')) {
             if (isObjectData) {
               tableData[editing.row][cols[editing.col!].data] = newValue;
             } else {
@@ -1293,7 +1237,7 @@ const HOT: React.FC<HOTProps> = ({
               rowRange: null,
               colRange: null
             });
-            setEditing({ row: nextRow, col: nextCol, value: String(nextValue ?? '') });
+            setEditing({ row: nextRow, col: nextCol, value: nextValue });
 
             // Reset flag after state updates
             setTimeout(() => {
@@ -1341,7 +1285,7 @@ const HOT: React.FC<HOTProps> = ({
             colRange: null
           });
           // Auto-enter edit mode on Tab
-          setEditing({ row: nextRow, col: nextCol, value: String(nextValue ?? '') });
+          setEditing({ row: nextRow, col: nextCol, value: nextValue });
         }
       }
 
@@ -1359,7 +1303,7 @@ const HOT: React.FC<HOTProps> = ({
               rowRange: null,
               colRange: null
             });
-            setEditing({ row: startRow, col: startCol, value: String(currentValue ?? '') });
+            setEditing({ row: startRow, col: startCol, value: currentValue });
           }
         }
       }
@@ -1414,7 +1358,7 @@ const HOT: React.FC<HOTProps> = ({
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [selection, editing, tableData, cols, getCellValue, handleEditSave]);
+  }, [selection, editing, tableData, cols, getCellValue, handleEditSave, isObjectData, idColumName, tableRef]);
 
   const rowVirtualizer = useVirtualizer({
     count: tableData.length,
@@ -1424,7 +1368,7 @@ const HOT: React.FC<HOTProps> = ({
   });
 
   const virtualRows = rowVirtualizer.getVirtualItems();
-  const totalWidth = allColumns.reduce((sum, col, idx) => 
+  const totalWidth = allColumns.reduce((sum, col, idx) =>
     sum + getColumnWidth(idx), 0
   ) + (rowHeaders ? 50 : 0);
 
@@ -1435,27 +1379,27 @@ const HOT: React.FC<HOTProps> = ({
           {tableName}
         </h3>
         <div className="flex items-center gap-2">
-        <SearchBar
-          tableRef={tableRef}
-          placeholder="Search..."
-        />
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleToggleFilter}
-            className="filter-toggle-btn-header"
-            title="Build filter"
-          >
-            <span className={`toggle-icon ${filterExpanded ? 'expanded' : ''}`}>▼</span>
-            Build Filter
-          </button>
-          <button
-            onClick={handleAddRow}
-            className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
-            title="Add new row"
-          >
-            +
-          </button>
-        </div>
+          <SearchBar
+            tableRef={tableRef}
+            placeholder="Search..."
+          />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleToggleFilter}
+              className="filter-toggle-btn-header"
+              title="Build filter"
+            >
+              <span className={`toggle-icon ${filterExpanded ? 'expanded' : ''}`}>▼</span>
+              Build Filter
+            </button>
+            <button
+              onClick={handleAddRow}
+              className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
+              title="Add new row"
+            >
+              +
+            </button>
+          </div>
         </div>
       </div>
       <FilterBuilder
@@ -1544,37 +1488,37 @@ const HOT: React.FC<HOTProps> = ({
                         data-sticky-left={leftOffsets[colIndex] !== undefined}
                         data-sticky-right={rightOffsets[colIndex] !== undefined}
                       >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
 
-                        <span>{getColHeader(col, colIndex)}</span>
-                        <button
-      className="hot-col-sort-btn"
-      onClick={(e) => {
-        e.stopPropagation();
-        handleColumnSort(colIndex);
-      }}
-      title={
-        sortState.columnIndex === colIndex && sortState.direction
-          ? `Sorted ${sortState.direction === 'asc' ? 'ascending' : 'descending'}`
-          : 'Click to sort'
-      }
-      style={{
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        padding: '2px 4px',
-        display: 'flex',
-        alignItems: 'center',
-        fontSize: '12px',
-        color: sortState.columnIndex === colIndex ? '#3b82f6' : '#9ca3af',
-        transition: 'color 0.2s'
-      }}
-    >
-      {sortState.columnIndex === colIndex && sortState.direction === 'asc' && '↑'}
-      {sortState.columnIndex === colIndex && sortState.direction === 'desc' && '↓'}
-      {(sortState.columnIndex !== colIndex || sortState.direction === null) && '⇅'}
-    </button>
-    </div>
+                          <span>{getColHeader(col, colIndex)}</span>
+                          <button
+                            className="hot-col-sort-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleColumnSort(colIndex);
+                            }}
+                            title={
+                              sortState.columnIndex === colIndex && sortState.direction
+                                ? `Sorted ${sortState.direction === 'asc' ? 'ascending' : 'descending'}`
+                                : 'Click to sort'
+                            }
+                            style={{
+                              border: 'none',
+                              background: 'transparent',
+                              cursor: 'pointer',
+                              padding: '2px 4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              fontSize: '12px',
+                              color: sortState.columnIndex === colIndex ? '#3b82f6' : '#9ca3af',
+                              transition: 'color 0.2s'
+                            }}
+                          >
+                            {sortState.columnIndex === colIndex && sortState.direction === 'asc' && '↑'}
+                            {sortState.columnIndex === colIndex && sortState.direction === 'desc' && '↓'}
+                            {(sortState.columnIndex !== colIndex || sortState.direction === null) && '⇅'}
+                          </button>
+                        </div>
                         <div
                           className="hot-col-resize-handle"
                           onMouseDown={(e) => handleResizeMouseDown(e, colIndex)}
@@ -1681,9 +1625,11 @@ const HOT: React.FC<HOTProps> = ({
                         colRangeEdges={colRangeEdges}
                         isEditing={isEditingThisCell}
                         editValue={isEditingThisCell ? editing.value : undefined}
-                        onEditChange={isEditingThisCell ? (e) => setEditing(prev => ({ ...prev, value: e.target.value })) : undefined}
-                        onEditKeyDown={isEditingThisCell ? handleEditKeyDown : undefined}
+                        onEditChange={isEditingThisCell ? (value: any) => {
+                          setEditing(prev => ({ ...prev, value }));
+                        } : undefined}
                         onEditBlur={isEditingThisCell ? handleEditSave : undefined}
+                        onEditCancel={handleEditCancel}
                         editInputRef={isEditingThisCell ? editInputRef : undefined}
                         saveState={saveState}
                         isNewRow={isNewRow}
