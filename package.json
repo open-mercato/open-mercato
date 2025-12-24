@@ -11,7 +11,7 @@
     "modules:ids": "tsx scripts/generate-entity-ids.ts",
     "client:generate": "tsx scripts/generate-api-client.ts",
     "modules:prepare": "node --import tsx scripts/generate-entity-ids.ts && node --import tsx scripts/generate-module-registry.ts && node --import tsx scripts/generate-module-entities.ts && node --import tsx scripts/generate-module-di.ts && node --import tsx scripts/generate-api-client.ts",
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "predev": "npm run modules:prepare",
     "build": "yarn modules:prepare && next build --turbopack",
     "build:packages": "tsc -p packages/core/tsconfig.build.json && tsc -p packages/example/tsconfig.build.json && tsc -p packages/cli/tsconfig.build.json && tsc -p packages/onboarding/tsconfig.build.json",
