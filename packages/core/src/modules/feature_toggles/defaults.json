@@ -1,0 +1,12 @@
+{
+  "toggles": [
+    {
+      "identifier": "feature_toggles_ui",
+      "name": "Feature Toggles UI",
+      "description": "Enable the feature toggles admin UI.",
+      "category": "feature_toggles",
+      "defaultState": true,
+      "failMode": "fail_closed"
+    }
+  ]
+}

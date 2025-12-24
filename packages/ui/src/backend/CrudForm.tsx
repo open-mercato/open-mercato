@@ -73,7 +73,12 @@ export type CrudFieldBase = {
   disabled?: boolean
 }
 
-export type CrudFieldOption = { value: string; label: string }
+export type CrudFieldOption = { value: string | number | boolean; label: string }
+
+const serializeOptionValue = (value: CrudFieldOption['value']): string => {
+  if (typeof value === 'string') return value
+  return String(value)
+}
 
 export type CrudBuiltinField = CrudFieldBase & {
   type:
@@ -1590,7 +1595,10 @@ function RelationSelect({
   const filtered = React.useMemo(() => {
     const q = query.toLowerCase().trim()
     if (!q) return options
-    return options.filter((o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+    return options.filter((o) => {
+      const serialized = serializeOptionValue(o.value).toLowerCase()
+      return o.label.toLowerCase().includes(q) || serialized.includes(q)
+    })
   }, [query, options])
 
   return (
@@ -1614,12 +1622,12 @@ function RelationSelect({
         </button>
         {filtered.map((opt) => (
           <button
-            key={opt.value}
+            key={serializeOptionValue(opt.value)}
             type="button"
             className={`block w-full text-left px-2 py-1 text-sm hover:bg-muted ${
-              value === opt.value ? 'bg-muted' : ''
+              value === serializeOptionValue(opt.value) ? 'bg-muted' : ''
             }`}
-            onClick={() => onChange(opt.value)}
+            onClick={() => onChange(serializeOptionValue(opt.value))}
           >
             {opt.label}
           </button>
@@ -2045,7 +2053,10 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
   const filtered = React.useMemo(() => {
     const q = query.toLowerCase().trim()
     if (!q) return options
-    return options.filter((o) => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+    return options.filter((o) => {
+      const serialized = serializeOptionValue(o.value).toLowerCase()
+      return o.label.toLowerCase().includes(q) || serialized.includes(q)
+    })
   }, [options, query])
   const toggle = React.useCallback(
     (val: string) => {
@@ -2068,12 +2079,13 @@ const ListboxMultiSelect = React.memo(function ListboxMultiSelect({
       />
       <div className="rounded border max-h-48 overflow-auto divide-y">
         {filtered.map((opt) => {
-          const isSel = value.includes(opt.value)
+          const serialized = serializeOptionValue(opt.value)
+          const isSel = value.includes(serialized)
           return (
             <button
-              key={opt.value}
+              key={serialized}
               type="button"
-              onClick={() => toggle(opt.value)}
+              onClick={() => toggle(serialized)}
               className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSel ? 'bg-muted' : ''}`}
             >
               <span className="inline-flex items-center gap-2">
@@ -2118,6 +2130,13 @@ const FieldControl = React.memo(function FieldControlImpl({
   const hasLoader = typeof builtin?.loadOptions === 'function'
   const disabled = Boolean(field.disabled)
   const autoFocusField = autoFocus && !disabled
+  const optionValueMap = React.useMemo(() => {
+    const map = new Map<string, CrudFieldOption>()
+    options.forEach((opt) => {
+      map.set(serializeOptionValue(opt.value), opt)
+    })
+    return map
+  }, [options])
 
   React.useEffect(() => {
     if (!hasLoader || field.type === 'custom') return
@@ -2209,13 +2228,13 @@ const FieldControl = React.memo(function FieldControlImpl({
           suggestions={
             builtin?.suggestions
               ? builtin.suggestions
-              : options.map((opt) => ({ value: opt.value, label: opt.label }))
+              : options.map((opt) => ({ value: serializeOptionValue(opt.value), label: opt.label }))
           }
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
                   const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
+                  return opts.map((opt) => ({ value: serializeOptionValue(opt.value), label: opt.label }))
                 }
               : undefined
           }
@@ -2246,13 +2265,21 @@ const FieldControl = React.memo(function FieldControlImpl({
                 ? ''
                 : String(value)
           }
-          onChange={(e) => setValue(field.id, e.target.value || undefined)}
+          onChange={(e) => {
+            const next = e.target.value
+            if (!next) {
+              setValue(field.id, undefined)
+              return
+            }
+            const matched = optionValueMap.get(next)
+            setValue(field.id, matched ? matched.value : next)
+          }}
           data-crud-focus-target=""
           disabled={disabled}
         >
           <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
           {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
+            <option key={serializeOptionValue(opt.value)} value={serializeOptionValue(opt.value)}>
               {opt.label}
             </option>
           ))}
@@ -2273,9 +2300,10 @@ const FieldControl = React.memo(function FieldControlImpl({
             const arr = Array.isArray(value)
               ? value.filter((item): item is string => typeof item === 'string')
               : []
-            const checked = arr.includes(opt.value)
+            const serialized = serializeOptionValue(opt.value)
+            const checked = arr.includes(serialized)
             return (
-              <label key={opt.value} className="inline-flex items-center gap-2">
+              <label key={serialized} className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
                   className="size-4"
@@ -2283,9 +2311,9 @@ const FieldControl = React.memo(function FieldControlImpl({
                   onChange={(e) => {
                     const next = new Set(arr)
                     if (e.target.checked) {
-                      next.add(opt.value)
+                      next.add(serialized)
                     } else {
-                      next.delete(opt.value)
+                      next.delete(serialized)
                     }
                     setValue(field.id, Array.from(next))
                   }}

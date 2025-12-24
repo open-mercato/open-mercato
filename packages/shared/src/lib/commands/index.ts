@@ -1,4 +1,5 @@
 export * from './types'
 export * from './registry'
 export { CommandBus } from './command-bus'
+export { resolveGlobalState } from './helpers'
 export * from './customFieldSnapshots'

@@ -1,0 +1,28 @@
+---
+title: mercato feature_toggles override-set
+sidebar_label: override-set
+description: Sets a feature toggle override for an tenant.
+---
+
+`yarn mercato feature_toggles override-set` creates or updates a feature toggle override for a specific tenant.
+
+## Usage
+
+```bash
+yarn mercato feature_toggles override-set --identifier <id> --tenantId <uuid> --state <state>
+```
+
+## Options
+
+| Option | Description | Required | Default |
+| :--- | :--- | :--- | :--- |
+| `--identifier` | Unique identifier of the feature toggle. | Yes | - |
+| `--tenantId` | UUID of the tenant to apply the override to. | Yes | - |
+| `--state` | The override state (`enabled`, `disabled`, or `inherit`). | Yes | - |
+
+## Behavior
+
+- Sets the specific state for the given feature toggle and tenant.
+- `inherit` removes the override, reverting to the default state.
+- If successful, outputs: `✅ Feature toggle override updated: <identifier> <tenantId>`.
+- If mandatory arguments are missing, outputs usage instructions.
