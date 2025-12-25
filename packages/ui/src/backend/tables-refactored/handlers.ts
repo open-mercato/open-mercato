@@ -168,7 +168,20 @@ export function createMouseHandlers(
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!dragStateRef.current.isDragging) return;
 
-    const cell = document.elementFromPoint(e.clientX, e.clientY)?.closest('td');
+    // Look for both td (body cells) and th (headers)
+    const element = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = element?.closest('td');
+    const header = element?.closest('th');
+
+    // Handle column drag on headers (headers are <th>, not <td>)
+    if (!cell && header && dragStateRef.current.type === 'column') {
+      const col = parseInt(header.getAttribute('data-col') || '', 10);
+      if (!isNaN(col)) {
+        onDragMove(0, col);
+      }
+      return;
+    }
+
     if (!cell) return;
 
     if (cell.getAttribute('data-row-header') === 'true' && dragStateRef.current.type !== 'row') {

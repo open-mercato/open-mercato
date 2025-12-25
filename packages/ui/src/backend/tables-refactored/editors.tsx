@@ -30,8 +30,10 @@ const EditorPortal: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 };
 
 // Helper to calculate popup position
+const POPUP_MAX_HEIGHT = 250;
+
 const calculatePopupPosition = (cellRef: React.RefObject<HTMLElement>) => {
-    if (!cellRef.current) return { top: 0, left: 0, width: 0 };
+    if (!cellRef.current) return { top: 0, left: 0, width: 0, openAbove: false };
 
     const rect = cellRef.current.getBoundingClientRect();
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
@@ -40,20 +42,20 @@ const calculatePopupPosition = (cellRef: React.RefObject<HTMLElement>) => {
     const viewportHeight = window.innerHeight;
     const viewportWidth = window.innerWidth;
 
-    // Approximate popup heights
-    const popupHeight = 300;
     const spaceBelow = viewportHeight - rect.bottom;
     const spaceAbove = rect.top;
 
     // Default position: below the cell
     let top = rect.bottom + scrollTop + 2; // Add 2px gap
     let left = rect.left + scrollLeft;
+    let openAbove = false;
 
     // Only position above if there's significantly more space above
     // and not enough space below (be more conservative about flipping)
-    if (spaceBelow < 250 && spaceAbove > spaceBelow + 100) {
+    if (spaceBelow < POPUP_MAX_HEIGHT && spaceAbove > spaceBelow + 100) {
         // Position above the cell instead
-        top = rect.top + scrollTop - popupHeight - 2; // Add 2px gap
+        top = rect.top + scrollTop - POPUP_MAX_HEIGHT - 2; // Add 2px gap
+        openAbove = true;
     }
 
     // Check if popup would go off right side of screen
@@ -71,6 +73,7 @@ const calculatePopupPosition = (cellRef: React.RefObject<HTMLElement>) => {
         top,
         left,
         width: rect.width,
+        openAbove,
     };
 };
 
@@ -481,6 +484,8 @@ export const DropdownEditor: React.FC<BaseEditorProps> = ({
                             top: `${position.top}px`,
                             left: `${position.left}px`,
                             width: `${position.width}px`,
+                            maxHeight: `${POPUP_MAX_HEIGHT}px`,
+                            overflowY: 'auto',
                             zIndex: 10000,
                         }}
                         onMouseDown={() => {

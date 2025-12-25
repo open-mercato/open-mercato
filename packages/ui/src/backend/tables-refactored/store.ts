@@ -23,6 +23,8 @@ export interface CellStore {
   isNewRow(row: number): boolean;
   getColumnWidth(col: number): number;
   getColumnWidths(): Map<number, number>;
+  getStoreRevision(): number;
+  getSelectionRevision(): number;
 
   // Derived for cell rendering
   getCellState(row: number, col: number): CellState;
@@ -48,12 +50,15 @@ export interface CellStore {
 
   // --- Subscriptions ---
   subscribe(row: number, col: number, callback: CellSubscriber): () => void;
+  subscribeToStore(callback: CellSubscriber): () => void;
+  subscribeToSelection(callback: CellSubscriber): () => void;
   getRevision(row: number, col: number): number;
 
   // --- Internal ---
   bumpRevision(row: number, col: number): void;
   bumpRevisions(cells: Array<{ row: number; col: number }>): void;
   bumpRowRevisions(row: number, colCount: number): void;
+  bumpStoreRevision(): void;
 }
 
 export function createCellStore(initialData: any[], columns: ColumnDef[]): CellStore {
@@ -65,10 +70,14 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
   const saveStates = new Map<CellId, SaveStateType>();
   const newRowFlags = new Set<number>();
   const columnWidths = new Map<number, number>();
+  const storeSubscribers = new Set<CellSubscriber>();
 
   let selection: SelectionState = { type: null, anchor: null, focus: null };
   let editingCell: { row: number; col: number } | null = null;
   let rowCount = initialData.length;
+  let storeRevision = 0;
+  let selectionRevision = 0;
+  const selectionSubscribers = new Set<CellSubscriber>();
 
   // Cache, invalidated on selection change
   let boundsCache: SelectionBounds | null = null;
@@ -134,6 +143,24 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
       cells.push({ row, col });
     }
     bumpRevisions(cells);
+  };
+
+  const notifyStoreSubscribers = () => {
+    storeSubscribers.forEach((cb) => cb());
+  };
+
+  const notifySelectionSubscribers = () => {
+    selectionSubscribers.forEach((cb) => cb());
+  };
+
+  const bumpStoreRevision = () => {
+    storeRevision++;
+    notifyStoreSubscribers();
+  };
+
+  const bumpSelectionRevision = () => {
+    selectionRevision++;
+    notifySelectionSubscribers();
   };
 
   const isCellInBounds = (row: number, col: number, bounds: SelectionBounds): boolean => {
@@ -222,6 +249,14 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
       return new Map(columnWidths);
     },
 
+    getStoreRevision(): number {
+      return storeRevision;
+    },
+
+    getSelectionRevision(): number {
+      return selectionRevision;
+    },
+
     getCellState(row: number, col: number): CellState {
       const bounds = this.getSelectionBounds();
       const isInRange = bounds ? isCellInBounds(row, col, bounds) : false;
@@ -308,6 +343,7 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
       });
 
       bumpRevisions(unique);
+      bumpSelectionRevision();
     },
 
     setEditingCell(row: number, col: number): void {
@@ -359,6 +395,8 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
         const [row, col] = id.split(':').map(Number);
         bumpRevision(row, col);
       });
+
+      bumpStoreRevision();
     },
 
     addRow(rowData: any, atIndex: number = 0): void {
@@ -430,6 +468,8 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
         const [row, col] = id.split(':').map(Number);
         bumpRevision(row, col);
       });
+
+      bumpStoreRevision();
     },
 
     removeRow(rowIndex: number): void {
@@ -503,6 +543,8 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
         const [row, col] = id.split(':').map(Number);
         bumpRevision(row, col);
       });
+
+      bumpStoreRevision();
     },
 
     markRowAsNew(rowIndex: number, isNew: boolean): void {
@@ -512,6 +554,7 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
         newRowFlags.delete(rowIndex);
       }
       bumpRowRevisions(rowIndex, columns.length);
+      bumpStoreRevision();
     },
 
     markRowAsSaved(rowIndex: number, savedData: any): void {
@@ -521,6 +564,7 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
         cellData.set(getCellId(rowIndex, colIndex), savedData[col.data]);
       });
       bumpRowRevisions(rowIndex, columns.length);
+      bumpStoreRevision();
     },
 
     // --- Subscriptions ---
@@ -542,6 +586,20 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
       };
     },
 
+    subscribeToStore(callback: CellSubscriber): () => void {
+      storeSubscribers.add(callback);
+      return () => {
+        storeSubscribers.delete(callback);
+      };
+    },
+
+    subscribeToSelection(callback: CellSubscriber): () => void {
+      selectionSubscribers.add(callback);
+      return () => {
+        selectionSubscribers.delete(callback);
+      };
+    },
+
     getRevision(row: number, col: number): number {
       return revisions.get(getCellId(row, col)) ?? 0;
     },
@@ -549,6 +607,7 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
     bumpRevision,
     bumpRevisions,
     bumpRowRevisions,
+    bumpStoreRevision,
   };
 
   return store;

@@ -18,6 +18,8 @@ import {
   CellStoreContext,
   useCellStore,
   useCellState,
+  useStoreRevision,
+  useSelection,
   useStickyOffsets,
   useKeyboardNavigation,
   useCopyHandler,
@@ -47,6 +49,7 @@ import {
   CellSaveErrorEvent,
   NewRowSaveSuccessEvent,
   NewRowSaveErrorEvent,
+  FilterChangeEvent,
 } from './types';
 
 // Import external components (keep these as separate files)
@@ -68,9 +71,10 @@ interface CellProps {
   colConfig: ColumnDef;
   stickyLeft?: number;
   stickyRight?: number;
+  onCellSave: (row: number, col: number, newValue: any) => void;
 }
 
-const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight }) => {
+const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, onCellSave }) => {
   const store = useCellStore();
   const state = useCellState(row, col);
   const inputRef = useRef<any>(null);
@@ -79,14 +83,11 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   const handleSave = useCallback(
     (value?: any) => {
       const newValue = value !== undefined ? value : store.getCellValue(row, col);
-      const oldValue = store.getCellValue(row, col);
 
-      if (String(oldValue ?? '') !== String(newValue ?? '')) {
-        store.setCellValue(row, col, newValue);
-      }
-      store.clearEditing();
+      // Call the onCellSave callback which dispatches CELL_EDIT_SAVE event
+      onCellSave(row, col, newValue);
     },
-    [store, row, col]
+    [store, row, col, onCellSave]
   );
 
   const handleCancel = useCallback(() => {
@@ -240,6 +241,7 @@ interface VirtualRowProps {
   onSaveNewRow: (rowIndex: number) => void;
   onCancelNewRow: (rowIndex: number) => void;
   onRowHeaderDoubleClick: (e: React.MouseEvent, rowIndex: number) => void;
+  onCellSave: (row: number, col: number, newValue: any) => void;
 }
 
 const VirtualRow: React.FC<VirtualRowProps> = memo(
@@ -254,9 +256,10 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
     onSaveNewRow,
     onCancelNewRow,
     onRowHeaderDoubleClick,
+    onCellSave,
   }) => {
     const store = useCellStore();
-    const selection = store.getSelection();
+    const selection = useSelection();
     const isNewRow = store.isNewRow(rowIndex);
 
     // Row-level selection state (for row headers)
@@ -311,6 +314,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
             colConfig={{ ...col, width: store.getColumnWidth(colIndex) }}
             stickyLeft={leftOffsets[colIndex]}
             stickyRight={rightOffsets[colIndex]}
+            onCellSave={onCellSave}
           />
         ))}
 
@@ -385,7 +389,7 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
     onMouseMove,
   }) => {
     const store = useCellStore();
-    const selection = store.getSelection();
+    const selection = useSelection();
 
     return (
       <div
@@ -588,6 +592,16 @@ const HOT: React.FC<HOTProps> = ({
     store.setData(data);
   }, [data, store]);
 
+  // -------------------- ROW COUNT STATE (synced with store) --------------------
+  const [rowCount, setRowCount] = useState(store.getRowCount());
+
+  useEffect(() => {
+    // Subscribe to store-level changes (row add/remove)
+    return store.subscribeToStore(() => {
+      setRowCount(store.getRowCount());
+    });
+  }, [store]);
+
   // -------------------- COMPUTED --------------------
   const { leftOffsets, rightOffsets } = useStickyOffsets(cols, store, rowHeaders);
 
@@ -601,7 +615,7 @@ const HOT: React.FC<HOTProps> = ({
 
   // -------------------- VIRTUALIZER --------------------
   const rowVirtualizer = useVirtualizer({
-    count: store.getRowCount(),
+    count: rowCount,
     getScrollElement: () => tableRef?.current,
     estimateSize: () => 32,
     overscan: 10,
@@ -874,6 +888,15 @@ const HOT: React.FC<HOTProps> = ({
     }
   }, []);
 
+  // Dispatch FILTER_CHANGE when filters change
+  useEffect(() => {
+    dispatch<FilterChangeEvent>(
+      tableRef.current!,
+      TableEvents.FILTER_CHANGE,
+      { filters: filterRows, savedFilterId: activeFilterId },
+    );
+  }, [filterRows, activeFilterId, tableRef]);
+
   // -------------------- RENDER --------------------
   const virtualRows = rowVirtualizer.getVirtualItems();
 
@@ -970,6 +993,7 @@ const HOT: React.FC<HOTProps> = ({
                   onSaveNewRow={handleSaveNewRow}
                   onCancelNewRow={handleCancelNewRow}
                   onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
+                  onCellSave={handleCellSave}
                 />
               ))}
             </tbody>

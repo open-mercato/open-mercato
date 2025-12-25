@@ -55,15 +55,15 @@ const SearchBar: React.FC<SearchBarProps> = ({
       }
       dispatchSearchEvent(searchValue);
     } else if (e.key === 'Escape') {
-        // Clear the search on Escape key
-        setSearchValue('');
-        if (debounceTimerRef.current) {
-          clearTimeout(debounceTimerRef.current);
-        }
-        dispatchSearchEvent('');
-        // Keep focus on input after clearing
-        inputRef.current?.focus();
+      // Clear the search on Escape key
+      setSearchValue('');
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
       }
+      dispatchSearchEvent('');
+      // Keep focus on input after clearing
+      inputRef.current?.focus();
+    }
   }, [searchValue, dispatchSearchEvent]);
 
   const handleClear = useCallback(() => {

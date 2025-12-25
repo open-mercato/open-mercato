@@ -18,6 +18,22 @@ export const useCellStore = (): CellStore => {
 };
 
 // ============================================
+// STORE REVISION HOOK (triggers re-render on row add/remove)
+// ============================================
+export function useStoreRevision(): number {
+  const store = useCellStore();
+
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => store.subscribeToStore(onStoreChange),
+    [store]
+  );
+
+  const getSnapshot = useCallback(() => store.getStoreRevision(), [store]);
+
+  return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+// ============================================
 // CELL STATE HOOK
 // ============================================
 export function useCellState(row: number, col: number): CellState {
@@ -38,10 +54,28 @@ export function useCellState(row: number, col: number): CellState {
 }
 
 // ============================================
+// SELECTION REVISION HOOK (triggers re-render on selection change)
+// ============================================
+export function useSelectionRevision(): number {
+  const store = useCellStore();
+
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => store.subscribeToSelection(onStoreChange),
+    [store]
+  );
+
+  const getSnapshot = useCallback(() => store.getSelectionRevision(), [store]);
+
+  return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+// ============================================
 // SELECTION HOOK (for components that need selection without cell subscription)
 // ============================================
 export function useSelection(): SelectionState {
   const store = useCellStore();
+  // Subscribe to selection changes so component re-renders
+  useSelectionRevision();
   return store.getSelection();
 }
 
