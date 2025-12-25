@@ -187,6 +187,28 @@ export const TableEvents = {
   ROW_CONTEXT_MENU_ACTION: 'table:row:context:action',
 } as const;
 
+// Type mapping for event payloads - maps event names to their payload types
+export type TableEventPayloads = {
+  [TableEvents.CELL_EDIT_SAVE]: CellEditSaveEvent;
+  [TableEvents.CELL_SAVE_START]: CellSaveStartEvent;
+  [TableEvents.CELL_SAVE_SUCCESS]: CellSaveSuccessEvent;
+  [TableEvents.CELL_SAVE_ERROR]: CellSaveErrorEvent;
+  [TableEvents.NEW_ROW_SAVE]: NewRowSaveEvent;
+  [TableEvents.NEW_ROW_SAVE_START]: NewRowSaveStartEvent;
+  [TableEvents.NEW_ROW_SAVE_SUCCESS]: NewRowSaveSuccessEvent;
+  [TableEvents.NEW_ROW_SAVE_ERROR]: NewRowSaveErrorEvent;
+  [TableEvents.FILTER_CHANGE]: FilterChangeEvent;
+  [TableEvents.COLUMN_SORT]: ColumnSortEvent;
+  [TableEvents.SEARCH]: SearchEvent;
+  [TableEvents.COLUMN_CONTEXT_MENU_ACTION]: ColumnContextMenuEvent;
+  [TableEvents.ROW_CONTEXT_MENU_ACTION]: RowContextMenuEvent;
+};
+
+// Type for event handler map - each key is an event name, value is handler function
+export type EventHandlers = {
+  [K in keyof TableEventPayloads]?: (payload: TableEventPayloads[K]) => void;
+};
+
 export interface PaginationProps {
   currentPage: number;
   totalPages: number;

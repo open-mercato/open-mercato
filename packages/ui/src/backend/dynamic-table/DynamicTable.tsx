@@ -7,7 +7,6 @@ import React, {
   useState,
   useEffect,
   useRef,
-  useCallback,
   useMemo,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -31,19 +30,13 @@ import {
   createFilterHandlers,
   DragState,
 } from './handlers/index';
-import { dispatch, useMediator } from './events/events';
+import { dispatch, useEventHandlers } from './events/events';
 import {
   DynamicTableProps,
   ContextMenuState,
   SortState,
   FilterRow,
-  SavedFilter,
   TableEvents,
-  CellSaveStartEvent,
-  CellSaveSuccessEvent,
-  CellSaveErrorEvent,
-  NewRowSaveSuccessEvent,
-  NewRowSaveErrorEvent,
   FilterChangeEvent,
 } from './types/index';
 
@@ -246,64 +239,26 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     );
   }, [filterRows, activeFilterId, tableRef]);
 
-  // -------------------- EVENT MEDIATORS --------------------
-  useMediator<CellSaveStartEvent>(
-    TableEvents.CELL_SAVE_START,
-    useCallback(
-      (payload) => {
-        store.setSaveState(payload.rowIndex, payload.colIndex, 'saving');
-      },
-      [store]
-    ),
-    tableRef
-  );
-
-  useMediator<CellSaveSuccessEvent>(
-    TableEvents.CELL_SAVE_SUCCESS,
-    useCallback(
-      (payload) => {
-        store.setSaveState(payload.rowIndex, payload.colIndex, 'success');
-        setTimeout(() => store.setSaveState(payload.rowIndex, payload.colIndex, null), 2000);
-      },
-      [store]
-    ),
-    tableRef
-  );
-
-  useMediator<CellSaveErrorEvent>(
-    TableEvents.CELL_SAVE_ERROR,
-    useCallback(
-      (payload) => {
-        store.setSaveState(payload.rowIndex, payload.colIndex, 'error');
-        setTimeout(() => store.setSaveState(payload.rowIndex, payload.colIndex, null), 3000);
-      },
-      [store]
-    ),
-    tableRef
-  );
-
-  useMediator<NewRowSaveSuccessEvent>(
-    TableEvents.NEW_ROW_SAVE_SUCCESS,
-    useCallback(
-      (payload) => {
-        store.markRowAsSaved(payload.rowIndex, payload.savedRowData);
-      },
-      [store]
-    ),
-    tableRef
-  );
-
-  useMediator<NewRowSaveErrorEvent>(
-    TableEvents.NEW_ROW_SAVE_ERROR,
-    useCallback(
-      (payload) => {
-        // Keep as new row, could show error state
-        console.error('Failed to save new row:', payload.error);
-      },
-      []
-    ),
-    tableRef
-  );
+  // -------------------- EVENT HANDLERS --------------------
+  useEventHandlers({
+    [TableEvents.CELL_SAVE_START]: (payload) => {
+      store.setSaveState(payload.rowIndex, payload.colIndex, 'saving');
+    },
+    [TableEvents.CELL_SAVE_SUCCESS]: (payload) => {
+      store.setSaveState(payload.rowIndex, payload.colIndex, 'success');
+      setTimeout(() => store.setSaveState(payload.rowIndex, payload.colIndex, null), 2000);
+    },
+    [TableEvents.CELL_SAVE_ERROR]: (payload) => {
+      store.setSaveState(payload.rowIndex, payload.colIndex, 'error');
+      setTimeout(() => store.setSaveState(payload.rowIndex, payload.colIndex, null), 3000);
+    },
+    [TableEvents.NEW_ROW_SAVE_SUCCESS]: (payload) => {
+      store.markRowAsSaved(payload.rowIndex, payload.savedRowData);
+    },
+    [TableEvents.NEW_ROW_SAVE_ERROR]: (payload) => {
+      console.error('Failed to save new row:', payload.error);
+    },
+  }, tableRef);
 
   // -------------------- RENDER --------------------
 

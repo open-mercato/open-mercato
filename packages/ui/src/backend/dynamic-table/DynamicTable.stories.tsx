@@ -4,21 +4,8 @@ import React, { useState, useCallback, useRef } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import DynamicTable from './DynamicTable';
 import { TableEvents } from './types/index';
-import { dispatch, useMediator } from './events/events';
+import { dispatch, useEventHandlers } from './events/events';
 import type {
-    CellEditSaveEvent,
-    CellSaveStartEvent,
-    CellSaveSuccessEvent,
-    CellSaveErrorEvent,
-    NewRowSaveEvent,
-    NewRowSaveStartEvent,
-    NewRowSaveSuccessEvent,
-    NewRowSaveErrorEvent,
-    ColumnSortEvent,
-    SearchEvent,
-    FilterChangeEvent,
-    ColumnContextMenuEvent,
-    RowContextMenuEvent,
     ContextMenuAction,
     ColumnDef,
     SavedFilter,
@@ -230,10 +217,9 @@ const FullFeaturedDemo = () => {
         setCurrentPage(1); // Reset to first page when limit changes
     };
 
-    // Cell edit handler with save states
-    useMediator<CellEditSaveEvent>(
-        TableEvents.CELL_EDIT_SAVE,
-        useCallback(async (payload) => {
+    // Event handlers
+    useEventHandlers({
+        [TableEvents.CELL_EDIT_SAVE]: async (payload) => {
             dispatch(tableRef.current!, TableEvents.CELL_SAVE_START, {
                 rowIndex: payload.rowIndex,
                 colIndex: payload.colIndex,
@@ -253,14 +239,8 @@ const FullFeaturedDemo = () => {
                     error: result.error,
                 });
             }
-        }, []),
-        tableRef
-    );
-
-    // New row save handler
-    useMediator<NewRowSaveEvent>(
-        TableEvents.NEW_ROW_SAVE,
-        useCallback(async (payload) => {
+        },
+        [TableEvents.NEW_ROW_SAVE]: async (payload) => {
             const result = await mockApiNewRowSave(payload.rowIndex, payload.rowData);
 
             if (result.ok) {
@@ -268,53 +248,27 @@ const FullFeaturedDemo = () => {
                     rowIndex: payload.rowIndex,
                     savedRowData: result.data,
                 });
-                setData((prev) => [...prev, result.data]);
             } else {
                 dispatch(tableRef.current!, TableEvents.NEW_ROW_SAVE_ERROR, {
                     rowIndex: payload.rowIndex,
                     error: result.error,
                 });
             }
-        }, []),
-        tableRef
-    );
-
-    // Sort handler
-    useMediator<ColumnSortEvent>(
-        TableEvents.COLUMN_SORT,
-        useCallback((payload) => {
+        },
+        [TableEvents.COLUMN_SORT]: (payload) => {
             if (payload.direction) {
-                setData((prev) =>
-                    [...prev].sort((a, b) => {
-                        const aVal = a[payload.columnName];
-                        const bVal = b[payload.columnName];
-                        if (aVal < bVal) return payload.direction === 'asc' ? -1 : 1;
-                        if (aVal > bVal) return payload.direction === 'asc' ? 1 : -1;
-                        return 0;
-                    })
-                );
+                // Note: sorting would need to be handled via state if data is paginated
+                console.log('Sort:', payload.columnName, payload.direction);
             }
-        }, []),
-        tableRef
-    );
-
-    // Row context menu handler
-    useMediator<RowContextMenuEvent>(
-        TableEvents.ROW_CONTEXT_MENU_ACTION,
-        useCallback((payload) => {
+        },
+        [TableEvents.ROW_CONTEXT_MENU_ACTION]: (payload) => {
             if (payload.actionId === 'delete') {
-                setData((prev) => prev.filter((_, i) => i !== payload.rowIndex));
+                console.log('Delete row:', payload.rowIndex);
             } else if (payload.actionId === 'duplicate') {
-                setData((prev) => {
-                    const newRow = { ...payload.rowData, id: Math.max(...prev.map((r) => r.id)) + 1 };
-                    const newData = [...prev];
-                    newData.splice(payload.rowIndex + 1, 0, newRow);
-                    return newData;
-                });
+                console.log('Duplicate row:', payload.rowIndex);
             }
-        }, []),
-        tableRef
-    );
+        },
+    }, tableRef);
 
     return (
         <div>
@@ -462,10 +416,9 @@ const EventLogDemo = () => {
         addLog('LIMIT_CHANGE', `Changed rows per page to ${newLimit}`, '#22d3ee');
     }, [addLog]);
 
-    // Cell edit save event - log and start save
-    useMediator<CellEditSaveEvent>(
-        TableEvents.CELL_EDIT_SAVE,
-        useCallback((payload) => {
+    // Event handlers - all table events in one place
+    useEventHandlers({
+        [TableEvents.CELL_EDIT_SAVE]: (payload) => {
             const colName = columns[payload.colIndex]?.data || `col${payload.colIndex}`;
             addLog(
                 'CELL_EDIT_SAVE',
@@ -473,13 +426,11 @@ const EventLogDemo = () => {
                 '#60a5fa'
             );
 
-            // Dispatch save start
             dispatch(tableRef.current!, TableEvents.CELL_SAVE_START, {
                 rowIndex: payload.rowIndex,
                 colIndex: payload.colIndex,
             });
 
-            // Simulate API call
             mockApiSave(payload.rowIndex, payload.colIndex, payload.newValue).then((result) => {
                 if (result.ok) {
                     dispatch(tableRef.current!, TableEvents.CELL_SAVE_SUCCESS, {
@@ -494,44 +445,20 @@ const EventLogDemo = () => {
                     });
                 }
             });
-        }, [columns, addLog]),
-        tableRef
-    );
-
-    // Cell save start
-    useMediator<CellSaveStartEvent>(
-        TableEvents.CELL_SAVE_START,
-        useCallback((payload) => {
+        },
+        [TableEvents.CELL_SAVE_START]: (payload) => {
             const colName = columns[payload.colIndex]?.data || `col${payload.colIndex}`;
             addLog('CELL_SAVE_START', `Saving row ${payload.rowIndex}, ${colName}...`, '#fbbf24');
-        }, [columns, addLog]),
-        tableRef
-    );
-
-    // Cell save success
-    useMediator<CellSaveSuccessEvent>(
-        TableEvents.CELL_SAVE_SUCCESS,
-        useCallback((payload) => {
+        },
+        [TableEvents.CELL_SAVE_SUCCESS]: (payload) => {
             const colName = columns[payload.colIndex]?.data || `col${payload.colIndex}`;
             addLog('CELL_SAVE_SUCCESS', `Row ${payload.rowIndex}, ${colName} saved!`, '#4ade80');
-        }, [columns, addLog]),
-        tableRef
-    );
-
-    // Cell save error
-    useMediator<CellSaveErrorEvent>(
-        TableEvents.CELL_SAVE_ERROR,
-        useCallback((payload) => {
+        },
+        [TableEvents.CELL_SAVE_ERROR]: (payload) => {
             const colName = columns[payload.colIndex]?.data || `col${payload.colIndex}`;
             addLog('CELL_SAVE_ERROR', `Row ${payload.rowIndex}, ${colName} - ${payload.error}`, '#f87171');
-        }, [columns, addLog]),
-        tableRef
-    );
-
-    // New row save
-    useMediator<NewRowSaveEvent>(
-        TableEvents.NEW_ROW_SAVE,
-        useCallback((payload) => {
+        },
+        [TableEvents.NEW_ROW_SAVE]: (payload) => {
             addLog('NEW_ROW_SAVE', `Saving new row at index ${payload.rowIndex}...`, '#fbbf24');
 
             mockApiNewRowSave(payload.rowIndex, payload.rowData).then((result) => {
@@ -548,32 +475,14 @@ const EventLogDemo = () => {
                     });
                 }
             });
-        }, [addLog]),
-        tableRef
-    );
-
-    // New row save success
-    useMediator<NewRowSaveSuccessEvent>(
-        TableEvents.NEW_ROW_SAVE_SUCCESS,
-        useCallback((payload) => {
+        },
+        [TableEvents.NEW_ROW_SAVE_SUCCESS]: (payload) => {
             addLog('NEW_ROW_SAVE_SUCCESS', `New row saved with ID ${payload.savedRowData?.id}`, '#4ade80');
-        }, [addLog]),
-        tableRef
-    );
-
-    // New row save error
-    useMediator<NewRowSaveErrorEvent>(
-        TableEvents.NEW_ROW_SAVE_ERROR,
-        useCallback((payload) => {
+        },
+        [TableEvents.NEW_ROW_SAVE_ERROR]: (payload) => {
             addLog('NEW_ROW_SAVE_ERROR', `Failed: ${payload.error}`, '#f87171');
-        }, [addLog]),
-        tableRef
-    );
-
-    // Column sort
-    useMediator<ColumnSortEvent>(
-        TableEvents.COLUMN_SORT,
-        useCallback((payload) => {
+        },
+        [TableEvents.COLUMN_SORT]: (payload) => {
             addLog(
                 'COLUMN_SORT',
                 `Column "${payload.columnName}" - ${payload.direction || 'cleared'}`,
@@ -582,64 +491,39 @@ const EventLogDemo = () => {
             if (payload.direction) {
                 setAllData((prev) =>
                     [...prev].sort((a, b) => {
-                        const aVal = a[payload.columnName];
-                        const bVal = b[payload.columnName];
+                        const aVal = (a as Record<string, any>)[payload.columnName];
+                        const bVal = (b as Record<string, any>)[payload.columnName];
                         if (aVal < bVal) return payload.direction === 'asc' ? -1 : 1;
                         if (aVal > bVal) return payload.direction === 'asc' ? 1 : -1;
                         return 0;
                     })
                 );
             }
-        }, [addLog]),
-        tableRef
-    );
-
-    // Search
-    useMediator<SearchEvent>(
-        TableEvents.SEARCH,
-        useCallback((payload) => {
+        },
+        [TableEvents.SEARCH]: (payload) => {
             addLog('SEARCH', `Query: "${payload.query || '(empty)'}"`, '#38bdf8');
-        }, [addLog]),
-        tableRef
-    );
-
-    // Filter change
-    useMediator<FilterChangeEvent>(
-        TableEvents.FILTER_CHANGE,
-        useCallback((payload) => {
+        },
+        [TableEvents.FILTER_CHANGE]: (payload) => {
             addLog('FILTER_CHANGE', `${payload.filters.length} filter(s) applied`, '#fb923c');
-        }, [addLog]),
-        tableRef
-    );
-
-    // Column context menu
-    useMediator<ColumnContextMenuEvent>(
-        TableEvents.COLUMN_CONTEXT_MENU_ACTION,
-        useCallback((payload) => {
+        },
+        [TableEvents.COLUMN_CONTEXT_MENU_ACTION]: (payload) => {
             addLog('COLUMN_MENU', `"${payload.actionId}" on column "${payload.columnName}"`, '#e879f9');
-        }, [addLog]),
-        tableRef
-    );
-
-    // Row context menu
-    useMediator<RowContextMenuEvent>(
-        TableEvents.ROW_CONTEXT_MENU_ACTION,
-        useCallback((payload) => {
+        },
+        [TableEvents.ROW_CONTEXT_MENU_ACTION]: (payload) => {
             addLog('ROW_MENU', `"${payload.actionId}" on row ${payload.rowIndex}`, '#e879f9');
 
             if (payload.actionId === 'delete') {
                 setAllData((prev) => prev.filter((_, i) => i !== payload.rowIndex));
             } else if (payload.actionId === 'duplicate') {
                 setAllData((prev) => {
-                    const newRow = { ...payload.rowData, id: Math.max(...prev.map((r) => r.id)) + 1 };
+                    const newRow = { ...payload.rowData, id: Math.max(...prev.map((r: any) => r.id)) + 1 };
                     const newData = [...prev];
                     newData.splice(payload.rowIndex + 1, 0, newRow);
                     return newData;
                 });
             }
-        }, [addLog]),
-        tableRef
-    );
+        },
+    }, tableRef);
 
     return (
         <div style={{ display: 'flex', gap: 16 }}>

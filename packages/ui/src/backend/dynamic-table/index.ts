@@ -18,4 +18,4 @@ export {
 } from './hooks/index';
 export * from './types/index';
 export * from './validators';
-export { dispatch, useMediator, useListener } from './events/events';
+export { dispatch, useMediator, useListener, useEventHandlers } from './events/events';

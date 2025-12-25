@@ -1,6 +1,7 @@
 // events/events.ts
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { EventHandlers, TableEventPayloads } from '../types/index';
 
 export function dispatch<T>(element: HTMLElement, eventName: string, payload: T) {
   const event = new CustomEvent(eventName, {
@@ -47,4 +48,48 @@ export function useListener<T>(
     element.addEventListener(eventName, listener);
     return () => element.removeEventListener(eventName, listener);
   }, [eventName, handler, elementRef]);
+}
+
+export interface UseEventHandlersOptions {
+  stopPropagation?: boolean;
+}
+
+export function useEventHandlers(
+  handlers: EventHandlers,
+  elementRef: React.RefObject<HTMLElement | null>,
+  options: UseEventHandlersOptions = { stopPropagation: true }
+) {
+  // Use ref to avoid re-registering listeners on every handler change
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
+  useEffect(() => {
+    const element = elementRef?.current;
+    if (!element) return;
+
+    const eventNames = Object.keys(handlersRef.current) as Array<keyof TableEventPayloads>;
+    const listeners: Array<[string, EventListener]> = [];
+
+    for (const eventName of eventNames) {
+      const listener = (event: Event) => {
+        const handler = handlersRef.current[eventName];
+        if (!handler) return;
+
+        if (options.stopPropagation) {
+          event.stopPropagation();
+          event.preventDefault();
+        }
+        handler((event as CustomEvent).detail);
+      };
+
+      element.addEventListener(eventName, listener);
+      listeners.push([eventName, listener]);
+    }
+
+    return () => {
+      for (const [eventName, listener] of listeners) {
+        element.removeEventListener(eventName, listener);
+      }
+    };
+  }, [elementRef, options.stopPropagation]);
 }
