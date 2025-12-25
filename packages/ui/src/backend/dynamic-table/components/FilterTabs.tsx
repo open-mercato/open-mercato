@@ -65,6 +65,7 @@ const FilterTabs: React.FC<FilterTabsProps> = ({
               <>
                 <button
                   className={`filter-tab ${activeFilterId === filter.id ? 'active' : ''}`}
+                  data-color={filter.color}
                   onClick={() => onFilterSelect(filter.id)}
                   onDoubleClick={() => handleDoubleClick(filter)}
                 >

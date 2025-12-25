@@ -72,7 +72,17 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   savedFilters = [],
   activeFilterId: controlledActiveFilterId,
   debug = false,
+  hiddenColumns = [],
+  uiConfig = {},
 }) => {
+  // -------------------- UI CONFIG --------------------
+  const {
+    hideToolbar = false,
+    hideSearch = false,
+    hideFilterButton = false,
+    hideAddRowButton = false,
+    hideBottomBar = false,
+  } = uiConfig;
   // -------------------- REFS --------------------
   const storeRef = useRef<CellStore | null>(null);
   const dragStateRef = useRef<DragState>({
@@ -86,14 +96,20 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
 
   // -------------------- STORE INITIALIZATION --------------------
   const cols = useMemo(() => {
-    if (columns.length > 0) return columns;
-    if (data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
-      return Object.keys(data[0])
+    let result: typeof columns = [];
+    if (columns.length > 0) {
+      result = columns;
+    } else if (data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
+      result = Object.keys(data[0])
         .filter((k) => k !== '_isNew')
         .map((k) => ({ data: k }));
     }
-    return [];
-  }, [columns, data]);
+    // Filter out hidden columns
+    if (hiddenColumns.length > 0) {
+      result = result.filter((col) => !hiddenColumns.includes(col.data));
+    }
+    return result;
+  }, [columns, data, hiddenColumns]);
 
   if (!storeRef.current) {
     storeRef.current = createCellStore(data, cols);
@@ -261,40 +277,48 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     <CellStoreContext.Provider value={store}>
       <div className="hot-container" style={{ height, width, position: 'relative' }}>
         {/* Toolbar */}
-        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-white">
-          <h3 className="text-base font-semibold text-gray-900">{tableName}</h3>
-          <div className="flex items-center gap-2">
-            <SearchBar tableRef={tableRef} placeholder="Search..." />
+        {!hideToolbar && (
+          <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-white">
+            <h3 className="text-base font-semibold text-gray-900">{tableName}</h3>
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleToggleFilter}
-                className="filter-toggle-btn-header"
-                title="Build filter"
-              >
-                <span className={`toggle-icon ${filterExpanded ? 'expanded' : ''}`}>▼</span>
-                Build Filter
-              </button>
-              <button
-                onClick={handleAddRow}
-                className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
-                title="Add new row"
-              >
-                +
-              </button>
+              {!hideSearch && <SearchBar tableRef={tableRef} placeholder="Search..." />}
+              <div className="flex items-center gap-2">
+                {!hideFilterButton && (
+                  <button
+                    onClick={handleToggleFilter}
+                    className="filter-toggle-btn-header"
+                    title="Build filter"
+                  >
+                    <span className={`toggle-icon ${filterExpanded ? 'expanded' : ''}`}>▼</span>
+                    Build Filter
+                  </button>
+                )}
+                {!hideAddRowButton && (
+                  <button
+                    onClick={handleAddRow}
+                    className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
+                    title="Add new row"
+                  >
+                    +
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Filter Builder */}
-        <FilterBuilder
-          columns={cols}
-          filterRows={filterRows}
-          onFilterRowsChange={setFilterRows}
-          onClear={handleClearFilters}
-          onSave={handleSaveFilter}
-          isExpanded={filterExpanded}
-          onToggle={handleToggleFilter}
-        />
+        {!hideFilterButton && (
+          <FilterBuilder
+            columns={cols}
+            filterRows={filterRows}
+            onFilterRowsChange={setFilterRows}
+            onClear={handleClearFilters}
+            onSave={handleSaveFilter}
+            isExpanded={filterExpanded}
+            onToggle={handleToggleFilter}
+          />
+        )}
 
         {/* Table Container */}
         <div
@@ -357,15 +381,17 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
           </table>
         </div>
 
-        {/* Filter Tabs */}
-        <FilterTabs
-          savedFilters={savedFilters}
-          activeFilterId={activeFilterId}
-          onFilterSelect={handleFilterSelect}
-          onFilterRename={handleFilterRename}
-          onFilterDelete={handleFilterDelete}
-          pagination={pagination}
-        />
+        {/* Filter Tabs / Bottom Bar */}
+        {!hideBottomBar && (
+          <FilterTabs
+            savedFilters={savedFilters}
+            activeFilterId={activeFilterId}
+            onFilterSelect={handleFilterSelect}
+            onFilterRename={handleFilterRename}
+            onFilterDelete={handleFilterDelete}
+            pagination={pagination}
+          />
+        )}
 
         {/* Context Menu */}
         {contextMenu && (

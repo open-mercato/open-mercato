@@ -166,6 +166,127 @@ const getRowActions = (rowData: any, rowIndex: number): ContextMenuAction[] => [
 ];
 
 // ============================================================================
+// DRAWER COMPONENT
+// ============================================================================
+
+interface DrawerProps {
+    isOpen: boolean;
+    onClose: () => void;
+    title: string;
+    children: React.ReactNode;
+}
+
+const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children }) => {
+    if (!isOpen) return null;
+
+    return (
+        <>
+            {/* Backdrop */}
+            <div
+                onClick={onClose}
+                style={{
+                    position: 'fixed',
+                    inset: 0,
+                    background: 'rgba(0, 0, 0, 0.3)',
+                    zIndex: 10000,
+                }}
+            />
+            {/* Drawer Panel */}
+            <div
+                style={{
+                    position: 'fixed',
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                    width: 420,
+                    background: 'white',
+                    boxShadow: '-4px 0 12px rgba(0, 0, 0, 0.15)',
+                    zIndex: 10001,
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}
+            >
+                {/* Header */}
+                <div
+                    style={{
+                        padding: '16px 20px',
+                        borderBottom: '1px solid #e5e7eb',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                    }}
+                >
+                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#111827' }}>
+                        {title}
+                    </h3>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            width: 32,
+                            height: 32,
+                            border: 'none',
+                            background: '#f3f4f6',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            fontSize: 18,
+                            color: '#6b7280',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                        }}
+                    >
+                        ×
+                    </button>
+                </div>
+                {/* Content */}
+                <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+                    {children}
+                </div>
+            </div>
+        </>
+    );
+};
+
+// ============================================================================
+// VIEW DETAILS ICON BUTTON
+// ============================================================================
+
+const ViewDetailsButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+    <button
+        onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+        }}
+        style={{
+            width: 28,
+            height: 28,
+            border: '1px solid #e5e7eb',
+            background: 'white',
+            borderRadius: 6,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s',
+        }}
+        onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#f3f4f6';
+            e.currentTarget.style.borderColor = '#d1d5db';
+        }}
+        onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'white';
+            e.currentTarget.style.borderColor = '#e5e7eb';
+        }}
+        title="View details"
+    >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+        </svg>
+    </button>
+);
+
+// ============================================================================
 // STORY 1: FULL FEATURED DEMO (DEFAULT)
 // ============================================================================
 
@@ -174,10 +295,41 @@ const FullFeaturedDemo = () => {
     const [allData] = useState(() => generateData(250));
     const [currentPage, setCurrentPage] = useState(1);
     const [limit, setLimit] = useState(25);
-    const columns = getColumns();
+
+    // Drawer state
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [selectedRowData, setSelectedRowData] = useState<any>(null);
+
+    const handleViewDetails = useCallback((rowData: any) => {
+        setSelectedRowData(rowData);
+        setDrawerOpen(true);
+    }, []);
+
+    // Columns with view details
+    const columns: ColumnDef[] = [
+        ...getColumns(),
+        {
+            data: '_viewDetails',
+            width: 60,
+            title: '',
+            readOnly: true,
+            renderer: (_value: any, rowData: any) => (
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                    <ViewDetailsButton onClick={() => handleViewDetails(rowData)} />
+                </div>
+            ),
+        },
+    ];
 
     // Filter state (managed locally, would typically come from API)
-    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    // Pre-populate with color-coded filters for demo
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([
+        { id: 'engineering', name: 'Engineering', rows: [{ id: '1', field: 'department', operator: 'equals', values: ['Engineering'] }], color: 'blue' },
+        { id: 'active-only', name: 'Active Only', rows: [{ id: '2', field: 'active', operator: 'equals', values: [true] }], color: 'green' },
+        { id: 'high-salary', name: 'High Salary', rows: [{ id: '3', field: 'salary', operator: 'greaterThan', values: [80000] }], color: 'purple' },
+        { id: 'us-employees', name: 'US Employees', rows: [{ id: '4', field: 'country', operator: 'equals', values: ['USA'] }], color: 'orange' },
+        { id: 'seniors', name: 'Seniors', rows: [{ id: '5', field: 'role', operator: 'contains', values: ['Senior', 'Lead'] }], color: 'teal' },
+    ]);
     const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
 
     // Pagination calculations
@@ -321,6 +473,42 @@ const FullFeaturedDemo = () => {
                 savedFilters={savedFilters}
                 activeFilterId={activeFilterId}
             />
+
+            {/* Row Details Drawer */}
+            <Drawer
+                isOpen={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                title={selectedRowData ? `Employee: ${selectedRowData.name}` : 'Details'}
+            >
+                {selectedRowData && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        {Object.entries(selectedRowData).map(([key, value]) => (
+                            <div key={key} style={{ borderBottom: '1px solid #f3f4f6', paddingBottom: 12 }}>
+                                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4, textTransform: 'capitalize' }}>
+                                    {key.replace(/([A-Z])/g, ' $1').trim()}
+                                </div>
+                                <div style={{ fontSize: 14, color: '#111827' }}>
+                                    {typeof value === 'boolean' ? (
+                                        <span style={{
+                                            padding: '2px 8px',
+                                            borderRadius: 4,
+                                            background: value ? '#d1fae5' : '#fee2e2',
+                                            color: value ? '#059669' : '#dc2626',
+                                            fontSize: 12,
+                                        }}>
+                                            {value ? 'Yes' : 'No'}
+                                        </span>
+                                    ) : key === 'salary' ? (
+                                        `$${(value as number).toLocaleString()}`
+                                    ) : (
+                                        String(value ?? '-')
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </Drawer>
         </div>
     );
 };
@@ -347,8 +535,11 @@ const EventLogDemo = () => {
     const [currentPage, setCurrentPage] = useState(1);
     const [limit, setLimit] = useState(10);
 
-    // Filter state
-    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    // Filter state with color-coded demo filters
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([
+        { id: 'pending-review', name: 'Pending Review', rows: [{ id: '1', field: 'status', operator: 'equals', values: ['Pending'] }], color: 'yellow' },
+        { id: 'on-leave', name: 'On Leave', rows: [{ id: '2', field: 'status', operator: 'equals', values: ['On Leave'] }], color: 'red' },
+    ]);
     const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
     const [eventLog, setEventLog] = useState<LogEntry[]>([]);
     const logIdRef = useRef(0);
@@ -623,8 +814,12 @@ const DebugModeDemo = () => {
     const [limit, setLimit] = useState(25);
     const columns = getColumns();
 
-    // Filter state
-    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    // Filter state with color-coded demo filters
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([
+        { id: 'marketing', name: 'Marketing', rows: [{ id: '1', field: 'department', operator: 'equals', values: ['Marketing'] }], color: 'pink' },
+        { id: 'managers', name: 'Managers', rows: [{ id: '2', field: 'role', operator: 'equals', values: ['Manager'] }], color: 'blue' },
+        { id: 'new-hires', name: 'New Hires (2024)', rows: [{ id: '3', field: 'startDate', operator: 'contains', values: ['2024'] }], color: 'green' },
+    ]);
     const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
 
     // Pagination calculations
@@ -713,6 +908,7 @@ const DebugModeDemo = () => {
                 savedFilters={savedFilters}
                 activeFilterId={activeFilterId}
                 debug={true}
+                hiddenColumns={['id', 'status', 'department']}
             />
         </div>
     );
@@ -720,4 +916,135 @@ const DebugModeDemo = () => {
 
 export const DebugMode: StoryObj = {
     render: () => <DebugModeDemo />,
+};
+
+// ============================================================================
+// STORY 4: MINIMAL TABLE (UI CONFIG DEMO)
+// ============================================================================
+
+const MinimalTableDemo = () => {
+    const tableRef = useRef<HTMLDivElement>(null);
+    const [data] = useState(() => generateData(50));
+    const columns = getColumns();
+
+    return (
+        <div>
+            <div
+                style={{
+                    padding: 16,
+                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                    borderRadius: 8,
+                    marginBottom: 16,
+                    color: 'white',
+                }}
+            >
+                <h3 style={{ margin: '0 0 8px' }}>Minimal Table - UI Config Demo</h3>
+                <p style={{ margin: 0, fontSize: 13, opacity: 0.9 }}>
+                    This table hides all UI elements: toolbar, search, filter button, add row button, and bottom bar.
+                    Only the table data and column headers are visible.
+                </p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                {/* Minimal - Hide Everything */}
+                <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#374151' }}>
+                        Hide All UI (uiConfig.hideToolbar + hideBottomBar)
+                    </h4>
+                    <DynamicTable
+                        tableRef={tableRef}
+                        data={data.slice(0, 10)}
+                        columns={columns}
+                        colHeaders={true}
+                        rowHeaders={false}
+                        height={300}
+                        tableName="Minimal Table"
+                        idColumnName="id"
+                        uiConfig={{
+                            hideToolbar: true,
+                            hideBottomBar: true,
+                        }}
+                    />
+                </div>
+
+                {/* Hide only filter and add buttons */}
+                <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#374151' }}>
+                        Hide Filter + Add Row Buttons Only
+                    </h4>
+                    <DynamicTable
+                        tableRef={useRef<HTMLDivElement>(null)}
+                        data={data.slice(0, 10)}
+                        columns={columns}
+                        colHeaders={true}
+                        rowHeaders={false}
+                        height={300}
+                        tableName="Search Only Table"
+                        idColumnName="id"
+                        uiConfig={{
+                            hideFilterButton: true,
+                            hideAddRowButton: true,
+                            hideBottomBar: true,
+                        }}
+                    />
+                </div>
+
+                {/* Hide search only */}
+                <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#374151' }}>
+                        Hide Search Bar Only
+                    </h4>
+                    <DynamicTable
+                        tableRef={useRef<HTMLDivElement>(null)}
+                        data={data.slice(0, 10)}
+                        columns={columns}
+                        colHeaders={true}
+                        rowHeaders={false}
+                        height={300}
+                        tableName="No Search Table"
+                        idColumnName="id"
+                        savedFilters={[
+                            { id: 'active', name: 'Active', rows: [], color: 'green' },
+                            { id: 'pending', name: 'Pending', rows: [], color: 'yellow' },
+                        ]}
+                        uiConfig={{
+                            hideSearch: true,
+                        }}
+                    />
+                </div>
+
+                {/* Full featured for comparison */}
+                <div>
+                    <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#374151' }}>
+                        Full Featured (Default)
+                    </h4>
+                    <DynamicTable
+                        tableRef={useRef<HTMLDivElement>(null)}
+                        data={data.slice(0, 10)}
+                        columns={columns}
+                        colHeaders={true}
+                        rowHeaders={true}
+                        height={300}
+                        tableName="Full Featured Table"
+                        idColumnName="id"
+                        savedFilters={[
+                            { id: 'engineering', name: 'Engineering', rows: [], color: 'blue' },
+                            { id: 'sales', name: 'Sales', rows: [], color: 'purple' },
+                        ]}
+                        pagination={{
+                            currentPage: 1,
+                            totalPages: 5,
+                            limit: 10,
+                            onPageChange: () => {},
+                            onLimitChange: () => {},
+                        }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export const MinimalTable: StoryObj = {
+    render: () => <MinimalTableDemo />,
 };

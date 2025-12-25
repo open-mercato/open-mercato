@@ -19,6 +19,7 @@ import {
   FilterSelectEvent,
   FilterRenameEvent,
   FilterDeleteEvent,
+  FilterColor,
 } from '../types/index';
 import { dispatch } from '../events/events';
 
@@ -563,11 +564,12 @@ export function createFilterHandlers({
     );
   };
 
-  const handleSaveFilter = (name: string) => {
+  const handleSaveFilter = (name: string, color?: FilterColor) => {
     const newFilter: SavedFilter = {
       id: `filter-${Date.now()}`,
       name,
       rows: filterRows,
+      color,
     };
     dispatch<FilterSaveEvent>(
       tableRef.current as HTMLElement,

@@ -91,10 +91,13 @@ export interface FilterRow {
   values: any[];
 }
 
+export type FilterColor = 'blue' | 'green' | 'purple' | 'orange' | 'pink' | 'teal' | 'yellow' | 'red';
+
 export interface SavedFilter {
   id: string;
   name: string;
   rows: FilterRow[];
+  color?: FilterColor;
 }
 
 // Event types
@@ -244,6 +247,19 @@ export interface PaginationProps {
   onLimitChange: (limit: number) => void;
 }
 
+export interface TableUIConfig {
+  /** Hide the entire toolbar (header with title, search, buttons) */
+  hideToolbar?: boolean;
+  /** Hide just the search bar */
+  hideSearch?: boolean;
+  /** Hide the "Build Filter" button */
+  hideFilterButton?: boolean;
+  /** Hide the "Add Row" button */
+  hideAddRowButton?: boolean;
+  /** Hide the bottom row containing filter tabs and pagination */
+  hideBottomBar?: boolean;
+}
+
 export interface DynamicTableProps {
   data?: any[];
   columns?: ColumnDef[];
@@ -262,6 +278,10 @@ export interface DynamicTableProps {
   activeFilterId?: string | null;
   // Debug mode - shows floating event log panel
   debug?: boolean;
+  // Hidden columns - array of column data/id values to hide
+  hiddenColumns?: string[];
+  // UI visibility configuration
+  uiConfig?: TableUIConfig;
 }
 
 // Re-export filter types

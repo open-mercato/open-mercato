@@ -1,12 +1,25 @@
 import React, { useState, useCallback } from 'react';
 import { FilterRow, FilterOperator, getOperatorsForType, needsValueInput, needsMultipleValues } from '../types/filters';
+import { FilterColor } from '../types/index';
+
+// Color palette similar to Airtable
+const COLOR_PALETTE: { color: FilterColor; bg: string; border: string }[] = [
+  { color: 'blue', bg: '#dbeafe', border: '#93c5fd' },
+  { color: 'green', bg: '#dcfce7', border: '#86efac' },
+  { color: 'teal', bg: '#ccfbf1', border: '#5eead4' },
+  { color: 'purple', bg: '#f3e8ff', border: '#d8b4fe' },
+  { color: 'pink', bg: '#fce7f3', border: '#f9a8d4' },
+  { color: 'red', bg: '#fee2e2', border: '#fca5a5' },
+  { color: 'orange', bg: '#ffedd5', border: '#fdba74' },
+  { color: 'yellow', bg: '#fef9c3', border: '#fde047' },
+];
 
 interface FilterBuilderProps {
   columns: any[];
   filterRows: FilterRow[];
   onFilterRowsChange: (rows: FilterRow[]) => void;
   onClear: () => void;
-  onSave: (name: string) => void;
+  onSave: (name: string, color?: FilterColor) => void;
   isExpanded: boolean;
   onToggle: () => void;
 }
@@ -21,6 +34,7 @@ const FilterBuilder: React.FC<FilterBuilderProps> = ({
   onToggle,
 }) => {
   const [filterName, setFilterName] = useState('');
+  const [selectedColor, setSelectedColor] = useState<FilterColor>('blue');
 
   const addFilterRow = useCallback(() => {
     const newRow: FilterRow = {
@@ -65,13 +79,29 @@ const FilterBuilder: React.FC<FilterBuilderProps> = ({
       {isExpanded && (
         <>
           <div className="filter-builder-header">
-            <input
-              type="text"
-              value={filterName}
-              onChange={(e) => setFilterName(e.target.value)}
-              placeholder="Enter filter name..."
-              className="filter-name-input"
-            />
+            <div className="filter-name-row">
+              <input
+                type="text"
+                value={filterName}
+                onChange={(e) => setFilterName(e.target.value)}
+                placeholder="Enter filter name..."
+                className="filter-name-input"
+              />
+              <div className="filter-color-picker">
+                {COLOR_PALETTE.map((item) => (
+                  <button
+                    key={item.color}
+                    className={`filter-color-swatch ${selectedColor === item.color ? 'selected' : ''}`}
+                    style={{
+                      backgroundColor: item.bg,
+                      borderColor: selectedColor === item.color ? item.border : 'transparent',
+                    }}
+                    onClick={() => setSelectedColor(item.color)}
+                    title={item.color}
+                  />
+                ))}
+              </div>
+            </div>
             <div className="filter-actions">
               <button onClick={onClear} className="filter-btn filter-btn-secondary">
                 Clear All
@@ -79,11 +109,11 @@ const FilterBuilder: React.FC<FilterBuilderProps> = ({
               <button
                 onClick={() => {
                   if (filterName.trim()) {
-                    onSave(filterName.trim());
+                    onSave(filterName.trim(), selectedColor);
                     setFilterName('');
                   }
                 }}
-                className="filter-btn filter-btn-secondary"
+                className="filter-btn filter-btn-primary"
                 disabled={!filterName.trim()}
               >
                 Save Filter
