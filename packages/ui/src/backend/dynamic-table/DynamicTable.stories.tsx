@@ -9,7 +9,6 @@ import type {
     ContextMenuAction,
     ColumnDef,
     SavedFilter,
-    FilterRow,
 } from './types/index';
 
 const meta: Meta<typeof DynamicTable> = {
@@ -181,28 +180,6 @@ const FullFeaturedDemo = () => {
     const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
     const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
 
-    const handleFilterSave = useCallback((filter: SavedFilter) => {
-        setSavedFilters(prev => [...prev, filter]);
-        setActiveFilterId(filter.id);
-    }, []);
-
-    const handleFilterSelect = useCallback((id: string | null, filterRows: FilterRow[]) => {
-        setActiveFilterId(id);
-        // In a real app, you would apply filterRows to fetch filtered data from API
-        console.log('Filter selected:', id, filterRows);
-    }, []);
-
-    const handleFilterRename = useCallback((id: string, newName: string) => {
-        setSavedFilters(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
-    }, []);
-
-    const handleFilterDelete = useCallback((id: string) => {
-        setSavedFilters(prev => prev.filter(f => f.id !== id));
-        if (activeFilterId === id) {
-            setActiveFilterId(null);
-        }
-    }, [activeFilterId]);
-
     // Pagination calculations
     const totalPages = Math.ceil(allData.length / limit);
     const startIndex = (currentPage - 1) * limit;
@@ -257,7 +234,6 @@ const FullFeaturedDemo = () => {
         },
         [TableEvents.COLUMN_SORT]: (payload) => {
             if (payload.direction) {
-                // Note: sorting would need to be handled via state if data is paginated
                 console.log('Sort:', payload.columnName, payload.direction);
             }
         },
@@ -266,6 +242,23 @@ const FullFeaturedDemo = () => {
                 console.log('Delete row:', payload.rowIndex);
             } else if (payload.actionId === 'duplicate') {
                 console.log('Duplicate row:', payload.rowIndex);
+            }
+        },
+        [TableEvents.FILTER_SAVE]: (payload) => {
+            setSavedFilters(prev => [...prev, payload.filter]);
+            setActiveFilterId(payload.filter.id);
+        },
+        [TableEvents.FILTER_SELECT]: (payload) => {
+            setActiveFilterId(payload.id);
+            console.log('Filter selected:', payload.id, payload.filterRows);
+        },
+        [TableEvents.FILTER_RENAME]: (payload) => {
+            setSavedFilters(prev => prev.map(f => f.id === payload.id ? { ...f, name: payload.newName } : f));
+        },
+        [TableEvents.FILTER_DELETE]: (payload) => {
+            setSavedFilters(prev => prev.filter(f => f.id !== payload.id));
+            if (activeFilterId === payload.id) {
+                setActiveFilterId(null);
             }
         },
     }, tableRef);
@@ -327,10 +320,6 @@ const FullFeaturedDemo = () => {
                 }}
                 savedFilters={savedFilters}
                 activeFilterId={activeFilterId}
-                onFilterSave={handleFilterSave}
-                onFilterSelect={handleFilterSelect}
-                onFilterRename={handleFilterRename}
-                onFilterDelete={handleFilterDelete}
             />
         </div>
     );
@@ -378,32 +367,6 @@ const EventLogDemo = () => {
             ...prev,
         ].slice(0, 50));
     }, []);
-
-    // Filter handlers with logging
-    const handleFilterSave = useCallback((filter: SavedFilter) => {
-        setSavedFilters(prev => [...prev, filter]);
-        setActiveFilterId(filter.id);
-        addLog('FILTER_SAVE', `Saved filter: "${filter.name}"`, '#10b981');
-    }, [addLog]);
-
-    const handleFilterSelect = useCallback((id: string | null, filterRows: FilterRow[]) => {
-        setActiveFilterId(id);
-        addLog('FILTER_SELECT', id ? `Selected filter: ${id}` : 'Cleared filter', '#10b981');
-    }, [addLog]);
-
-    const handleFilterRename = useCallback((id: string, newName: string) => {
-        setSavedFilters(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
-        addLog('FILTER_RENAME', `Renamed filter to: "${newName}"`, '#10b981');
-    }, [addLog]);
-
-    const handleFilterDelete = useCallback((id: string) => {
-        const filter = savedFilters.find(f => f.id === id);
-        setSavedFilters(prev => prev.filter(f => f.id !== id));
-        if (activeFilterId === id) {
-            setActiveFilterId(null);
-        }
-        addLog('FILTER_DELETE', `Deleted filter: "${filter?.name}"`, '#10b981');
-    }, [activeFilterId, savedFilters, addLog]);
 
     const handlePageChange = useCallback((page: number) => {
         setCurrentPage(Math.max(1, Math.min(page, totalPages)));
@@ -523,6 +486,27 @@ const EventLogDemo = () => {
                 });
             }
         },
+        [TableEvents.FILTER_SAVE]: (payload) => {
+            setSavedFilters(prev => [...prev, payload.filter]);
+            setActiveFilterId(payload.filter.id);
+            addLog('FILTER_SAVE', `Saved filter: "${payload.filter.name}"`, '#10b981');
+        },
+        [TableEvents.FILTER_SELECT]: (payload) => {
+            setActiveFilterId(payload.id);
+            addLog('FILTER_SELECT', payload.id ? `Selected filter: ${payload.id}` : 'Cleared filter', '#10b981');
+        },
+        [TableEvents.FILTER_RENAME]: (payload) => {
+            setSavedFilters(prev => prev.map(f => f.id === payload.id ? { ...f, name: payload.newName } : f));
+            addLog('FILTER_RENAME', `Renamed filter to: "${payload.newName}"`, '#10b981');
+        },
+        [TableEvents.FILTER_DELETE]: (payload) => {
+            const filter = savedFilters.find(f => f.id === payload.id);
+            setSavedFilters(prev => prev.filter(f => f.id !== payload.id));
+            if (activeFilterId === payload.id) {
+                setActiveFilterId(null);
+            }
+            addLog('FILTER_DELETE', `Deleted filter: "${filter?.name}"`, '#10b981');
+        },
     }, tableRef);
 
     return (
@@ -556,10 +540,6 @@ const EventLogDemo = () => {
                     }}
                     savedFilters={savedFilters}
                     activeFilterId={activeFilterId}
-                    onFilterSave={handleFilterSave}
-                    onFilterSelect={handleFilterSelect}
-                    onFilterRename={handleFilterRename}
-                    onFilterDelete={handleFilterDelete}
                 />
             </div>
             <div

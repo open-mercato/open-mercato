@@ -159,6 +159,24 @@ export interface FilterChangeEvent {
   savedFilterId?: string | null;
 }
 
+export interface FilterSaveEvent {
+  filter: SavedFilter;
+}
+
+export interface FilterSelectEvent {
+  id: string | null;
+  filterRows: FilterRow[];
+}
+
+export interface FilterRenameEvent {
+  id: string;
+  newName: string;
+}
+
+export interface FilterDeleteEvent {
+  id: string;
+}
+
 export interface ColumnContextMenuEvent {
   columnIndex: number;
   columnName: string;
@@ -181,6 +199,10 @@ export const TableEvents = {
   NEW_ROW_SAVE_SUCCESS: 'table:new:row:save:success',
   NEW_ROW_SAVE_ERROR: 'table:new:row:save:error',
   FILTER_CHANGE: 'table:filter:change',
+  FILTER_SAVE: 'table:filter:save',
+  FILTER_SELECT: 'table:filter:select',
+  FILTER_RENAME: 'table:filter:rename',
+  FILTER_DELETE: 'table:filter:delete',
   COLUMN_SORT: 'table:column:sort',
   SEARCH: 'table:search',
   COLUMN_CONTEXT_MENU_ACTION: 'table:column:context:action',
@@ -198,6 +220,10 @@ export type TableEventPayloads = {
   [TableEvents.NEW_ROW_SAVE_SUCCESS]: NewRowSaveSuccessEvent;
   [TableEvents.NEW_ROW_SAVE_ERROR]: NewRowSaveErrorEvent;
   [TableEvents.FILTER_CHANGE]: FilterChangeEvent;
+  [TableEvents.FILTER_SAVE]: FilterSaveEvent;
+  [TableEvents.FILTER_SELECT]: FilterSelectEvent;
+  [TableEvents.FILTER_RENAME]: FilterRenameEvent;
+  [TableEvents.FILTER_DELETE]: FilterDeleteEvent;
   [TableEvents.COLUMN_SORT]: ColumnSortEvent;
   [TableEvents.SEARCH]: SearchEvent;
   [TableEvents.COLUMN_CONTEXT_MENU_ACTION]: ColumnContextMenuEvent;
@@ -231,13 +257,9 @@ export interface DynamicTableProps {
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
   pagination?: PaginationProps;
-  // Filter management (controlled externally)
+  // Filter management (controlled externally, events dispatched for changes)
   savedFilters?: SavedFilter[];
   activeFilterId?: string | null;
-  onFilterSave?: (filter: SavedFilter) => void;
-  onFilterSelect?: (id: string | null, filterRows: FilterRow[]) => void;
-  onFilterRename?: (id: string, newName: string) => void;
-  onFilterDelete?: (id: string) => void;
 }
 
 // Re-export filter types

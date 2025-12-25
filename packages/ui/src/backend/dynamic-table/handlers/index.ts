@@ -15,6 +15,10 @@ import {
   SortState,
   FilterRow,
   SavedFilter,
+  FilterSaveEvent,
+  FilterSelectEvent,
+  FilterRenameEvent,
+  FilterDeleteEvent,
 } from '../types/index';
 import { dispatch } from '../events/events';
 
@@ -512,6 +516,7 @@ export function createResizeHandlers(store: CellStore) {
 // FILTER HANDLERS
 // ============================================
 export interface FilterHandlersDeps {
+  tableRef: React.RefObject<HTMLElement | null>;
   columns: ColumnDef[];
   filterRows: FilterRow[];
   setFilterRows: React.Dispatch<React.SetStateAction<FilterRow[]>>;
@@ -519,13 +524,10 @@ export interface FilterHandlersDeps {
   setInternalActiveFilterId: React.Dispatch<React.SetStateAction<string | null>>;
   savedFilters: SavedFilter[];
   activeFilterId: string | null;
-  onFilterSave?: (filter: SavedFilter) => void;
-  onFilterSelect?: (id: string | null, filterRows: FilterRow[]) => void;
-  onFilterRename?: (id: string, newName: string) => void;
-  onFilterDelete?: (id: string) => void;
 }
 
 export function createFilterHandlers({
+  tableRef,
   columns,
   filterRows,
   setFilterRows,
@@ -533,10 +535,6 @@ export function createFilterHandlers({
   setInternalActiveFilterId,
   savedFilters,
   activeFilterId,
-  onFilterSave,
-  onFilterSelect,
-  onFilterRename,
-  onFilterDelete,
 }: FilterHandlersDeps) {
   const handleToggleFilter = () => {
     setFilterExpanded((prev) => {
@@ -558,7 +556,11 @@ export function createFilterHandlers({
   const handleClearFilters = () => {
     setFilterRows([]);
     setInternalActiveFilterId(null);
-    onFilterSelect?.(null, []);
+    dispatch<FilterSelectEvent>(
+      tableRef.current as HTMLElement,
+      TableEvents.FILTER_SELECT,
+      { id: null, filterRows: [] }
+    );
   };
 
   const handleSaveFilter = (name: string) => {
@@ -567,7 +569,11 @@ export function createFilterHandlers({
       name,
       rows: filterRows,
     };
-    onFilterSave?.(newFilter);
+    dispatch<FilterSaveEvent>(
+      tableRef.current as HTMLElement,
+      TableEvents.FILTER_SAVE,
+      { filter: newFilter }
+    );
     setInternalActiveFilterId(newFilter.id);
   };
 
@@ -575,22 +581,38 @@ export function createFilterHandlers({
     setInternalActiveFilterId(id);
     if (id === null) {
       setFilterRows([]);
-      onFilterSelect?.(null, []);
+      dispatch<FilterSelectEvent>(
+        tableRef.current as HTMLElement,
+        TableEvents.FILTER_SELECT,
+        { id: null, filterRows: [] }
+      );
     } else {
       const filter = savedFilters.find((f) => f.id === id);
       if (filter) {
         setFilterRows(filter.rows);
-        onFilterSelect?.(id, filter.rows);
+        dispatch<FilterSelectEvent>(
+          tableRef.current as HTMLElement,
+          TableEvents.FILTER_SELECT,
+          { id, filterRows: filter.rows }
+        );
       }
     }
   };
 
   const handleFilterRename = (id: string, newName: string) => {
-    onFilterRename?.(id, newName);
+    dispatch<FilterRenameEvent>(
+      tableRef.current as HTMLElement,
+      TableEvents.FILTER_RENAME,
+      { id, newName }
+    );
   };
 
   const handleFilterDelete = (id: string) => {
-    onFilterDelete?.(id);
+    dispatch<FilterDeleteEvent>(
+      tableRef.current as HTMLElement,
+      TableEvents.FILTER_DELETE,
+      { id }
+    );
     if (activeFilterId === id) {
       setInternalActiveFilterId(null);
       setFilterRows([]);

@@ -70,10 +70,6 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   pagination,
   savedFilters = [],
   activeFilterId: controlledActiveFilterId,
-  onFilterSave,
-  onFilterSelect,
-  onFilterRename,
-  onFilterDelete,
 }) => {
   // -------------------- REFS --------------------
   const storeRef = useRef<CellStore | null>(null);
@@ -178,6 +174,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     handleFilterRename,
     handleFilterDelete,
   } = createFilterHandlers({
+    tableRef,
     columns: cols,
     filterRows,
     setFilterRows,
@@ -185,10 +182,6 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     setInternalActiveFilterId,
     savedFilters,
     activeFilterId,
-    onFilterSave,
-    onFilterSelect,
-    onFilterRename,
-    onFilterDelete,
   });
   const handleKeyDown = useKeyboardNavigation(store, cols.length, handleCellSave);
   const handleCopy = useCopyHandler(store);
