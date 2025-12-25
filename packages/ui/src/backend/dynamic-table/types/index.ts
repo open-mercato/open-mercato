@@ -209,6 +209,13 @@ export interface DynamicTableProps {
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
   pagination?: PaginationProps;
+  // Filter management (controlled externally)
+  savedFilters?: SavedFilter[];
+  activeFilterId?: string | null;
+  onFilterSave?: (filter: SavedFilter) => void;
+  onFilterSelect?: (id: string | null, filterRows: FilterRow[]) => void;
+  onFilterRename?: (id: string, newName: string) => void;
+  onFilterDelete?: (id: string) => void;
 }
 
 // Re-export filter types

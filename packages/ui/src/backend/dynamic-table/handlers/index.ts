@@ -13,6 +13,8 @@ import {
   ContextMenuAction,
   ContextMenuState,
   SortState,
+  FilterRow,
+  SavedFilter,
 } from '../types/index';
 import { dispatch } from '../events/events';
 
@@ -118,16 +120,89 @@ export function createRowHandlers(
 }
 
 // ============================================
+// DRAG HANDLERS
+// ============================================
+export type DragState = {
+  isDragging: boolean;
+  type: 'cell' | 'row' | 'column' | null;
+  start: { row: number; col: number } | null;
+};
+
+export function createDragHandlers(
+  store: CellStore,
+  columns: ColumnDef[],
+  dragStateRef: React.MutableRefObject<DragState>
+) {
+  const handleDragStart = (row: number, col: number, type: 'cell' | 'row' | 'column') => {
+    dragStateRef.current = { isDragging: true, type, start: { row, col } };
+
+    if (type === 'row') {
+      store.setSelection({
+        type: 'rowRange',
+        anchor: { row, col: 0 },
+        focus: { row, col: columns.length - 1 },
+      });
+    } else if (type === 'column') {
+      store.setSelection({
+        type: 'colRange',
+        anchor: { row: 0, col },
+        focus: { row: store.getRowCount() - 1, col },
+      });
+    } else {
+      store.setSelection({
+        type: 'range',
+        anchor: { row, col },
+        focus: { row, col },
+      });
+    }
+  };
+
+  const handleDragMove = (row: number, col: number) => {
+    if (!dragStateRef.current.isDragging) return;
+
+    const selection = store.getSelection();
+    if (!selection.anchor) return;
+
+    if (dragStateRef.current.type === 'row') {
+      store.setSelection({
+        ...selection,
+        focus: { row, col: columns.length - 1 },
+      });
+    } else if (dragStateRef.current.type === 'column') {
+      store.setSelection({
+        ...selection,
+        focus: { row: store.getRowCount() - 1, col },
+      });
+    } else {
+      store.setSelection({
+        ...selection,
+        focus: { row, col },
+      });
+    }
+  };
+
+  const handleDragEnd = () => {
+    dragStateRef.current = { isDragging: false, type: null, start: null };
+  };
+
+  return {
+    handleDragStart,
+    handleDragMove,
+    handleDragEnd,
+  };
+}
+
+// ============================================
 // MOUSE HANDLERS
 // ============================================
 export function createMouseHandlers(
   store: CellStore,
   columns: ColumnDef[],
-  dragStateRef: React.MutableRefObject<{ isDragging: boolean; type: string | null; start: { row: number; col: number } | null }>,
-  onDragStart: (row: number, col: number, type: 'cell' | 'row' | 'column') => void,
-  onDragMove: (row: number, col: number) => void,
-  onDragEnd: () => void
+  dragStateRef: React.MutableRefObject<DragState>,
+  dragHandlers: ReturnType<typeof createDragHandlers>
 ) {
+  const { handleDragStart, handleDragMove, handleDragEnd } = dragHandlers;
+
   const handleMouseDown = (e: React.MouseEvent) => {
     // Save any current editing
     const editing = store.getEditingCell();
@@ -152,7 +227,7 @@ export function createMouseHandlers(
     const row = parseInt(cell.getAttribute('data-row') || '', 10);
 
     if (isRowHeader && !isNaN(row)) {
-      onDragStart(row, 0, 'row');
+      handleDragStart(row, 0, 'row');
       e.preventDefault();
       return;
     }
@@ -160,7 +235,7 @@ export function createMouseHandlers(
     const col = parseInt(cell.getAttribute('data-col') || '', 10);
 
     if (!isNaN(row) && !isNaN(col)) {
-      onDragStart(row, col, 'cell');
+      handleDragStart(row, col, 'cell');
       e.preventDefault();
     }
   };
@@ -177,7 +252,7 @@ export function createMouseHandlers(
     if (!cell && header && dragStateRef.current.type === 'column') {
       const col = parseInt(header.getAttribute('data-col') || '', 10);
       if (!isNaN(col)) {
-        onDragMove(0, col);
+        handleDragMove(0, col);
       }
       return;
     }
@@ -196,15 +271,15 @@ export function createMouseHandlers(
     const col = parseInt(cell.getAttribute('data-col') || '', 10);
 
     if (!isNaN(row) && !isNaN(col)) {
-      onDragMove(row, col);
+      handleDragMove(row, col);
     } else if (!isNaN(row) && dragStateRef.current.type === 'row') {
-      onDragMove(row, columns.length - 1);
+      handleDragMove(row, columns.length - 1);
     }
   };
 
   const handleMouseUp = () => {
     if (dragStateRef.current.isDragging) {
-      onDragEnd();
+      handleDragEnd();
     }
   };
 
@@ -430,6 +505,105 @@ export function createResizeHandlers(store: CellStore) {
 
   return {
     handleResizeStart,
+  };
+}
+
+// ============================================
+// FILTER HANDLERS
+// ============================================
+export interface FilterHandlersDeps {
+  columns: ColumnDef[];
+  filterRows: FilterRow[];
+  setFilterRows: React.Dispatch<React.SetStateAction<FilterRow[]>>;
+  setFilterExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  setInternalActiveFilterId: React.Dispatch<React.SetStateAction<string | null>>;
+  savedFilters: SavedFilter[];
+  activeFilterId: string | null;
+  onFilterSave?: (filter: SavedFilter) => void;
+  onFilterSelect?: (id: string | null, filterRows: FilterRow[]) => void;
+  onFilterRename?: (id: string, newName: string) => void;
+  onFilterDelete?: (id: string) => void;
+}
+
+export function createFilterHandlers({
+  columns,
+  filterRows,
+  setFilterRows,
+  setFilterExpanded,
+  setInternalActiveFilterId,
+  savedFilters,
+  activeFilterId,
+  onFilterSave,
+  onFilterSelect,
+  onFilterRename,
+  onFilterDelete,
+}: FilterHandlersDeps) {
+  const handleToggleFilter = () => {
+    setFilterExpanded((prev) => {
+      const newExpanded = !prev;
+      if (newExpanded && filterRows.length === 0) {
+        setFilterRows([
+          {
+            id: `filter-${Date.now()}`,
+            field: columns[0]?.data || '',
+            operator: 'is_any_of',
+            values: [],
+          },
+        ]);
+      }
+      return newExpanded;
+    });
+  };
+
+  const handleClearFilters = () => {
+    setFilterRows([]);
+    setInternalActiveFilterId(null);
+    onFilterSelect?.(null, []);
+  };
+
+  const handleSaveFilter = (name: string) => {
+    const newFilter: SavedFilter = {
+      id: `filter-${Date.now()}`,
+      name,
+      rows: filterRows,
+    };
+    onFilterSave?.(newFilter);
+    setInternalActiveFilterId(newFilter.id);
+  };
+
+  const handleFilterSelect = (id: string | null) => {
+    setInternalActiveFilterId(id);
+    if (id === null) {
+      setFilterRows([]);
+      onFilterSelect?.(null, []);
+    } else {
+      const filter = savedFilters.find((f) => f.id === id);
+      if (filter) {
+        setFilterRows(filter.rows);
+        onFilterSelect?.(id, filter.rows);
+      }
+    }
+  };
+
+  const handleFilterRename = (id: string, newName: string) => {
+    onFilterRename?.(id, newName);
+  };
+
+  const handleFilterDelete = (id: string) => {
+    onFilterDelete?.(id);
+    if (activeFilterId === id) {
+      setInternalActiveFilterId(null);
+      setFilterRows([]);
+    }
+  };
+
+  return {
+    handleToggleFilter,
+    handleClearFilters,
+    handleSaveFilter,
+    handleFilterSelect,
+    handleFilterRename,
+    handleFilterDelete,
   };
 }
 

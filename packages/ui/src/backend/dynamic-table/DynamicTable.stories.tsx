@@ -21,6 +21,8 @@ import type {
     RowContextMenuEvent,
     ContextMenuAction,
     ColumnDef,
+    SavedFilter,
+    FilterRow,
 } from './types/index';
 
 const meta: Meta<typeof DynamicTable> = {
@@ -188,6 +190,32 @@ const FullFeaturedDemo = () => {
     const [limit, setLimit] = useState(25);
     const columns = getColumns();
 
+    // Filter state (managed locally, would typically come from API)
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+
+    const handleFilterSave = useCallback((filter: SavedFilter) => {
+        setSavedFilters(prev => [...prev, filter]);
+        setActiveFilterId(filter.id);
+    }, []);
+
+    const handleFilterSelect = useCallback((id: string | null, filterRows: FilterRow[]) => {
+        setActiveFilterId(id);
+        // In a real app, you would apply filterRows to fetch filtered data from API
+        console.log('Filter selected:', id, filterRows);
+    }, []);
+
+    const handleFilterRename = useCallback((id: string, newName: string) => {
+        setSavedFilters(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
+    }, []);
+
+    const handleFilterDelete = useCallback((id: string) => {
+        setSavedFilters(prev => prev.filter(f => f.id !== id));
+        if (activeFilterId === id) {
+            setActiveFilterId(null);
+        }
+    }, [activeFilterId]);
+
     // Pagination calculations
     const totalPages = Math.ceil(allData.length / limit);
     const startIndex = (currentPage - 1) * limit;
@@ -343,6 +371,12 @@ const FullFeaturedDemo = () => {
                     onPageChange: handlePageChange,
                     onLimitChange: handleLimitChange,
                 }}
+                savedFilters={savedFilters}
+                activeFilterId={activeFilterId}
+                onFilterSave={handleFilterSave}
+                onFilterSelect={handleFilterSelect}
+                onFilterRename={handleFilterRename}
+                onFilterDelete={handleFilterDelete}
             />
         </div>
     );
@@ -369,6 +403,10 @@ const EventLogDemo = () => {
     const [allData, setAllData] = useState(() => generateData(50));
     const [currentPage, setCurrentPage] = useState(1);
     const [limit, setLimit] = useState(10);
+
+    // Filter state
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
     const [eventLog, setEventLog] = useState<LogEntry[]>([]);
     const logIdRef = useRef(0);
     const columns = getColumns();
@@ -386,6 +424,32 @@ const EventLogDemo = () => {
             ...prev,
         ].slice(0, 50));
     }, []);
+
+    // Filter handlers with logging
+    const handleFilterSave = useCallback((filter: SavedFilter) => {
+        setSavedFilters(prev => [...prev, filter]);
+        setActiveFilterId(filter.id);
+        addLog('FILTER_SAVE', `Saved filter: "${filter.name}"`, '#10b981');
+    }, [addLog]);
+
+    const handleFilterSelect = useCallback((id: string | null, filterRows: FilterRow[]) => {
+        setActiveFilterId(id);
+        addLog('FILTER_SELECT', id ? `Selected filter: ${id}` : 'Cleared filter', '#10b981');
+    }, [addLog]);
+
+    const handleFilterRename = useCallback((id: string, newName: string) => {
+        setSavedFilters(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
+        addLog('FILTER_RENAME', `Renamed filter to: "${newName}"`, '#10b981');
+    }, [addLog]);
+
+    const handleFilterDelete = useCallback((id: string) => {
+        const filter = savedFilters.find(f => f.id === id);
+        setSavedFilters(prev => prev.filter(f => f.id !== id));
+        if (activeFilterId === id) {
+            setActiveFilterId(null);
+        }
+        addLog('FILTER_DELETE', `Deleted filter: "${filter?.name}"`, '#10b981');
+    }, [activeFilterId, savedFilters, addLog]);
 
     const handlePageChange = useCallback((page: number) => {
         setCurrentPage(Math.max(1, Math.min(page, totalPages)));
@@ -606,6 +670,12 @@ const EventLogDemo = () => {
                         onPageChange: handlePageChange,
                         onLimitChange: handleLimitChange,
                     }}
+                    savedFilters={savedFilters}
+                    activeFilterId={activeFilterId}
+                    onFilterSave={handleFilterSave}
+                    onFilterSelect={handleFilterSelect}
+                    onFilterRename={handleFilterRename}
+                    onFilterDelete={handleFilterDelete}
                 />
             </div>
             <div

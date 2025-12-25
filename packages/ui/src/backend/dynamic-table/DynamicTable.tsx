@@ -9,17 +9,12 @@ import React, {
   useRef,
   useCallback,
   useMemo,
-  memo,
 } from 'react';
-import { useVirtualizer, VirtualItem } from '@tanstack/react-virtual';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { createCellStore, CellStore } from './store/index';
 import {
   CellStoreContext,
-  useCellStore,
-  useCellState,
-  useStoreRevision,
-  useSelection,
   useStickyOffsets,
   useKeyboardNavigation,
   useCopyHandler,
@@ -27,18 +22,18 @@ import {
 import {
   createCellHandlers,
   createRowHandlers,
+  createDragHandlers,
   createMouseHandlers,
   createColumnHeaderHandlers,
   createRowHeaderHandlers,
   createContextMenuHandlers,
   createResizeHandlers,
+  createFilterHandlers,
+  DragState,
 } from './handlers/index';
 import { dispatch, useMediator } from './events/events';
-import { getCellRenderer } from './components/renderers';
-import { getCellEditor } from './components/editors';
 import {
   DynamicTableProps,
-  ColumnDef,
   ContextMenuState,
   SortState,
   FilterRow,
@@ -57,481 +52,12 @@ import FilterBuilder from './components/FilterBuilder';
 import FilterTabs from './components/FilterTabs';
 import SearchBar from './components/SearchBar';
 import ContextMenu from './components/ContextMenu';
+import VirtualRow from './components/VirtualRow';
+import ColumnHeaders from './components/ColumnHeaders';
 
 if (typeof window !== 'undefined') {
   import('./styles/DynamicTable.css');
 }
-
-// ============================================
-// CELL COMPONENT
-// ============================================
-interface CellProps {
-  row: number;
-  col: number;
-  colConfig: ColumnDef;
-  stickyLeft?: number;
-  stickyRight?: number;
-  onCellSave: (row: number, col: number, newValue: any) => void;
-}
-
-const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, onCellSave }) => {
-  const store = useCellStore();
-  const state = useCellState(row, col);
-  const inputRef = useRef<any>(null);
-  const rowData = store.getRowData(row);
-
-  const handleSave = useCallback(
-    (value?: any) => {
-      const newValue = value !== undefined ? value : store.getCellValue(row, col);
-
-      // Call the onCellSave callback which dispatches CELL_EDIT_SAVE event
-      onCellSave(row, col, newValue);
-    },
-    [store, row, col, onCellSave]
-  );
-
-  const handleCancel = useCallback(() => {
-    store.clearEditing();
-  }, [store]);
-
-  const handleChange = useCallback(
-    (value: any) => {
-      // For intermediate changes during editing, we don't update the store
-      // The editor holds its own local state
-    },
-    []
-  );
-
-  // Focus input when editing starts
-  useEffect(() => {
-    if (state.isEditing && inputRef.current) {
-      setTimeout(() => {
-        if (inputRef.current) {
-          inputRef.current.focus();
-          // Move cursor to end of text instead of selecting all
-          const length = inputRef.current.value?.length || 0;
-          inputRef.current.selectionStart = length;
-          inputRef.current.selectionEnd = length;
-        }
-      }, 0);
-    }
-  }, [state.isEditing]);
-
-  const style: React.CSSProperties = {
-    width: colConfig.width || 100,
-    flexBasis: colConfig.width || 100,
-    flexShrink: 0,
-    flexGrow: 0,
-    position: 'relative',
-  };
-
-  if (stickyLeft !== undefined) {
-    style.position = 'sticky';
-    style.left = stickyLeft;
-    style.zIndex = 2;
-  } else if (stickyRight !== undefined) {
-    style.position = 'sticky';
-    style.right = stickyRight;
-    style.zIndex = 2;
-  }
-
-  const renderer = getCellRenderer(colConfig);
-  const renderedValue = renderer(state.value, rowData, colConfig, row, col);
-
-  return (
-    <td
-      className={`hot-cell ${colConfig.readOnly ? 'read-only' : ''}`}
-      style={style}
-      data-row={row}
-      data-col={col}
-      data-cell-selected={state.isSelected}
-      data-in-range={state.isInRange}
-      data-range-top={state.rangeEdges.top}
-      data-range-bottom={state.rangeEdges.bottom}
-      data-range-left={state.rangeEdges.left}
-      data-range-right={state.rangeEdges.right}
-      data-save-state={state.saveState}
-      data-sticky-left={stickyLeft !== undefined}
-      data-sticky-right={stickyRight !== undefined}
-    >
-      {state.isEditing
-        ? getCellEditor(
-          colConfig,
-          state.value,
-          handleChange,
-          handleSave,
-          handleCancel,
-          rowData,
-          row,
-          col,
-          inputRef
-        )
-        : renderedValue}
-    </td>
-  );
-});
-
-Cell.displayName = 'Cell';
-
-// ============================================
-// ROW HEADER CELL COMPONENT
-// ============================================
-interface RowHeaderCellProps {
-  row: number;
-  isNewRow: boolean;
-  isInRowRange: boolean;
-  rowRangeEdges: { top?: boolean; bottom?: boolean };
-  onCancel: () => void;
-  onDoubleClick: (e: React.MouseEvent) => void;
-}
-
-const RowHeaderCell: React.FC<RowHeaderCellProps> = memo(
-  ({ row, isNewRow, isInRowRange, rowRangeEdges, onCancel, onDoubleClick }) => {
-    return (
-      <td
-        className="hot-row-header"
-        data-row={row}
-        data-row-header="true"
-        data-in-row-range={isInRowRange}
-        data-row-range-top={rowRangeEdges.top}
-        data-row-range-bottom={rowRangeEdges.bottom}
-        onDoubleClick={onDoubleClick}
-        style={{
-          width: 50,
-          flexBasis: 50,
-          flexShrink: 0,
-          flexGrow: 0,
-          position: 'sticky',
-          left: 0,
-          zIndex: 3,
-        }}
-      >
-        {isNewRow ? (
-          <button
-            className="hot-row-cancel-btn-header"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCancel();
-            }}
-            title="Cancel"
-          >
-            ✕
-          </button>
-        ) : (
-          row + 1
-        )}
-      </td>
-    );
-  }
-);
-
-RowHeaderCell.displayName = 'RowHeaderCell';
-
-// ============================================
-// VIRTUAL ROW COMPONENT
-// ============================================
-interface VirtualRowProps {
-  rowIndex: number;
-  columns: ColumnDef[];
-  virtualRow: VirtualItem;
-  rowHeaders: boolean;
-  leftOffsets: (number | undefined)[];
-  rightOffsets: (number | undefined)[];
-  actionsColumnWidth: number;
-  onSaveNewRow: (rowIndex: number) => void;
-  onCancelNewRow: (rowIndex: number) => void;
-  onRowHeaderDoubleClick: (e: React.MouseEvent, rowIndex: number) => void;
-  onCellSave: (row: number, col: number, newValue: any) => void;
-}
-
-const VirtualRow: React.FC<VirtualRowProps> = memo(
-  ({
-    rowIndex,
-    columns,
-    virtualRow,
-    rowHeaders,
-    leftOffsets,
-    rightOffsets,
-    actionsColumnWidth,
-    onSaveNewRow,
-    onCancelNewRow,
-    onRowHeaderDoubleClick,
-    onCellSave,
-  }) => {
-    const store = useCellStore();
-    const selection = useSelection();
-    const isNewRow = store.isNewRow(rowIndex);
-
-    // Row-level selection state (for row headers)
-    const isInRowRange =
-      selection.type === 'rowRange' &&
-      selection.anchor &&
-      selection.focus &&
-      rowIndex >= Math.min(selection.anchor.row, selection.focus.row) &&
-      rowIndex <= Math.max(selection.anchor.row, selection.focus.row);
-
-    const rowRangeEdges = {
-      top:
-        isInRowRange && selection.anchor && selection.focus
-          ? rowIndex === Math.min(selection.anchor.row, selection.focus.row)
-          : false,
-      bottom:
-        isInRowRange && selection.anchor && selection.focus
-          ? rowIndex === Math.max(selection.anchor.row, selection.focus.row)
-          : false,
-    };
-
-    return (
-      <tr
-        data-row={rowIndex}
-        data-is-new={isNewRow}
-        style={{
-          display: 'flex',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: `${virtualRow.size}px`,
-          transform: `translateY(${virtualRow.start}px)`,
-        }}
-      >
-        {rowHeaders && (
-          <RowHeaderCell
-            row={rowIndex}
-            isNewRow={isNewRow}
-            isInRowRange={isInRowRange}
-            rowRangeEdges={rowRangeEdges}
-            onCancel={() => onCancelNewRow(rowIndex)}
-            onDoubleClick={(e) => onRowHeaderDoubleClick(e, rowIndex)}
-          />
-        )}
-
-        {columns.map((col, colIndex) => (
-          <Cell
-            key={colIndex}
-            row={rowIndex}
-            col={colIndex}
-            colConfig={{ ...col, width: store.getColumnWidth(colIndex) }}
-            stickyLeft={leftOffsets[colIndex]}
-            stickyRight={rightOffsets[colIndex]}
-            onCellSave={onCellSave}
-          />
-        ))}
-
-        {/* Actions column */}
-        <td
-          className="hot-cell hot-actions-cell"
-          style={{
-            width: actionsColumnWidth,
-            flexBasis: actionsColumnWidth,
-            flexShrink: 0,
-            flexGrow: 0,
-            position: 'sticky',
-            right: 0,
-            zIndex: 2,
-          }}
-          data-row={rowIndex}
-          data-col={columns.length}
-          data-actions-cell="true"
-          data-sticky-right={true}
-        >
-          {isNewRow && (
-            <button
-              className="hot-row-save-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSaveNewRow(rowIndex);
-              }}
-              title="Save"
-            >
-              Save
-            </button>
-          )}
-        </td>
-      </tr>
-    );
-  }
-);
-
-VirtualRow.displayName = 'VirtualRow';
-
-// ============================================
-// COLUMN HEADERS COMPONENT
-// ============================================
-interface ColumnHeadersProps {
-  columns: ColumnDef[];
-  rowHeaders: boolean;
-  leftOffsets: (number | undefined)[];
-  rightOffsets: (number | undefined)[];
-  totalWidth: number;
-  sortState: SortState;
-  actionsColumnWidth: number;
-  onSort: (colIndex: number) => void;
-  onResizeStart: (e: React.MouseEvent, colIndex: number) => void;
-  onDoubleClick: (e: React.MouseEvent, colIndex: number) => void;
-  onMouseDown: (e: React.MouseEvent) => void;
-  onMouseMove: (e: React.MouseEvent) => void;
-}
-
-const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
-  ({
-    columns,
-    rowHeaders,
-    leftOffsets,
-    rightOffsets,
-    totalWidth,
-    sortState,
-    actionsColumnWidth,
-    onSort,
-    onResizeStart,
-    onDoubleClick,
-    onMouseDown,
-    onMouseMove,
-  }) => {
-    const store = useCellStore();
-    const selection = useSelection();
-
-    return (
-      <div
-        className="hot-headers-sticky"
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-      >
-        <table className="hot-table" style={{ width: `${totalWidth}px` }}>
-          <thead>
-            <tr style={{ display: 'flex' }}>
-              {rowHeaders && (
-                <th
-                  className="hot-row-header"
-                  style={{
-                    width: 50,
-                    flexBasis: 50,
-                    flexShrink: 0,
-                    flexGrow: 0,
-                    position: 'sticky',
-                    left: 0,
-                    zIndex: 4,
-                  }}
-                />
-              )}
-
-              {columns.map((col, colIndex) => {
-                const isInColRange =
-                  selection.type === 'colRange' &&
-                  selection.anchor &&
-                  selection.focus &&
-                  colIndex >= Math.min(selection.anchor.col, selection.focus.col) &&
-                  colIndex <= Math.max(selection.anchor.col, selection.focus.col);
-
-                const colWidth = store.getColumnWidth(colIndex);
-
-                const headerStyle: React.CSSProperties = {
-                  width: colWidth,
-                  flexBasis: colWidth,
-                  flexShrink: 0,
-                  flexGrow: 0,
-                  position: 'relative',
-                };
-
-                if (leftOffsets[colIndex] !== undefined) {
-                  headerStyle.position = 'sticky';
-                  headerStyle.left = leftOffsets[colIndex];
-                  headerStyle.zIndex = 3;
-                } else if (rightOffsets[colIndex] !== undefined) {
-                  headerStyle.position = 'sticky';
-                  headerStyle.right = rightOffsets[colIndex];
-                  headerStyle.zIndex = 3;
-                }
-
-                return (
-                  <th
-                    key={colIndex}
-                    className="hot-col-header"
-                    onDoubleClick={(e) => onDoubleClick(e, colIndex)}
-                    style={headerStyle}
-                    data-col={colIndex}
-                    data-in-col-range={isInColRange}
-                    data-sticky-left={leftOffsets[colIndex] !== undefined}
-                    data-sticky-right={rightOffsets[colIndex] !== undefined}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        width: '100%',
-                      }}
-                    >
-                      <span>{col.title || col.data}</span>
-                      <button
-                        className="hot-col-sort-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSort(colIndex);
-                        }}
-                        title={
-                          sortState.columnIndex === colIndex && sortState.direction
-                            ? `Sorted ${sortState.direction === 'asc' ? 'ascending' : 'descending'}`
-                            : 'Click to sort'
-                        }
-                        style={{
-                          border: 'none',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                          padding: '2px 4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          fontSize: '12px',
-                          color: sortState.columnIndex === colIndex ? '#3b82f6' : '#9ca3af',
-                          transition: 'color 0.2s',
-                        }}
-                      >
-                        {sortState.columnIndex === colIndex && sortState.direction === 'asc' && '↑'}
-                        {sortState.columnIndex === colIndex && sortState.direction === 'desc' && '↓'}
-                        {(sortState.columnIndex !== colIndex || sortState.direction === null) && '⇅'}
-                      </button>
-                    </div>
-                    <div
-                      className="hot-col-resize-handle"
-                      onMouseDown={(e) => onResizeStart(e, colIndex)}
-                      style={{
-                        position: 'absolute',
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: '5px',
-                        cursor: 'col-resize',
-                        zIndex: 10,
-                      }}
-                    />
-                  </th>
-                );
-              })}
-
-              {/* Actions header */}
-              <th
-                className="hot-col-header"
-                style={{
-                  width: actionsColumnWidth,
-                  flexBasis: actionsColumnWidth,
-                  flexShrink: 0,
-                  flexGrow: 0,
-                  position: 'sticky',
-                  right: 0,
-                  zIndex: 3,
-                }}
-              >
-                Actions
-              </th>
-            </tr>
-          </thead>
-        </table>
-      </div>
-    );
-  }
-);
-
-ColumnHeaders.displayName = 'ColumnHeaders';
 
 // ============================================
 // MAIN DYNAMIC TABLE COMPONENT
@@ -549,10 +75,25 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   columnActions,
   rowActions,
   pagination,
+  savedFilters = [],
+  activeFilterId: controlledActiveFilterId,
+  onFilterSave,
+  onFilterSelect,
+  onFilterRename,
+  onFilterDelete,
 }) => {
-  // -------------------- STORE --------------------
+  // -------------------- REFS --------------------
   const storeRef = useRef<CellStore | null>(null);
+  const dragStateRef = useRef<DragState>({
+    isDragging: false,
+    type: null,
+    start: null,
+  });
 
+  // -------------------- CONSTANTS --------------------
+  const actionsColumnWidth = 80;
+
+  // -------------------- STORE INITIALIZATION --------------------
   const cols = useMemo(() => {
     if (columns.length > 0) return columns;
     if (data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
@@ -568,42 +109,21 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   }
   const store = storeRef.current;
 
-  // -------------------- UI STATE (isolated, doesn't affect cells) --------------------
+  // -------------------- STATE --------------------
+  const [rowCount, setRowCount] = useState(store.getRowCount());
   const [filterRows, setFilterRows] = useState<FilterRow[]>([]);
   const [filterExpanded, setFilterExpanded] = useState(false);
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-  const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+  const [internalActiveFilterId, setInternalActiveFilterId] = useState<string | null>(null);
   const [sortState, setSortState] = useState<SortState>({
     columnIndex: null,
     direction: null,
   });
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
-  // -------------------- REFS --------------------
-  const dragStateRef = useRef({
-    isDragging: false,
-    type: null as 'cell' | 'row' | 'column' | null,
-    start: null as { row: number; col: number } | null,
-  });
+  // -------------------- DERIVED STATE --------------------
+  const activeFilterId = controlledActiveFilterId !== undefined ? controlledActiveFilterId : internalActiveFilterId;
 
-  const actionsColumnWidth = 80;
-
-  // -------------------- SYNC DATA TO STORE --------------------
-  useEffect(() => {
-    store.setData(data);
-  }, [data, store]);
-
-  // -------------------- ROW COUNT STATE (synced with store) --------------------
-  const [rowCount, setRowCount] = useState(store.getRowCount());
-
-  useEffect(() => {
-    // Subscribe to store-level changes (row add/remove)
-    return store.subscribeToStore(() => {
-      setRowCount(store.getRowCount());
-    });
-  }, [store]);
-
-  // -------------------- COMPUTED --------------------
+  // -------------------- COMPUTED VALUES --------------------
   const { leftOffsets, rightOffsets } = useStickyOffsets(cols, store, rowHeaders);
 
   const totalWidth = useMemo(() => {
@@ -614,7 +134,6 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     );
   }, [cols, store, rowHeaders, actionsColumnWidth]);
 
-  // -------------------- VIRTUALIZER --------------------
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => tableRef?.current,
@@ -622,64 +141,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     overscan: 10,
   });
 
-  // -------------------- DRAG HANDLERS --------------------
-  const handleDragStart = useCallback(
-    (row: number, col: number, type: 'cell' | 'row' | 'column') => {
-      dragStateRef.current = { isDragging: true, type, start: { row, col } };
-
-      if (type === 'row') {
-        store.setSelection({
-          type: 'rowRange',
-          anchor: { row, col: 0 },
-          focus: { row, col: cols.length - 1 },
-        });
-      } else if (type === 'column') {
-        store.setSelection({
-          type: 'colRange',
-          anchor: { row: 0, col },
-          focus: { row: store.getRowCount() - 1, col },
-        });
-      } else {
-        store.setSelection({
-          type: 'range',
-          anchor: { row, col },
-          focus: { row, col },
-        });
-      }
-    },
-    [store, cols.length]
-  );
-
-  const handleDragMove = useCallback(
-    (row: number, col: number) => {
-      if (!dragStateRef.current.isDragging) return;
-
-      const selection = store.getSelection();
-      if (!selection.anchor) return;
-
-      if (dragStateRef.current.type === 'row') {
-        store.setSelection({
-          ...selection,
-          focus: { row, col: cols.length - 1 },
-        });
-      } else if (dragStateRef.current.type === 'column') {
-        store.setSelection({
-          ...selection,
-          focus: { row: store.getRowCount() - 1, col },
-        });
-      } else {
-        store.setSelection({
-          ...selection,
-          focus: { row, col },
-        });
-      }
-    },
-    [store, cols.length]
-  );
-
-  const handleDragEnd = useCallback(() => {
-    dragStateRef.current = { isDragging: false, type: null, start: null };
-  }, []);
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
   // -------------------- HANDLERS --------------------
   const { handleCellSave } = createCellHandlers(store, cols, tableRef, idColumnName);
@@ -688,8 +150,9 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     cols,
     tableRef
   );
+  const dragHandlers = createDragHandlers(store, cols, dragStateRef);
   const { handleMouseDown, handleMouseMove, handleMouseUp, handleDoubleClick } =
-    createMouseHandlers(store, cols, dragStateRef, handleDragStart, handleDragMove, handleDragEnd);
+    createMouseHandlers(store, cols, dragStateRef, dragHandlers);
   const { handleColumnSort, handleColumnHeaderDoubleClick, handleColumnHeaderMouseDown } =
     createColumnHeaderHandlers(
       store,
@@ -714,34 +177,74 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     setContextMenu
   );
   const { handleResizeStart } = createResizeHandlers(store);
-
-  // -------------------- KEYBOARD HANDLER --------------------
+  const {
+    handleToggleFilter,
+    handleClearFilters,
+    handleSaveFilter,
+    handleFilterSelect,
+    handleFilterRename,
+    handleFilterDelete,
+  } = createFilterHandlers({
+    columns: cols,
+    filterRows,
+    setFilterRows,
+    setFilterExpanded,
+    setInternalActiveFilterId,
+    savedFilters,
+    activeFilterId,
+    onFilterSave,
+    onFilterSelect,
+    onFilterRename,
+    onFilterDelete,
+  });
   const handleKeyDown = useKeyboardNavigation(store, cols.length, handleCellSave);
+  const handleCopy = useCopyHandler(store);
 
+  // -------------------- EFFECTS --------------------
+  // Sync data to store
+  useEffect(() => {
+    store.setData(data);
+  }, [data, store]);
+
+  // Subscribe to store-level changes (row add/remove)
+  useEffect(() => {
+    return store.subscribeToStore(() => {
+      setRowCount(store.getRowCount());
+    });
+  }, [store]);
+
+  // Keyboard navigation
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  // -------------------- COPY HANDLER --------------------
-  const handleCopy = useCopyHandler(store);
-
+  // Copy handler
   useEffect(() => {
     document.addEventListener('copy', handleCopy);
     return () => document.removeEventListener('copy', handleCopy);
   }, [handleCopy]);
 
-  // -------------------- GLOBAL MOUSE UP --------------------
+  // Global mouse up for drag end
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (dragStateRef.current.isDragging) {
-        handleDragEnd();
+        dragHandlers.handleDragEnd();
       }
     };
 
     document.addEventListener('mouseup', handleGlobalMouseUp);
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, [handleDragEnd]);
+  }, [dragHandlers]);
+
+  // Dispatch FILTER_CHANGE when filters change
+  useEffect(() => {
+    dispatch<FilterChangeEvent>(
+      tableRef.current!,
+      TableEvents.FILTER_CHANGE,
+      { filters: filterRows, savedFilterId: activeFilterId },
+    );
+  }, [filterRows, activeFilterId, tableRef]);
 
   // -------------------- EVENT MEDIATORS --------------------
   useMediator<CellSaveStartEvent>(
@@ -802,104 +305,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     tableRef
   );
 
-  // -------------------- FILTER HANDLERS --------------------
-  const handleToggleFilter = useCallback(() => {
-    setFilterExpanded((prev) => {
-      const newExpanded = !prev;
-      if (newExpanded && filterRows.length === 0) {
-        setFilterRows([
-          {
-            id: `filter-${Date.now()}`,
-            field: cols[0]?.data || '',
-            operator: 'is_any_of',
-            values: [],
-          },
-        ]);
-      }
-      return newExpanded;
-    });
-  }, [filterRows.length, cols]);
-
-  const handleClearFilters = useCallback(() => {
-    setFilterRows([]);
-    setActiveFilterId(null);
-  }, []);
-
-  const handleSaveFilter = useCallback(
-    (name: string) => {
-      const newFilter: SavedFilter = {
-        id: `filter-${Date.now()}`,
-        name,
-        rows: filterRows,
-      };
-      const updated = [...savedFilters, newFilter];
-      setSavedFilters(updated);
-      localStorage.setItem('table-saved-filters', JSON.stringify(updated));
-      setActiveFilterId(newFilter.id);
-    },
-    [filterRows, savedFilters]
-  );
-
-  const handleFilterSelect = useCallback(
-    (id: string | null) => {
-      setActiveFilterId(id);
-      if (id === null) {
-        setFilterRows([]);
-      } else {
-        const filter = savedFilters.find((f) => f.id === id);
-        if (filter) {
-          setFilterRows(filter.rows);
-        }
-      }
-    },
-    [savedFilters]
-  );
-
-  const handleFilterRename = useCallback(
-    (id: string, newName: string) => {
-      const updated = savedFilters.map((f) => (f.id === id ? { ...f, name: newName } : f));
-      setSavedFilters(updated);
-      localStorage.setItem('table-saved-filters', JSON.stringify(updated));
-    },
-    [savedFilters]
-  );
-
-  const handleFilterDelete = useCallback(
-    (id: string) => {
-      const updated = savedFilters.filter((f) => f.id !== id);
-      setSavedFilters(updated);
-      localStorage.setItem('table-saved-filters', JSON.stringify(updated));
-      if (activeFilterId === id) {
-        setActiveFilterId(null);
-        setFilterRows([]);
-      }
-    },
-    [savedFilters, activeFilterId]
-  );
-
-  // Load saved filters from localStorage
-  useEffect(() => {
-    const stored = localStorage.getItem('table-saved-filters');
-    if (stored) {
-      try {
-        setSavedFilters(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to load saved filters', e);
-      }
-    }
-  }, []);
-
-  // Dispatch FILTER_CHANGE when filters change
-  useEffect(() => {
-    dispatch<FilterChangeEvent>(
-      tableRef.current!,
-      TableEvents.FILTER_CHANGE,
-      { filters: filterRows, savedFilterId: activeFilterId },
-    );
-  }, [filterRows, activeFilterId, tableRef]);
-
   // -------------------- RENDER --------------------
-  const virtualRows = rowVirtualizer.getVirtualItems();
 
   return (
     <CellStoreContext.Provider value={store}>
@@ -967,7 +373,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
               onSort={handleColumnSort}
               onResizeStart={handleResizeStart}
               onDoubleClick={handleColumnHeaderDoubleClick}
-              onMouseDown={(e) => handleColumnHeaderMouseDown(e, handleDragStart)}
+              onMouseDown={(e) => handleColumnHeaderMouseDown(e, dragHandlers.handleDragStart)}
               onMouseMove={handleMouseMove}
             />
           )}
