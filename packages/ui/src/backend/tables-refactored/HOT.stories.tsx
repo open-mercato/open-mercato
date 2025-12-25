@@ -183,8 +183,24 @@ const getRowActions = (rowData: any, rowIndex: number): ContextMenuAction[] => [
 
 const FullFeaturedDemo = () => {
     const tableRef = useRef<HTMLDivElement>(null);
-    const [data, setData] = useState(() => generateData(100));
+    const [allData] = useState(() => generateData(250));
+    const [currentPage, setCurrentPage] = useState(1);
+    const [limit, setLimit] = useState(25);
     const columns = getColumns();
+
+    // Pagination calculations
+    const totalPages = Math.ceil(allData.length / limit);
+    const startIndex = (currentPage - 1) * limit;
+    const data = allData.slice(startIndex, startIndex + limit);
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+    };
+
+    const handleLimitChange = (newLimit: number) => {
+        setLimit(newLimit);
+        setCurrentPage(1); // Reset to first page when limit changes
+    };
 
     // Cell edit handler with save states
     useMediator<CellEditSaveEvent>(
@@ -285,8 +301,8 @@ const FullFeaturedDemo = () => {
             >
                 <h3 style={{ margin: '0 0 8px' }}>HOT Table - Full Featured Demo</h3>
                 <p style={{ margin: 0, fontSize: 13, opacity: 0.9 }}>
-                    100 rows with API saving (80% success rate). Features: editing, sorting, filtering,
-                    context menus, keyboard navigation, new row creation.
+                    {allData.length} total rows with pagination ({limit} per page). Features: editing, sorting, filtering,
+                    context menus, keyboard navigation, new row creation. API saving with 80% success rate.
                 </p>
             </div>
 
@@ -319,6 +335,14 @@ const FullFeaturedDemo = () => {
                 idColumnName="id"
                 columnActions={getColumnActions}
                 rowActions={getRowActions}
+                pagination={{
+                    currentPage,
+                    totalPages,
+                    limit,
+                    limitOptions: [10, 25, 50, 100],
+                    onPageChange: handlePageChange,
+                    onLimitChange: handleLimitChange,
+                }}
             />
         </div>
     );
@@ -342,10 +366,17 @@ interface LogEntry {
 
 const EventLogDemo = () => {
     const tableRef = useRef<HTMLDivElement>(null);
-    const [data, setData] = useState(() => generateData(20));
+    const [allData, setAllData] = useState(() => generateData(50));
+    const [currentPage, setCurrentPage] = useState(1);
+    const [limit, setLimit] = useState(10);
     const [eventLog, setEventLog] = useState<LogEntry[]>([]);
     const logIdRef = useRef(0);
     const columns = getColumns();
+
+    // Pagination calculations
+    const totalPages = Math.ceil(allData.length / limit);
+    const startIndex = (currentPage - 1) * limit;
+    const data = allData.slice(startIndex, startIndex + limit);
 
     const addLog = useCallback((type: string, message: string, color: string = '#d4d4d4') => {
         const timestamp = new Date().toLocaleTimeString();
@@ -355,6 +386,17 @@ const EventLogDemo = () => {
             ...prev,
         ].slice(0, 50));
     }, []);
+
+    const handlePageChange = useCallback((page: number) => {
+        setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+        addLog('PAGE_CHANGE', `Navigated to page ${page}`, '#22d3ee');
+    }, [totalPages, addLog]);
+
+    const handleLimitChange = useCallback((newLimit: number) => {
+        setLimit(newLimit);
+        setCurrentPage(1);
+        addLog('LIMIT_CHANGE', `Changed rows per page to ${newLimit}`, '#22d3ee');
+    }, [addLog]);
 
     // Cell edit save event - log and start save
     useMediator<CellEditSaveEvent>(
@@ -434,7 +476,7 @@ const EventLogDemo = () => {
                         rowIndex: payload.rowIndex,
                         savedRowData: result.data,
                     });
-                    setData((prev) => [...prev, result.data]);
+                    setAllData((prev) => [...prev, result.data]);
                 } else {
                     dispatch(tableRef.current!, TableEvents.NEW_ROW_SAVE_ERROR, {
                         rowIndex: payload.rowIndex,
@@ -474,7 +516,7 @@ const EventLogDemo = () => {
                 '#a78bfa'
             );
             if (payload.direction) {
-                setData((prev) =>
+                setAllData((prev) =>
                     [...prev].sort((a, b) => {
                         const aVal = a[payload.columnName];
                         const bVal = b[payload.columnName];
@@ -522,9 +564,9 @@ const EventLogDemo = () => {
             addLog('ROW_MENU', `"${payload.actionId}" on row ${payload.rowIndex}`, '#e879f9');
 
             if (payload.actionId === 'delete') {
-                setData((prev) => prev.filter((_, i) => i !== payload.rowIndex));
+                setAllData((prev) => prev.filter((_, i) => i !== payload.rowIndex));
             } else if (payload.actionId === 'duplicate') {
-                setData((prev) => {
+                setAllData((prev) => {
                     const newRow = { ...payload.rowData, id: Math.max(...prev.map((r) => r.id)) + 1 };
                     const newData = [...prev];
                     newData.splice(payload.rowIndex + 1, 0, newRow);
@@ -556,6 +598,14 @@ const EventLogDemo = () => {
                     idColumnName="id"
                     columnActions={getColumnActions}
                     rowActions={getRowActions}
+                    pagination={{
+                        currentPage,
+                        totalPages,
+                        limit,
+                        limitOptions: [10, 25, 50],
+                        onPageChange: handlePageChange,
+                        onLimitChange: handleLimitChange,
+                    }}
                 />
             </div>
             <div

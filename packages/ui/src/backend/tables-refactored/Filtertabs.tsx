@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SavedFilter } from './filterTypes';
+import { PaginationProps } from './types';
 
 interface FilterTabsProps {
   savedFilters: SavedFilter[];
@@ -7,6 +8,7 @@ interface FilterTabsProps {
   onFilterSelect: (id: string | null) => void;
   onFilterRename: (id: string, newName: string) => void;
   onFilterDelete: (id: string) => void;
+  pagination?: PaginationProps;
 }
 
 const FilterTabs: React.FC<FilterTabsProps> = ({
@@ -15,6 +17,7 @@ const FilterTabs: React.FC<FilterTabsProps> = ({
   onFilterSelect,
   onFilterRename,
   onFilterDelete,
+  pagination,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -30,6 +33,9 @@ const FilterTabs: React.FC<FilterTabsProps> = ({
     }
     setEditingId(null);
   };
+
+  const defaultLimitOptions = [10, 25, 50, 100];
+  const limitOptions = pagination?.limitOptions || defaultLimitOptions;
 
   return (
     <div className="filter-tabs">
@@ -80,6 +86,66 @@ const FilterTabs: React.FC<FilterTabsProps> = ({
           </div>
         ))}
       </div>
+
+      {pagination && (
+        <div className="pagination-container">
+          <div className="pagination-limit">
+            <span>Rows per page:</span>
+            <select
+              value={pagination.limit}
+              onChange={(e) => pagination.onLimitChange(Number(e.target.value))}
+              className="pagination-limit-select"
+            >
+              {limitOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="pagination-info">
+            <span>
+              Page {pagination.currentPage} of {pagination.totalPages}
+            </span>
+          </div>
+
+          <div className="pagination-controls">
+            <button
+              className="pagination-btn"
+              onClick={() => pagination.onPageChange(1)}
+              disabled={pagination.currentPage <= 1}
+              title="First page"
+            >
+              ««
+            </button>
+            <button
+              className="pagination-btn"
+              onClick={() => pagination.onPageChange(pagination.currentPage - 1)}
+              disabled={pagination.currentPage <= 1}
+              title="Previous page"
+            >
+              «
+            </button>
+            <button
+              className="pagination-btn"
+              onClick={() => pagination.onPageChange(pagination.currentPage + 1)}
+              disabled={pagination.currentPage >= pagination.totalPages}
+              title="Next page"
+            >
+              »
+            </button>
+            <button
+              className="pagination-btn"
+              onClick={() => pagination.onPageChange(pagination.totalPages)}
+              disabled={pagination.currentPage >= pagination.totalPages}
+              title="Last page"
+            >
+              »»
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

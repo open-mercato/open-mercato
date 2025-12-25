@@ -548,6 +548,7 @@ const HOT: React.FC<HOTProps> = ({
   tableRef,
   columnActions,
   rowActions,
+  pagination,
 }) => {
   // -------------------- STORE --------------------
   const storeRef = useRef<CellStore | null>(null);
@@ -1007,6 +1008,7 @@ const HOT: React.FC<HOTProps> = ({
           onFilterSelect={handleFilterSelect}
           onFilterRename={handleFilterRename}
           onFilterDelete={handleFilterDelete}
+          pagination={pagination}
         />
 
         {/* Context Menu */}

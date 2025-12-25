@@ -187,6 +187,15 @@ export const TableEvents = {
   ROW_CONTEXT_MENU_ACTION: 'table:row:context:action',
 } as const;
 
+export interface PaginationProps {
+  currentPage: number;
+  totalPages: number;
+  limit: number;
+  limitOptions?: number[];
+  onPageChange: (page: number) => void;
+  onLimitChange: (limit: number) => void;
+}
+
 export interface HOTProps {
   data?: any[];
   columns?: ColumnDef[];
@@ -199,4 +208,5 @@ export interface HOTProps {
   tableRef: React.RefObject<HTMLDivElement | null>;
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
+  pagination?: PaginationProps;
 }
