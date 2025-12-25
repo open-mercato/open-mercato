@@ -260,6 +260,8 @@ export interface DynamicTableProps {
   // Filter management (controlled externally, events dispatched for changes)
   savedFilters?: SavedFilter[];
   activeFilterId?: string | null;
+  // Debug mode - shows floating event log panel
+  debug?: boolean;
 }
 
 // Re-export filter types

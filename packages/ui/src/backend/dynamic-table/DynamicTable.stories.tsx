@@ -611,3 +611,113 @@ const EventLogDemo = () => {
 export const EventLog: StoryObj = {
     render: () => <EventLogDemo />,
 };
+
+// ============================================================================
+// STORY 3: DEBUG MODE DEMO
+// ============================================================================
+
+const DebugModeDemo = () => {
+    const tableRef = useRef<HTMLDivElement>(null);
+    const [allData] = useState(() => generateData(100));
+    const [currentPage, setCurrentPage] = useState(1);
+    const [limit, setLimit] = useState(25);
+    const columns = getColumns();
+
+    // Filter state
+    const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+    const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+
+    // Pagination calculations
+    const totalPages = Math.ceil(allData.length / limit);
+    const startIndex = (currentPage - 1) * limit;
+    const data = allData.slice(startIndex, startIndex + limit);
+
+    // Event handlers for filter management
+    useEventHandlers({
+        [TableEvents.CELL_EDIT_SAVE]: async (payload) => {
+            dispatch(tableRef.current!, TableEvents.CELL_SAVE_START, {
+                rowIndex: payload.rowIndex,
+                colIndex: payload.colIndex,
+            });
+
+            const result = await mockApiSave(payload.rowIndex, payload.colIndex, payload.newValue);
+
+            if (result.ok) {
+                dispatch(tableRef.current!, TableEvents.CELL_SAVE_SUCCESS, {
+                    rowIndex: payload.rowIndex,
+                    colIndex: payload.colIndex,
+                });
+            } else {
+                dispatch(tableRef.current!, TableEvents.CELL_SAVE_ERROR, {
+                    rowIndex: payload.rowIndex,
+                    colIndex: payload.colIndex,
+                    error: result.error,
+                });
+            }
+        },
+        [TableEvents.FILTER_SAVE]: (payload) => {
+            setSavedFilters(prev => [...prev, payload.filter]);
+            setActiveFilterId(payload.filter.id);
+        },
+        [TableEvents.FILTER_SELECT]: (payload) => {
+            setActiveFilterId(payload.id);
+        },
+        [TableEvents.FILTER_RENAME]: (payload) => {
+            setSavedFilters(prev => prev.map(f => f.id === payload.id ? { ...f, name: payload.newName } : f));
+        },
+        [TableEvents.FILTER_DELETE]: (payload) => {
+            setSavedFilters(prev => prev.filter(f => f.id !== payload.id));
+            if (activeFilterId === payload.id) {
+                setActiveFilterId(null);
+            }
+        },
+    }, tableRef);
+
+    return (
+        <div>
+            <div
+                style={{
+                    padding: 16,
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    borderRadius: 8,
+                    marginBottom: 16,
+                    color: 'white',
+                }}
+            >
+                <h3 style={{ margin: '0 0 8px' }}>Debug Mode Demo</h3>
+                <p style={{ margin: 0, fontSize: 13, opacity: 0.9 }}>
+                    Click the bug icon in the bottom-right corner to open the event debugger.
+                    All table events will be logged there in real-time.
+                </p>
+            </div>
+
+            <DynamicTable
+                tableRef={tableRef}
+                data={data}
+                columns={columns}
+                colHeaders={true}
+                rowHeaders={true}
+                height={500}
+                tableName="Employees"
+                idColumnName="id"
+                columnActions={getColumnActions}
+                rowActions={getRowActions}
+                pagination={{
+                    currentPage,
+                    totalPages,
+                    limit,
+                    limitOptions: [10, 25, 50, 100],
+                    onPageChange: (page) => setCurrentPage(Math.max(1, Math.min(page, totalPages))),
+                    onLimitChange: (newLimit) => { setLimit(newLimit); setCurrentPage(1); },
+                }}
+                savedFilters={savedFilters}
+                activeFilterId={activeFilterId}
+                debug={true}
+            />
+        </div>
+    );
+};
+
+export const DebugMode: StoryObj = {
+    render: () => <DebugModeDemo />,
+};

@@ -47,6 +47,7 @@ import SearchBar from './components/SearchBar';
 import ContextMenu from './components/ContextMenu';
 import VirtualRow from './components/VirtualRow';
 import ColumnHeaders from './components/ColumnHeaders';
+import Debugger from './components/Debugger';
 
 if (typeof window !== 'undefined') {
   import('./styles/DynamicTable.css');
@@ -70,6 +71,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   pagination,
   savedFilters = [],
   activeFilterId: controlledActiveFilterId,
+  debug = false,
 }) => {
   // -------------------- REFS --------------------
   const storeRef = useRef<CellStore | null>(null);
@@ -375,6 +377,9 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
             onActionClick={handleContextMenuAction}
           />
         )}
+
+        {/* Debugger */}
+        {debug && <Debugger tableRef={tableRef} />}
       </div>
     </CellStoreContext.Provider>
   );
