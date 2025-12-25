@@ -4,7 +4,7 @@ import { TableEvents, SearchEvent } from '../types/index';
 import '../styles/SearchBar.css';
 
 interface SearchBarProps {
-  tableRef: React.RefObject<HTMLElement>;
+  tableRef: React.RefObject<HTMLElement | null>;
   placeholder?: string;
   debounceMs?: number;
 }
