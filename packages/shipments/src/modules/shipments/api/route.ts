@@ -12,6 +12,70 @@ import {
 } from '../data/validators';
 import { EntityManager } from '@mikro-orm/core';
 
+// Field mapping from frontend camelCase to backend FS constants
+const FIELD_MAP: Record<string, any> = {
+    internalReference: FS.internal_reference,
+    bookingNumber: FS.booking_number,
+    bolNumber: FS.bol_number,
+    containerNumber: FS.container_number,
+    containerType: FS.container_type,
+    status: FS.status,
+    carrier: FS.carrier,
+    originPort: FS.origin_port,
+    originLocation: FS.origin_location,
+    destinationPort: FS.destination_port,
+    destinationLocation: FS.destination_location,
+    etd: FS.etd,
+    atd: FS.atd,
+    eta: FS.eta,
+    ata: FS.ata,
+    mode: FS.mode,
+    incoterms: FS.incoterms,
+    weight: FS.weight,
+    volume: FS.volume,
+    totalPieces: FS.total_pieces,
+    totalVolume: FS.total_volume,
+    amount: FS.amount,
+    vesselName: FS.vessel_name,
+    voyageNumber: FS.voyage_number,
+    requestDate: FS.request_date,
+    createdAt: FS.created_at,
+    updatedAt: FS.updated_at,
+};
+
+// Parse DynamicTable FilterRow into query engine filter format
+function parseFilterRow(row: { field: string; operator: string; values: any[] }): any | null {
+    const field = FIELD_MAP[row.field];
+    if (!field) return null;
+
+    switch (row.operator) {
+        case 'is_any_of':
+            return { field, op: 'in', value: row.values };
+        case 'is_not_any_of':
+            return { field, op: 'nin', value: row.values };
+        case 'contains':
+            return { field, op: 'ilike', value: `%${row.values[0] || ''}%` };
+        case 'is_empty':
+            return { field, op: 'eq', value: null };
+        case 'is_not_empty':
+            return { field, op: 'neq', value: null };
+        case 'equals':
+            return { field, op: 'eq', value: row.values[0] };
+        case 'not_equals':
+            return { field, op: 'neq', value: row.values[0] };
+        case 'greater_than':
+            return { field, op: 'gt', value: row.values[0] };
+        case 'less_than':
+            return { field, op: 'lt', value: row.values[0] };
+        case 'is_true':
+            return { field, op: 'eq', value: true };
+        case 'is_false':
+            return { field, op: 'eq', value: false };
+        default:
+            return null;
+    }
+}
+
 export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
     metadata: {
         GET: { requireAuth: true, requireFeatures: ['shipments.shipments.view'] },
@@ -43,6 +107,17 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
         buildFilters: (query) => {
             const filters: any[] = [];
 
+            // Parse DynamicTable FilterRow[] format
+            if (query.filters && Array.isArray(query.filters)) {
+                for (const row of query.filters) {
+                    const filter = parseFilterRow(row);
+                    if (filter) {
+                        filters.push(filter);
+                    }
+                }
+            }
+
+            // Legacy filter support (backwards compatibility)
             if (query.status) {
                 filters.push({ field: FS.status, op: 'eq', value: query.status });
             }
@@ -59,13 +134,16 @@ export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
                 filters.push({ field: FS.assigned_to, op: 'eq', value: query.assignedToId });
             }
 
+            // Global search
             if (query.search) {
                 filters.push({
                     op: 'or',
                     filters: [
                         { field: FS.internal_reference, op: 'ilike', value: `%${query.search}%` },
                         { field: FS.booking_number, op: 'ilike', value: `%${query.search}%` },
-                        { field: FS.container_number, op: 'ilike', value: `%${query.search}%` }
+                        { field: FS.container_number, op: 'ilike', value: `%${query.search}%` },
+                        { field: FS.bol_number, op: 'ilike', value: `%${query.search}%` },
+                        { field: FS.carrier, op: 'ilike', value: `%${query.search}%` },
                     ]
                 });
             }

@@ -1,6 +1,6 @@
 // events/events.ts
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { EventHandlers, TableEventPayloads } from '../types/index';
 
 export function dispatch<T>(element: HTMLElement, eventName: string, payload: T) {
@@ -63,8 +63,17 @@ export function useEventHandlers(
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
 
+  // Track element in state so effect re-runs when ref.current becomes available
+  const [element, setElement] = useState<HTMLElement | null>(null);
+
+  // Check for ref changes on every render (useLayoutEffect runs synchronously after DOM mutations)
+  useLayoutEffect(() => {
+    if (elementRef?.current !== element) {
+      setElement(elementRef?.current ?? null);
+    }
+  });
+
   useEffect(() => {
-    const element = elementRef?.current;
     if (!element) return;
 
     const eventNames = Object.keys(handlersRef.current) as Array<keyof TableEventPayloads>;
@@ -91,5 +100,5 @@ export function useEventHandlers(
         element.removeEventListener(eventName, listener);
       }
     };
-  }, [elementRef, options.stopPropagation]);
+  }, [element, options.stopPropagation]);
 }

@@ -1,7 +1,10 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react';
-import '../styles/ContextMenu.css';
+
+if (typeof window !== 'undefined') {
+  import('../styles/ContextMenu.css');
+}
 
 export interface ContextMenuAction {
   id: string;

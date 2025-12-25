@@ -1,7 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom';
 import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
+
+if (typeof window !== 'undefined') {
+    import('react-datepicker/dist/react-datepicker.css');
+}
 
 interface BaseEditorProps {
     value: any;

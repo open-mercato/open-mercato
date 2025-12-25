@@ -1,7 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { dispatch } from '../events/events';
 import { TableEvents, SearchEvent } from '../types/index';
-import '../styles/SearchBar.css';
+
+if (typeof window !== 'undefined') {
+  import('../styles/SearchBar.css');
+}
 
 interface SearchBarProps {
   tableRef: React.RefObject<HTMLElement | null>;
