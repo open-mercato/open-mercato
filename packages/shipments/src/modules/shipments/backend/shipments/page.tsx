@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
@@ -21,7 +21,18 @@ import type {
     NewRowSaveErrorEvent,
     FilterRow,
     ColumnDef,
+    PerspectiveConfig,
+    PerspectiveSaveEvent,
+    PerspectiveSelectEvent,
+    PerspectiveRenameEvent,
+    PerspectiveDeleteEvent,
+    SortRule,
 } from '@open-mercato/ui/backend/dynamic-table'
+import type {
+    PerspectivesIndexResponse,
+    PerspectiveDto,
+    PerspectiveSettings,
+} from '@open-mercato/shared/modules/perspectives/types'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTableConfig } from '../../components/useTableConfig'
@@ -107,6 +118,52 @@ const RENDERERS: Record<string, (value: any, rowData: any) => React.ReactNode> =
     StatusRenderer: (value) => <StatusRenderer value={value} />,
 }
 
+// Transform API perspective format to DynamicTable format
+function apiToDynamicTable(dto: PerspectiveDto, allColumns: string[]): PerspectiveConfig {
+    const { columnOrder = [], columnVisibility = {} } = dto.settings
+
+    // Visible = columns in order that aren't explicitly hidden
+    const visible = columnOrder.length > 0
+        ? columnOrder.filter(col => columnVisibility[col] !== false)
+        : allColumns
+    const hidden = allColumns.filter(col => !visible.includes(col))
+
+    // Filters: API stores as { rows: FilterRow[], _color?: string }
+    const apiFilters = dto.settings.filters as Record<string, unknown> | undefined
+    const filters: FilterRow[] = Array.isArray(apiFilters)
+        ? apiFilters as FilterRow[]
+        : (apiFilters?.rows as FilterRow[]) ?? []
+    // Color is stored inside filters object to bypass Zod stripping
+    const color = apiFilters?._color as PerspectiveConfig['color']
+
+    // Sorting: API uses { id, desc }, DynamicTable uses { id, field, direction }
+    const sorting: SortRule[] = (dto.settings.sorting ?? []).map(s => ({
+        id: s.id,
+        field: s.id,
+        direction: (s.desc ? 'desc' : 'asc') as 'asc' | 'desc'
+    }))
+
+    return { id: dto.id, name: dto.name, color, columns: { visible, hidden }, filters, sorting }
+}
+
+// Transform DynamicTable perspective format to API format
+function dynamicTableToApi(config: PerspectiveConfig): PerspectiveSettings {
+    const columnVisibility: Record<string, boolean> = {}
+    config.columns.visible.forEach(col => columnVisibility[col] = true)
+    config.columns.hidden.forEach(col => columnVisibility[col] = false)
+
+    return {
+        columnOrder: config.columns.visible,
+        columnVisibility,
+        // Store color inside filters object to bypass Zod stripping unknown fields
+        filters: { rows: config.filters, _color: config.color },
+        sorting: config.sorting.map(s => ({
+            id: s.field,
+            desc: s.direction === 'desc'
+        })),
+    }
+}
+
 export default function ShipmentsPage() {
     const tableRef = useRef<HTMLDivElement>(null)
     const queryClient = useQueryClient()
@@ -118,7 +175,20 @@ export default function ShipmentsPage() {
     const [search, setSearch] = useState('')
     const [filters, setFilters] = useState<FilterRow[]>([])
 
+    // Perspective state
+    const [savedPerspectives, setSavedPerspectives] = useState<PerspectiveConfig[]>([])
+    const [activePerspectiveId, setActivePerspectiveId] = useState<string | null>(null)
+
     const { data: tableConfig, isLoading: configLoading } = useTableConfig('shipments')
+
+    // Fetch perspectives
+    const { data: perspectivesData } = useQuery({
+        queryKey: ['perspectives', 'shipments'],
+        queryFn: async () => {
+            const response = await apiCall<PerspectivesIndexResponse>('/api/perspectives/shipments')
+            return response.ok ? response.result : null
+        }
+    })
 
     const queryParams = useMemo(() => {
         const params = new URLSearchParams()
@@ -173,6 +243,18 @@ export default function ShipmentsPage() {
             renderer: col.renderer ? RENDERERS[col.renderer] : undefined,
         })) as ColumnDef[]
     }, [tableConfig])
+
+    // Transform API perspectives to DynamicTable format
+    useEffect(() => {
+        if (perspectivesData?.perspectives && columns.length > 0) {
+            const allCols = columns.map(c => c.data)
+            const transformed = perspectivesData.perspectives.map(p => apiToDynamicTable(p, allCols))
+            setSavedPerspectives(transformed)
+            if (perspectivesData.defaultPerspectiveId && !activePerspectiveId) {
+                setActivePerspectiveId(perspectivesData.defaultPerspectiveId)
+            }
+        }
+    }, [perspectivesData, columns])
 
     useEventHandlers({
         [TableEvents.CELL_EDIT_SAVE]: async (payload: CellEditSaveEvent) => {
@@ -297,6 +379,82 @@ export default function ShipmentsPage() {
             setFilters(payload.filters)
             setPage(1)
         },
+
+        // Perspective event handlers
+        [TableEvents.PERSPECTIVE_SAVE]: async (payload: PerspectiveSaveEvent) => {
+            const settings = dynamicTableToApi(payload.perspective)
+            // Check if perspective with same name exists to update it instead of creating duplicate
+            const existingPerspective = savedPerspectives.find(p => p.name === payload.perspective.name)
+            const response = await apiCall('/api/perspectives/shipments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: existingPerspective?.id,
+                    name: payload.perspective.name,
+                    settings
+                })
+            })
+            if (response.ok) {
+                flash('Perspective saved', 'success')
+                queryClient.invalidateQueries({ queryKey: ['perspectives', 'shipments'] })
+            } else {
+                flash('Failed to save perspective', 'error')
+            }
+        },
+
+        [TableEvents.PERSPECTIVE_SELECT]: (payload: PerspectiveSelectEvent) => {
+            setActivePerspectiveId(payload.id)
+            if (payload.config) {
+                setFilters(payload.config.filters)
+                if (payload.config.sorting.length > 0) {
+                    setSortField(payload.config.sorting[0].field)
+                    setSortDir(payload.config.sorting[0].direction)
+                }
+                setPage(1)
+            } else {
+                // Reset to default when "All" is selected
+                setFilters([])
+                setSortField('createdAt')
+                setSortDir('desc')
+                setPage(1)
+            }
+        },
+
+        [TableEvents.PERSPECTIVE_RENAME]: async (payload: PerspectiveRenameEvent) => {
+            const perspective = savedPerspectives.find(p => p.id === payload.id)
+            if (perspective) {
+                const settings = dynamicTableToApi(perspective)
+                const response = await apiCall('/api/perspectives/shipments', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: payload.id, name: payload.newName, settings })
+                })
+                if (response.ok) {
+                    flash('Perspective renamed', 'success')
+                    queryClient.invalidateQueries({ queryKey: ['perspectives', 'shipments'] })
+                } else {
+                    flash('Failed to rename perspective', 'error')
+                }
+            }
+        },
+
+        [TableEvents.PERSPECTIVE_DELETE]: async (payload: PerspectiveDeleteEvent) => {
+            const response = await apiCall(`/api/perspectives/shipments/${payload.id}`, {
+                method: 'DELETE'
+            })
+            if (response.ok) {
+                flash('Perspective deleted', 'success')
+                queryClient.invalidateQueries({ queryKey: ['perspectives', 'shipments'] })
+                if (activePerspectiveId === payload.id) {
+                    setActivePerspectiveId(null)
+                    setFilters([])
+                    setSortField('createdAt')
+                    setSortDir('desc')
+                }
+            } else {
+                flash('Failed to delete perspective', 'error')
+            }
+        },
     }, tableRef as React.RefObject<HTMLElement>)
 
     if (configLoading) {
@@ -321,6 +479,8 @@ export default function ShipmentsPage() {
                     height={600}
                     colHeaders={true}
                     rowHeaders={true}
+                    savedPerspectives={savedPerspectives}
+                    activePerspectiveId={activePerspectiveId}
                     pagination={{
                         currentPage: page,
                         totalPages: Math.ceil((data?.total || 0) / limit),
