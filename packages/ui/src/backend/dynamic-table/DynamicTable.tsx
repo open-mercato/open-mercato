@@ -27,22 +27,31 @@ import {
   createRowHeaderHandlers,
   createContextMenuHandlers,
   createResizeHandlers,
-  createFilterHandlers,
   DragState,
 } from './handlers/index';
+import { createPerspectiveHandlers, initializePerspectiveState } from './handlers/perspectiveHandlers';
 import { dispatch, useEventHandlers } from './events/events';
 import {
-  DynamicTableProps,
+  ColumnDef,
   ContextMenuState,
   SortState,
   FilterRow,
   TableEvents,
   FilterChangeEvent,
+  PaginationProps,
+  ContextMenuAction,
+  SavedFilter,
+  TableUIConfig,
 } from './types/index';
+import {
+  PerspectiveConfig,
+  SortRule,
+  PerspectiveChangeEvent,
+} from './types/perspective';
 
 // Import components
-import FilterBuilder from './components/FilterBuilder';
-import FilterTabs from './components/FilterTabs';
+import PerspectiveToolbar from './components/PerspectiveToolbar';
+import PerspectiveTabs from './components/PerspectiveTabs';
 import SearchBar from './components/SearchBar';
 import ContextMenu from './components/ContextMenu';
 import VirtualRow from './components/VirtualRow';
@@ -51,6 +60,41 @@ import Debugger from './components/Debugger';
 
 if (typeof window !== 'undefined') {
   import('./styles/DynamicTable.css');
+}
+
+// ============================================
+// PROPS INTERFACE
+// ============================================
+
+export interface DynamicTableProps {
+  data?: any[];
+  columns?: ColumnDef[];
+  colHeaders?: boolean;
+  rowHeaders?: boolean;
+  height?: string | number;
+  width?: string | number;
+  idColumnName?: string;
+  tableName?: string;
+  tableRef: React.RefObject<HTMLDivElement | null>;
+  columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
+  rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
+  pagination?: PaginationProps;
+
+  // NEW - Perspective management
+  savedPerspectives?: PerspectiveConfig[];
+  activePerspectiveId?: string | null;
+  defaultHiddenColumns?: string[];
+
+  // DEPRECATED - Keep for backward compatibility (converts to perspectives internally)
+  savedFilters?: SavedFilter[];
+  activeFilterId?: string | null;
+  hiddenColumns?: string[];
+
+  // Debug mode - shows floating event log panel
+  debug?: boolean;
+
+  // UI visibility configuration
+  uiConfig?: TableUIConfig;
 }
 
 // ============================================
@@ -69,12 +113,50 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   columnActions,
   rowActions,
   pagination,
-  savedFilters = [],
-  activeFilterId: controlledActiveFilterId,
+  // New perspective props
+  savedPerspectives: propSavedPerspectives,
+  activePerspectiveId: controlledActivePerspectiveId,
+  defaultHiddenColumns = [],
+  // Deprecated props (backward compatibility)
+  savedFilters: deprecatedSavedFilters,
+  activeFilterId: deprecatedActiveFilterId,
+  hiddenColumns: deprecatedHiddenColumns = [],
   debug = false,
-  hiddenColumns = [],
   uiConfig = {},
 }) => {
+  // -------------------- BACKWARD COMPATIBILITY --------------------
+  // Convert deprecated savedFilters to savedPerspectives format
+  const savedPerspectives = useMemo(() => {
+    if (propSavedPerspectives) {
+      return propSavedPerspectives;
+    }
+    // Convert old savedFilters to perspectives
+    if (deprecatedSavedFilters && deprecatedSavedFilters.length > 0) {
+      return deprecatedSavedFilters.map(filter => ({
+        id: filter.id,
+        name: filter.name,
+        color: filter.color,
+        columns: {
+          visible: columns.map(c => c.data),
+          hidden: [],
+        },
+        filters: filter.rows,
+        sorting: [],
+      }));
+    }
+    return [];
+  }, [propSavedPerspectives, deprecatedSavedFilters, columns]);
+
+  // Use new prop or deprecated prop
+  const controlledActiveId = controlledActivePerspectiveId !== undefined
+    ? controlledActivePerspectiveId
+    : deprecatedActiveFilterId;
+
+  // Merge hidden columns from deprecated prop and new prop
+  const initialHiddenColumns = useMemo(() => {
+    return [...new Set([...defaultHiddenColumns, ...deprecatedHiddenColumns])];
+  }, [defaultHiddenColumns, deprecatedHiddenColumns]);
+
   // -------------------- UI CONFIG --------------------
   const {
     hideToolbar = false,
@@ -83,6 +165,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     hideAddRowButton = false,
     hideBottomBar = false,
   } = uiConfig;
+
   // -------------------- REFS --------------------
   const storeRef = useRef<CellStore | null>(null);
   const dragStateRef = useRef<DragState>({
@@ -94,41 +177,78 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   // -------------------- CONSTANTS --------------------
   const actionsColumnWidth = 80;
 
-  // -------------------- STORE INITIALIZATION --------------------
-  const cols = useMemo(() => {
-    let result: typeof columns = [];
+  // -------------------- BASE COLUMNS --------------------
+  const baseColumns = useMemo(() => {
     if (columns.length > 0) {
-      result = columns;
-    } else if (data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
-      result = Object.keys(data[0])
+      return columns;
+    }
+    if (data.length > 0 && typeof data[0] === 'object' && !Array.isArray(data[0])) {
+      return Object.keys(data[0])
         .filter((k) => k !== '_isNew')
         .map((k) => ({ data: k }));
     }
-    // Filter out hidden columns
-    if (hiddenColumns.length > 0) {
-      result = result.filter((col) => !hiddenColumns.includes(col.data));
-    }
-    return result;
-  }, [columns, data, hiddenColumns]);
+    return [];
+  }, [columns, data]);
 
+  // -------------------- PERSPECTIVE STATE --------------------
+  const initialState = useMemo(() => {
+    // Find active perspective
+    const activePerspective = controlledActiveId
+      ? savedPerspectives.find(p => p.id === controlledActiveId)
+      : null;
+    return initializePerspectiveState(baseColumns, activePerspective, initialHiddenColumns);
+  }, []); // Only compute on mount
+
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(initialState.visibleColumns);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>(initialState.hiddenColumns);
+  const [filters, setFilters] = useState<FilterRow[]>(initialState.filters);
+  const [sortRules, setSortRules] = useState<SortRule[]>(initialState.sortRules);
+  const [internalActivePerspectiveId, setInternalActivePerspectiveId] = useState<string | null>(
+    controlledActiveId ?? null
+  );
+
+  // Active perspective ID (controlled or internal)
+  const activePerspectiveId = controlledActiveId !== undefined
+    ? controlledActiveId
+    : internalActivePerspectiveId;
+
+  // Display name: use perspective name if selected, otherwise default tableName
+  const displayTableName = useMemo(() => {
+    if (activePerspectiveId) {
+      const activePerspective = savedPerspectives.find(p => p.id === activePerspectiveId);
+      if (activePerspective) {
+        return activePerspective.name;
+      }
+    }
+    return tableName;
+  }, [activePerspectiveId, savedPerspectives, tableName]);
+
+  // -------------------- COMPUTED COLUMNS (ordered by perspective) --------------------
+  const cols = useMemo(() => {
+    // Get columns in the order specified by visibleColumns
+    const orderedCols: ColumnDef[] = [];
+    for (const key of visibleColumns) {
+      const col = baseColumns.find(c => c.data === key);
+      if (col) {
+        orderedCols.push(col);
+      }
+    }
+    return orderedCols;
+  }, [baseColumns, visibleColumns]);
+
+  // -------------------- STORE INITIALIZATION --------------------
   if (!storeRef.current) {
     storeRef.current = createCellStore(data, cols);
   }
   const store = storeRef.current;
 
-  // -------------------- STATE --------------------
+  // -------------------- OTHER STATE --------------------
   const [rowCount, setRowCount] = useState(store.getRowCount());
-  const [filterRows, setFilterRows] = useState<FilterRow[]>([]);
-  const [filterExpanded, setFilterExpanded] = useState(false);
-  const [internalActiveFilterId, setInternalActiveFilterId] = useState<string | null>(null);
   const [sortState, setSortState] = useState<SortState>({
     columnIndex: null,
     direction: null,
   });
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-
-  // -------------------- DERIVED STATE --------------------
-  const activeFilterId = controlledActiveFilterId !== undefined ? controlledActiveFilterId : internalActiveFilterId;
 
   // -------------------- COMPUTED VALUES --------------------
   const { leftOffsets, rightOffsets } = useStickyOffsets(cols, store, rowHeaders);
@@ -184,23 +304,29 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     setContextMenu
   );
   const { handleResizeStart } = createResizeHandlers(store);
+
+  // Perspective handlers
   const {
-    handleToggleFilter,
-    handleClearFilters,
-    handleSaveFilter,
-    handleFilterSelect,
-    handleFilterRename,
-    handleFilterDelete,
-  } = createFilterHandlers({
+    handleColumnVisibilityChange,
+    handleColumnOrderChange,
+    handleFiltersChange,
+    handleSortRulesChange,
+    handleSavePerspective,
+    handlePerspectiveSelect,
+    handlePerspectiveRename,
+    handlePerspectiveDelete,
+  } = createPerspectiveHandlers({
     tableRef,
-    columns: cols,
-    filterRows,
-    setFilterRows,
-    setFilterExpanded,
-    setInternalActiveFilterId,
-    savedFilters,
-    activeFilterId,
+    columns: baseColumns,
+    savedPerspectives,
+    activePerspectiveId,
+    setVisibleColumns,
+    setHiddenColumns,
+    setFilters,
+    setSortRules,
+    setInternalActivePerspectiveId,
   });
+
   const handleKeyDown = useKeyboardNavigation(store, cols.length, handleCellSave);
   const handleCopy = useCopyHandler(store);
 
@@ -241,14 +367,29 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [dragHandlers]);
 
-  // Dispatch FILTER_CHANGE when filters change
+  // Dispatch FILTER_CHANGE when filters change (backward compatibility)
   useEffect(() => {
     dispatch<FilterChangeEvent>(
       tableRef.current!,
       TableEvents.FILTER_CHANGE,
-      { filters: filterRows, savedFilterId: activeFilterId },
+      { filters, savedFilterId: activePerspectiveId },
     );
-  }, [filterRows, activeFilterId, tableRef]);
+  }, [filters, activePerspectiveId, tableRef]);
+
+  // Dispatch PERSPECTIVE_CHANGE when any config changes
+  useEffect(() => {
+    dispatch<PerspectiveChangeEvent>(
+      tableRef.current!,
+      TableEvents.PERSPECTIVE_CHANGE,
+      {
+        config: {
+          columns: { visible: visibleColumns, hidden: hiddenColumns },
+          filters,
+          sorting: sortRules,
+        },
+      },
+    );
+  }, [visibleColumns, hiddenColumns, filters, sortRules, tableRef]);
 
   // -------------------- EVENT HANDLERS --------------------
   useEventHandlers({
@@ -276,48 +417,44 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   return (
     <CellStoreContext.Provider value={store}>
       <div className="hot-container" style={{ height, width, position: 'relative' }}>
-        {/* Toolbar */}
+        {/* Combined Toolbar - Title, Perspective controls, Search, Add button */}
         {!hideToolbar && (
-          <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-white">
-            <h3 className="text-base font-semibold text-gray-900">{tableName}</h3>
+          <div className="flex items-center px-4 py-2 border-b border-gray-200 bg-white gap-4">
+            <h3 className="text-base font-semibold text-gray-900 whitespace-nowrap">{displayTableName}</h3>
+
+            {/* Perspective Toolbar */}
+            {!hideFilterButton && (
+              <PerspectiveToolbar
+                columns={baseColumns}
+                visibleColumns={visibleColumns}
+                hiddenColumns={hiddenColumns}
+                filters={filters}
+                sortRules={sortRules}
+                onColumnVisibilityChange={handleColumnVisibilityChange}
+                onColumnOrderChange={handleColumnOrderChange}
+                onFiltersChange={handleFiltersChange}
+                onSortRulesChange={handleSortRulesChange}
+                onSavePerspective={handleSavePerspective}
+              />
+            )}
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Search and Add Row */}
             <div className="flex items-center gap-2">
               {!hideSearch && <SearchBar tableRef={tableRef} placeholder="Search..." />}
-              <div className="flex items-center gap-2">
-                {!hideFilterButton && (
-                  <button
-                    onClick={handleToggleFilter}
-                    className="filter-toggle-btn-header"
-                    title="Build filter"
-                  >
-                    <span className={`toggle-icon ${filterExpanded ? 'expanded' : ''}`}>▼</span>
-                    Build Filter
-                  </button>
-                )}
-                {!hideAddRowButton && (
-                  <button
-                    onClick={handleAddRow}
-                    className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
-                    title="Add new row"
-                  >
-                    +
-                  </button>
-                )}
-              </div>
+              {!hideAddRowButton && (
+                <button
+                  onClick={handleAddRow}
+                  className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
+                  title="Add new row"
+                >
+                  +
+                </button>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Filter Builder */}
-        {!hideFilterButton && (
-          <FilterBuilder
-            columns={cols}
-            filterRows={filterRows}
-            onFilterRowsChange={setFilterRows}
-            onClear={handleClearFilters}
-            onSave={handleSaveFilter}
-            isExpanded={filterExpanded}
-            onToggle={handleToggleFilter}
-          />
         )}
 
         {/* Table Container */}
@@ -381,14 +518,14 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
           </table>
         </div>
 
-        {/* Filter Tabs / Bottom Bar */}
+        {/* Perspective Tabs / Bottom Bar */}
         {!hideBottomBar && (
-          <FilterTabs
-            savedFilters={savedFilters}
-            activeFilterId={activeFilterId}
-            onFilterSelect={handleFilterSelect}
-            onFilterRename={handleFilterRename}
-            onFilterDelete={handleFilterDelete}
+          <PerspectiveTabs
+            savedPerspectives={savedPerspectives}
+            activePerspectiveId={activePerspectiveId}
+            onPerspectiveSelect={handlePerspectiveSelect}
+            onPerspectiveRename={handlePerspectiveRename}
+            onPerspectiveDelete={handlePerspectiveDelete}
             pagination={pagination}
           />
         )}

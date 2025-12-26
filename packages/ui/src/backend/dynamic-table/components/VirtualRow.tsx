@@ -83,7 +83,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
 
         {columns.map((col, colIndex) => (
           <Cell
-            key={colIndex}
+            key={col.data}
             row={rowIndex}
             col={colIndex}
             colConfig={{ ...col, width: store.getColumnWidth(colIndex) }}

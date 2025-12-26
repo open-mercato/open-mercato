@@ -19,12 +19,16 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   const inputRef = useRef<any>(null);
   const rowData = store.getRowData(row);
 
+  // Get value from rowData using the column's data key (not numeric index)
+  // This ensures correct values are displayed when columns are reordered
+  const cellValue = rowData?.[colConfig.data];
+
   const handleSave = useCallback(
     (value?: any) => {
-      const newValue = value !== undefined ? value : store.getCellValue(row, col);
+      const newValue = value !== undefined ? value : cellValue;
       onCellSave(row, col, newValue);
     },
-    [store, row, col, onCellSave]
+    [cellValue, row, col, onCellSave]
   );
 
   const handleCancel = useCallback(() => {
@@ -72,7 +76,7 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   }
 
   const renderer = getCellRenderer(colConfig);
-  const renderedValue = renderer(state.value, rowData, colConfig, row, col);
+  const renderedValue = renderer(cellValue, rowData, colConfig, row, col);
 
   return (
     <td
@@ -93,7 +97,7 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
       {state.isEditing
         ? getCellEditor(
           colConfig,
-          state.value,
+          cellValue,
           handleChange,
           handleSave,
           handleCancel,

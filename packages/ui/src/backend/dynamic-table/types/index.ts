@@ -210,6 +210,12 @@ export const TableEvents = {
   SEARCH: 'table:search',
   COLUMN_CONTEXT_MENU_ACTION: 'table:column:context:action',
   ROW_CONTEXT_MENU_ACTION: 'table:row:context:action',
+  // Perspective events
+  PERSPECTIVE_SAVE: 'table:perspective:save',
+  PERSPECTIVE_SELECT: 'table:perspective:select',
+  PERSPECTIVE_RENAME: 'table:perspective:rename',
+  PERSPECTIVE_DELETE: 'table:perspective:delete',
+  PERSPECTIVE_CHANGE: 'table:perspective:change',
 } as const;
 
 // Type mapping for event payloads - maps event names to their payload types
@@ -231,6 +237,12 @@ export type TableEventPayloads = {
   [TableEvents.SEARCH]: SearchEvent;
   [TableEvents.COLUMN_CONTEXT_MENU_ACTION]: ColumnContextMenuEvent;
   [TableEvents.ROW_CONTEXT_MENU_ACTION]: RowContextMenuEvent;
+  // Perspective event payloads (types imported from ./perspective)
+  [TableEvents.PERSPECTIVE_SAVE]: import('./perspective').PerspectiveSaveEvent;
+  [TableEvents.PERSPECTIVE_SELECT]: import('./perspective').PerspectiveSelectEvent;
+  [TableEvents.PERSPECTIVE_RENAME]: import('./perspective').PerspectiveRenameEvent;
+  [TableEvents.PERSPECTIVE_DELETE]: import('./perspective').PerspectiveDeleteEvent;
+  [TableEvents.PERSPECTIVE_CHANGE]: import('./perspective').PerspectiveChangeEvent;
 };
 
 // Type for event handler map - each key is an event name, value is handler function
@@ -286,3 +298,6 @@ export interface DynamicTableProps {
 
 // Re-export filter types
 export * from './filters';
+
+// Re-export perspective types
+export * from './perspective';

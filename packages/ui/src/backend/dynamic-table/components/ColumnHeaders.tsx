@@ -89,7 +89,7 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
 
                 return (
                   <th
-                    key={colIndex}
+                    key={col.data}
                     className="hot-col-header"
                     onDoubleClick={(e) => onDoubleClick(e, colIndex)}
                     style={headerStyle}
@@ -104,9 +104,22 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         width: '100%',
+                        minWidth: 0,
+                        overflow: 'hidden',
                       }}
                     >
-                      <span>{col.title || col.data}</span>
+                      <span
+                        style={{
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          minWidth: 0,
+                          flex: 1,
+                        }}
+                        title={col.title || col.data}
+                      >
+                        {col.title || col.data}
+                      </span>
                       <button
                         className="hot-col-sort-btn"
                         onClick={(e) => {

@@ -1539,3 +1539,132 @@ body.resizing-column {
 .hot-col-header>div {
     padding: 0 4px;
 }
+
+/* ============================================
+   PERSPECTIVE TOOLBAR STYLES
+   ============================================ */
+
+.perspective-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.perspective-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: white;
+    color: #374151;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 400;
+    transition: all 0.15s;
+}
+
+.perspective-btn:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+}
+
+.perspective-btn.active {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+.perspective-btn.save-btn {
+    border-color: #3b82f6;
+    background: #3b82f6;
+    color: white;
+    font-weight: 500;
+}
+
+.perspective-btn.save-btn:hover {
+    background: #2563eb;
+    border-color: #2563eb;
+}
+
+/* ============================================
+   PERSPECTIVE POPOVER STYLES
+   ============================================ */
+
+.perspective-popover {
+    position: fixed;
+    z-index: 10000;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border: 1px solid #e5e7eb;
+}
+
+/* Columns Popover */
+.columns-popover {
+    width: 280px;
+    max-height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Filter Popover */
+.filter-popover {
+    width: 400px;
+    max-height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Sort Popover */
+.sort-popover {
+    width: 320px;
+    max-height: 400px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Save Popover */
+.save-popover {
+    width: 280px;
+    padding: 12px;
+}
+
+/* ============================================
+   PERSPECTIVE TABS STYLES
+   ============================================ */
+
+.perspective-tabs {
+    border-top: 1px solid #e5e7eb;
+    background: white;
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+}
+
+.perspective-indicators {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    font-size: 10px;
+    opacity: 0.7;
+}
+
+/* ============================================
+   DRAG AND DROP STYLES
+   ============================================ */
+
+.dragging {
+    opacity: 0.5;
+    background: #f3f4f6;
+}
+
+.drag-over {
+    background: #f0f9ff;
+    border-top: 2px solid #3b82f6;
+}

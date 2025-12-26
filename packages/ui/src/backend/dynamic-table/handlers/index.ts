@@ -33,8 +33,12 @@ export function createCellHandlers(
   idColumnName: string
 ) {
   const handleCellSave = (row: number, col: number, newValue: any) => {
-    const oldValue = store.getCellValue(row, col);
     const rowData = store.getRowData(row);
+    const colConfig = columns[col];
+    const fieldKey = colConfig?.data;
+
+    // Get old value from rowData using field key (handles reordered columns)
+    const oldValue = rowData?.[fieldKey];
 
     // Skip if value unchanged
     if (String(oldValue ?? '') === String(newValue ?? '')) {
@@ -42,20 +46,23 @@ export function createCellHandlers(
       return;
     }
 
-    // Update store
-    store.setCellValue(row, col, newValue);
+    // Update rowData directly using field key (handles reordered columns correctly)
+    if (rowData && fieldKey) {
+      rowData[fieldKey] = newValue;
+    }
+    store.bumpRevision(row, col);
     store.clearEditing();
 
     // Only dispatch event if not a new row
     if (!store.isNewRow(row)) {
-      const parsedValue = parseValueByType(newValue, columns[col]);
+      const parsedValue = parseValueByType(newValue, colConfig);
 
       dispatch<CellEditSaveEvent>(tableRef.current as HTMLElement, TableEvents.CELL_EDIT_SAVE, {
         rowIndex: row,
         colIndex: col,
         oldValue,
         newValue: parsedValue,
-        prop: columns[col].data,
+        prop: fieldKey,
         rowData,
         id: rowData?.[idColumnName],
       });
@@ -634,6 +641,9 @@ export function createFilterHandlers({
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
+// Re-export perspective handlers
+export * from './perspectiveHandlers';
+
 function parseValueByType(value: any, col: ColumnDef): any {
   if (!col.type) return value;
 

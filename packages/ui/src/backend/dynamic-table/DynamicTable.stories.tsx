@@ -1035,8 +1035,8 @@ const MinimalTableDemo = () => {
                             currentPage: 1,
                             totalPages: 5,
                             limit: 10,
-                            onPageChange: () => {},
-                            onLimitChange: () => {},
+                            onPageChange: () => { },
+                            onLimitChange: () => { },
                         }}
                     />
                 </div>
@@ -1047,4 +1047,188 @@ const MinimalTableDemo = () => {
 
 export const MinimalTable: StoryObj = {
     render: () => <MinimalTableDemo />,
+};
+
+// ============================================================================
+// STORY 5: PERSPECTIVE DEMO
+// ============================================================================
+
+import type { PerspectiveConfig } from './types/perspective';
+
+const PerspectiveDemo = () => {
+    const tableRef = useRef<HTMLDivElement>(null);
+    const [allData] = useState(() => generateData(100));
+    const [currentPage, setCurrentPage] = useState(1);
+    const [limit, setLimit] = useState(25);
+    const columns = getColumns();
+
+    // Saved perspectives (would typically come from API)
+    const [savedPerspectives, setSavedPerspectives] = useState<PerspectiveConfig[]>([
+        {
+            id: 'compact-view',
+            name: 'Compact View',
+            color: 'blue',
+            columns: {
+                visible: ['id', 'name', 'email', 'department'],
+                hidden: ['age', 'country', 'role', 'startDate', 'salary', 'active', 'status'],
+            },
+            filters: [],
+            sorting: [{ id: 'sort-1', field: 'name', direction: 'asc' }],
+        },
+        {
+            id: 'hr-view',
+            name: 'HR View',
+            color: 'purple',
+            columns: {
+                visible: ['id', 'name', 'email', 'department', 'role', 'startDate', 'active', 'status'],
+                hidden: ['age', 'country', 'salary'],
+            },
+            filters: [{ id: 'filter-1', field: 'active', operator: 'is_true', values: [] }],
+            sorting: [{ id: 'sort-1', field: 'startDate', direction: 'desc' }],
+        },
+        {
+            id: 'finance-view',
+            name: 'Finance View',
+            color: 'green',
+            columns: {
+                visible: ['id', 'name', 'department', 'role', 'salary'],
+                hidden: ['email', 'age', 'country', 'startDate', 'active', 'status'],
+            },
+            filters: [],
+            sorting: [
+                { id: 'sort-1', field: 'salary', direction: 'desc' },
+                { id: 'sort-2', field: 'department', direction: 'asc' },
+            ],
+        },
+    ]);
+    const [activePerspectiveId, setActivePerspectiveId] = useState<string | null>(null);
+
+    // Pagination calculations
+    const totalPages = Math.ceil(allData.length / limit);
+    const startIndex = (currentPage - 1) * limit;
+    const data = allData.slice(startIndex, startIndex + limit);
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+    };
+
+    const handleLimitChange = (newLimit: number) => {
+        setLimit(newLimit);
+        setCurrentPage(1);
+    };
+
+    // Event handlers for perspective management
+    useEventHandlers({
+        [TableEvents.CELL_EDIT_SAVE]: async (payload) => {
+            dispatch(tableRef.current!, TableEvents.CELL_SAVE_START, {
+                rowIndex: payload.rowIndex,
+                colIndex: payload.colIndex,
+            });
+
+            const result = await mockApiSave(payload.rowIndex, payload.colIndex, payload.newValue);
+
+            if (result.ok) {
+                dispatch(tableRef.current!, TableEvents.CELL_SAVE_SUCCESS, {
+                    rowIndex: payload.rowIndex,
+                    colIndex: payload.colIndex,
+                });
+            } else {
+                dispatch(tableRef.current!, TableEvents.CELL_SAVE_ERROR, {
+                    rowIndex: payload.rowIndex,
+                    colIndex: payload.colIndex,
+                    error: result.error,
+                });
+            }
+        },
+        [TableEvents.PERSPECTIVE_SAVE]: (payload: any) => {
+            console.log('Perspective saved:', payload.perspective);
+            setSavedPerspectives(prev => [...prev, payload.perspective]);
+            setActivePerspectiveId(payload.perspective.id);
+        },
+        [TableEvents.PERSPECTIVE_SELECT]: (payload: any) => {
+            console.log('Perspective selected:', payload.id);
+            setActivePerspectiveId(payload.id);
+        },
+        [TableEvents.PERSPECTIVE_RENAME]: (payload: any) => {
+            console.log('Perspective renamed:', payload.id, payload.newName);
+            setSavedPerspectives(prev =>
+                prev.map(p => p.id === payload.id ? { ...p, name: payload.newName } : p)
+            );
+        },
+        [TableEvents.PERSPECTIVE_DELETE]: (payload: any) => {
+            console.log('Perspective deleted:', payload.id);
+            setSavedPerspectives(prev => prev.filter(p => p.id !== payload.id));
+            if (activePerspectiveId === payload.id) {
+                setActivePerspectiveId(null);
+            }
+        },
+        [TableEvents.PERSPECTIVE_CHANGE]: (payload: any) => {
+            console.log('Perspective config changed:', payload.config);
+        },
+    }, tableRef);
+
+    return (
+        <div>
+            <div
+                style={{
+                    padding: 16,
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
+                    borderRadius: 8,
+                    marginBottom: 16,
+                    color: 'white',
+                }}
+            >
+                <h3 style={{ margin: '0 0 8px' }}>Perspective Feature Demo</h3>
+                <p style={{ margin: 0, fontSize: 13, opacity: 0.9 }}>
+                    The new Perspective feature replaces the FilterBuilder. Use the toolbar buttons to:
+                </p>
+                <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13, opacity: 0.9 }}>
+                    <li><strong>Columns</strong> - Show/hide columns, drag to reorder</li>
+                    <li><strong>Filter</strong> - Add filter conditions</li>
+                    <li><strong>Sort</strong> - Multi-column sorting with priority</li>
+                    <li><strong>Save Perspective</strong> - Save your view configuration</li>
+                </ul>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap', fontSize: 11 }}>
+                <span style={{ padding: '4px 8px', background: '#ddd6fe', borderRadius: 4, color: '#5b21b6' }}>
+                    3 pre-saved perspectives
+                </span>
+                <span style={{ padding: '4px 8px', background: '#dbeafe', borderRadius: 4, color: '#1e40af' }}>
+                    Click tabs at bottom to switch
+                </span>
+                <span style={{ padding: '4px 8px', background: '#dcfce7', borderRadius: 4, color: '#166534' }}>
+                    Customize and save new perspectives
+                </span>
+            </div>
+
+            <DynamicTable
+                tableRef={tableRef}
+                data={data}
+                columns={columns}
+                colHeaders={true}
+                rowHeaders={true}
+                height={500}
+                tableName="Employee Directory"
+                idColumnName="id"
+                columnActions={getColumnActions}
+                rowActions={getRowActions}
+                pagination={{
+                    currentPage,
+                    totalPages,
+                    limit,
+                    limitOptions: [10, 25, 50, 100],
+                    onPageChange: handlePageChange,
+                    onLimitChange: handleLimitChange,
+                }}
+                savedPerspectives={savedPerspectives}
+                activePerspectiveId={activePerspectiveId}
+                debug={true}
+            />
+        </div>
+    );
+};
+
+export const Perspective: StoryObj = {
+    render: () => <PerspectiveDemo />,
 };

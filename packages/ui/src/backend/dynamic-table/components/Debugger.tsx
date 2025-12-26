@@ -28,12 +28,18 @@ const EVENT_COLORS: Record<string, string> = {
   [TableEvents.NEW_ROW_SAVE_START]: '#fbbf24',
   [TableEvents.NEW_ROW_SAVE_SUCCESS]: '#4ade80',
   [TableEvents.NEW_ROW_SAVE_ERROR]: '#f87171',
-  // Filter events
+  // Filter events (legacy)
   [TableEvents.FILTER_CHANGE]: '#fb923c',
   [TableEvents.FILTER_SAVE]: '#10b981',
   [TableEvents.FILTER_SELECT]: '#10b981',
   [TableEvents.FILTER_RENAME]: '#10b981',
   [TableEvents.FILTER_DELETE]: '#10b981',
+  // Perspective events
+  [TableEvents.PERSPECTIVE_SAVE]: '#22c55e',
+  [TableEvents.PERSPECTIVE_SELECT]: '#14b8a6',
+  [TableEvents.PERSPECTIVE_RENAME]: '#06b6d4',
+  [TableEvents.PERSPECTIVE_DELETE]: '#f43f5e',
+  [TableEvents.PERSPECTIVE_CHANGE]: '#8b5cf6',
   // Sort & search
   [TableEvents.COLUMN_SORT]: '#a78bfa',
   [TableEvents.SEARCH]: '#38bdf8',
@@ -79,6 +85,21 @@ const formatPayload = (eventName: string, payload: any): string => {
       return `"${payload.actionId}" on "${payload.columnName}"`;
     case TableEvents.ROW_CONTEXT_MENU_ACTION:
       return `"${payload.actionId}" on row ${payload.rowIndex}`;
+    // Perspective events
+    case TableEvents.PERSPECTIVE_SAVE:
+      return `Saved: "${payload.perspective?.name}" (${payload.perspective?.columns?.visible?.length || 0} cols, ${payload.perspective?.filters?.length || 0} filters, ${payload.perspective?.sorting?.length || 0} sorts)`;
+    case TableEvents.PERSPECTIVE_SELECT:
+      return payload.id ? `Selected: "${payload.config?.name || payload.id}"` : 'Reset to default';
+    case TableEvents.PERSPECTIVE_RENAME:
+      return `Renamed to: "${payload.newName}"`;
+    case TableEvents.PERSPECTIVE_DELETE:
+      return `Deleted: ${payload.id}`;
+    case TableEvents.PERSPECTIVE_CHANGE:
+      const changes: string[] = [];
+      if (payload.config?.columns) changes.push('columns');
+      if (payload.config?.filters) changes.push('filters');
+      if (payload.config?.sorting) changes.push('sorting');
+      return `Changed: ${changes.join(', ') || 'config'}`;
     default:
       return JSON.stringify(payload).slice(0, 100);
   }
@@ -178,6 +199,11 @@ const Debugger: React.FC<DebuggerProps> = ({ tableRef }) => {
     [TableEvents.FILTER_SELECT]: (p) => addLog(TableEvents.FILTER_SELECT, p),
     [TableEvents.FILTER_RENAME]: (p) => addLog(TableEvents.FILTER_RENAME, p),
     [TableEvents.FILTER_DELETE]: (p) => addLog(TableEvents.FILTER_DELETE, p),
+    [TableEvents.PERSPECTIVE_SAVE]: (p) => addLog(TableEvents.PERSPECTIVE_SAVE, p),
+    [TableEvents.PERSPECTIVE_SELECT]: (p) => addLog(TableEvents.PERSPECTIVE_SELECT, p),
+    [TableEvents.PERSPECTIVE_RENAME]: (p) => addLog(TableEvents.PERSPECTIVE_RENAME, p),
+    [TableEvents.PERSPECTIVE_DELETE]: (p) => addLog(TableEvents.PERSPECTIVE_DELETE, p),
+    [TableEvents.PERSPECTIVE_CHANGE]: (p) => addLog(TableEvents.PERSPECTIVE_CHANGE, p),
     [TableEvents.COLUMN_SORT]: (p) => addLog(TableEvents.COLUMN_SORT, p),
     [TableEvents.SEARCH]: (p) => addLog(TableEvents.SEARCH, p),
     [TableEvents.COLUMN_CONTEXT_MENU_ACTION]: (p) => addLog(TableEvents.COLUMN_CONTEXT_MENU_ACTION, p),
