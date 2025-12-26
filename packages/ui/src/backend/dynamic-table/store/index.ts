@@ -376,14 +376,8 @@ export function createCellStore(initialData: any[], columns: ColumnDef[]): CellS
 
     setColumnWidth(col: number, width: number): void {
       columnWidths.set(col, width);
-      // Bump all cells in this column that are currently subscribed
-      subscribers.forEach((_, id) => {
-        const [, c] = id.split(':').map(Number);
-        if (c === col) {
-          const [r] = id.split(':').map(Number);
-          bumpRevision(r, c);
-        }
-      });
+      // Bump store revision to trigger re-render of headers and total width
+      bumpStoreRevision();
     },
 
     setData(data: any[]): void {

@@ -13,6 +13,7 @@ export interface VirtualRowProps {
   leftOffsets: (number | undefined)[];
   rightOffsets: (number | undefined)[];
   actionsColumnWidth: number;
+  storeRevision: number;
   onSaveNewRow: (rowIndex: number) => void;
   onCancelNewRow: (rowIndex: number) => void;
   onRowHeaderDoubleClick: (e: React.MouseEvent, rowIndex: number) => void;
@@ -28,6 +29,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
     leftOffsets,
     rightOffsets,
     actionsColumnWidth,
+    storeRevision: _storeRevision, // Used to invalidate memo when column widths change
     onSaveNewRow,
     onCancelNewRow,
     onRowHeaderDoubleClick,

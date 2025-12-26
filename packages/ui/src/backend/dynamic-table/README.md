@@ -9,10 +9,10 @@ A high-performance, feature-rich data table component for React with virtualizat
 - [Basic Usage](#basic-usage)
 - [Props](#props)
 - [Column Configuration](#column-configuration)
+- [Perspectives](#perspectives)
 - [Events System](#events-system)
 - [Custom Renderers](#custom-renderers)
 - [Custom Editors](#custom-editors)
-- [Filtering](#filtering)
 - [Pagination](#pagination)
 - [Context Menus](#context-menus)
 - [Debug Mode](#debug-mode)
@@ -28,9 +28,12 @@ A high-performance, feature-rich data table component for React with virtualizat
 - **Custom renderers** - Full control over cell rendering
 - **Custom editors** - Define custom editing experiences
 - **Sticky columns** - Pin columns to left or right
-- **Column resizing** - Drag to resize columns
-- **Sorting** - Click headers to sort
-- **Filtering** - Build and save complex filters
+- **Column resizing** - Drag to resize columns with immediate visual feedback
+- **Perspectives** - Save and switch between table views with custom columns, filters, and sorting
+- **Column visibility** - Show/hide columns via the Columns popover
+- **Column reordering** - Drag-and-drop to reorder columns
+- **Multi-sort** - Sort by multiple columns with priority ordering
+- **Filtering** - Build complex filters with debounced input
 - **Pagination** - Built-in pagination support
 - **Context menus** - Right-click menus for rows and columns
 - **Keyboard navigation** - Arrow keys, Enter, Escape support
@@ -38,7 +41,7 @@ A high-performance, feature-rich data table component for React with virtualizat
 - **Row/column/range selection** - Click and drag to select
 - **New row creation** - Add new rows with save/cancel actions
 - **Save state indicators** - Visual feedback for saving, success, and error states
-- **Debug mode** - Built-in event debugger panel
+- **Debug mode** - Built-in event debugger panel with all events including perspectives
 
 ## Installation
 
@@ -91,15 +94,23 @@ const MyTable = () => {
 | `height` | `string \| number` | `'auto'` | Table height |
 | `width` | `string \| number` | `'auto'` | Table width |
 | `idColumnName` | `string` | `'id'` | Name of the ID column (included in edit events) |
-| `tableName` | `string` | `'Table Name'` | Display name shown in toolbar |
+| `tableName` | `string` | `'Table Name'` | Default display name (changes to perspective name when one is selected) |
 | `columnActions` | `(column, colIndex) => ContextMenuAction[]` | - | Column context menu actions |
 | `rowActions` | `(rowData, rowIndex) => ContextMenuAction[]` | - | Row context menu actions |
 | `pagination` | `PaginationProps` | - | Pagination configuration |
-| `savedFilters` | `SavedFilter[]` | `[]` | Pre-saved filter configurations |
-| `activeFilterId` | `string \| null` | - | Currently active filter ID |
-| `hiddenColumns` | `string[]` | `[]` | Array of column `data` values to hide |
+| `savedPerspectives` | `PerspectiveConfig[]` | `[]` | Pre-saved perspective configurations |
+| `activePerspectiveId` | `string \| null` | - | Currently active perspective ID |
+| `defaultHiddenColumns` | `string[]` | `[]` | Array of column `data` values to hide by default |
 | `debug` | `boolean` | `false` | Enable debug mode with event log panel |
 | `uiConfig` | `TableUIConfig` | `{}` | UI visibility configuration (see below) |
+
+### Deprecated Props (Backward Compatible)
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `savedFilters` | `SavedFilter[]` | Use `savedPerspectives` instead |
+| `activeFilterId` | `string \| null` | Use `activePerspectiveId` instead |
+| `hiddenColumns` | `string[]` | Use `defaultHiddenColumns` instead |
 
 ### TableUIConfig
 
@@ -109,50 +120,10 @@ Control which UI elements are visible:
 interface TableUIConfig {
   hideToolbar?: boolean;      // Hide entire toolbar (title, search, buttons)
   hideSearch?: boolean;       // Hide just the search bar
-  hideFilterButton?: boolean; // Hide the "Build Filter" button
+  hideFilterButton?: boolean; // Hide the perspective toolbar (Columns, Filter, Sort buttons)
   hideAddRowButton?: boolean; // Hide the "Add Row" button
-  hideBottomBar?: boolean;    // Hide filter tabs and pagination
+  hideBottomBar?: boolean;    // Hide perspective tabs and pagination
 }
-```
-
-#### Examples
-
-```tsx
-// Minimal table - only data, no chrome
-<DynamicTable
-  tableRef={tableRef}
-  data={data}
-  columns={columns}
-  uiConfig={{
-    hideToolbar: true,
-    hideBottomBar: true,
-  }}
-/>
-
-// Search only - no filters or add row
-<DynamicTable
-  tableRef={tableRef}
-  data={data}
-  columns={columns}
-  uiConfig={{
-    hideFilterButton: true,
-    hideAddRowButton: true,
-    hideBottomBar: true,
-  }}
-/>
-
-// Read-only view with pagination
-<DynamicTable
-  tableRef={tableRef}
-  data={data}
-  columns={columns}
-  pagination={paginationConfig}
-  uiConfig={{
-    hideSearch: true,
-    hideFilterButton: true,
-    hideAddRowButton: true,
-  }}
-/>
 ```
 
 ## Column Configuration
@@ -227,12 +198,109 @@ const columns = [
 ];
 ```
 
-### Hidden Columns
+## Perspectives
+
+Perspectives allow users to save and switch between different table views. Each perspective includes:
+
+- **Column visibility** - Which columns are shown/hidden
+- **Column order** - The display order of visible columns
+- **Filters** - Active filter rules
+- **Sorting** - Multi-column sort configuration
+
+### Perspective Toolbar
+
+The toolbar displays three buttons:
+- **Columns** - Toggle column visibility and reorder via drag-drop
+- **Filter** - Build filter rules with field, operator, and value (with 500ms debounce)
+- **Sort** - Configure multi-column sorting with priority
+
+When changes are made, a **Save Perspective** button appears to save the current configuration.
+
+### PerspectiveConfig Interface
+
+```typescript
+interface PerspectiveConfig {
+  id: string;
+  name: string;
+  color?: FilterColor;  // 'blue' | 'green' | 'teal' | 'purple' | 'pink' | 'red' | 'orange' | 'yellow'
+  columns: {
+    visible: string[];  // Column data keys in display order
+    hidden: string[];   // Hidden column data keys
+  };
+  filters: FilterRow[];
+  sorting: SortRule[];
+}
+
+interface SortRule {
+  id: string;
+  field: string;
+  direction: 'asc' | 'desc';
+}
+
+interface FilterRow {
+  id: string;
+  field: string;
+  operator: FilterOperator;
+  values: any[];
+}
+```
+
+### Dynamic Table Title
+
+When a perspective is selected, the table title automatically changes to the perspective name. When "All" is selected (no active perspective), it shows the default `tableName` prop.
+
+### Perspective Tabs
+
+At the bottom of the table, tabs allow switching between:
+- **All** - Default view with all columns, no filters, no sorting
+- **Saved perspectives** - Click to apply, double-click to rename, X to delete
+
+### Managing Perspectives
 
 ```tsx
+const [savedPerspectives, setSavedPerspectives] = useState<PerspectiveConfig[]>([]);
+const [activePerspectiveId, setActivePerspectiveId] = useState<string | null>(null);
+
+useEventHandlers({
+  [TableEvents.PERSPECTIVE_SAVE]: async (payload) => {
+    // Save to API
+    const saved = await api.savePerspective(payload.perspective);
+    setSavedPerspectives(prev => [...prev, saved]);
+    setActivePerspectiveId(saved.id);
+  },
+
+  [TableEvents.PERSPECTIVE_SELECT]: (payload) => {
+    setActivePerspectiveId(payload.id);
+    // payload.config contains the full perspective if selected, null if "All"
+  },
+
+  [TableEvents.PERSPECTIVE_RENAME]: async (payload) => {
+    await api.renamePerspective(payload.id, payload.newName);
+    setSavedPerspectives(prev =>
+      prev.map(p => p.id === payload.id ? { ...p, name: payload.newName } : p)
+    );
+  },
+
+  [TableEvents.PERSPECTIVE_DELETE]: async (payload) => {
+    await api.deletePerspective(payload.id);
+    setSavedPerspectives(prev => prev.filter(p => p.id !== payload.id));
+    if (activePerspectiveId === payload.id) {
+      setActivePerspectiveId(null);
+    }
+  },
+
+  [TableEvents.PERSPECTIVE_CHANGE]: (payload) => {
+    // Called when columns, filters, or sorting change
+    // payload.config contains the changed parts
+    console.log('Perspective changed:', payload.config);
+  },
+}, tableRef);
+
 <DynamicTable
-  columns={columns}
-  hiddenColumns={['internalId', 'createdAt', 'updatedAt']}
+  savedPerspectives={savedPerspectives}
+  activePerspectiveId={activePerspectiveId}
+  defaultHiddenColumns={['internalId', 'createdAt']}
+  /* ... */
 />
 ```
 
@@ -245,27 +313,34 @@ DynamicTable uses a custom event system for decoupled communication. Events are 
 ```typescript
 const TableEvents = {
   // Cell editing
-  CELL_EDIT_SAVE: 'table:cell:edit:save',      // Cell value changed
-  CELL_SAVE_START: 'table:cell:save:start',    // Start saving indicator
-  CELL_SAVE_SUCCESS: 'table:cell:save:success', // Save succeeded
-  CELL_SAVE_ERROR: 'table:cell:save:error',    // Save failed
+  CELL_EDIT_SAVE: 'table:cell:edit:save',
+  CELL_SAVE_START: 'table:cell:save:start',
+  CELL_SAVE_SUCCESS: 'table:cell:save:success',
+  CELL_SAVE_ERROR: 'table:cell:save:error',
 
   // New row
-  NEW_ROW_SAVE: 'table:new:row:save',          // New row save requested
+  NEW_ROW_SAVE: 'table:new:row:save',
   NEW_ROW_SAVE_START: 'table:new:row:save:start',
   NEW_ROW_SAVE_SUCCESS: 'table:new:row:save:success',
   NEW_ROW_SAVE_ERROR: 'table:new:row:save:error',
 
-  // Filtering
-  FILTER_CHANGE: 'table:filter:change',        // Filter criteria changed
-  FILTER_SAVE: 'table:filter:save',            // Filter saved
-  FILTER_SELECT: 'table:filter:select',        // Filter tab selected
-  FILTER_RENAME: 'table:filter:rename',        // Filter renamed
-  FILTER_DELETE: 'table:filter:delete',        // Filter deleted
+  // Perspectives
+  PERSPECTIVE_SAVE: 'table:perspective:save',
+  PERSPECTIVE_SELECT: 'table:perspective:select',
+  PERSPECTIVE_RENAME: 'table:perspective:rename',
+  PERSPECTIVE_DELETE: 'table:perspective:delete',
+  PERSPECTIVE_CHANGE: 'table:perspective:change',
+
+  // Filtering (legacy - still emitted for backward compatibility)
+  FILTER_CHANGE: 'table:filter:change',
+  FILTER_SAVE: 'table:filter:save',
+  FILTER_SELECT: 'table:filter:select',
+  FILTER_RENAME: 'table:filter:rename',
+  FILTER_DELETE: 'table:filter:delete',
 
   // Sorting & Search
-  COLUMN_SORT: 'table:column:sort',            // Column sort changed
-  SEARCH: 'table:search',                      // Search query changed
+  COLUMN_SORT: 'table:column:sort',
+  SEARCH: 'table:search',
 
   // Context menus
   COLUMN_CONTEXT_MENU_ACTION: 'table:column:context:action',
@@ -293,6 +368,28 @@ interface CellEditSaveEvent {
 interface NewRowSaveEvent {
   rowIndex: number;
   rowData: any;
+}
+```
+
+#### PerspectiveSaveEvent
+```typescript
+interface PerspectiveSaveEvent {
+  perspective: PerspectiveConfig;  // Full perspective config ready for API
+}
+```
+
+#### PerspectiveSelectEvent
+```typescript
+interface PerspectiveSelectEvent {
+  id: string | null;
+  config: PerspectiveConfig | null;
+}
+```
+
+#### PerspectiveChangeEvent
+```typescript
+interface PerspectiveChangeEvent {
+  config: Partial<PerspectiveConfig>;  // Only changed parts
 }
 ```
 
@@ -325,13 +422,11 @@ const MyTable = () => {
 
   useEventHandlers({
     [TableEvents.CELL_EDIT_SAVE]: async (payload) => {
-      // Show saving indicator
       dispatch(tableRef.current!, TableEvents.CELL_SAVE_START, {
         rowIndex: payload.rowIndex,
         colIndex: payload.colIndex,
       });
 
-      // Call your API
       const result = await saveToApi(payload);
 
       if (result.ok) {
@@ -346,6 +441,10 @@ const MyTable = () => {
           error: result.error,
         });
       }
+    },
+
+    [TableEvents.PERSPECTIVE_SAVE]: async (payload) => {
+      await api.savePerspective(payload.perspective);
     },
 
     [TableEvents.COLUMN_SORT]: (payload) => {
@@ -396,16 +495,6 @@ const columns = [
       }}>
         {value}
       </span>
-    ),
-  },
-  {
-    data: '_actions',
-    title: '',
-    readOnly: true,
-    renderer: (_value: any, rowData: any) => (
-      <button onClick={() => openDetails(rowData)}>
-        View
-      </button>
     ),
   },
 ];
@@ -468,78 +557,6 @@ editor: (
 ) => React.ReactNode;
 ```
 
-## Filtering
-
-### Filter Builder
-
-The table includes a built-in filter builder accessible via the "Build Filter" button. Users can:
-
-- Add multiple filter conditions
-- Select field, operator, and values
-- Save filters for reuse
-- Switch between saved filters via tabs
-
-### Filter Events
-
-```tsx
-useEventHandlers({
-  [TableEvents.FILTER_CHANGE]: (payload) => {
-    // Called whenever filter criteria changes
-    console.log('Filters:', payload.filters);
-    console.log('Active filter ID:', payload.savedFilterId);
-    // Typically used to refetch data with new filters
-  },
-
-  [TableEvents.FILTER_SAVE]: (payload) => {
-    // Called when user saves a new filter
-    // Persist to your backend
-    await saveFilter(payload.filter);
-  },
-
-  [TableEvents.FILTER_SELECT]: (payload) => {
-    // Called when user selects a saved filter tab
-    setActiveFilterId(payload.id);
-  },
-
-  [TableEvents.FILTER_RENAME]: (payload) => {
-    // Called when user renames a filter
-    await renameFilter(payload.id, payload.newName);
-  },
-
-  [TableEvents.FILTER_DELETE]: (payload) => {
-    // Called when user deletes a filter
-    await deleteFilter(payload.id);
-  },
-}, tableRef);
-```
-
-### Managing Saved Filters
-
-```tsx
-const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
-
-useEventHandlers({
-  [TableEvents.FILTER_SAVE]: (payload) => {
-    setSavedFilters(prev => [...prev, payload.filter]);
-    setActiveFilterId(payload.filter.id);
-  },
-  [TableEvents.FILTER_SELECT]: (payload) => {
-    setActiveFilterId(payload.id);
-  },
-  [TableEvents.FILTER_DELETE]: (payload) => {
-    setSavedFilters(prev => prev.filter(f => f.id !== payload.id));
-    if (activeFilterId === payload.id) setActiveFilterId(null);
-  },
-}, tableRef);
-
-<DynamicTable
-  savedFilters={savedFilters}
-  activeFilterId={activeFilterId}
-  /* ... */
-/>
-```
-
 ## Pagination
 
 ```tsx
@@ -580,20 +597,20 @@ interface PaginationProps {
 
 ### Column Context Menu
 
-Right-click on column headers to show custom actions:
+Double-click on column headers to show custom actions:
 
 ```tsx
 const columnActions = (column: ColumnDef, colIndex: number): ContextMenuAction[] => [
   { id: 'sort-asc', label: 'Sort Ascending', icon: '↑' },
   { id: 'sort-desc', label: 'Sort Descending', icon: '↓' },
   { id: 'separator', label: '', separator: true },
-  { id: 'hide', label: 'Hide Column', icon: '👁' },
+  { id: 'hide', label: 'Hide Column' },
 ];
 
 useEventHandlers({
   [TableEvents.COLUMN_CONTEXT_MENU_ACTION]: (payload) => {
     if (payload.actionId === 'hide') {
-      setHiddenColumns(prev => [...prev, payload.columnName]);
+      // Handle hiding column
     }
   },
 }, tableRef);
@@ -607,10 +624,10 @@ Double-click on row headers to show custom actions:
 
 ```tsx
 const rowActions = (rowData: any, rowIndex: number): ContextMenuAction[] => [
-  { id: 'edit', label: 'Edit Row', icon: '✏️' },
-  { id: 'duplicate', label: 'Duplicate', icon: '📋' },
+  { id: 'edit', label: 'Edit Row' },
+  { id: 'duplicate', label: 'Duplicate' },
   { id: 'separator', label: '', separator: true },
-  { id: 'delete', label: 'Delete Row', icon: '🗑️' },
+  { id: 'delete', label: 'Delete Row' },
 ];
 
 useEventHandlers({
@@ -646,9 +663,18 @@ Enable debug mode to see a floating event log panel:
 
 Features:
 - Click the bug icon (bottom-right) to open/close the panel
-- All table events are logged in real-time
+- All table events are logged in real-time, including perspective events
 - Click any event to expand and see the full payload
+- Color-coded events for easy identification
 - Clear button to reset the log
+
+Events tracked in debug mode:
+- Cell events (edit, save start/success/error)
+- New row events
+- Perspective events (save, select, rename, delete, change)
+- Filter events (legacy)
+- Sort and search events
+- Context menu actions
 
 ## Keyboard Navigation
 
@@ -663,7 +689,7 @@ Features:
 
 ## Examples
 
-### Complete Example with API Integration
+### Complete Example with Perspectives
 
 ```tsx
 import React, { useState, useRef } from 'react';
@@ -673,34 +699,33 @@ import {
   dispatch,
   TableEvents,
   ColumnDef,
-  SavedFilter,
+  PerspectiveConfig,
 } from '@open-mercato/ui/backend/dynamic-table';
 
 const EmployeeTable = () => {
   const tableRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const [totalCount, setTotalCount] = useState(0);
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
-  const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+  const [savedPerspectives, setSavedPerspectives] = useState<PerspectiveConfig[]>([]);
+  const [activePerspectiveId, setActivePerspectiveId] = useState<string | null>(null);
 
   const columns: ColumnDef[] = [
     { data: 'id', title: 'ID', width: 60, readOnly: true, sticky: 'left' },
     { data: 'name', title: 'Name', width: 150 },
     { data: 'email', title: 'Email', width: 200 },
     { data: 'department', title: 'Department', type: 'dropdown', source: ['Engineering', 'Sales', 'HR'] },
+    { data: 'country', title: 'Country', width: 120 },
+    { data: 'startDate', title: 'Start Date', type: 'date', width: 120 },
     { data: 'salary', title: 'Salary', type: 'numeric', renderer: (v) => `$${v?.toLocaleString()}` },
-    { data: 'active', title: 'Status', type: 'boolean' },
+    { data: 'status', title: 'Status', type: 'dropdown', source: ['Active', 'Inactive', 'On Leave'] },
   ];
 
-  // Handle all table events
   useEventHandlers({
     // Cell editing
     [TableEvents.CELL_EDIT_SAVE]: async (payload) => {
       dispatch(tableRef.current!, TableEvents.CELL_SAVE_START, payload);
-
       try {
         await api.updateEmployee(payload.id, { [payload.prop]: payload.newValue });
         dispatch(tableRef.current!, TableEvents.CELL_SAVE_SUCCESS, payload);
@@ -725,6 +750,32 @@ const EmployeeTable = () => {
       }
     },
 
+    // Perspectives
+    [TableEvents.PERSPECTIVE_SAVE]: async (payload) => {
+      const saved = await api.savePerspective(payload.perspective);
+      setSavedPerspectives(prev => [...prev, saved]);
+      setActivePerspectiveId(saved.id);
+    },
+
+    [TableEvents.PERSPECTIVE_SELECT]: (payload) => {
+      setActivePerspectiveId(payload.id);
+    },
+
+    [TableEvents.PERSPECTIVE_RENAME]: async (payload) => {
+      await api.renamePerspective(payload.id, payload.newName);
+      setSavedPerspectives(prev =>
+        prev.map(p => p.id === payload.id ? { ...p, name: payload.newName } : p)
+      );
+    },
+
+    [TableEvents.PERSPECTIVE_DELETE]: async (payload) => {
+      await api.deletePerspective(payload.id);
+      setSavedPerspectives(prev => prev.filter(p => p.id !== payload.id));
+      if (activePerspectiveId === payload.id) {
+        setActivePerspectiveId(null);
+      }
+    },
+
     // Sorting
     [TableEvents.COLUMN_SORT]: (payload) => {
       fetchData({ sort: payload.columnName, order: payload.direction });
@@ -735,18 +786,9 @@ const EmployeeTable = () => {
       fetchData({ search: payload.query });
     },
 
-    // Filters
+    // Filter changes (from perspective)
     [TableEvents.FILTER_CHANGE]: (payload) => {
       fetchData({ filters: payload.filters });
-    },
-    [TableEvents.FILTER_SAVE]: (payload) => {
-      setSavedFilters(prev => [...prev, payload.filter]);
-      setActiveFilterId(payload.filter.id);
-    },
-    [TableEvents.FILTER_SELECT]: (payload) => setActiveFilterId(payload.id),
-    [TableEvents.FILTER_DELETE]: (payload) => {
-      setSavedFilters(prev => prev.filter(f => f.id !== payload.id));
-      if (activeFilterId === payload.id) setActiveFilterId(null);
     },
   }, tableRef);
 
@@ -767,8 +809,9 @@ const EmployeeTable = () => {
         onPageChange: setCurrentPage,
         onLimitChange: (l) => { setLimit(l); setCurrentPage(1); },
       }}
-      savedFilters={savedFilters}
-      activeFilterId={activeFilterId}
+      savedPerspectives={savedPerspectives}
+      activePerspectiveId={activePerspectiveId}
+      defaultHiddenColumns={['createdAt', 'updatedAt']}
       columnActions={(col) => [
         { id: 'sort-asc', label: 'Sort A-Z' },
         { id: 'sort-desc', label: 'Sort Z-A' },
@@ -818,6 +861,7 @@ export { dispatch, useMediator, useListener, useEventHandlers } from './events/e
 
 // Types
 export * from './types';
+export * from './types/perspective';
 
 // Validators
 export * from './validators';

@@ -244,6 +244,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
 
   // -------------------- OTHER STATE --------------------
   const [rowCount, setRowCount] = useState(store.getRowCount());
+  const [storeRevision, setStoreRevision] = useState(0);
   const [sortState, setSortState] = useState<SortState>({
     columnIndex: null,
     direction: null,
@@ -259,7 +260,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
       (rowHeaders ? 50 : 0) +
       actionsColumnWidth
     );
-  }, [cols, store, rowHeaders, actionsColumnWidth]);
+  }, [cols, store, rowHeaders, actionsColumnWidth, storeRevision]);
 
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
@@ -336,10 +337,11 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     store.setData(data);
   }, [data, store]);
 
-  // Subscribe to store-level changes (row add/remove)
+  // Subscribe to store-level changes (row add/remove, column resize)
   useEffect(() => {
     return store.subscribeToStore(() => {
       setRowCount(store.getRowCount());
+      setStoreRevision(prev => prev + 1);
     });
   }, [store]);
 
@@ -508,6 +510,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
                   leftOffsets={leftOffsets}
                   rightOffsets={rightOffsets}
                   actionsColumnWidth={actionsColumnWidth}
+                  storeRevision={storeRevision}
                   onSaveNewRow={handleSaveNewRow}
                   onCancelNewRow={handleCancelNewRow}
                   onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
