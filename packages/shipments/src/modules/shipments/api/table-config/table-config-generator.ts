@@ -11,13 +11,10 @@ export interface TableColumnConfig {
     dateFormat?: string;
     readOnly?: boolean;
     source?: string[];
-    renderer?: string; // name of custom renderer to use
+    renderer?: string;
 }
 
 export interface DisplayHints {
-    fieldOrder?: string[];
-    fieldLabels?: Record<string, string>;
-    columnWidths?: Record<string, number>;
     hiddenFields?: string[];
     readOnlyFields?: string[];
     customRenderers?: Record<string, string>;
@@ -27,7 +24,6 @@ export interface DisplayHints {
 function mapPropertyTypeToColumnType(property: any): TableColumnType {
     const typeName = property.type?.toLowerCase() || '';
 
-    // Handle different type formats
     if (typeName.includes('varchar') || typeName.includes('text') || typeName.includes('string')) {
         return 'text';
     }
@@ -44,7 +40,6 @@ function mapPropertyTypeToColumnType(property: any): TableColumnType {
         return 'checkbox';
     }
 
-    // Check if it's an enum
     if (property.enum) {
         return 'dropdown';
     }
@@ -52,11 +47,8 @@ function mapPropertyTypeToColumnType(property: any): TableColumnType {
     return 'text';
 }
 
-// Get default width based on field type
-function getDefaultWidth(columnType: TableColumnType, fieldName: string): number {
-    if (fieldName.includes('email')) return 200;
-    if (fieldName.includes('reference') || fieldName.includes('number')) return 150;
-
+// Get default width based on column type
+function getDefaultWidth(columnType: TableColumnType): number {
     switch (columnType) {
         case 'date':
             return 120;
@@ -64,6 +56,8 @@ function getDefaultWidth(columnType: TableColumnType, fieldName: string): number
             return 100;
         case 'checkbox':
             return 80;
+        case 'dropdown':
+            return 130;
         default:
             return 150;
     }
@@ -77,10 +71,15 @@ function snakeCaseToTitle(str: string): string {
         .join(' ');
 }
 
-// Convert camelCase to Title Case
-function camelCaseToTitle(str: string): string {
-    const result = str.replace(/([A-Z])/g, ' $1');
-    return result.charAt(0).toUpperCase() + result.slice(1);
+// Convert camelCase to snake_case then to Title Case
+function fieldNameToTitle(fieldName: string): string {
+    // If already snake_case, use snakeCaseToTitle directly
+    if (fieldName.includes('_')) {
+        return snakeCaseToTitle(fieldName);
+    }
+    // Convert camelCase to snake_case first, then to title
+    const snakeCase = fieldName.replace(/([A-Z])/g, '_$1').toLowerCase();
+    return snakeCaseToTitle(snakeCase);
 }
 
 export function generateTableConfig(
@@ -90,8 +89,7 @@ export function generateTableConfig(
     const columns: TableColumnConfig[] = [];
     const properties = entityMetadata.properties;
 
-    // Get field order (either from hints or default property order)
-    const fieldOrder = hints.fieldOrder || Object.keys(properties);
+    // Default hidden fields + user-specified hidden fields
     const hiddenFields = new Set([
         'id',
         'tenantId',
@@ -101,36 +99,35 @@ export function generateTableConfig(
         ...(hints.hiddenFields || [])
     ]);
 
-    // Build columns based on field order
-    for (const fieldName of fieldOrder) {
-        const property = properties[fieldName];
-
-        // Skip if property doesn't exist or is hidden
-        if (!property || hiddenFields.has(fieldName)) {
+    // Iterate over all properties in their natural order
+    for (const [fieldName, property] of Object.entries(properties)) {
+        // Skip hidden fields
+        if (hiddenFields.has(fieldName)) {
             continue;
         }
 
-        // Skip primary keys and internal fields
-        if (property.primary) {
+        // Skip primary keys
+        if ((property as any).primary) {
+            continue;
+        }
+
+        // Skip relationship fields (they have reference property)
+        if ((property as any).reference) {
             continue;
         }
 
         const columnType = mapPropertyTypeToColumnType(property);
 
-        // Determine the data accessor (convert to camelCase for frontend)
+        // Convert to camelCase for frontend data accessor
         const dataAccessor = fieldName.includes('_')
             ? fieldName.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
             : fieldName;
 
-        // Get display label
-        const label = hints.fieldLabels?.[fieldName]
-            || hints.fieldLabels?.[dataAccessor]
-            || camelCaseToTitle(dataAccessor);
+        // Auto-generate label from field name
+        const label = fieldNameToTitle(fieldName);
 
-        // Get width
-        const width = hints.columnWidths?.[fieldName]
-            || hints.columnWidths?.[dataAccessor]
-            || getDefaultWidth(columnType, fieldName);
+        // Width based on datatype
+        const width = getDefaultWidth(columnType);
 
         const column: TableColumnConfig = {
             data: dataAccessor,
@@ -145,8 +142,8 @@ export function generateTableConfig(
         }
 
         // Add enum source for dropdowns
-        if (property.enum && columnType === 'dropdown') {
-            const enumValues = Object.values(property.items?.() || {});
+        if ((property as any).enum && columnType === 'dropdown') {
+            const enumValues = Object.values((property as any).items?.() || {});
             column.source = enumValues as string[];
         }
 
@@ -164,27 +161,4 @@ export function generateTableConfig(
     }
 
     return columns;
-}
-
-// Helper to add relationship columns (for display purposes)
-export function addRelationshipColumns(
-    columns: TableColumnConfig[],
-    relationships: Array<{ name: string; displayFields: string[] }>
-): TableColumnConfig[] {
-    const enrichedColumns = [...columns];
-
-    for (const rel of relationships) {
-        for (const displayField of rel.displayFields) {
-            const fieldName = `${rel.name}${displayField.charAt(0).toUpperCase()}${displayField.slice(1)}`;
-
-            enrichedColumns.push({
-                data: fieldName,
-                title: `${camelCaseToTitle(rel.name)} ${camelCaseToTitle(displayField)}`,
-                width: displayField.includes('email') ? 200 : 180,
-                readOnly: true,
-            });
-        }
-    }
-
-    return enrichedColumns;
 }

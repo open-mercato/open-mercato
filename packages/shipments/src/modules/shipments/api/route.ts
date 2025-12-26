@@ -44,6 +44,7 @@ const FIELD_MAP: Record<string, any> = {
 };
 
 // Parse DynamicTable FilterRow into query engine filter format
+// Valid FilterOp: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists'
 function parseFilterRow(row: { field: string; operator: string; values: any[] }): any | null {
     const field = FIELD_MAP[row.field];
     if (!field) return null;
@@ -58,15 +59,19 @@ function parseFilterRow(row: { field: string; operator: string; values: any[] })
         case 'is_empty':
             return { field, op: 'eq', value: null };
         case 'is_not_empty':
-            return { field, op: 'neq', value: null };
+            return { field, op: 'ne', value: null };
         case 'equals':
             return { field, op: 'eq', value: row.values[0] };
         case 'not_equals':
-            return { field, op: 'neq', value: row.values[0] };
+            return { field, op: 'ne', value: row.values[0] };
         case 'greater_than':
             return { field, op: 'gt', value: row.values[0] };
         case 'less_than':
             return { field, op: 'lt', value: row.values[0] };
+        case 'greater_than_or_equal':
+            return { field, op: 'gte', value: row.values[0] };
+        case 'less_than_or_equal':
+            return { field, op: 'lte', value: row.values[0] };
         case 'is_true':
             return { field, op: 'eq', value: true };
         case 'is_false':

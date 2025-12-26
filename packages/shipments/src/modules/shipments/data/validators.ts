@@ -138,6 +138,8 @@ export const filterRowSchema = z.object({
         'not_equals',
         'greater_than',
         'less_than',
+        'greater_than_or_equal',
+        'less_than_or_equal',
         'is_true',
         'is_false',
     ]),
