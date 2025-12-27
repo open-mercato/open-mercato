@@ -6,9 +6,9 @@ import { ContainerType, ShipmentStatus, Incoterms, ShipmentMode, ContainerStatus
 const containerNumberSchema = z.string().regex(/^[A-Z]{4}[0-9]{7}$/, 'Must be 4 letters + 7 digits (ISO 6346)').nullable().optional();
 
 export const createShipmentSchema = z.object({
-    // Multi-tenancy (required)
-    tenantId: z.string().uuid(),
-    organizationId: z.string().uuid(),
+    // // Multi-tenancy (required)
+    // tenantId: z.string().uuid(),
+    // organizationId: z.string().uuid(),
 
     // Relationships
     clientId: z.string().uuid().nullable().optional(),
@@ -124,12 +124,45 @@ export const updateShipmentSchema = z.object({
     contactPersonId: z.string().nullable().optional(),
 }).partial();
 
+// FilterRow schema for DynamicTable integration
+export const filterRowSchema = z.object({
+    id: z.string(),
+    field: z.string(),
+    operator: z.enum([
+        'is_any_of',
+        'is_not_any_of',
+        'contains',
+        'is_empty',
+        'is_not_empty',
+        'equals',
+        'not_equals',
+        'greater_than',
+        'less_than',
+        'greater_than_or_equal',
+        'less_than_or_equal',
+        'is_true',
+        'is_false',
+    ]),
+    values: z.array(z.any()),
+});
+
 export const queryShipmentSchema = z.object({
     // Pagination
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     sortField: z.string().optional().default('createdAt'),
     sortDir: z.enum(['asc', 'desc']).optional().default('desc'),
+
+    // DynamicTable filters (JSON string)
+    filters: z.string().optional().transform((val) => {
+        if (!val) return [];
+        try {
+            const parsed = JSON.parse(val);
+            return z.array(filterRowSchema).parse(parsed);
+        } catch {
+            return [];
+        }
+    }),
 
     // Filters
     status: z.nativeEnum(ShipmentStatus).nullable().optional(),
