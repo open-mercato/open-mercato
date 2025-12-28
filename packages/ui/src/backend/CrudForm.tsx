@@ -1064,6 +1064,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         await triggerInjectionEvent('onSave', parsedValues, injectionContext)
       } catch (err) {
         console.error('[CrudForm] Error in onSave:', err)
+        flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        setPending(false)
+        return
       }
     }
     

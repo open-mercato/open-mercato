@@ -7,8 +7,6 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -48,6 +46,7 @@ import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 
 type CompanyOverview = {
   company: {
@@ -717,43 +716,16 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
             isDeleting={isDeleting}
           />
 
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <nav
-                aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}
-                className="flex flex-wrap items-center gap-4"
-              >
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab === tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
-                      activeTab === tab.id
-                        ? 'border-primary text-foreground'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </nav>
-              {sectionAction ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSectionAction}
-                  disabled={sectionAction.disabled}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  {sectionAction.label}
-                </Button>
-            ) : null}
-          </div>
-          <div>
+          <DetailTabsLayout
+            className="space-y-6"
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            sectionAction={sectionAction}
+            onSectionAction={handleSectionAction}
+            navAriaLabel={t('customers.companies.detail.tabs.label', 'Company detail sections')}
+            navClassName="gap-4"
+          >
             {(() => {
               const injected = injectedTabMap.get(activeTab)
               if (injected) return injected()
@@ -870,8 +842,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
               }
               return null
             })()}
-          </div>
-        </div>
+          </DetailTabsLayout>
 
           <div className="space-y-6">
             <div className="space-y-3">

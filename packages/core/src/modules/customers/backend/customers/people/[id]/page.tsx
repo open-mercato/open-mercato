@@ -6,8 +6,6 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { cn } from '@open-mercato/shared/lib/utils'
-import { Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -47,6 +45,7 @@ import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 
 type PersonOverview = {
   person: {
@@ -697,145 +696,115 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
             }}
           />
   
-          <div className="space-y-4">
-            <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
-              <nav
-                className="flex flex-wrap items-center gap-3 text-sm"
-                role="tablist"
-                aria-label={t('customers.people.detail.tabs.label', 'Person detail sections')}
-              >
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab === tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      'relative -mb-px border-b-2 px-0 py-1 text-sm font-medium transition-colors',
-                      activeTab === tab.id
-                        ? 'border-primary text-foreground'
-                        : 'border-transparent text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </nav>
-              {sectionAction ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleSectionAction}
-                  disabled={sectionAction.disabled}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  {sectionAction.label}
-                </Button>
-              ) : null}
-            </div>
-            <div>
-              {(() => {
-                const injected = injectedTabMap.get(activeTab)
-                if (injected) return injected()
-                if (activeTab === 'notes') {
-                  return (
-                    <NotesSection
-                      entityId={personId}
-                      dealOptions={dealSelectOptions}
-                      emptyLabel={t('customers.people.detail.empty.comments')}
-                      viewerUserId={data.viewer?.userId ?? null}
-                      viewerName={data.viewer?.name ?? null}
-                      viewerEmail={data.viewer?.email ?? null}
-                      addActionLabel={t('customers.people.detail.notes.addLabel')}
-                      emptyState={{
-                        title: t('customers.people.detail.emptyState.notes.title'),
-                        actionLabel: t('customers.people.detail.emptyState.notes.action'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      translator={detailTranslator}
-                      onLoadingChange={handleNotesLoadingChange}
-                      dataAdapter={notesAdapter}
-                      renderIcon={renderDictionaryIcon}
-                      renderColor={renderDictionaryColor}
-                      iconSuggestions={ICON_SUGGESTIONS}
-                      readMarkdownPreference={readMarkdownPreferenceCookie}
-                      writeMarkdownPreference={writeMarkdownPreferenceCookie}
-                    />
-                  )
-                }
-                if (activeTab === 'activities') {
-                  return (
-                    <ActivitiesSection
-                      entityId={personId}
-                      dealOptions={dealSelectOptions}
-                      defaultEntityId={personId ?? undefined}
-                      addActionLabel={t('customers.people.detail.activities.add')}
-                      emptyState={{
-                        title: t('customers.people.detail.emptyState.activities.title'),
-                        actionLabel: t('customers.people.detail.emptyState.activities.action'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      onLoadingChange={handleActivitiesLoadingChange}
-                    />
-                  )
-                }
-                if (activeTab === 'deals') {
-                  return (
-                    <DealsSection
-                      scope={dealsScope}
-                      emptyLabel={t('customers.people.detail.empty.deals')}
-                      addActionLabel={t('customers.people.detail.actions.addDeal')}
-                      emptyState={{
-                        title: t('customers.people.detail.emptyState.deals.title'),
-                        actionLabel: t('customers.people.detail.emptyState.deals.action'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      onLoadingChange={handleDealsLoadingChange}
-                      translator={detailTranslator}
-                    />
-                  )
-                }
-                if (activeTab === 'addresses') {
-                  return (
-                    <AddressesSection
-                      entityId={personId}
-                      emptyLabel={t('customers.people.detail.empty.addresses')}
-                      addActionLabel={t('customers.people.detail.addresses.add')}
-                      emptyState={{
-                        title: t('customers.people.detail.emptyState.addresses.title'),
-                        actionLabel: t('customers.people.detail.emptyState.addresses.action'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      onLoadingChange={handleAddressesLoadingChange}
-                      translator={detailTranslator}
-                    />
-                  )
-                }
-                if (activeTab === 'tasks') {
-                  return (
-                    <TasksSection
-                      entityId={personId}
-                      initialTasks={data.todos}
-                      emptyLabel={t('customers.people.detail.empty.todos')}
-                      addActionLabel={t('customers.people.detail.tasks.add')}
-                      emptyState={{
-                        title: t('customers.people.detail.emptyState.tasks.title'),
-                        actionLabel: t('customers.people.detail.emptyState.tasks.action'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      onLoadingChange={handleTasksLoadingChange}
-                      translator={detailTranslator}
-                      entityName={personName}
-                      dialogContextKey="customers.people.detail.tasks.dialog.context"
-                      dialogContextFallback="This task will be linked to {{name}}"
-                    />
-                  )
-                }
-                return null
-              })()}
-            </div>
-          </div>
+          <DetailTabsLayout
+            tabs={tabs}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            sectionAction={sectionAction}
+            onSectionAction={handleSectionAction}
+            navAriaLabel={t('customers.people.detail.tabs.label', 'Person detail sections')}
+            headerClassName="mb-1"
+          >
+            {(() => {
+              const injected = injectedTabMap.get(activeTab)
+              if (injected) return injected()
+              if (activeTab === 'notes') {
+                return (
+                  <NotesSection
+                    entityId={personId}
+                    dealOptions={dealSelectOptions}
+                    emptyLabel={t('customers.people.detail.empty.comments')}
+                    viewerUserId={data.viewer?.userId ?? null}
+                    viewerName={data.viewer?.name ?? null}
+                    viewerEmail={data.viewer?.email ?? null}
+                    addActionLabel={t('customers.people.detail.notes.addLabel')}
+                    emptyState={{
+                      title: t('customers.people.detail.emptyState.notes.title'),
+                      actionLabel: t('customers.people.detail.emptyState.notes.action'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    translator={detailTranslator}
+                    onLoadingChange={handleNotesLoadingChange}
+                    dataAdapter={notesAdapter}
+                    renderIcon={renderDictionaryIcon}
+                    renderColor={renderDictionaryColor}
+                    iconSuggestions={ICON_SUGGESTIONS}
+                    readMarkdownPreference={readMarkdownPreferenceCookie}
+                    writeMarkdownPreference={writeMarkdownPreferenceCookie}
+                  />
+                )
+              }
+              if (activeTab === 'activities') {
+                return (
+                  <ActivitiesSection
+                    entityId={personId}
+                    dealOptions={dealSelectOptions}
+                    defaultEntityId={personId ?? undefined}
+                    addActionLabel={t('customers.people.detail.activities.add')}
+                    emptyState={{
+                      title: t('customers.people.detail.emptyState.activities.title'),
+                      actionLabel: t('customers.people.detail.emptyState.activities.action'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    onLoadingChange={handleActivitiesLoadingChange}
+                  />
+                )
+              }
+              if (activeTab === 'deals') {
+                return (
+                  <DealsSection
+                    scope={dealsScope}
+                    emptyLabel={t('customers.people.detail.empty.deals')}
+                    addActionLabel={t('customers.people.detail.actions.addDeal')}
+                    emptyState={{
+                      title: t('customers.people.detail.emptyState.deals.title'),
+                      actionLabel: t('customers.people.detail.emptyState.deals.action'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    onLoadingChange={handleDealsLoadingChange}
+                    translator={detailTranslator}
+                  />
+                )
+              }
+              if (activeTab === 'addresses') {
+                return (
+                  <AddressesSection
+                    entityId={personId}
+                    emptyLabel={t('customers.people.detail.empty.addresses')}
+                    addActionLabel={t('customers.people.detail.addresses.add')}
+                    emptyState={{
+                      title: t('customers.people.detail.emptyState.addresses.title'),
+                      actionLabel: t('customers.people.detail.emptyState.addresses.action'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    onLoadingChange={handleAddressesLoadingChange}
+                    translator={detailTranslator}
+                  />
+                )
+              }
+              if (activeTab === 'tasks') {
+                return (
+                  <TasksSection
+                    entityId={personId}
+                    initialTasks={data.todos}
+                    emptyLabel={t('customers.people.detail.empty.todos')}
+                    addActionLabel={t('customers.people.detail.tasks.add')}
+                    emptyState={{
+                      title: t('customers.people.detail.emptyState.tasks.title'),
+                      actionLabel: t('customers.people.detail.emptyState.tasks.action'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    onLoadingChange={handleTasksLoadingChange}
+                    translator={detailTranslator}
+                    entityName={personName}
+                    dialogContextKey="customers.people.detail.tasks.dialog.context"
+                    dialogContextFallback="This task will be linked to {{name}}"
+                  />
+                )
+              }
+              return null
+            })()}
+          </DetailTabsLayout>
   
           <div className="space-y-6">
             <div className="space-y-3">
