@@ -65,6 +65,13 @@ export function register(container: AppContainer) {
   - Frontend: `src/app/(frontend)/[[...slug]]/page.tsx`
   - Backend: `src/app/(backend)/backend/[[...slug]]/page.tsx`
 
+### Widget Injection (Centralized Registry)
+- Modules can inject UI into shared hosts without forking code (e.g., add cards/tabs to `CrudForm` or `DataTable`).
+- Declare widgets under `src/modules/<module>/widgets/injection/**/widget.ts(x)` plus a mapper `widgets/injection-table.ts` that ties spot ids to widget ids.
+- Generators auto-discover both widgets and injection tables and build the runtime registry, so modules stay self-contained.
+- Prefer widget injection for cross-module UX instead of direct imports—hosts surface consistent spot ids (`crud-form:<entityId>`, `data-table:<tableId>[:header|:footer]`, `admin.page:<path>:before|after`).
+- See [Widget injection](../framework/widget-injection.md) for spot catalogs, event hooks, and examples.
+
 #### Page Metadata
 - You can attach per-page metadata that the generator uses for navigation and access control.
 - Preferred files next to the page:

@@ -10,6 +10,10 @@ const outFile = path.resolve('generated/modules.generated.ts')
 const checksumFile = path.resolve('generated/modules.generated.checksum')
 const widgetsOutFile = path.resolve('generated/dashboard-widgets.generated.ts')
 const widgetsChecksumFile = path.resolve('generated/dashboard-widgets.generated.checksum')
+const injectionWidgetsOutFile = path.resolve('generated/injection-widgets.generated.ts')
+const injectionWidgetsChecksumFile = path.resolve('generated/injection-widgets.generated.checksum')
+const injectionTablesOutFile = path.resolve('generated/injection-tables.generated.ts')
+const injectionTablesChecksumFile = path.resolve('generated/injection-tables.generated.checksum')
 const vectorOutFile = path.resolve('generated/vector.generated.ts')
 const vectorChecksumFile = path.resolve('generated/vector.generated.checksum')
 
@@ -98,6 +102,8 @@ function scan() {
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const allDashboardWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
+  const allInjectionWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
+  const allInjectionTables: Array<{ moduleId: string; importPath: string; importName: string }> = []
   const vectorConfigs: string[] = []
   const vectorImports: string[] = []
 
@@ -122,6 +128,8 @@ function scan() {
     let vectorImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
     const dashboardWidgets: string[] = []
+    const injectionWidgets: string[] = []
+    let injectionTableImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
     const appIndex = path.join(roots.appBase, 'index.ts')
@@ -628,6 +636,58 @@ function scan() {
       }
     }
 
+    // Injection widgets: src/modules/<module>/widgets/injection/**/widget.ts(x)
+    {
+      const widgetApp = path.join(roots.appBase, 'widgets', 'injection')
+      const widgetPkg = path.join(roots.pkgBase, 'widgets', 'injection')
+      if (fs.existsSync(widgetApp) || fs.existsSync(widgetPkg)) {
+        const found: string[] = []
+        const walk = (dir: string, rel: string[] = []) => {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (e.isDirectory()) {
+              if (e.name === '__tests__' || e.name === '__mocks__') continue
+              walk(path.join(dir, e.name), [...rel, e.name])
+            } else if (e.isFile() && /^widget\.(t|j)sx?$/.test(e.name)) {
+              found.push([...rel, e.name].join('/'))
+            }
+          }
+        }
+        if (fs.existsSync(widgetPkg)) walk(widgetPkg)
+        if (fs.existsSync(widgetApp)) walk(widgetApp)
+        const files = Array.from(new Set(found)).sort()
+        for (const rel of files) {
+          const appFile = path.join(widgetApp, ...rel.split('/'))
+          const fromApp = fs.existsSync(appFile)
+          const segs = rel.split('/')
+          const file = segs.pop()!
+          const base = file.replace(/\.(t|j)sx?$/, '')
+          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
+          const key = [modId, ...segs, base].filter(Boolean).join(':')
+          const source = fromApp ? 'app' : 'package'
+          injectionWidgets.push(`{ moduleId: '${modId}', key: '${key}', source: '${source}', loader: () => import('${importPath}').then((mod) => mod.default ?? mod) }`)
+          const existing = allInjectionWidgets.get(key)
+          if (!existing || (existing.source !== 'app' && source === 'app')) {
+            allInjectionWidgets.set(key, { moduleId: modId, source, importPath })
+          }
+        }
+      }
+    }
+
+    // Injection table: src/modules/<module>/widgets/injection-table.ts
+    {
+      const appFile = path.join(roots.appBase, 'widgets', 'injection-table.ts')
+      const pkgFile = path.join(roots.pkgBase, 'widgets', 'injection-table.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `InjTable_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/widgets/injection-table` : `${imps.pkgBase}/widgets/injection-table`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        injectionTableImportName = importName
+        allInjectionTables.push({ moduleId: modId, importPath, importName })
+      }
+    }
+
     if (vectorImportName) {
       vectorConfigs.push(`{ moduleId: '${modId}', config: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? null) }`)
     }
@@ -726,6 +786,54 @@ export const vectorModuleConfigs: VectorModuleConfig[] = entries.map((entry) => 
     writeChecksum(widgetsChecksumFile, widgetsChecksum)
   }
   logGenerationResult(path.relative(process.cwd(), widgetsOutFile), shouldWriteWidgets)
+
+  const injectionWidgetEntriesList = Array.from(allInjectionWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
+  const injectionWidgetDecls = injectionWidgetEntriesList.map(
+    ([key, data]) =>
+      `  { moduleId: '${data.moduleId}', key: '${key}', source: '${data.source}', loader: () => import('${data.importPath}').then((mod) => mod.default ?? mod) }`
+  )
+  const injectionWidgetsOutput = `// AUTO-GENERATED by scripts/generate-module-registry.ts
+import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
+
+export const injectionWidgetEntries: ModuleInjectionWidgetEntry[] = [
+${injectionWidgetDecls.join(',\n')}
+]
+`
+  const injectionTableImports = allInjectionTables.map(
+    (entry) => `import * as ${entry.importName} from '${entry.importPath}'`
+  )
+  const injectionTableDecls = allInjectionTables.map(
+    (entry) =>
+      `  { moduleId: '${entry.moduleId}', table: ((${entry.importName}.default ?? ${entry.importName}.injectionTable) as any) || {} }`
+  )
+  const injectionTablesOutput = `// AUTO-GENERATED by scripts/generate-module-registry.ts
+import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
+${injectionTableImports.join('\n')}
+
+export const injectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> = [
+${injectionTableDecls.join(',\n')}
+]
+`
+  const injectionWidgetsChecksum = { content: calculateChecksum(injectionWidgetsOutput), structure: structureChecksum }
+  const existingInjectionWidgetsChecksum = readChecksum(injectionWidgetsChecksumFile)
+  const shouldWriteInjectionWidgets = !existingInjectionWidgetsChecksum
+    || existingInjectionWidgetsChecksum.content !== injectionWidgetsChecksum.content
+    || existingInjectionWidgetsChecksum.structure !== injectionWidgetsChecksum.structure
+  if (shouldWriteInjectionWidgets) {
+    fs.writeFileSync(injectionWidgetsOutFile, injectionWidgetsOutput)
+    writeChecksum(injectionWidgetsChecksumFile, injectionWidgetsChecksum)
+  }
+  logGenerationResult(path.relative(process.cwd(), injectionWidgetsOutFile), shouldWriteInjectionWidgets)
+  const injectionTablesChecksum = { content: calculateChecksum(injectionTablesOutput), structure: structureChecksum }
+  const existingInjectionTablesChecksum = readChecksum(injectionTablesChecksumFile)
+  const shouldWriteInjectionTables = !existingInjectionTablesChecksum
+    || existingInjectionTablesChecksum.content !== injectionTablesChecksum.content
+    || existingInjectionTablesChecksum.structure !== injectionTablesChecksum.structure
+  if (shouldWriteInjectionTables) {
+    fs.writeFileSync(injectionTablesOutFile, injectionTablesOutput)
+    writeChecksum(injectionTablesChecksumFile, injectionTablesChecksum)
+  }
+  logGenerationResult(path.relative(process.cwd(), injectionTablesOutFile), shouldWriteInjectionTables)
 
   const vectorChecksum = { content: calculateChecksum(vectorOutput), structure: structureChecksum }
   const existingVectorChecksum = readChecksum(vectorChecksumFile)

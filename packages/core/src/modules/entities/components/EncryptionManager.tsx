@@ -11,6 +11,7 @@ import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDe
 import { Plus, Save, Trash2 } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { getEntityFields } from '@open-mercato/core/generated/entity-fields-registry'
 
 type EntityOption = { entityId: string; label?: string; source?: string }
 
@@ -124,38 +125,38 @@ export function EncryptionManager() {
   }, [entities, selectedEntityId])
 
   React.useEffect(() => {
-    const loadBaseFields = async () => {
-      if (!selectedEntityId) {
-        setBaseFieldOptions([])
-        return
-      }
-      const parts = selectedEntityId.split(':')
-      const entitySlug = parts[1]
-      if (!entitySlug) {
-        setBaseFieldOptions([])
-        return
-      }
-      try {
-        const mod = (await import(`@open-mercato/core/generated/entities/${entitySlug}`)) as Record<string, unknown>
-        const options: Array<{ value: string; label: string }> = []
-        for (const raw of Object.values(mod)) {
-          if (typeof raw !== 'string' || !raw.trim()) continue
-          const value = raw.trim()
-          if (options.some((opt) => opt.value === value)) continue
-          const label = value
-            .split('_')
-            .map((segment) => (segment ? `${segment[0].toUpperCase()}${segment.slice(1)}` : ''))
-            .join(' ')
-            .trim() || value
-          options.push({ value, label })
-        }
-        setBaseFieldOptions(options)
-      } catch (err) {
-        console.warn('[encryption] Failed to load base fields for entity', selectedEntityId, err)
-        setBaseFieldOptions([])
-      }
+    if (!selectedEntityId) {
+      setBaseFieldOptions([])
+      return
     }
-    void loadBaseFields()
+    const parts = selectedEntityId.split(':')
+    const entitySlug = parts[1]
+    if (!entitySlug) {
+      setBaseFieldOptions([])
+      return
+    }
+
+    // Use static registry instead of dynamic import for Turbopack compatibility
+    const mod = getEntityFields(entitySlug)
+    if (!mod) {
+      console.warn('[encryption] No fields found for entity', entitySlug)
+      setBaseFieldOptions([])
+      return
+    }
+
+    const options: Array<{ value: string; label: string }> = []
+    for (const raw of Object.values(mod)) {
+      if (typeof raw !== 'string' || !raw.trim()) continue
+      const value = raw.trim()
+      if (options.some((opt) => opt.value === value)) continue
+      const label = value
+        .split('_')
+        .map((segment) => (segment ? `${segment[0].toUpperCase()}${segment.slice(1)}` : ''))
+        .join(' ')
+        .trim() || value
+      options.push({ value, label })
+    }
+    setBaseFieldOptions(options)
   }, [selectedEntityId])
 
   const {

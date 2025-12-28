@@ -14,6 +14,7 @@ import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@/lib/frontend/organizationEvents'
+import { InjectionSpot } from './injection/InjectionSpot'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
@@ -135,6 +136,8 @@ export type DataTableProps<T> = {
   embedded?: boolean
   onCustomFieldFilterFieldsetChange?: (fieldset: string | null, entityId?: string) => void
   customFieldFilterKeyExtras?: Array<string | number | boolean | null | undefined>
+  injectionSpotId?: string
+  injectionContext?: Record<string, unknown>
 }
 
 const DEFAULT_EXPORT_FORMATS: DataTableExportFormat[] = ['csv', 'json', 'xml', 'markdown']
@@ -541,6 +544,8 @@ export function DataTable<T>({
   embedded = false,
   onCustomFieldFilterFieldsetChange,
   customFieldFilterKeyExtras,
+  injectionSpotId,
+  injectionContext,
 }: DataTableProps<T>) {
   const t = useT()
   const router = useRouter()
@@ -1433,6 +1438,19 @@ export function DataTable<T>({
   const renderToolbarInline = embedded && hasToolbar
   const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
+  const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+  const resolvedInjectionContext = React.useMemo(
+    () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
+    [injectionContext, perspective?.tableId, title]
+  )
+  const headerInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
+    [resolvedInjectionSpotId]
+  )
+  const footerInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
+    [resolvedInjectionSpotId]
+  )
 
   const containerClassName = embedded ? '' : 'rounded-lg border bg-card'
   const headerWrapperClassName = embedded ? 'pb-3' : 'px-4 py-3 border-b'
@@ -1496,6 +1514,11 @@ export function DataTable<T>({
             </div>
           )}
           {shouldRenderToolbarBelow ? <div className={toolbarWrapperClassName}>{builtToolbar}</div> : null}
+          {headerInjectionSpotId ? (
+            <div className={embedded ? 'mt-2' : 'mt-3'}>
+              <InjectionSpot spotId={headerInjectionSpotId} context={resolvedInjectionContext} />
+            </div>
+          ) : null}
         </div>
       )}
       <div className={tableScrollWrapperClassName}>
@@ -1649,6 +1672,11 @@ export function DataTable<T>({
           </TableBody>
         </Table>
       </div>
+      {footerInjectionSpotId ? (
+        <div className={embedded ? 'mt-3' : 'px-4 py-3 border-t'}>
+          <InjectionSpot spotId={footerInjectionSpotId} context={resolvedInjectionContext} />
+        </div>
+      ) : null}
       {renderPagination()}
       {canUsePerspectives ? (
         <PerspectiveSidebar
