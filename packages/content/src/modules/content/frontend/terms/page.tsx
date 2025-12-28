@@ -1,10 +1,4 @@
-import type { Metadata } from 'next'
 import { ContentLayout } from '../components/ContentLayout'
-
-export const metadata: Metadata = {
-  title: 'Terms of Service',
-  description: 'Usage terms for the Open Mercato demo environment.',
-}
 
 export default function TermsPage() {
   return (

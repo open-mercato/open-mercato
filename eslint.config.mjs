@@ -1,29 +1,33 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+import nextCoreWebVitals from 'eslint-config-next/core-web-vitals'
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const ignores = [
+  'node_modules/**',
+  '.next/**',
+  'dist/**',
+  'packages/**/dist/**',
+  'packages/**/src/**/*.jsx',
+  'out/**',
+  'build/**',
+  'generated/**',
+  '**/generated/**',
+  'docs/.docusaurus/**',
+  'docs/build/**',
+  'next-env.d.ts',
+]
 
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
+const ruleOverrides = {
+  'react/display-name': 'off',
 
-const eslintConfig = [
-  ...compat.extends("next/core-web-vitals", "next/typescript"),
-  {
-    ignores: [
-      "node_modules/**",
-      ".next/**",
-      "out/**",
-      "build/**",
-      "generated/**",
-      "**/generated/**",
-      "docs/.docusaurus/**",
-      "docs/build/**",
-      "next-env.d.ts",
-    ],
-  },
-];
+  'react-hooks/immutability': 'off',
+  'react-hooks/preserve-manual-memoization': 'off',
+  'react-hooks/purity': 'off',
+  'react-hooks/refs': 'off',
+  'react-hooks/set-state-in-effect': 'off',
+  'react-hooks/static-components': 'off',
+}
 
-export default eslintConfig;
+export default [
+  ...nextCoreWebVitals,
+  { ignores },
+  { name: 'project/rule-overrides', rules: ruleOverrides },
+]

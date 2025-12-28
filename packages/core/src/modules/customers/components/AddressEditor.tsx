@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Plus, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -218,9 +219,12 @@ export function AddressEditor({
             disabled={disabled}
             title={t('customers.people.detail.addresses.types.manage', 'Manage address types')}
           >
-            <a href="/backend/config/customers" aria-label={t('customers.people.detail.addresses.types.manage', 'Manage address types')}>
+            <Link
+              href="/backend/config/customers"
+              aria-label={t('customers.people.detail.addresses.types.manage', 'Manage address types')}
+            >
               <Settings className="h-4 w-4" />
-            </a>
+            </Link>
           </Button>
         </div>
       </div>

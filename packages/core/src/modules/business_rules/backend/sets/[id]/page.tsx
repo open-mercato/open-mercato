@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter, useParams } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -238,10 +239,10 @@ export default function EditRuleSetPage() {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
+            <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
             <p>{t('business_rules.sets.messages.loadFailed')}</p>
             <Button asChild variant="outline">
-              <a href="/backend/sets">{t('business_rules.sets.backToList')}</a>
+              <Link href="/backend/sets">{t('business_rules.sets.backToList')}</Link>
             </Button>
           </div>
         </PageBody>

@@ -342,17 +342,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     }
   }
 
-  if (!entityId) {
-    return (
-      <Page>
-        <PageBody>
-          <div className="p-6">
-            <ErrorNotice title="Invalid entity" message="The requested entity ID is missing or invalid." />
-          </div>
-        </PageBody>
-      </Page>
-    )
-  }
   // Unify loader via CrudForm isLoading; do not return early here
 
   // Schema for inline field-level validation in CrudForm
@@ -442,6 +431,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   ]
 
   const handleCrudFormSubmit = React.useCallback(async (vals: Record<string, unknown>) => {
+    if (!entityId) {
+      throw createCrudFormError('Invalid entity ID')
+    }
     if (!validateAll()) {
       flash('Please fix validation errors in field definitions', 'error')
       throw createCrudFormError('Please fix validation errors in field definitions')
@@ -489,6 +481,18 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     await invalidateCustomFieldDefs(queryClient, entityId)
     flash('Definitions saved', 'success')
   }, [buildFieldsetPayload, defs, entityId, entitySource, queryClient, singleFieldsetPerRecord, validateAll])
+
+  if (!entityId) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="p-6">
+            <ErrorNotice title="Invalid entity" message="The requested entity ID is missing or invalid." />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (embedFieldsetView) {
     return (

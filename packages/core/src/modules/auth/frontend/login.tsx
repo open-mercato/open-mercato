@@ -1,6 +1,7 @@
 "use client"
 import { useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -179,7 +180,9 @@ export default function LoginPage() {
               {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
             </button>
             <div className="text-xs text-muted-foreground mt-2">
-              <a className="underline" href="/reset">{translate('auth.login.forgotPassword', 'Forgot password?')}</a>
+              <Link className="underline" href="/reset">
+                {translate('auth.login.forgotPassword', 'Forgot password?')}
+              </Link>
             </div>
           </form>
         </CardContent>

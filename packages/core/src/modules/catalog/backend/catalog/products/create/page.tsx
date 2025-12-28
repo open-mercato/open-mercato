@@ -221,6 +221,7 @@ export default function CreateCatalogProductPage() {
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}
+          injectionSpotId="crud-form:catalog.product"
           initialValues={initialValuesRef.current ?? createInitialProductFormValues()}
           schema={productFormTypedSchema}
           submitLabel={t('catalog.products.create.submit', 'Create')}
