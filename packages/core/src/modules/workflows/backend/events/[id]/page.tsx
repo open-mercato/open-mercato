@@ -9,6 +9,7 @@ import { useT } from '@/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 
 type WorkflowEvent = {
   id: string
@@ -277,25 +278,17 @@ export default function WorkflowEventDetailPage() {
           )}
 
           {/* Event Data */}
-          <div className="rounded-lg border bg-card p-6">
-            <h2 className="text-lg font-semibold mb-4">
-              {t('workflows.events.detail.eventData')}
-            </h2>
-            <pre className="text-sm text-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded overflow-x-auto">
-              {JSON.stringify(event.eventData, null, 2)}
-            </pre>
-          </div>
+          <JsonDisplay
+            data={event.eventData}
+            title={t('workflows.events.detail.eventData')}
+          />
 
           {/* Workflow Context (if available) */}
           {event.workflowInstance?.context && (
-            <div className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-semibold mb-4">
-                {t('workflows.events.detail.workflowContext')}
-              </h2>
-              <pre className="text-sm text-foreground whitespace-pre-wrap font-mono bg-muted p-4 rounded overflow-x-auto">
-                {JSON.stringify(event.workflowInstance.context, null, 2)}
-              </pre>
-            </div>
+            <JsonDisplay
+              data={event.workflowInstance.context}
+              title={t('workflows.events.detail.workflowContext')}
+            />
           )}
 
           {/* Technical Details */}

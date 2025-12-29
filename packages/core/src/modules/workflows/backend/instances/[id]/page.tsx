@@ -1,84 +1,51 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import * as React from 'react'
+import { useRouter, useParams } from 'next/navigation'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
-import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
+import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import type { WorkflowInstance, WorkflowEvent } from '../../../data/entities'
 
-interface PageProps {
-  params?: {
-    id?: string
-  }
-}
-
-export default function WorkflowInstanceDetailPage({ params }: PageProps) {
-  const id = params?.id || ''
+export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
+  const id = params?.id
   const t = useT()
   const router = useRouter()
-  const [instance, setInstance] = useState<WorkflowInstance | null>(null)
-  const [events, setEvents] = useState<WorkflowEvent[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [eventsLoading, setEventsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [actionLoading, setActionLoading] = useState(false)
+  const queryClient = useQueryClient()
 
-  useEffect(() => {
-    // Don't fetch if id is not available yet
-    if (!id) {
-      return
-    }
-
-    const fetchInstance = async () => {
-      try {
-        const response = await apiFetch(`/api/workflows/instances/${id}`)
-        if (response.ok) {
-          const data = await response.json()
-          setInstance(data.data)
-        } else {
-          setError(t('workflows.instances.notFound') || 'Instance not found')
-        }
-      } catch (err) {
-        console.error('Error fetching instance:', err)
-        setError(t('workflows.instances.loadFailed') || 'Failed to load instance')
-      } finally {
-        setIsLoading(false)
+  const { data: instance, isLoading, error } = useQuery({
+    queryKey: ['workflow-instance', id],
+    queryFn: async () => {
+      const response = await apiFetch(`/api/workflows/instances/${id}`)
+      if (!response.ok) {
+        throw new Error(t('workflows.instances.notFound') || 'Instance not found')
       }
-    }
+      const data = await response.json()
+      return data.data as WorkflowInstance
+    },
+    enabled: !!id,
+  })
 
-    fetchInstance()
-  }, [id, t])
-
-  useEffect(() => {
-    if (!instance) {
-      return
-    }
-
-    const fetchEvents = async () => {
-      try {
-        setEventsLoading(true)
-        const response = await apiFetch(
-          `/api/workflows/events?workflowInstanceId=${instance.id}&sortField=occurredAt&sortDir=desc&pageSize=100`
-        )
-        if (response.ok) {
-          const data = await response.json()
-          setEvents(data.items || [])
-        }
-      } catch (err) {
-        console.error('Error fetching events:', err)
-      } finally {
-        setEventsLoading(false)
+  const { data: events = [], isLoading: eventsLoading } = useQuery({
+    queryKey: ['workflow-events', instance?.id],
+    queryFn: async () => {
+      const response = await apiFetch(
+        `/api/workflows/events?workflowInstanceId=${instance!.id}&sortField=occurredAt&sortDir=desc&pageSize=100`
+      )
+      if (!response.ok) {
+        throw new Error('Failed to fetch events')
       }
-    }
-
-    fetchEvents()
-  }, [instance])
+      const data = await response.json()
+      return (data.items || []) as WorkflowEvent[]
+    },
+    enabled: !!instance?.id,
+  })
 
   const calculateDuration = (startedAt: string | Date, completedAt: string | Date | null | undefined) => {
     const start = typeof startedAt === 'string' ? new Date(startedAt).getTime() : startedAt.getTime()
@@ -135,54 +102,56 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
     }
   }
 
-  const handleCancel = async () => {
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch(`/api/workflows/instances/${instance!.id}/cancel`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(t('workflows.instances.cancelFailed'))
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] })
+    },
+    onError: (error) => {
+      console.error('Error cancelling instance:', error)
+      alert(t('workflows.instances.cancelFailed'))
+    },
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiFetch(`/api/workflows/instances/${instance!.id}/retry`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        throw new Error(t('workflows.instances.retryFailed'))
+      }
+      return response.json()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow-instance', id] })
+    },
+    onError: (error) => {
+      console.error('Error retrying instance:', error)
+      alert(t('workflows.instances.retryFailed'))
+    },
+  })
+
+  const handleCancel = () => {
     if (!instance || !confirm(t('workflows.instances.confirmCancel'))) {
       return
     }
-
-    setActionLoading(true)
-    try {
-      const response = await apiFetch(`/api/workflows/instances/${instance.id}/cancel`, {
-        method: 'POST',
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setInstance(data.data)
-      } else {
-        alert(t('workflows.instances.cancelFailed'))
-      }
-    } catch (error) {
-      console.error('Error cancelling instance:', error)
-      alert(t('workflows.instances.cancelFailed'))
-    } finally {
-      setActionLoading(false)
-    }
+    cancelMutation.mutate()
   }
 
-  const handleRetry = async () => {
+  const handleRetry = () => {
     if (!instance || !confirm(t('workflows.instances.confirmRetry'))) {
       return
     }
-
-    setActionLoading(true)
-    try {
-      const response = await apiFetch(`/api/workflows/instances/${instance.id}/retry`, {
-        method: 'POST',
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setInstance(data.data)
-      } else {
-        alert(t('workflows.instances.retryFailed'))
-      }
-    } catch (error) {
-      console.error('Error retrying instance:', error)
-      alert(t('workflows.instances.retryFailed'))
-    } finally {
-      setActionLoading(false)
-    }
+    retryMutation.mutate()
   }
 
   if (isLoading) {
@@ -203,7 +172,7 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
       <Page>
         <PageBody>
           <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('workflows.instances.detail.notFound') || 'Workflow instance not found.'}</p>
+            <p>{error ? t('workflows.instances.loadFailed') : t('workflows.instances.detail.notFound') || 'Workflow instance not found.'}</p>
             <Button asChild variant="outline">
               <Link href="/backend/instances">
                 {t('workflows.instances.actions.backToList') || 'Back to instances'}
@@ -217,138 +186,21 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
 
   const canCancel = ['RUNNING', 'PAUSED'].includes(instance.status)
   const canRetry = instance.status === 'FAILED'
-
-  const overviewFields: DetailFieldConfig[] = [
-    {
-      key: 'workflowId',
-      kind: 'custom',
-      label: t('workflows.instances.fields.workflowId'),
-      emptyLabel: '-',
-      render: () => (
-        <div>
-          <div className="font-mono text-sm">{instance.workflowId}</div>
-          <div className="text-xs text-muted-foreground">v{instance.version}</div>
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      kind: 'custom',
-      label: t('workflows.instances.fields.status'),
-      emptyLabel: '-',
-      render: () => (
-        <span
-          className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(
-            instance.status
-          )}`}
-        >
-          {t(`workflows.instances.status.${instance.status}`)}
-        </span>
-      ),
-    },
-    {
-      key: 'currentStep',
-      kind: 'custom',
-      label: t('workflows.instances.fields.currentStep'),
-      emptyLabel: '-',
-      render: () => <span className="font-mono text-sm">{instance.currentStepId || '-'}</span>,
-    },
-    {
-      key: 'correlationKey',
-      kind: 'custom',
-      label: t('workflows.instances.fields.correlationKey'),
-      emptyLabel: '-',
-      render: () => <span className="text-sm">{instance.correlationKey || '-'}</span>,
-    },
-    {
-      key: 'startedAt',
-      kind: 'custom',
-      label: t('workflows.instances.fields.startedAt'),
-      emptyLabel: '-',
-      render: () => <span className="text-sm">{new Date(instance.startedAt).toLocaleString()}</span>,
-    },
-    {
-      key: 'completedAt',
-      kind: 'custom',
-      label: t('workflows.instances.fields.completedAt'),
-      emptyLabel: '-',
-      render: () => (
-        <span className="text-sm">
-          {instance.completedAt ? new Date(instance.completedAt).toLocaleString() : '-'}
-        </span>
-      ),
-    },
-    {
-      key: 'duration',
-      kind: 'custom',
-      label: t('workflows.instances.fields.duration'),
-      emptyLabel: '-',
-      render: () => (
-        <span className="text-sm">{calculateDuration(instance.startedAt, instance.completedAt)}</span>
-      ),
-    },
-    {
-      key: 'retryCount',
-      kind: 'custom',
-      label: t('workflows.instances.fields.retryCount'),
-      emptyLabel: '0',
-      render: () => (
-        <span className={instance.retryCount > 0 ? 'text-orange-600 font-medium' : ''}>
-          {instance.retryCount}
-        </span>
-      ),
-    },
-  ]
-
-  if (instance.errorMessage) {
-    overviewFields.push({
-      key: 'errorMessage',
-      kind: 'custom',
-      label: t('workflows.instances.fields.lastError'),
-      emptyLabel: '-',
-      gridClassName: 'sm:col-span-2 xl:col-span-3',
-      render: () => (
-        <div className="bg-red-50 p-3 rounded border border-red-200">
-          <p className="text-sm text-red-700 whitespace-pre-wrap">{instance.errorMessage}</p>
-          {instance.errorDetails && (
-            <pre className="mt-2 text-xs font-mono text-red-600 overflow-x-auto">
-              {JSON.stringify(instance.errorDetails, null, 2)}
-            </pre>
-          )}
-        </div>
-      ),
-    })
-  }
+  const actionLoading = cancelMutation.isPending || retryMutation.isPending
 
   return (
     <Page>
       <PageBody>
-        <div className="space-y-8">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link href="/backend/instances" className="hover:text-foreground">
-              {t('workflows.instances.title')}
-            </Link>
-            <span>/</span>
-            <span className="text-foreground">{instance.workflowId}</span>
-          </div>
-
+        <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-start justify-between">
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold">{instance.workflowId}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t('workflows.instances.fields.instanceId')}: {instance.id}
+              <h1 className="text-2xl font-bold text-foreground">{instance.workflowId}</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {t('workflows.instances.fields.instanceId')}: <span className="font-mono">{instance.id}</span>
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span
-                className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(
-                  instance.status
-                )}`}
-              >
-                {t(`workflows.instances.status.${instance.status}`)}
-              </span>
               {canCancel && (
                 <Button
                   onClick={handleCancel}
@@ -369,40 +221,134 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
                   {t('workflows.instances.actions.retry')}
                 </Button>
               )}
+              <Button onClick={() => router.push('/backend/instances')} variant="outline">
+                {t('workflows.instances.actions.backToList') || 'Back to list'}
+              </Button>
             </div>
           </div>
 
-          {/* Overview */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.overview')}</h2>
-            <DetailFieldsSection fields={overviewFields} />
+          {/* Execution Summary */}
+          <div className="rounded-lg border bg-card p-6">
+            <h2 className="text-lg font-semibold mb-4">
+              {t('workflows.instances.sections.overview')}
+            </h2>
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.workflowId')}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground">
+                  <div className="font-mono">{instance.workflowId}</div>
+                  <div className="text-xs text-muted-foreground">v{instance.version}</div>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.status')}
+                </dt>
+                <dd className="mt-1">
+                  <span
+                    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${getStatusBadgeClass(
+                      instance.status
+                    )}`}
+                  >
+                    {t(`workflows.instances.status.${instance.status}`)}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.currentStep')}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground font-mono">
+                  {instance.currentStepId || '-'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.correlationKey')}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground">
+                  {instance.correlationKey || '-'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.startedAt')}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground">
+                  {new Date(instance.startedAt).toLocaleString()}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.completedAt')}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground">
+                  {instance.completedAt ? new Date(instance.completedAt).toLocaleString() : '-'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.duration')}
+                </dt>
+                <dd className="mt-1 text-sm text-foreground">
+                  {calculateDuration(instance.startedAt, instance.completedAt)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t('workflows.instances.fields.retryCount')}
+                </dt>
+                <dd className="mt-1">
+                  <span className={instance.retryCount > 0 ? 'text-orange-600 font-medium text-sm' : 'text-sm text-foreground'}>
+                    {instance.retryCount}
+                  </span>
+                </dd>
+              </div>
+            </dl>
           </div>
 
-          <Separator />
-
-          {/* Context */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.context')}</h2>
-            <pre className="bg-muted p-4 rounded text-xs font-mono overflow-x-auto border">
-              {JSON.stringify(instance.context, null, 2)}
-            </pre>
-          </div>
-
-          {/* Metadata */}
-          {instance.metadata && Object.keys(instance.metadata).length > 0 && (
-            <div className="space-y-3">
-              <h2 className="text-sm font-semibold">{t('workflows.instances.sections.metadata')}</h2>
-              <pre className="bg-muted p-4 rounded text-xs font-mono overflow-x-auto border">
-                {JSON.stringify(instance.metadata, null, 2)}
+          {/* Error Message (if present) */}
+          {instance.errorMessage && (
+            <div className="rounded-lg border border-destructive bg-destructive/5 p-6">
+              <h2 className="text-lg font-semibold mb-4 text-destructive">
+                {t('workflows.instances.fields.lastError')}
+              </h2>
+              <pre className="text-sm text-destructive whitespace-pre-wrap font-mono">
+                {instance.errorMessage}
               </pre>
+              {instance.errorDetails && (
+                <div className="mt-4">
+                  <JsonDisplay
+                    data={instance.errorDetails}
+                    className="border-destructive/20 bg-destructive/5"
+                    maxInitialDepth={1}
+                  />
+                </div>
+              )}
             </div>
           )}
 
-          <Separator />
+          {/* Context */}
+          <JsonDisplay
+            data={instance.context}
+            title={t('workflows.instances.sections.context')}
+          />
+
+          {/* Metadata */}
+          {instance.metadata && Object.keys(instance.metadata).length > 0 && (
+            <JsonDisplay
+              data={instance.metadata}
+              title={t('workflows.instances.sections.metadata')}
+            />
+          )}
 
           {/* Execution Timeline */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.executionTimeline') || 'Execution Timeline'}</h2>
+          <div className="rounded-lg border bg-card p-6">
+            <h2 className="text-lg font-semibold mb-4">
+              {t('workflows.instances.sections.executionTimeline') || 'Execution Timeline'}
+            </h2>
             {eventsLoading ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Spinner className="h-4 w-4" />
@@ -454,11 +400,11 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
             )}
           </div>
 
-          <Separator />
-
           {/* Event Log */}
-          <div className="space-y-3">
-            <h2 className="text-sm font-semibold">{t('workflows.instances.sections.executionHistory')}</h2>
+          <div className="rounded-lg border bg-card p-6">
+            <h2 className="text-lg font-semibold mb-4">
+              {t('workflows.instances.sections.executionHistory')}
+            </h2>
             {eventsLoading ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Spinner className="h-4 w-4" />
@@ -469,20 +415,20 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
                 {t('workflows.instances.noExecutionHistory')}
               </p>
             ) : (
-              <div className="overflow-x-auto border rounded-lg">
+              <div className="overflow-x-auto rounded-lg border">
                 <table className="min-w-full divide-y divide-border">
                   <thead className="bg-muted">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         {t('workflows.events.occurredAt')}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         {t('workflows.events.eventType')}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         {t('workflows.events.eventData')}
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         {t('workflows.events.userId')}
                       </th>
                     </tr>
@@ -490,7 +436,7 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
                   <tbody className="bg-background divide-y divide-border">
                     {events.map((event) => (
                       <tr key={event.id} className="hover:bg-muted/50">
-                        <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-foreground">
                           {new Date(event.occurredAt).toLocaleString()}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
@@ -507,9 +453,13 @@ export default function WorkflowInstanceDetailPage({ params }: PageProps) {
                             <summary className="text-primary hover:underline">
                               {t('common.details')}
                             </summary>
-                            <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-x-auto">
-                              {JSON.stringify(event.eventData, null, 2)}
-                            </pre>
+                            <div className="mt-2">
+                              <JsonDisplay
+                                data={event.eventData}
+                                showCopy={false}
+                                maxInitialDepth={1}
+                              />
+                            </div>
                           </details>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-muted-foreground">

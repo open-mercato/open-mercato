@@ -1281,44 +1281,6 @@ export default function CheckoutDemoPage() {
           </div>
         )}
 
-        {/* Setup Instructions Banner */}
-        <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start">
-            <svg
-              className="h-5 w-5 text-yellow-600 mt-0.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-yellow-800">Setup Required</h3>
-              <div className="mt-2 text-sm text-yellow-700">
-                <p className="font-semibold mb-2">Before using this demo:</p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Get your tenant and organization IDs:
-                    <pre className="mt-1 bg-yellow-100 p-2 rounded text-xs overflow-x-auto">
-                      ./packages/core/src/modules/workflows/scripts/get-tenant-org-ids.sh
-                    </pre>
-                  </li>
-                  <li>Seed the demo workflow:
-                    <pre className="mt-1 bg-yellow-100 p-2 rounded text-xs overflow-x-auto">
-                      yarn mercato workflows seed-demo -t TENANT_ID -o ORG_ID
-                    </pre>
-                  </li>
-                  <li>Log in with a user from that tenant (e.g., admin@acme.com)</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Features Info */}
         <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start">

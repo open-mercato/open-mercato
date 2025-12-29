@@ -7,6 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Separator } from '@open-mercato/ui/primitives/separator'
+import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery } from '@tanstack/react-query'
@@ -504,18 +505,17 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           {task.status === 'COMPLETED' && task.formData && (
             <>
               <Separator />
-              <div className="space-y-3">
-                <h2 className="text-lg font-semibold">{t('workflows.tasks.detail.sections.submittedData')}</h2>
-                <pre className="bg-muted p-4 rounded text-xs font-mono overflow-x-auto border">
-                  {JSON.stringify(task.formData, null, 2)}
-                </pre>
-                {task.comments && (
-                  <div className="bg-muted/50 rounded-lg p-4">
-                    <p className="text-sm font-medium text-foreground mb-2">{t('workflows.tasks.detail.comments')}:</p>
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.comments}</p>
-                  </div>
-                )}
-              </div>
+              <JsonDisplay
+                data={task.formData}
+                title={t('workflows.tasks.detail.sections.submittedData')}
+                maxInitialDepth={2}
+              />
+              {task.comments && (
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <p className="text-sm font-medium text-foreground mb-2">{t('workflows.tasks.detail.comments')}:</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.comments}</p>
+                </div>
+              )}
             </>
           )}
         </div>
