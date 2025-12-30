@@ -76,7 +76,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
           <RowHeaderCell
             row={rowIndex}
             isNewRow={isNewRow}
-            isInRowRange={isInRowRange}
+            isInRowRange={!!isInRowRange}
             rowRangeEdges={rowRangeEdges}
             onCancel={() => onCancelNewRow(rowIndex)}
             onDoubleClick={(e) => onRowHeaderDoubleClick(e, rowIndex)}

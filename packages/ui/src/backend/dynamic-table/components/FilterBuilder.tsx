@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { FilterRow, FilterOperator, getOperatorsForType, needsValueInput, needsMultipleValues } from '../types/filters';
-import { FilterColor } from '../types/index';
+import { FilterOperator, getOperatorsForType, needsValueInput, needsMultipleValues } from '../types/filters';
+import { FilterColor, FilterRow } from '../types/index';
 
 // Color palette similar to Airtable
 const COLOR_PALETTE: { color: FilterColor; bg: string; border: string }[] = [
