@@ -35,7 +35,7 @@ const EditorPortal: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 // Helper to calculate popup position
 const POPUP_MAX_HEIGHT = 250;
 
-const calculatePopupPosition = (cellRef: React.RefObject<HTMLElement>) => {
+const calculatePopupPosition = (cellRef: React.RefObject<HTMLElement | null>) => {
     if (!cellRef.current) return { top: 0, left: 0, width: 0, openAbove: false };
 
     const rect = cellRef.current.getBoundingClientRect();

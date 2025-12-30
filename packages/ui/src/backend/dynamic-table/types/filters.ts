@@ -13,7 +13,7 @@ export type FilterOperator =
   | 'is_true'
   | 'is_false';
 
-export const getOperatorsForType = (type?: 'text' | 'numeric' | 'boolean'): { value: FilterOperator; label: string }[] => {
+export const getOperatorsForType = (type?: 'text' | 'numeric' | 'boolean'| "date" | "dropdown"): { value: FilterOperator; label: string }[] => {
   const common = [
     { value: 'is_any_of' as FilterOperator, label: 'is any of' },
     { value: 'is_not_any_of' as FilterOperator, label: 'is not any of' },

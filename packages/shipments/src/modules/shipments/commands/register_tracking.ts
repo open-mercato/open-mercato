@@ -29,10 +29,11 @@ const registerTrackingCommand: CommandHandler<RegisterTrackingInput, { success: 
     try {
       const command = ctx.container.resolve<CommandBus>('commandBus')
       const resp = await command.execute('fms_tracking.tracking.register', { ctx, input })
+
       return {
-        success: !!resp?.success,
-        referenceId: resp?.referenceId,
-        source: resp?.source,
+        success: !!(resp as any)?.success,
+        referenceId: (resp as any)?.referenceId,
+        source: (resp as any)?.source,
       }
 
     } catch (error) {
