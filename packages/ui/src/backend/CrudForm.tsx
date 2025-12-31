@@ -84,6 +84,7 @@ export type CrudBuiltinField = CrudFieldBase & {
     | 'select'
     | 'number'
     | 'date'
+    | 'datetime-local'
     | 'tags'
     | 'richtext'
     | 'relation'
@@ -2289,6 +2290,17 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type === 'date' && (
         <input
           type="date"
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(e) => setValue(field.id, e.target.value || undefined)}
+          autoFocus={autoFocusField}
+          data-crud-focus-target=""
+          disabled={disabled}
+        />
+      )}
+      {field.type === 'datetime-local' && (
+        <input
+          type="datetime-local"
           className="w-full h-9 rounded border px-2 text-sm"
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => setValue(field.id, e.target.value || undefined)}

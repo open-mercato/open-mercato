@@ -87,11 +87,10 @@ export default function CreateExchangeRatePage() {
           },
           {
             id: 'date',
-            type: 'text',
+            type: 'datetime-local',
             label: t('exchangeRates.form.field.date'),
             required: true,
             description: t('exchangeRates.form.field.dateHelp'),
-            placeholder: 'YYYY-MM-DDTHH:MM',
           },
         ],
       },
