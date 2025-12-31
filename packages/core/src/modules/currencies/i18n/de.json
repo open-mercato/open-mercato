@@ -93,8 +93,7 @@
       "columns": {
         "currencyPair": "Währungspaar",
         "rate": "Kurs",
-        "effectiveDate": "Gültigkeitsdatum",
-        "expiresAt": "Läuft ab",
+        "date": "Datum & Uhrzeit",
         "source": "Quelle",
         "isActive": "Status"
       },
@@ -135,13 +134,11 @@
         "toCurrencyHelp": "Zielwährung für die Umrechnung",
         "rate": "Wechselkurs",
         "rateHelp": "Wie viele Einheiten der Zielwährung pro 1 Einheit der Quellwährung (bis zu 8 Dezimalstellen)",
-        "effectiveDate": "Gültigkeitsdatum",
-        "effectiveDateHelp": "Datum, an dem dieser Kurs aktiv wird (JJJJ-MM-TT)",
-        "expiresAt": "Läuft ab am",
-        "expiresAtHelp": "Optionales Ablaufdatum (JJJJ-MM-TT)",
+        "date": "Datum & Uhrzeit",
+        "dateHelp": "Datum und Uhrzeit, ab wann dieser Kurs gilt (in Ihrer lokalen Zeitzone)",
         "source": "Quelle",
         "sourcePlaceholder": "z.B. EZB, Manuell",
-        "sourceHelp": "Woher stammt dieser Kurs",
+        "sourceHelp": "Woher stammt dieser Kurs (erforderlich, 2-50 Zeichen)",
         "isActive": "Aktiv"
       },
       "action": {
@@ -155,8 +152,10 @@
         "toCurrencyFormat": "Ungültiger Zu-Währungscode",
         "sameCurrency": "Von- und Zu-Währung müssen unterschiedlich sein",
         "invalidRate": "Kurs muss eine positive Zahl sein",
-        "invalidEffectiveDate": "Gültigkeitsdatum ist erforderlich",
-        "expiresBeforeEffective": "Ablaufdatum muss nach dem Gültigkeitsdatum liegen",
+        "invalidDate": "Datum und Uhrzeit sind erforderlich",
+        "sourceTooShort": "Quelle muss mindestens 2 Zeichen haben",
+        "sourceTooLong": "Quelle darf maximal 50 Zeichen haben",
+        "sourceInvalidFormat": "Quelle darf nur Buchstaben, Zahlen, Leerzeichen, Bindestriche und Unterstriche enthalten",
         "load": "Wechselkurs konnte nicht geladen werden",
         "notFound": "Wechselkurs nicht gefunden"
       }

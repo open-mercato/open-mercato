@@ -1,11 +1,30 @@
 import { z } from 'zod'
 
+/**
+ * Truncates a Date object to minute precision (zeroing seconds and milliseconds).
+ * This ensures consistent uniqueness checks and prevents duplicate detection issues
+ * when the UI collects datetime with minute precision but the database stores full timestamps.
+ */
+export function truncateToMinute(date: Date): Date {
+  const truncated = new Date(date)
+  truncated.setSeconds(0, 0)
+  return truncated
+}
+
 // Currency Code validation (ISO 4217 format)
 const currencyCodeSchema = z
   .string()
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{3}$/, 'Currency code must be a three-letter ISO code (e.g., USD, EUR)')
+
+// Source validation schema
+const sourceSchema = z
+  .string()
+  .min(2, { message: 'sourceTooShort' })
+  .max(50, { message: 'sourceTooLong' })
+  .regex(/^[a-zA-Z0-9\s\-_]+$/, { message: 'sourceInvalidFormat' })
+  .transform(s => s.trim())
 
 // Currency validators
 export const currencyCreateSchema = z.object({
@@ -49,9 +68,8 @@ export const exchangeRateCreateSchema = z
     fromCurrencyCode: currencyCodeSchema,
     toCurrencyCode: currencyCodeSchema,
     rate: z.string().regex(/^\d+(\.\d{1,8})?$/, 'Rate must be a positive decimal number'),
-    effectiveDate: z.coerce.date(),
-    expiresAt: z.coerce.date().nullable().optional(),
-    source: z.string().max(50).optional(),
+    date: z.coerce.date().transform(truncateToMinute),
+    source: sourceSchema,
     isActive: z.boolean().optional(),
   })
   .refine((data) => data.fromCurrencyCode !== data.toCurrencyCode, {
@@ -62,18 +80,6 @@ export const exchangeRateCreateSchema = z
     message: 'Rate must be greater than zero',
     path: ['rate'],
   })
-  .refine(
-    (data) => {
-      if (data.expiresAt && data.effectiveDate) {
-        return data.expiresAt > data.effectiveDate
-      }
-      return true
-    },
-    {
-      message: 'Expiry date must be after effective date',
-      path: ['expiresAt'],
-    }
-  )
 
 export const exchangeRateUpdateSchema = z
   .object({
@@ -83,9 +89,8 @@ export const exchangeRateUpdateSchema = z
     fromCurrencyCode: currencyCodeSchema.optional(),
     toCurrencyCode: currencyCodeSchema.optional(),
     rate: z.string().regex(/^\d+(\.\d{1,8})?$/).optional(),
-    effectiveDate: z.coerce.date().optional(),
-    expiresAt: z.coerce.date().nullable().optional(),
-    source: z.string().max(50).optional(),
+    date: z.coerce.date().transform(truncateToMinute).optional(),
+    source: sourceSchema.optional(),
     isActive: z.boolean().optional(),
   })
   .refine(
@@ -111,19 +116,6 @@ export const exchangeRateUpdateSchema = z
     {
       message: 'Rate must be greater than zero',
       path: ['rate'],
-    }
-  )
-  .refine(
-    (data) => {
-      // Only validate if both dates are being updated
-      if (data.expiresAt && data.effectiveDate) {
-        return data.expiresAt > data.effectiveDate
-      }
-      return true
-    },
-    {
-      message: 'Expiry date must be after effective date',
-      path: ['expiresAt'],
     }
   )
 

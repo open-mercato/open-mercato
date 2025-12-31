@@ -240,23 +240,13 @@
           "scale": 8,
           "mappedType": "decimal"
         },
-        "effective_date": {
-          "name": "effective_date",
+        "date": {
+          "name": "date",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
           "length": 6,
           "mappedType": "datetime"
         },
@@ -267,7 +257,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "'manual'",
           "mappedType": "text"
         },
         "is_active": {
@@ -319,7 +308,7 @@
           "columnNames": [
             "from_currency_code",
             "to_currency_code",
-            "effective_date"
+            "date"
           ],
           "composite": true,
           "constraint": false,
@@ -338,13 +327,14 @@
           "unique": false
         },
         {
-          "keyName": "exchange_rates_pair_date_unique",
+          "keyName": "exchange_rates_pair_datetime_source_unique",
           "columnNames": [
             "organization_id",
             "tenant_id",
             "from_currency_code",
             "to_currency_code",
-            "effective_date"
+            "date",
+            "source"
           ],
           "composite": true,
           "constraint": true,

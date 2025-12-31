@@ -15,8 +15,7 @@ type ExchangeRateData = {
   fromCurrencyCode: string
   toCurrencyCode: string
   rate: string
-  effectiveDate: string
-  expiresAt: string | null
+  date: string
   source: string | null
   isActive: boolean
   organizationId: string
@@ -119,19 +118,14 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             required: true,
             description: t('exchangeRates.form.field.rateHelp'),
           },
-          {
-            id: 'effectiveDate',
-            type: 'date',
-            label: t('exchangeRates.form.field.effectiveDate'),
-            required: true,
-            description: t('exchangeRates.form.field.effectiveDateHelp'),
-          },
-          {
-            id: 'expiresAt',
-            type: 'date',
-            label: t('exchangeRates.form.field.expiresAt'),
-            description: t('exchangeRates.form.field.expiresAtHelp'),
-          },
+        {
+          id: 'date',
+          type: 'text',
+          label: t('exchangeRates.form.field.date'),
+          required: true,
+          description: t('exchangeRates.form.field.dateHelp'),
+          placeholder: 'YYYY-MM-DDTHH:MM',
+        },
         ],
       },
       {
@@ -139,13 +133,14 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
         column: 2,
         title: t('exchangeRates.form.group.metadata'),
         fields: [
-          {
-            id: 'source',
-            type: 'text',
-            label: t('exchangeRates.form.field.source'),
-            placeholder: t('exchangeRates.form.field.sourcePlaceholder'),
-            description: t('exchangeRates.form.field.sourceHelp'),
-          },
+        {
+          id: 'source',
+          type: 'text',
+          label: t('exchangeRates.form.field.source'),
+          placeholder: t('exchangeRates.form.field.sourcePlaceholder'),
+          required: true,
+          description: t('exchangeRates.form.field.sourceHelp'),
+        },
           {
             id: 'isActive',
             type: 'checkbox',
@@ -218,8 +213,14 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             fromCurrencyCode: exchangeRate.fromCurrencyCode,
             toCurrencyCode: exchangeRate.toCurrencyCode,
             rate: parseFloat(exchangeRate.rate),
-            effectiveDate: exchangeRate.effectiveDate,
-            expiresAt: exchangeRate.expiresAt || '',
+            date: new Date(exchangeRate.date).toLocaleString('sv-SE', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            }).replace(' ', 'T').slice(0, 16),
             source: exchangeRate.source || '',
             isActive: exchangeRate.isActive,
           }}
@@ -256,19 +257,30 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
               })
             }
 
-            // Validate dates
-            const effectiveDate = values.effectiveDate ? new Date(String(values.effectiveDate)) : null
-            const expiresAt = values.expiresAt ? new Date(String(values.expiresAt)) : null
+            // Validate date
+            const date = values.date ? new Date(String(values.date)) : null
 
-            if (!effectiveDate || isNaN(effectiveDate.getTime())) {
-              throw createCrudFormError(t('exchangeRates.form.errors.invalidEffectiveDate'), {
-                effectiveDate: t('exchangeRates.form.errors.invalidEffectiveDate'),
+            if (!date || isNaN(date.getTime())) {
+              throw createCrudFormError(t('exchangeRates.form.errors.invalidDate'), {
+                date: t('exchangeRates.form.errors.invalidDate'),
               })
             }
 
-            if (expiresAt && !isNaN(expiresAt.getTime()) && expiresAt <= effectiveDate) {
-              throw createCrudFormError(t('exchangeRates.form.errors.expiresBeforeEffective'), {
-                expiresAt: t('exchangeRates.form.errors.expiresBeforeEffective'),
+            // Validate source
+            const source = String(values.source || '').trim()
+            if (!source || source.length < 2) {
+              throw createCrudFormError(t('exchangeRates.form.errors.sourceTooShort'), {
+                source: t('exchangeRates.form.errors.sourceTooShort'),
+              })
+            }
+            if (source.length > 50) {
+              throw createCrudFormError(t('exchangeRates.form.errors.sourceTooLong'), {
+                source: t('exchangeRates.form.errors.sourceTooLong'),
+              })
+            }
+            if (!/^[a-zA-Z0-9\s\-_]+$/.test(source)) {
+              throw createCrudFormError(t('exchangeRates.form.errors.sourceInvalidFormat'), {
+                source: t('exchangeRates.form.errors.sourceInvalidFormat'),
               })
             }
 
@@ -277,15 +289,12 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
               fromCurrencyCode: fromCode,
               toCurrencyCode: toCode,
               rate: rate.toFixed(8),
-              effectiveDate: effectiveDate.toISOString().split('T')[0],
-              expiresAt: expiresAt && !isNaN(expiresAt.getTime()) 
-                ? expiresAt.toISOString().split('T')[0] 
-                : null,
-              source: values.source ? String(values.source).trim() : null,
+              date: date.toISOString(),
+              source,
               isActive: values.isActive !== false,
             }
 
-            await updateCrud('exchange-rates', payload)
+            await updateCrud('currencies/exchange-rates', payload)
 
             flash(t('exchangeRates.flash.updated'), 'success')
             router.push('/backend/exchange-rates')

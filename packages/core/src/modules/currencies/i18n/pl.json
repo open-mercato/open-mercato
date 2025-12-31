@@ -93,8 +93,7 @@
       "columns": {
         "currencyPair": "Para Walut",
         "rate": "Kurs",
-        "effectiveDate": "Data Obowiązywania",
-        "expiresAt": "Wygasa",
+        "date": "Data i Czas",
         "source": "Źródło",
         "isActive": "Status"
       },
@@ -135,13 +134,11 @@
         "toCurrencyHelp": "Waluta docelowa do konwersji",
         "rate": "Kurs Wymiany",
         "rateHelp": "Ile jednostek waluty docelowej za 1 jednostkę waluty źródłowej (do 8 miejsc dziesiętnych)",
-        "effectiveDate": "Data Obowiązywania",
-        "effectiveDateHelp": "Data, od której kurs staje się aktywny (RRRR-MM-DD)",
-        "expiresAt": "Wygasa Dnia",
-        "expiresAtHelp": "Opcjonalna data wygaśnięcia (RRRR-MM-DD)",
+        "date": "Data i Czas",
+        "dateHelp": "Data i godzina, od której kurs obowiązuje (w twojej lokalnej strefie czasowej)",
         "source": "Źródło",
-        "sourcePlaceholder": "np. EBC, Ręcznie",
-        "sourceHelp": "Skąd pochodzi ten kurs",
+        "sourcePlaceholder": "np. NBP, Raiffeisen",
+        "sourceHelp": "Skąd pochodzi ten kurs (wymagane, 2-50 znaków)",
         "isActive": "Aktywny"
       },
       "action": {
@@ -155,8 +152,10 @@
         "toCurrencyFormat": "Nieprawidłowy kod waluty docelowej",
         "sameCurrency": "Waluta źródłowa i docelowa muszą się różnić",
         "invalidRate": "Kurs musi być liczbą dodatnią",
-        "invalidEffectiveDate": "Data obowiązywania jest wymagana",
-        "expiresBeforeEffective": "Data wygaśnięcia musi być późniejsza niż data obowiązywania",
+        "invalidDate": "Data i czas są wymagane",
+        "sourceTooShort": "Źródło musi mieć co najmniej 2 znaki",
+        "sourceTooLong": "Źródło nie może przekraczać 50 znaków",
+        "sourceInvalidFormat": "Źródło może zawierać tylko litery, cyfry, spacje, myślniki i podkreślenia",
         "load": "Nie udało się załadować kursu wymiany",
         "notFound": "Kurs wymiany nie znaleziony"
       }

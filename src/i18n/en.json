@@ -12,6 +12,8 @@
   "common.export": "Export",
   "common.yes": "Yes",
   "common.no": "No",
+  "common.active": "Active",
+  "common.inactive": "Inactive",
   "common.language": "Language",
   "common.terms": "Terms",
   "common.privacy": "Privacy",

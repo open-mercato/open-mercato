@@ -93,8 +93,7 @@
       "columns": {
         "currencyPair": "Currency Pair",
         "rate": "Rate",
-        "effectiveDate": "Effective Date",
-        "expiresAt": "Expires",
+        "date": "Date & Time",
         "source": "Source",
         "isActive": "Status"
       },
@@ -135,13 +134,11 @@
         "toCurrencyHelp": "Target currency for conversion",
         "rate": "Exchange Rate",
         "rateHelp": "How many units of target currency per 1 unit of source currency (up to 8 decimals)",
-        "effectiveDate": "Effective Date",
-        "effectiveDateHelp": "Date when this rate becomes active (YYYY-MM-DD)",
-        "expiresAt": "Expires At",
-        "expiresAtHelp": "Optional expiration date (YYYY-MM-DD)",
+        "date": "Date & Time",
+        "dateHelp": "Date and time when this rate applies (in your local timezone)",
         "source": "Source",
         "sourcePlaceholder": "e.g., ECB, Manual",
-        "sourceHelp": "Where this rate came from",
+        "sourceHelp": "Where this rate came from (required, 2-50 characters)",
         "isActive": "Active"
       },
       "action": {
@@ -155,8 +152,10 @@
         "toCurrencyFormat": "Invalid to currency code",
         "sameCurrency": "From and To currencies must be different",
         "invalidRate": "Rate must be a positive number",
-        "invalidEffectiveDate": "Effective date is required",
-        "expiresBeforeEffective": "Expiration date must be after effective date",
+        "invalidDate": "Date and time is required",
+        "sourceTooShort": "Source must be at least 2 characters",
+        "sourceTooLong": "Source must not exceed 50 characters",
+        "sourceInvalidFormat": "Source must contain only letters, numbers, spaces, hyphens, and underscores",
         "load": "Failed to load exchange rate",
         "notFound": "Exchange rate not found"
       }

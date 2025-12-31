@@ -93,8 +93,7 @@
       "columns": {
         "currencyPair": "Par de Monedas",
         "rate": "Tipo",
-        "effectiveDate": "Fecha Efectiva",
-        "expiresAt": "Expira",
+        "date": "Fecha y Hora",
         "source": "Fuente",
         "isActive": "Estado"
       },
@@ -135,13 +134,11 @@
         "toCurrencyHelp": "Moneda de destino para conversión",
         "rate": "Tipo de Cambio",
         "rateHelp": "Cuántas unidades de moneda de destino por 1 unidad de moneda de origen (hasta 8 decimales)",
-        "effectiveDate": "Fecha Efectiva",
-        "effectiveDateHelp": "Fecha en que este tipo se vuelve activo (AAAA-MM-DD)",
-        "expiresAt": "Expira el",
-        "expiresAtHelp": "Fecha de expiración opcional (AAAA-MM-DD)",
+        "date": "Fecha y Hora",
+        "dateHelp": "Fecha y hora cuando esta tasa es aplicable (en tu zona horaria local)",
         "source": "Fuente",
         "sourcePlaceholder": "ej. BCE, Manual",
-        "sourceHelp": "De dónde proviene este tipo",
+        "sourceHelp": "De dónde proviene este tipo (requerido, 2-50 caracteres)",
         "isActive": "Activa"
       },
       "action": {
@@ -155,8 +152,10 @@
         "toCurrencyFormat": "Código de moneda de destino inválido",
         "sameCurrency": "Las monedas de origen y destino deben ser diferentes",
         "invalidRate": "El tipo debe ser un número positivo",
-        "invalidEffectiveDate": "Se requiere fecha efectiva",
-        "expiresBeforeEffective": "La fecha de expiración debe ser posterior a la fecha efectiva",
+        "invalidDate": "La fecha y hora son requeridas",
+        "sourceTooShort": "La fuente debe tener al menos 2 caracteres",
+        "sourceTooLong": "La fuente no debe exceder 50 caracteres",
+        "sourceInvalidFormat": "La fuente solo puede contener letras, números, espacios, guiones y guiones bajos",
         "load": "Error al cargar tipo de cambio",
         "notFound": "Tipo de cambio no encontrado"
       }

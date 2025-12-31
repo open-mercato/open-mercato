@@ -20,8 +20,7 @@ type ExchangeRateRow = {
   fromCurrencyCode: string
   toCurrencyCode: string
   rate: string
-  effectiveDate: string
-  expiresAt: string | null
+  date: string
   source: string | null
   isActive: boolean
   organizationId: string
@@ -141,19 +140,17 @@ export default function ExchangeRatesPage() {
           </span>
         ),
       },
-      {
-        accessorKey: 'effectiveDate',
-        header: t('exchangeRates.list.columns.effectiveDate'),
-        cell: ({ row }) => new Date(row.original.effectiveDate).toLocaleDateString(),
-      },
-      {
-        accessorKey: 'expiresAt',
-        header: t('exchangeRates.list.columns.expiresAt'),
-        cell: ({ row }) =>
-          row.original.expiresAt
-            ? new Date(row.original.expiresAt).toLocaleDateString()
-            : '—',
-      },
+    {
+      accessorKey: 'date',
+      header: t('exchangeRates.list.columns.date'),
+      cell: ({ row }) => new Date(row.original.date).toLocaleString(undefined, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+    },
       {
         accessorKey: 'source',
         header: t('exchangeRates.list.columns.source'),

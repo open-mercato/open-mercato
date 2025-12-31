@@ -64,11 +64,11 @@ export class Currency {
 })
 @Index({
   name: 'exchange_rates_pair_idx',
-  properties: ['fromCurrencyCode', 'toCurrencyCode', 'effectiveDate'],
+  properties: ['fromCurrencyCode', 'toCurrencyCode', 'date'],
 })
 @Unique({
-  name: 'exchange_rates_pair_date_unique',
-  properties: ['organizationId', 'tenantId', 'fromCurrencyCode', 'toCurrencyCode', 'effectiveDate'],
+  name: 'exchange_rates_pair_datetime_source_unique',
+  properties: ['organizationId', 'tenantId', 'fromCurrencyCode', 'toCurrencyCode', 'date', 'source'],
 })
 export class ExchangeRate {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -91,16 +91,13 @@ export class ExchangeRate {
   @Property({ type: 'numeric', precision: 18, scale: 8 })
   rate!: string
 
-  // Validity period
-  @Property({ name: 'effective_date', type: Date })
-  effectiveDate!: Date
+  // Date and time when the rate applies (stored as timestamptz)
+  @Property({ name: 'date', type: 'timestamptz' })
+  date!: Date
 
-  @Property({ name: 'expires_at', type: Date, nullable: true })
-  expiresAt?: Date | null
-
-  // Source tracking
-  @Property({ type: 'text', default: 'manual' })
-  source: string = 'manual'
+  // Source tracking (required)
+  @Property({ type: 'text' })
+  source!: string
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true

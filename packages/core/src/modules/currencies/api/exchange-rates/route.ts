@@ -59,7 +59,7 @@ const listQuerySchema = z
     id: z.string().uuid().optional(),
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
-    sortField: z.enum(['fromCurrencyCode', 'toCurrencyCode', 'effectiveDate', 'createdAt', 'updatedAt']).optional(),
+    sortField: z.enum(['fromCurrencyCode', 'toCurrencyCode', 'date', 'createdAt', 'updatedAt']).optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
     fromCurrencyCode: z.string().optional(),
     toCurrencyCode: z.string().optional(),
@@ -73,8 +73,7 @@ type ExchangeRateRow = {
   fromCurrencyCode: string
   toCurrencyCode: string
   rate: string
-  effectiveDate: string
-  expiresAt: string | null
+  date: string
   source: string
   isActive: boolean
   createdAt: string | null
@@ -88,8 +87,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   fromCurrencyCode: String(rate.fromCurrencyCode),
   toCurrencyCode: String(rate.toCurrencyCode),
   rate: String(rate.rate),
-  effectiveDate: rate.effectiveDate.toISOString(),
-  expiresAt: rate.expiresAt ? rate.expiresAt.toISOString() : null,
+  date: rate.date.toISOString(),
   source: String(rate.source),
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
@@ -140,16 +138,16 @@ export async function GET(req: Request) {
   const fieldMap: Record<string, string> = {
     fromCurrencyCode: 'fromCurrencyCode',
     toCurrencyCode: 'toCurrencyCode',
-    effectiveDate: 'effectiveDate',
+    date: 'date',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
   }
   const orderBy: Record<string, 'ASC' | 'DESC'> = {}
   if (sortField) {
-    const mapped = fieldMap[sortField] || 'effectiveDate'
+    const mapped = fieldMap[sortField] || 'date'
     orderBy[mapped] = sortDir === 'desc' ? 'DESC' : 'ASC'
   } else {
-    orderBy.effectiveDate = 'DESC'
+    orderBy.date = 'DESC'
   }
 
   const [all, total] = await em.findAndCount(ExchangeRate, where, { orderBy })

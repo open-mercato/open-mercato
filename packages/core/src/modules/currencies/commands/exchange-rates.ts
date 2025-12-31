@@ -21,8 +21,7 @@ type ExchangeRateSnapshot = {
   fromCurrencyCode: string
   toCurrencyCode: string
   rate: string
-  effectiveDate: string
-  expiresAt: string | null
+  date: string
   source: string
   isActive: boolean
   createdAt: string
@@ -39,8 +38,7 @@ async function loadExchangeRateSnapshot(em: EntityManager, id: string): Promise<
     fromCurrencyCode: record.fromCurrencyCode,
     toCurrencyCode: record.toCurrencyCode,
     rate: record.rate,
-    effectiveDate: record.effectiveDate.toISOString(),
-    expiresAt: record.expiresAt ? record.expiresAt.toISOString() : null,
+    date: record.date.toISOString(),
     source: record.source,
     isActive: !!record.isActive,
     createdAt: record.createdAt.toISOString(),
@@ -86,18 +84,19 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
     // Validate currencies exist
     await validateCurrenciesExist(em, parsed.fromCurrencyCode, parsed.toCurrencyCode, parsed.organizationId, parsed.tenantId)
 
-    // Check for duplicate rate (same pair + effective date)
+    // Check for duplicate rate (same pair + date + source)
     const existing = await em.findOne(ExchangeRate, {
       fromCurrencyCode: parsed.fromCurrencyCode,
       toCurrencyCode: parsed.toCurrencyCode,
-      effectiveDate: parsed.effectiveDate,
+      date: parsed.date,
+      source: parsed.source,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       deletedAt: null,
     })
     if (existing) {
       throw new CrudHttpError(400, {
-        error: 'Exchange rate for this currency pair and date already exists',
+        error: 'Exchange rate for this currency pair, date, and source already exists',
       })
     }
 
@@ -108,9 +107,8 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       fromCurrencyCode: parsed.fromCurrencyCode,
       toCurrencyCode: parsed.toCurrencyCode,
       rate: parsed.rate,
-      effectiveDate: parsed.effectiveDate,
-      expiresAt: parsed.expiresAt ?? null,
-      source: parsed.source ?? 'manual',
+      date: parsed.date,
+      source: parsed.source,
       isActive: parsed.isActive !== false,
       createdAt: now,
       updatedAt: now,
@@ -176,13 +174,15 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       await validateCurrenciesExist(em, fromCode, toCode, record.organizationId, record.tenantId)
     }
 
-    // Check for duplicate if changing pair or date
-    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.effectiveDate) {
-      const effectiveDate = parsed.effectiveDate ?? record.effectiveDate
+    // Check for duplicate if changing pair, date, or source
+    if (parsed.fromCurrencyCode || parsed.toCurrencyCode || parsed.date || parsed.source) {
+      const date = parsed.date ?? record.date
+      const source = parsed.source ?? record.source
       const existing = await em.findOne(ExchangeRate, {
         fromCurrencyCode: fromCode,
         toCurrencyCode: toCode,
-        effectiveDate,
+        date,
+        source,
         organizationId: record.organizationId,
         tenantId: record.tenantId,
         id: { $ne: record.id },
@@ -190,7 +190,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       })
       if (existing) {
         throw new CrudHttpError(400, {
-          error: 'Exchange rate for this currency pair and date already exists',
+          error: 'Exchange rate for this currency pair, date, and source already exists',
         })
       }
     }
@@ -199,8 +199,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       'fromCurrencyCode',
       'toCurrencyCode',
       'rate',
-      'effectiveDate',
-      'expiresAt',
+      'date',
       'source',
       'isActive',
     ])
@@ -209,7 +208,10 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       return { exchangeRateId: record.id }
     }
 
-    Object.assign(record, changes)
+    // Apply only the new values from changes
+    for (const [key, change] of Object.entries(changes)) {
+      (record as any)[key] = change.to
+    }
     record.updatedAt = new Date()
     
     // Validate final state after merging changes
@@ -220,10 +222,6 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
     const rateValue = parseFloat(record.rate)
     if (isNaN(rateValue) || rateValue <= 0) {
       throw new CrudHttpError(400, { error: 'Rate must be greater than zero' })
-    }
-    
-    if (record.expiresAt && record.effectiveDate && record.expiresAt <= record.effectiveDate) {
-      throw new CrudHttpError(400, { error: 'Expiry date must be after effective date' })
     }
     
     await em.flush()
@@ -260,8 +258,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       fromCurrencyCode: before.fromCurrencyCode,
       toCurrencyCode: before.toCurrencyCode,
       rate: before.rate,
-      effectiveDate: new Date(before.effectiveDate),
-      expiresAt: before.expiresAt ? new Date(before.expiresAt) : null,
+      date: new Date(before.date),
       source: before.source,
       isActive: before.isActive,
       updatedAt: new Date(),
