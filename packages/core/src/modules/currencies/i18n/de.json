@@ -18,7 +18,7 @@
         "name": "Name",
         "symbol": "Symbol",
         "decimalPlaces": "Dezimalstellen",
-        "isActive": "Status"
+        "active": "Aktiv"
       },
       "filters": {
         "baseOnly": "Nur Basiswährung anzeigen",
@@ -95,7 +95,7 @@
         "rate": "Kurs",
         "date": "Datum & Uhrzeit",
         "source": "Quelle",
-        "isActive": "Status"
+        "active": "Aktiv"
       },
       "filters": {
         "fromCurrency": "Von Währung",

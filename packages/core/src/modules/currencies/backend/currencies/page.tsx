@@ -8,6 +8,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus, Star } from 'lucide-react'
 import { useT } from '@/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -173,12 +174,9 @@ export default function CurrenciesPage() {
       },
       {
         accessorKey: 'isActive',
-        header: t('currencies.list.columns.isActive'),
-        cell: ({ row }) => (
-          <Badge variant={row.original.isActive ? 'default' : 'secondary'}>
-            {row.original.isActive ? t('common.active') : t('common.inactive')}
-          </Badge>
-        ),
+        header: t('currencies.list.columns.active'),
+        enableSorting: false,
+        cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
       },
     ],
     [t]

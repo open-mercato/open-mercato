@@ -18,7 +18,7 @@
         "name": "Nazwa",
         "symbol": "Symbol",
         "decimalPlaces": "Miejsca dziesiętne",
-        "isActive": "Status"
+        "active": "Aktywna"
       },
       "filters": {
         "baseOnly": "Pokaż tylko walutę bazową",
@@ -95,7 +95,7 @@
         "rate": "Kurs",
         "date": "Data i Czas",
         "source": "Źródło",
-        "isActive": "Status"
+        "active": "Aktywna"
       },
       "filters": {
         "fromCurrency": "Z Waluty",

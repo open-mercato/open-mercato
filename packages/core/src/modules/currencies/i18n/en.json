@@ -18,7 +18,7 @@
         "name": "Name",
         "symbol": "Symbol",
         "decimalPlaces": "Decimals",
-        "isActive": "Status"
+        "active": "Active"
       },
       "filters": {
         "baseOnly": "Show base currency only",
@@ -95,7 +95,7 @@
         "rate": "Rate",
         "date": "Date & Time",
         "source": "Source",
-        "isActive": "Status"
+        "active": "Active"
       },
       "filters": {
         "fromCurrency": "From Currency",

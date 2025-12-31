@@ -18,7 +18,7 @@
         "name": "Nombre",
         "symbol": "Símbolo",
         "decimalPlaces": "Decimales",
-        "isActive": "Estado"
+        "active": "Activa"
       },
       "filters": {
         "baseOnly": "Mostrar solo moneda base",
@@ -95,7 +95,7 @@
         "rate": "Tipo",
         "date": "Fecha y Hora",
         "source": "Fuente",
-        "isActive": "Estado"
+        "active": "Activa"
       },
       "filters": {
         "fromCurrency": "Desde Moneda",
