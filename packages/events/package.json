@@ -5,6 +5,6 @@
   "main": "src/index.ts",
   "type": "module",
   "dependencies": {
-    "ioredis": "^5.4.1"
+    "@open-mercato/queue": "0.3.9"
   }
 }

@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Note: Avoid top-level imports of generated files or DI container.
-// Some commands (e.g., `init`) must run before generation occurs.
-// We'll lazy-load modules and DI only when required by a specific command.
+// Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
+// Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
+
+import { createRequestContainer } from '@/lib/di/container'
+import { runWorker } from '@open-mercato/queue/worker'
+import { modules as generatedModules } from '@/generated/modules.generated'
 
 let envLoaded = false
 
@@ -381,42 +384,112 @@ export async function run(argv = process.argv) {
   } catch {}
   const all = modules.slice()
   
-  // Built-in CLI module: events
+  // Built-in CLI module: queue
   all.push({
-    id: 'events',
+    id: 'queue',
     cli: [
       {
-        command: 'process',
+        command: 'worker',
         run: async (args: string[]) => {
-          const limitArg = args.find((a) => a.startsWith('--limit='))
-          const limit = limitArg ? Number(limitArg.split('=')[1]) : undefined
-          const { createRequestContainer } = await import('@/lib/di/container')
-          const container = await createRequestContainer()
-          const bus = (container.resolve('eventBus') as any)
-          const res = await bus.processOffline({ limit })
-          console.log(`Processed ${res.processed} events${res.lastId ? `, lastId=${res.lastId}` : ''}`)
+          const queueName = args[0]
+          if (!queueName) {
+            console.error('Usage: mercato queue worker <queueName>')
+            console.error('Example: mercato queue worker events')
+            return
+          }
+
+          const concurrencyArg = args.find((a) => a.startsWith('--concurrency='))
+          const concurrency = concurrencyArg ? Number(concurrencyArg.split('=')[1]) : 1
+
+          // Special handling for known queue types
+          if (queueName === 'events') {
+            const container = await createRequestContainer()
+
+            // Load registered module subscribers
+            const listeners = new Map<string, Set<any>>()
+            for (const mod of generatedModules) {
+              for (const sub of (mod as any).subscribers || []) {
+                if (!listeners.has(sub.event)) listeners.set(sub.event, new Set())
+                listeners.get(sub.event)!.add(sub.handler)
+              }
+            }
+
+            await runWorker({
+              queueName: 'events',
+              connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+              concurrency,
+              handler: async (job) => {
+                const data = job.payload as { event: string; payload: any }
+                const handlers = listeners.get(data.event)
+                if (!handlers || handlers.size === 0) return
+
+                for (const handler of handlers) {
+                  await handler(data.payload, { resolve: container.resolve.bind(container) })
+                }
+              },
+            })
+          } else {
+            console.error(`Unknown queue: "${queueName}". Known queues: events`)
+          }
         },
       },
       {
         command: 'clear',
-        run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
-          const container = await createRequestContainer()
-          const bus = (container.resolve('eventBus') as any)
-          const res = await bus.clearQueue()
-          console.log(`Cleared queue, removed ${res.removed} events`)
+        run: async (args: string[]) => {
+          const queueName = args[0]
+          if (!queueName) {
+            console.error('Usage: mercato queue clear <queueName>')
+            return
+          }
+
+          const strategyEnv = process.env.QUEUE_STRATEGY || 'local'
+          const { createQueue } = await import('@open-mercato/queue')
+
+          const queue = strategyEnv === 'async'
+            ? createQueue(queueName, 'async', {
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+              })
+            : createQueue(queueName, 'local')
+
+          const res = await queue.clear()
+          await queue.close()
+          console.log(`Cleared queue "${queueName}", removed ${res.removed} jobs`)
         },
       },
       {
-        command: 'clear-processed',
-        run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
-          const container = await createRequestContainer()
-          const bus = (container.resolve('eventBus') as any)
-          const res = await bus.clearProcessed()
-          console.log(`Cleared processed events, removed ${res.removed}${res.lastId ? ` up to id=${res.lastId}` : ''}`)
+        command: 'status',
+        run: async (args: string[]) => {
+          const queueName = args[0]
+          if (!queueName) {
+            console.error('Usage: mercato queue status <queueName>')
+            return
+          }
+
+          const strategyEnv = process.env.QUEUE_STRATEGY || 'local'
+          const { createQueue } = await import('@open-mercato/queue')
+
+          const queue = strategyEnv === 'async'
+            ? createQueue(queueName, 'async', {
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+              })
+            : createQueue(queueName, 'local')
+
+          const counts = await queue.getJobCounts()
+          console.log(`Queue "${queueName}" status:`)
+          console.log(`  Waiting:   ${counts.waiting}`)
+          console.log(`  Active:    ${counts.active}`)
+          console.log(`  Completed: ${counts.completed}`)
+          console.log(`  Failed:    ${counts.failed}`)
+          await queue.close()
         },
       },
+    ],
+  } as any)
+
+  // Built-in CLI module: events
+  all.push({
+    id: 'events',
+    cli: [
       {
         command: 'emit',
         run: async (args: string[]) => {
@@ -434,8 +507,18 @@ export async function run(argv = process.argv) {
           const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
-          await bus.emitEvent(eventName, payload, { persistent })
+          await bus.emit(eventName, payload, { persistent })
           console.log(`Emitted "${eventName}"${persistent ? ' (persistent)' : ''}`)
+        },
+      },
+      {
+        command: 'clear',
+        run: async () => {
+          const { createRequestContainer } = await import('@/lib/di/container')
+          const container = await createRequestContainer()
+          const bus = (container.resolve('eventBus') as any)
+          const res = await bus.clearQueue()
+          console.log(`Cleared events queue, removed ${res.removed} events`)
         },
       },
     ],
