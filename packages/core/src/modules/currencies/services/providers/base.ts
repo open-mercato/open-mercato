@@ -12,7 +12,8 @@ export interface RateProvider {
 
   fetchRates(
     date: Date,
-    scope: { tenantId: string; organizationId: string }
+    scope: { tenantId: string; organizationId: string },
+    availableCurrencies: Set<string>
   ): Promise<RateProviderResult[]>
 
   isAvailable(): boolean

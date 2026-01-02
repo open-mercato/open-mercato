@@ -43,9 +43,6 @@ export class RateFetchingService {
     const existingCurrencies = await this.getExistingCurrencies(scope)
     const currencyCodeSet = new Set(existingCurrencies.map((c) => c.code))
 
-    // Always ensure PLN exists
-    currencyCodeSet.add('PLN')
-
     // Determine which providers to use
     const providerList = options.providers?.length
       ? options.providers
@@ -65,7 +62,7 @@ export class RateFetchingService {
       }
 
       try {
-        const rates = await provider.fetchRates(date, scope)
+        const rates = await provider.fetchRates(date, scope, currencyCodeSet)
 
         // Filter: only currencies that exist in both directions
         const validRates = rates.filter(

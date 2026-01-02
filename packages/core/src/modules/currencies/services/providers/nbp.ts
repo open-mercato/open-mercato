@@ -26,8 +26,15 @@ export class NBPProvider implements RateProvider {
 
   async fetchRates(
     date: Date,
-    scope: { tenantId: string; organizationId: string }
+    scope: { tenantId: string; organizationId: string },
+    availableCurrencies: Set<string>
   ): Promise<RateProviderResult[]> {
+    // Check if PLN is available (required as base currency for NBP)
+    if (!availableCurrencies.has('PLN')) {
+      console.debug('[NBP] Skipping: PLN not found in available currencies')
+      return []
+    }
+
     const dateStr = this.formatDate(date)
     const url = `${this.baseUrl}/exchangerates/tables/c/${dateStr}/?format=json`
 

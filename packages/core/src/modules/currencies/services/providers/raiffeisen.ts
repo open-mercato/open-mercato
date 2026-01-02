@@ -33,8 +33,15 @@ export class RaiffeisenProvider implements RateProvider {
 
   async fetchRates(
     date: Date,
-    scope: { tenantId: string; organizationId: string }
+    scope: { tenantId: string; organizationId: string },
+    availableCurrencies: Set<string>
   ): Promise<RateProviderResult[]> {
+    // Check if PLN is available (required as base currency for Raiffeisen)
+    if (!availableCurrencies.has('PLN')) {
+      console.debug('[Raiffeisen] Skipping: PLN not found in available currencies')
+      return []
+    }
+
     const dateStr = this.formatDate(date)
     const url = `${this.baseUrl}?type=kursywalut&range=all&date=${dateStr}`
 
