@@ -1,6 +1,7 @@
 import type { AppContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/core'
 import { RateFetchingService } from './services/rateFetchingService'
+import { ExchangeRateService } from './services/exchangeRateService'
 import { NBPProvider } from './services/providers/nbp'
 import { RaiffeisenProvider } from './services/providers/raiffeisen'
 
@@ -16,6 +17,13 @@ export function register(container: AppContainer) {
         service.registerProvider(new RaiffeisenProvider())
         
         return service
+      },
+    },
+    exchangeRateService: {
+      resolve: (c) => {
+        const em = c.resolve<EntityManager>('em')
+        const rateFetchingService = c.resolve<RateFetchingService>('rateFetchingService')
+        return new ExchangeRateService(em, rateFetchingService)
       },
     },
   })

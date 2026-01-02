@@ -37,6 +37,23 @@ export function createMockEntityManager(config: MockEntityManagerConfig = {}) {
           return true
         })
       }
+      
+      // Return exchange rates for ExchangeRate entity queries
+      if (entityClass === ExchangeRate || entityClass.name === 'ExchangeRate') {
+        const rates = config.existingRates || []
+        // Apply filters if specified
+        return rates.filter(r => {
+          if (filter.organizationId && r.organizationId !== filter.organizationId) return false
+          if (filter.tenantId && r.tenantId !== filter.tenantId) return false
+          if (filter.fromCurrencyCode && r.fromCurrencyCode !== filter.fromCurrencyCode) return false
+          if (filter.toCurrencyCode && r.toCurrencyCode !== filter.toCurrencyCode) return false
+          if (filter.date && r.date.getTime() !== filter.date.getTime()) return false
+          if (filter.isActive !== undefined && r.isActive !== filter.isActive) return false
+          if (filter.deletedAt !== undefined && filter.deletedAt === null && r.deletedAt !== null) return false
+          return true
+        })
+      }
+      
       return []
     }),
     
