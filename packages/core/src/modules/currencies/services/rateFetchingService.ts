@@ -1,7 +1,5 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { RateProvider, RateProviderResult } from './providers/base'
-import { NBPProvider } from './providers/nbp'
-import { RaiffeisenProvider } from './providers/raiffeisen'
 import { Currency, ExchangeRate } from '../data/entities'
 
 export interface FetchResult {
@@ -20,11 +18,12 @@ export class RateFetchingService {
 
   constructor(private em: EntityManager) {
     this.providers = new Map()
-    this.registerProvider(new NBPProvider())
-    this.registerProvider(new RaiffeisenProvider())
   }
 
-  private registerProvider(provider: RateProvider): void {
+  /**
+   * Register a rate provider
+   */
+  registerProvider(provider: RateProvider): void {
     this.providers.set(provider.source, provider)
   }
 

@@ -2,6 +2,8 @@ import type { ModuleCli } from '@/modules/registry'
 import type { EntityManager } from '@mikro-orm/core'
 import { createRequestContainer } from '@/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
+import { NBPProvider } from './services/providers/nbp'
+import { RaiffeisenProvider } from './services/providers/raiffeisen'
 import { CurrencyFetchConfig } from './data/entities'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
@@ -55,6 +57,10 @@ const fetchRatesCommand: ModuleCli = {
     try {
       const em = container.resolve<EntityManager>('em')
       const fetchService = new RateFetchingService(em)
+      
+      // Register providers
+      fetchService.registerProvider(new NBPProvider())
+      fetchService.registerProvider(new RaiffeisenProvider())
 
       const dateStr = String(args.date || '')
       const fromStr = String(args.from || '')
