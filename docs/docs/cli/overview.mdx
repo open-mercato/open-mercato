@@ -30,6 +30,12 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`mercato auth list-tenants`](./auth-list-tenants)
 - **Security**
   - [`mercato api_keys add`](./api-keys) – mint scoped API keys for automations.
+- **Events & Queue**
+  - `mercato events emit <event> [payload] [-p]` – emit an event (optionally persistent).
+  - `mercato events clear` – clear the events queue.
+  - `mercato queue worker <name>` – run a queue worker (e.g., `queue worker events`).
+  - `mercato queue status <name>` – show queue job counts.
+  - `mercato queue clear <name>` – clear all jobs from a queue.
 - **Example module**
   - [`mercato example seed-todos`](./example-seed-todos)
   - [`mercato example hello`](./example-hello)

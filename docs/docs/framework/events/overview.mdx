@@ -1,11 +1,24 @@
 ---
-title: Events and subscribers
+title: Events and Subscribers
 description: Publish domain events and react with module-scoped subscribers that stay isolated yet collaborative.
 ---
 
 # Events & Subscribers
 
-This adds a Medusa-style event/subscriber system with module auto-discovery, DI integration, and offline processing via local JSON or Redis.
+Open Mercato provides a comprehensive event/subscriber system with module auto-discovery, DI integration, and offline processing. The system supports two processing modes:
+
+1. **Inline Events** (`persistent: false`): Subscribers execute immediately when events are emitted, within the same request lifecycle
+2. **Async Events** (`persistent: true`): Events are queued and processed asynchronously by dedicated workers, providing reliability, retry capabilities, and scalability
+
+:::tip When to use persistent events
+Use `persistent: true` for events that:
+- Trigger long-running operations (sending emails, webhooks, external API calls)
+- Require guaranteed delivery even if the server restarts
+- Should not block the current request
+- Need retry logic on failure
+:::
+
+For background job processing at scale, see the [Queue & Workers](./queue-workers.mdx) documentation.
 
 ## Overview
 
@@ -71,53 +84,57 @@ export function register(container: AppContainer) {
   - Local: `.events/queue.json` and `.events/state.json` in project root.
   - Redis: keys `events:last_id`, `events:queue` (sorted set), `events:last_processed_id`.
 
-## Offline Processing
+## Processing Persistent Events
 
-Process queued events since last processed id:
+Persistent events are processed by running a dedicated queue worker:
 
+```bash
+# Start a worker to process events from the queue
+yarn mercato queue worker events
+
+# With custom concurrency (default is 1)
+yarn mercato queue worker events --concurrency=5
 ```
-npm run mercato events process -- --limit=500
-```
 
-The process uses the DI container, so subscriber handlers can resolve services.
+The worker connects to Redis (or uses local storage) and continuously processes queued events. It uses the DI container, so subscriber handlers can resolve services.
 
-Clear queues:
+### Queue Management
 
-```
-# Remove all queued events (persistent storage)
-npm run mercato events clear
+```bash
+# Check queue status (waiting, active, completed, failed counts)
+yarn mercato queue status events
 
-# Remove only events already processed (based on last processed id)
-npm run mercato events clear-processed
+# Clear all events from the queue
+yarn mercato queue clear events
 ```
 
 ## Emit via CLI
 
 Quickly emit an event from the terminal (useful for testing subscribers or seeding flows):
 
-```
-npm run mercato events emit <event> [jsonPayload] [--persistent|-p]
+```bash
+yarn mercato events emit <event> [jsonPayload] [--persistent|-p]
 ```
 
 Examples:
 
-```
+```bash
 # Simple event without payload (non-persistent)
-npm run mercato events emit example.event
+yarn mercato events emit example.event
 
 # Emit with JSON payload (remember to quote it)
-npm run mercato events emit order.created '{"id":123,"total":42.5}'
+yarn mercato events emit order.created '{"id":123,"total":42.5}'
 
-# Emit a persistent event so it is recorded and can be replayed
-npm run mercato events emit order.created '{"id":124}' --persistent
+# Emit a persistent event so it is queued for async processing
+yarn mercato events emit order.created '{"id":124}' --persistent
 
 # Shorthand for persistent flag
-npm run mercato events emit order.created '{"id":125}' -p
+yarn mercato events emit order.created '{"id":125}' -p
 ```
 
 Notes:
 - Payload is parsed as JSON when possible; otherwise treated as a string.
-- Persistent events are delivered online and also stored (local/Redis) for offline processing.
+- Persistent events are delivered inline and also queued for async processing.
 - The CLI uses the DI container, so subscribers can resolve services via `ctx.resolve`.
 
 ## Notes

@@ -219,7 +219,14 @@ const sidebars: SidebarsConfig = {
             "framework/api/extending-api",
           ],
         },
-        "framework/events/overview",
+        {
+          type: "category",
+          label: "Events & Queue",
+          items: [
+            "framework/events/overview",
+            "framework/events/queue-workers",
+          ],
+        },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
         {
