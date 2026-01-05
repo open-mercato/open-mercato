@@ -8,6 +8,9 @@
     "./*": "./src/*"
   },
   "dependencies": {
-    "@radix-ui/react-tooltip": "^1.2.8"
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-virtual": "^3.13.13",
+    "date-fns": "^4.1.0",
+    "react-datepicker": "^9.1.0"
   }
 }

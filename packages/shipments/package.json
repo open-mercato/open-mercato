@@ -1,0 +1,14 @@
+{
+    "name": "@open-mercato/shipments",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./modules/*": "./src/modules/*",
+        ".": "./src/index.ts"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.71.0",
+        "xlsx": "^0.18.5"
+    }
+}

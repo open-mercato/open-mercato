@@ -23,5 +23,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
-  { id: 'business_rules', from: '@open-mercato/core' }
+  { id: 'business_rules', from: '@open-mercato/core' },
+  { id: 'shipments', from: '@open-mercato/shipments' },
+  { id: 'fms_tracking', from: '@open-mercato/fms_tracking' },
 ]

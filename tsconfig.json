@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2017",
     "lib": [
       "dom",
@@ -131,6 +132,30 @@
       ],
       "@tests/*": [
         "./tests/*"
+      ],
+      "@open-mercato/shipments/*": [
+        "./packages/shipments/src/*"
+      ],
+      "@open-mercato/shipments/datamodel/entities": [
+        "./packages/shipments/generated/entities.ids.generated.ts"
+      ],
+      "@open-mercato/shipments/datamodel/entities/*": [
+        "./packages/shipments/generated/entities/*"
+      ],
+      "@open-mercato/shipments/generated/*": [
+        "./packages/shipments/generated/*"
+      ],
+      "@open-mercato/fms_tracking/*": [
+        "packages/fms_tracking/src/*"
+      ],
+      "@open-mercato/fms_tracking/datamodel/entities": [
+        "packages/fms_tracking/generated/entities.ids.generated.ts"
+      ],
+      "@open-mercato/fms_tracking/datamodel/entities/*": [
+        "packages/fms_tracking/generated/entities/*"
+      ],
+      "@open-mercato/fms_tracking/generated/*": [
+        "packages/fms_tracking/generated/*"
       ]
     }
   },
