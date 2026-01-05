@@ -7,8 +7,18 @@ import * as React from 'react'
 import { updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { FeatureToggleItem, useFeatureToggleItem } from "@open-mercato/core/modules/feature_toggles/components/hooks/useFeatureToggleItem";
 
+
+type FeatureToggleItemFormValues = {
+    identifier: string
+    name: string
+    description: string
+    category: string
+    default_state: 'enabled' | 'disabled'
+    fail_mode: 'fail_open' | 'fail_closed'
+}
+
 export default function EditFeatureTogglePage({ params }: { params?: { id?: string } }) {
-    const [initialValues, setInitialValues] = React.useState<FeatureToggleItem | null>(null)
+    const [initialValues, setInitialValues] = React.useState<FeatureToggleItemFormValues | null>(null)
     const { id } = params ?? {}
     const t = useT()
     const fields: CrudField[] = [
@@ -17,8 +27,8 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
         { id: 'description', label: 'Description', type: 'textarea', required: false },
         { id: 'category', label: 'Category', type: 'text', required: true },
         { id: 'default_state', label: 'Default State', type: 'select', required: true, options: [
-            { label: 'Enabled', value: true },
-            { label: 'Disabled', value: false },
+            { label: 'Enabled', value: 'enabled' },
+            { label: 'Disabled', value: 'disabled' },
         ] },
         { id: 'fail_mode', label: 'Fail Mode', type: 'select', required: true, options: [
             { label: 'Fail Open', value: 'fail_open' },
@@ -30,14 +40,21 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
 
     React.useEffect(() => {
         if (featureToggleItem) {
-            setInitialValues(featureToggleItem)
+            setInitialValues({
+                identifier: featureToggleItem.identifier,
+                name: featureToggleItem.name,
+                description: featureToggleItem.description,
+                category: featureToggleItem.category,
+                default_state: featureToggleItem.default_state ? 'enabled' : 'disabled',
+                fail_mode: featureToggleItem.fail_mode as 'fail_open' | 'fail_closed',
+            })
         }
     }, [featureToggleItem])
 
     return (
         <Page>
           <PageBody>
-            <CrudForm<FeatureToggleItem>
+            <CrudForm
               title={t('feature_toggles.form.title.edit', 'Edit Feature Toggle')}
               backHref="/backend/feature-toggles/global"
               fields={fields}
@@ -56,7 +73,7 @@ export default function EditFeatureTogglePage({ params }: { params?: { id?: stri
                   name: values.name,
                   description: values.description,
                   category: values.category,
-                  defaultState: values.default_state,
+                  default_state: values.default_state === 'enabled' ? true : false,
                   failMode: values.fail_mode,
                 }
                 await updateCrud('feature_toggles/global', payload)
