@@ -32,6 +32,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Prefer using the DSL helpers from `@/modules/dsl`:
   - `defineLink()` with `entityId()` or `linkable()` for module-to-module extensions.
   - `defineFields()` with `cf.*` helpers for field sets.
+- Widget injection is the preferred way to build inter-module UI extensions. Declare widgets under `src/modules/<module>/widgets/injection`, map them to slots via `widgets/injection-table.ts`, and keep metadata in colocated `*.meta.ts` files when needed. Avoid coupling modules directly—inject UI instead. Hosts expose consistent spot ids (`crud-form:<entityId>`, `data-table:<tableId>[:header|:footer]`, `admin.page:<path>:before|after`), and widgets can opt into grouped cards or tabs via `placement.kind`.
 - Reuse the shared custom-field helpers from `packages/shared` (e.g., `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`) instead of re-implementing cf_* parsing or normalization.
 - When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
@@ -76,6 +77,16 @@ This repository is designed for extensibility. Agents should leverage the module
 - Hash passwords with `bcryptjs` (cost ≥10). Never log credentials.
 - Return minimal error messages for auth (avoid revealing whether email exists).
 - Always confirm the project still builds after your changes and surface build failures immediately.
+- When encryption is enabled and populated relations lack tenant/org scope, run `findWithDecryption`/`findOneWithDecryption` from `packages/shared/src/lib/encryption/find.ts` (or `decryptEntitiesWithFallbackScope` for manual graphs) with the parent tenantId (and optional organizationId) so nested records are decrypted consistently. Actually its good to use these helpers instead of `em.find` and `em.findOne` just for safety
+
+## Encryption
+- Respect the feature flag: only encrypt/decrypt when tenant data encryption is enabled and the service is healthy.
+- Prefer the helpers: use `findWithDecryption`/`findOneWithDecryption` (or `decryptEntitiesWithFallbackScope` for ad-hoc graphs) to decrypt populated relations that lack `tenant_id`/`organization_id`, passing the parent scope as fallback.
+- Keep scopes explicit: always supply tenantId and, when available, organizationId to decryption helpers so cross-tenant leaks are avoided.
+- Do not hand-roll AES/KMS calls; rely on `TenantDataEncryptionService` utilities and the shared helpers for custom fields and entities.
+- Query index storage: keep `entity_indexes.doc` encrypted at rest; decrypt only on read. Use the centralized helpers in `packages/shared/src/lib/encryption/indexDoc.ts` (e.g. `decryptIndexDocCustomFields`, `decryptIndexDocForSearch`) instead of ad-hoc `cf:*` loops.
+- Vector search storage: treat `vector_search.result_title` / `result_subtitle` / `result_icon` as encrypted at rest by default; decrypt only when presenting search hits (reuse the tenant encryption service, do not implement bespoke crypto).
+- When you add an entity field that may contain personal or GDPR-relevant data, update the default encryption map for that entity (used by `mercato init` and `seed-encryption`) in `packages/core/src/modules/entities/lib/encryptionDefaults.ts`.
 
 ## Profiling
 - Enable the tree profiler by exporting `OM_PROFILE` (or `NEXT_PUBLIC_OM_PROFILE` in the browser) with comma-separated filters (`*`, `all`, `customers.*`, etc.). Legacy flags (`OM_CRUD_PROFILE`, `OM_QE_PROFILE`) still work but should be avoided in new work.

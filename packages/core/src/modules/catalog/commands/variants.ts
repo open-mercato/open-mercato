@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CatalogProductVariant,
   CatalogProductPrice,
@@ -209,10 +210,12 @@ async function loadVariantPriceSnapshots(
   em: EntityManager,
   variantId: string
 ): Promise<VariantPriceSnapshot[]> {
-  const prices = await em.find(
+  const prices = await findWithDecryption(
+    em,
     CatalogProductPrice,
     { variant: variantId },
-    { populate: ['priceKind', 'product', 'offer'] }
+    { populate: ['priceKind', 'product', 'offer'] },
+    { tenantId: null, organizationId: null },
   )
   const snapshots: VariantPriceSnapshot[] = []
   for (const price of prices) {

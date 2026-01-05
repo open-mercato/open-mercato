@@ -2,6 +2,11 @@ import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
 import { createEventBus } from '@open-mercato/events/index'
 import { createCacheService } from '@open-mercato/cache'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function bootstrap(container: AwilixContainer) {
   // Create and register the cache service
@@ -41,5 +46,28 @@ export async function bootstrap(container: AwilixContainer) {
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
   } catch (err) {
     console.error("Failed to register module subscribers:", err);
+  }
+
+  // KMS + tenant encryption
+  const kmsService = createKmsService()
+  container.register({ kmsService: asValue(kmsService) })
+  try {
+    const em = container.resolve('em') as EntityManager
+    const cacheService = (() => {
+      try { return container.resolve('cache') as any } catch { return null }
+    })()
+    const tenantEncryptionService = new TenantDataEncryptionService(em, { cache: cacheService, kms: kmsService })
+    container.register({ tenantEncryptionService: asValue(tenantEncryptionService) })
+    if (isTenantDataEncryptionEnabled() && kmsService.isHealthy()) {
+      try {
+        registerTenantEncryptionSubscriber(em, tenantEncryptionService)
+      } catch (err) {
+        console.warn('[encryption] Failed to register MikroORM encryption subscriber:', (err as Error)?.message || err)
+      }
+    } else if (isTenantDataEncryptionEnabled() && !kmsService.isHealthy()) {
+      console.warn('[encryption] Vault/KMS unhealthy - tenant data encryption is disabled until recovery')
+    }
+  } catch (err) {
+    console.warn('[encryption] Failed to initialize tenant encryption service:', (err as Error)?.message || err)
   }
 }

@@ -32,6 +32,18 @@ const config: Config = {
         indexBlog: false,
       },
     ],
+    function disableModuleConcatenationPlugin() {
+      return {
+        name: 'disable-module-concatenation',
+        configureWebpack() {
+          return {
+            optimization: {
+              concatenateModules: false,
+            },
+          }
+        },
+      }
+    },
   ],
   presets: [
     [

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
 import type { VectorModuleConfig } from './vector'
+import type { InjectionWidgetModule, ModuleInjectionTable } from './widgets/injection'
 
 // Context passed to dynamic metadata guards
 export type RouteVisibilityContext = { path?: string; auth?: any }
@@ -104,6 +105,13 @@ export type ModuleDashboardWidgetEntry = {
   loader: () => Promise<DashboardWidgetModule<any>>
 }
 
+export type ModuleInjectionWidgetEntry = {
+  moduleId: string
+  key: string
+  source: 'app' | 'package'
+  loader: () => Promise<InjectionWidgetModule<any, any>>
+}
+
 export type Module = {
   id: string
   info?: ModuleInfo
@@ -130,6 +138,8 @@ export type Module = {
   // Discovered from ce.ts (module root). Each entry represents an entityId with optional label/description.
   customEntities?: Array<{ id: string; label?: string; description?: string }>
   dashboardWidgets?: ModuleDashboardWidgetEntry[]
+  injectionWidgets?: ModuleInjectionWidgetEntry[]
+  injectionTable?: ModuleInjectionTable
   vector?: VectorModuleConfig
 }
 

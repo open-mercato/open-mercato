@@ -69,10 +69,6 @@ export async function getOrm() {
   return ormInstance
 }
 
-export async function getEm() {
-  const orm = await getOrm()
-  return orm.em.fork({ clear: true })
-}
 
 async function closeOrmIfLoaded(): Promise<void> {
   if (ormInstance) {

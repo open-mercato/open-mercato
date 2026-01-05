@@ -6,6 +6,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { RuleExecutionLog } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { executionResultSchema } from '../../data/validators'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const querySchema = z.looseObject({
   id: z.coerce.bigint().optional(),
@@ -122,7 +123,8 @@ export async function GET(req: Request) {
   const orderByField = sortField && sortFieldMap[sortField] ? sortFieldMap[sortField] : 'executedAt'
   const orderBy = { [orderByField]: sortDir }
 
-  const [rows, count] = await em.findAndCount(
+  const [rows, count] = await findAndCountWithDecryption(
+    em,
     RuleExecutionLog,
     filters,
     {
@@ -130,7 +132,8 @@ export async function GET(req: Request) {
       offset: (page - 1) * pageSize,
       orderBy,
       populate: ['rule'],
-    }
+    },
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
   )
 
   const items = rows.map((log) => ({

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/client",
-  "version": "0.3.6",
+  "version": "0.3.11",
   "private": false,
   "type": "module",
   "main": "dist/index.js",

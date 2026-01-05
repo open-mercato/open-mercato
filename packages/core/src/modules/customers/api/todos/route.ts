@@ -20,6 +20,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPagedListResponseSchema } from '../openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const unlinkSchema = z.object({
   id: z.string().uuid(),
@@ -401,10 +402,16 @@ export async function GET(req: Request) {
       where.entity = entityId
     }
 
-    const linkEntities = await em.find(CustomerTodoLink, where, {
-      populate: ['entity'],
-      orderBy: { createdAt: 'desc' },
-    })
+    const linkEntities = await findWithDecryption(
+      em,
+      CustomerTodoLink,
+      where,
+      {
+        populate: ['entity'],
+        orderBy: { createdAt: 'desc' },
+      },
+      { tenantId, organizationId: scopedOrgIds[0] ?? null },
+    )
 
     const idsBySource = new Map<string, Set<string>>()
     for (const link of linkEntities) {

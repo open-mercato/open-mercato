@@ -57,6 +57,7 @@ import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/v
 import type { MDEditorProps as UiWMDEditorProps } from '@uiw/react-md-editor'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../primitives/dialog'
 import { FieldDefinitionsManager, type FieldDefinitionsManagerHandle } from './custom-fields/FieldDefinitionsManager'
+import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './injection/InjectionSpot'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -162,6 +163,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   contentHeader?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
+  // Optional injection spot ID for widget injection
+  injectionSpotId?: string
 }
 
 // Group-level custom component context
@@ -273,6 +276,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   extraActions,
   contentHeader,
   customFieldsetBindings,
+  injectionSpotId,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -331,6 +335,31 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return []
   }, [entityId, entityIds])
   const primaryEntityId = resolvedEntityIds.length ? resolvedEntityIds[0] : null
+  
+  // Injection spot events for widget lifecycle management
+  const resolvedInjectionSpotId = React.useMemo(() => {
+    if (injectionSpotId) return injectionSpotId
+    if (resolvedEntityIds.length) {
+      const normalized = resolvedEntityIds[0].replace(/[:]+/g, '.')
+      return `crud-form:${normalized}`
+    }
+    return undefined
+  }, [injectionSpotId, resolvedEntityIds])
+  
+  const injectionContext = React.useMemo(() => ({
+    formId,
+    entityId: primaryEntityId,
+    isLoading,
+    pending,
+  }), [formId, primaryEntityId, isLoading, pending])
+  
+  const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
+    context: injectionContext,
+    triggerOnLoad: true,
+  })
+  
+  const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
+  
   React.useEffect(() => {
     const root = rootRef.current
     if (!root) return
@@ -643,6 +672,44 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
+  
+  const injectionGroupCards = React.useMemo<CrudFormGroup[]>(() => {
+    if (!injectionWidgets || injectionWidgets.length === 0) return []
+    const pairs = injectionWidgets
+      .filter((widget) => (widget.placement?.kind ?? 'stack') === 'group')
+      .map((widget) => {
+        const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
+        const group: CrudFormGroup = {
+          id: `widget:${widget.widgetId}`,
+          title: widget.placement?.groupLabel ?? widget.module.metadata.title,
+          description: widget.placement?.groupDescription ?? widget.module.metadata.description,
+          column: widget.placement?.column === 2 ? 2 : 1,
+          component: () => (
+            <widget.module.Widget
+              context={injectionContext}
+              data={values as unknown as CrudFormValues<TValues>}
+              onDataChange={(next) => setValues(next as CrudFormValues<TValues>)}
+              disabled={pending}
+            />
+          ),
+        }
+        return { group, priority }
+      })
+    pairs.sort((a, b) => b.priority - a.priority)
+    return pairs.map((p) => p.group)
+  }, [injectionWidgets, injectionContext, pending, setValues, values])
+  
+  const shouldAutoGroup = (!groups || groups.length === 0) && injectionGroupCards.length > 0
+  const resolvedGroupsForLayout = React.useMemo(() => {
+    const baseGroups = groups && groups.length ? groups : []
+    const autoGroup = shouldAutoGroup ? [{ id: '__auto-fields__', fields: allFields }] as CrudFormGroup[] : []
+    return [...(baseGroups.length ? baseGroups : autoGroup), ...injectionGroupCards]
+  }, [allFields, groups, injectionGroupCards, shouldAutoGroup])
+  const useGroupedLayout = resolvedGroupsForLayout.length > 0
+  const stackedInjectionWidgets = React.useMemo(
+    () => (injectionWidgets ?? []).filter((widget) => (widget.placement?.kind ?? 'stack') === 'stack'),
+    [injectionWidgets],
+  )
 
   const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
     if (g.kind === 'customFields') {
@@ -684,11 +751,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [customFieldsManageHref, t])
 
   const firstFieldId = React.useMemo(() => {
-    if (groups && groups.length) {
+    if (useGroupedLayout) {
       const col1: CrudFormGroup[] = []
       const col2: CrudFormGroup[] = []
 
-      for (const g of groups) {
+      for (const g of resolvedGroupsForLayout) {
         if ((g.column ?? 1) === 2) col2.push(g)
         else col1.push(g)
       }
@@ -713,7 +780,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (field?.id && !field.disabled) return field.id
     }
     return null
-  }, [allFields, groups, resolveGroupFields])
+  }, [allFields, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
 
   const requestSubmit = React.useCallback(() => {
     if (typeof document === 'undefined') return
@@ -968,9 +1035,53 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       parsedValues = values as TValues
     }
 
+    // Trigger onBeforeSave event for injection widgets
+    if (resolvedInjectionSpotId) {
+      try {
+        const result = await triggerInjectionEvent('onBeforeSave', parsedValues, injectionContext)
+        if (!result.ok) {
+          if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
+            setErrors(result.fieldErrors)
+          }
+          const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
+          flash(message, 'error')
+          setPending(false)
+          return
+        }
+      } catch (err) {
+        console.error('[CrudForm] Error in onBeforeSave:', err)
+        flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        setPending(false)
+        return
+      }
+    }
+
     setPending(true)
+    
+    // Trigger onSave event for injection widgets
+    if (resolvedInjectionSpotId) {
+      try {
+        await triggerInjectionEvent('onSave', parsedValues, injectionContext)
+      } catch (err) {
+        console.error('[CrudForm] Error in onSave:', err)
+        flash(t('ui.forms.flash.saveBlocked', 'Save blocked by validation'), 'error')
+        setPending(false)
+        return
+      }
+    }
+    
     try {
       await onSubmit?.(parsedValues)
+      
+      // Trigger onAfterSave event for injection widgets
+      if (resolvedInjectionSpotId) {
+        try {
+          await triggerInjectionEvent('onAfterSave', parsedValues, injectionContext)
+        } catch (err) {
+          console.error('[CrudForm] Error in onAfterSave:', err)
+        }
+      }
+      
       if (successRedirect) router.push(successRedirect)
     } catch (err: unknown) {
       const { message: helperMessage, fieldErrors: serverFieldErrors } = mapCrudServerErrorToFormErrors(err, { customEntity })
@@ -1326,11 +1437,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   // If groups are provided, render the two-column grouped layout
-  if (groups && groups.length) {
+  if (useGroupedLayout) {
 
     const col1: CrudFormGroup[] = []
     const col2: CrudFormGroup[] = []
-    for (const g of groups) {
+    for (const g of resolvedGroupsForLayout) {
       if ((g.column ?? 1) === 2) col2.push(g)
       else col1.push(g)
     }
@@ -1438,9 +1549,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
           spinnerSize="md"
-          className="min-h-[400px]"
-        >
-          <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            className="min-h-[400px]"
+          >
+            <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
+            {resolvedInjectionSpotId ? (
+              <InjectionSpot
+                spotId={resolvedInjectionSpotId}
+                context={injectionContext}
+                data={values}
+                onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+                disabled={pending}
+                widgetsOverride={stackedInjectionWidgets}
+              />
+            ) : null}
             <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4">
               <div className="space-y-3">{col1Content}</div>
               <div className="space-y-3">{col2Content}</div>
@@ -1520,6 +1641,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             onSubmit={handleSubmit}
             className={`${embedded ? 'space-y-4' : 'rounded-lg border bg-card p-4 space-y-4'} ${dialogFormPadding}`}
           >
+            {resolvedInjectionSpotId ? (
+              <InjectionSpot
+                spotId={resolvedInjectionSpotId}
+                context={injectionContext}
+                data={values}
+                onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
+                disabled={pending}
+                widgetsOverride={stackedInjectionWidgets}
+              />
+            ) : null}
             <div className={grid}>
               {allFields.map((f) => {
                 const layout = f.layout ?? 'full'

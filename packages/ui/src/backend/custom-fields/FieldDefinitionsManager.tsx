@@ -348,6 +348,7 @@ export const FieldDefinitionsManager = React.forwardRef<FieldDefinitionsManagerH
         onRestoreField={(key) => { void handleRestoreField(key) }}
         onReorder={handleReorder}
         orderNotice={orderDirty ? { dirty: true, message: t('entities.customFields.orderNotice', 'Reordered — remember to save') } : undefined}
+        translate={t}
       />
     )
 

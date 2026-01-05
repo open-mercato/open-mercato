@@ -8,6 +8,7 @@ import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/vector'
+import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -16,6 +17,8 @@ import {
   type BaseFilter,
   type ResolvedJoin,
 } from '@open-mercato/shared/lib/query/join-utils'
+import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 
 function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
   if (value == null) return defaultValue
@@ -44,7 +47,7 @@ function resolveDebugVerbosity(): boolean {
 type ResultRow = Record<string, unknown>
 type ResultBuilder<TResult = ResultRow[]> = Knex.QueryBuilder<ResultRow, TResult>
 type NormalizedFilter = { field: string; op: FilterOp; value?: unknown }
-type IndexDocSource = { alias: string; entityId: EntityId }
+type IndexDocSource = { alias: string; entityId: EntityId; recordIdColumn: string }
 type PreparedCustomFieldSource = {
   alias: string
   indexAlias: string
@@ -54,6 +57,20 @@ type PreparedCustomFieldSource = {
   tenantField?: string
   table: string
 }
+type SearchRuntime = {
+  enabled: boolean
+  config: SearchConfig
+  organizationScope?: { ids: string[]; includeNull: boolean } | null
+  tenantId?: string | null
+  searchSources?: SearchTokenSource[]
+}
+
+type EncryptionResolver = () => {
+  decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
+  isEnabled?: () => boolean
+} | null
+
+type SearchTokenSource = { entity: string; recordIdColumn: string }
 
 function createQueryProfiler(entity: string): Profiler {
   const enabled = shouldEnableProfiler(entity)
@@ -77,17 +94,27 @@ export class HybridQueryEngine implements QueryEngine {
   private autoReindexEnabled: boolean | null = null
   private coverageOptimizationEnabled: boolean | null = null
   private pendingCoverageRefreshKeys = new Set<string>()
+  private searchAliasSeq = 0
 
   constructor(
     private em: EntityManager,
     private fallback: BasicQueryEngine,
     private eventBusResolver?: () => Pick<EventBus, 'emitEvent'> | null | undefined,
     private vectorServiceResolver?: () => VectorIndexService | null | undefined,
+    private encryptionResolver?: EncryptionResolver,
   ) {
     const coverageTtl = Number.parseInt(process.env.QUERY_INDEX_COVERAGE_CACHE_MS ?? '', 10)
     this.coverageStatsTtlMs = Number.isFinite(coverageTtl) && coverageTtl >= 0 ? coverageTtl : 5 * 60 * 1000
     const cfTtl = Number.parseInt(process.env.QUERY_INDEX_CF_KEYS_CACHE_MS ?? '', 10)
     this.customFieldKeysTtlMs = Number.isFinite(cfTtl) && cfTtl >= 0 ? cfTtl : 5 * 60 * 1000
+  }
+
+  private getEncryptionService() {
+    try {
+      return this.encryptionResolver?.() ?? null
+    } catch {
+      return null
+    }
   }
 
   async query<T = unknown>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -106,6 +133,7 @@ export class HybridQueryEngine implements QueryEngine {
     try {
       const debugEnabled = this.isDebugVerbosity()
       if (debugEnabled) this.debug('query:start', { entity })
+      this.searchAliasSeq = 0
 
       if (await this.isCustomEntity(entity)) {
         if (debugEnabled) this.debug('query:custom-entity', { entity })
@@ -128,6 +156,9 @@ export class HybridQueryEngine implements QueryEngine {
       profiler.mark('query:knex_ready')
       const baseTable = resolveEntityTableName(this.em, entity)
       profiler.mark('query:base_table_resolved')
+      const searchConfig = resolveSearchConfig()
+      const orgScope = this.resolveOrganizationScope(opts)
+      const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
 
       const baseExists = await profiler.measure('base_table_exists', () => this.tableExists(baseTable))
       if (!baseExists) {
@@ -139,7 +170,6 @@ export class HybridQueryEngine implements QueryEngine {
 
       const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:'))
-      const orgScope = this.resolveOrganizationScope(opts)
       const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && field.startsWith('cf:')) ||
@@ -262,6 +292,12 @@ export class HybridQueryEngine implements QueryEngine {
     const hasOrganizationColumn = await this.columnExists(baseTable, 'organization_id')
     const hasTenantColumn = await this.columnExists(baseTable, 'tenant_id')
     const hasDeletedColumn = await this.columnExists(baseTable, 'deleted_at')
+    const searchRuntimeBase = {
+      enabled: false,
+      config: searchConfig,
+      organizationScope: orgScope,
+      tenantId: opts.tenantId ?? null,
+    }
 
     if (orgScope && hasOrganizationColumn) {
       builder = this.applyOrganizationScope(builder, qualify('organization_id'), orgScope)
@@ -291,10 +327,11 @@ export class HybridQueryEngine implements QueryEngine {
     builder = builder.leftJoin({ ei: 'entity_indexes' }, knex.raw(baseJoinParts.join(' AND ')))
 
     const columns = await this.getBaseColumnsForEntity(entity)
-    const indexSources: IndexDocSource[] = [{ alias: 'ei', entityId: entity }]
+    const indexSources: IndexDocSource[] = [{ alias: 'ei', entityId: entity, recordIdColumn: 'b.id' }]
 
-    if (wantsCf && Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0) {
-      const prepared = this.prepareCustomFieldSources(knex, builder, opts.customFieldSources, qualify)
+    const shouldAttachCustomSources = Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && (wantsCf || searchEnabled)
+    if (shouldAttachCustomSources) {
+      const prepared = this.prepareCustomFieldSources(knex, builder, opts.customFieldSources ?? [], qualify)
       builder = prepared.builder
       for (const source of prepared.sources) {
         const fragments: string[] = []
@@ -316,7 +353,7 @@ export class HybridQueryEngine implements QueryEngine {
         }
         if (!opts.withDeleted) fragments.push(`${source.indexAlias}.deleted_at is null`)
         builder = builder.leftJoin({ [source.indexAlias]: 'entity_indexes' }, knex.raw(fragments.join(' AND ')))
-        indexSources.push({ alias: source.indexAlias, entityId: source.entityId })
+        indexSources.push({ alias: source.indexAlias, entityId: source.entityId, recordIdColumn: `${source.alias}.${source.recordIdColumn}` })
       }
     }
 
@@ -325,6 +362,54 @@ export class HybridQueryEngine implements QueryEngine {
         entity,
         sources: indexSources.map((src) => ({ alias: src.alias, entity: src.entityId })),
       })
+    }
+
+    const searchSources: SearchTokenSource[] = indexSources
+      .map((src) => ({
+        entity: String(src.entityId),
+        recordIdColumn: src.recordIdColumn,
+      }))
+      .filter((src) => src.recordIdColumn && src.entity)
+    const hasSearchTokens = searchEnabled && searchSources.length
+      ? await this.searchSourcesHaveTokens(searchSources, opts.tenantId ?? null, orgScope)
+      : false
+    const searchRuntime: SearchRuntime = { ...searchRuntimeBase, searchSources, enabled: searchEnabled && hasSearchTokens }
+    const searchFilters = normalizeFilters(opts.filters).filter((filter) => filter.op === 'like' || filter.op === 'ilike')
+    if (searchFilters.length) {
+      this.logSearchDebug('search:init', {
+        entity,
+        baseTable,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: orgScope,
+        fields: searchFilters.map((filter) => String(filter.field)),
+        searchEnabled,
+        hasSearchTokens,
+        searchSources,
+        searchConfig: {
+          enabled: searchConfig.enabled,
+          minTokenLength: searchConfig.minTokenLength,
+          enablePartials: searchConfig.enablePartials,
+          hashAlgorithm: searchConfig.hashAlgorithm,
+          blocklistedFields: searchConfig.blocklistedFields,
+        },
+      })
+      if (!searchEnabled) {
+        this.logSearchDebug('search:disabled', { entity, baseTable })
+      } else if (!hasSearchTokens) {
+        this.logSearchDebug('search:no-search-tokens', {
+          entity,
+          baseTable,
+          tenantId: opts.tenantId ?? null,
+          organizationScope: orgScope,
+          searchSources,
+        })
+      }
+    }
+    const hasNonBaseSearchSource = searchSources.some(
+      (src) => src.entity !== String(entity) || src.recordIdColumn !== 'b.id'
+    )
+    if (hasNonBaseSearchSource) {
+      optimizedCountBuilder = null
     }
 
     if (!partialIndexWarning && Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0 && this.isForcePartialIndexEnabled()) {
@@ -422,16 +507,36 @@ export class HybridQueryEngine implements QueryEngine {
     }
 
     for (const filter of cfFilters) {
-      builder = this.applyCfFilterAcrossSources(knex, builder, filter.field, filter.op, filter.value, indexSources)
+      builder = this.applyCfFilterAcrossSources(
+        knex,
+        builder,
+        filter.field,
+        filter.op,
+        filter.value,
+        indexSources,
+        searchRuntime
+      )
     }
 
     for (const filter of baseFilters) {
       const baseField = resolveBaseColumn(String(filter.field))
       if (!baseField) continue
       const column = qualify(baseField)
-      builder = this.applyColumnFilter(builder, column, filter)
+      builder = this.applyColumnFilter(builder, column, filter, {
+        ...searchRuntime,
+        knex,
+        entity,
+        field: String(filter.field),
+        recordIdColumn: 'b.id',
+      })
       if (optimizedCountBuilder) {
-        optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter)
+        optimizedCountBuilder = this.applyColumnFilter(optimizedCountBuilder, column, filter, {
+          ...searchRuntime,
+          knex,
+          entity,
+          field: String(filter.field),
+          recordIdColumn: 'b.id',
+        })
       }
     }
 
@@ -598,14 +703,61 @@ export class HybridQueryEngine implements QueryEngine {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
     }
-    const items = await this.captureSqlTiming(
+    const itemsRaw = await this.captureSqlTiming(
       'query:sql:data',
       entity,
       () => dataBuilder,
       { page, pageSize },
       profiler
     )
-    if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(items) ? items.length : 0 })
+    if (debugEnabled) this.debug('query:complete', { entity, total, items: Array.isArray(itemsRaw) ? itemsRaw.length : 0 })
+
+    let items = itemsRaw as any[]
+    const encSvc = this.getEncryptionService()
+    const dekKeyCache = new Map<string | null, string | null>()
+    if (encSvc?.decryptEntityPayload) {
+      const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
+        entityId: EntityId,
+        payload: Record<string, unknown>,
+        tenantId: string | null,
+        organizationId: string | null,
+      ) => Promise<Record<string, unknown>>
+      items = await Promise.all(
+        items.map(async (item) => {
+          try {
+            const decrypted = await decrypt(
+              entity,
+              item,
+              item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+              item?.organization_id ?? item?.organizationId ?? null,
+            )
+            return { ...item, ...decrypted }
+          } catch (err) {
+            console.error('Error decrypting entity payload', err);
+            return item
+          }
+        })
+      )
+    }
+    if (encSvc) {
+      items = await Promise.all(
+        items.map(async (item) => {
+          try {
+            return await decryptIndexDocCustomFields(
+              item,
+              {
+                tenantId: item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null,
+                organizationId: item?.organization_id ?? item?.organizationId ?? null,
+              },
+              encSvc as any,
+              dekKeyCache,
+            )
+          } catch {
+            return item
+          }
+        }),
+      )
+    }
 
     const typedItems = items as unknown as T[]
     const result: QueryResult<T> = { items: typedItems, page, pageSize, total }
@@ -682,6 +834,59 @@ export class HybridQueryEngine implements QueryEngine {
     }
   }
 
+  private applySearchTokens<TRecord extends ResultRow, TResult>(
+    q: Knex.QueryBuilder<TRecord, TResult>,
+    opts: {
+      knex: Knex
+      entity: string
+      field: string
+      hashes: string[]
+      recordIdColumn: string
+      tenantId?: string | null
+      organizationScope?: { ids: string[]; includeNull: boolean } | null
+      combineWith?: 'and' | 'or'
+    }
+  ): boolean {
+    if (!opts.hashes.length) {
+      this.logSearchDebug('search:skip-no-hashes', {
+        entity: opts.entity,
+        field: opts.field,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: opts.organizationScope,
+      })
+      return false
+    }
+    const alias = `st_${this.searchAliasSeq++}`
+    const combineWith = opts.combineWith === 'or' ? 'orWhereExists' : 'whereExists'
+    const engine = this
+    this.logSearchDebug('search:apply-search-tokens', {
+      entity: opts.entity,
+      field: opts.field,
+      alias,
+      tokenCount: opts.hashes.length,
+      tenantId: opts.tenantId ?? null,
+      organizationScope: opts.organizationScope,
+      combineWith: opts.combineWith ?? 'and',
+    })
+    ;(q as any)[combineWith](function (this: Knex.QueryBuilder) {
+      this.select(1)
+        .from({ [alias]: 'search_tokens' })
+        .where(`${alias}.entity_type`, opts.entity)
+        .andWhere(`${alias}.field`, opts.field)
+        .andWhereRaw('?? = ??::text', [`${alias}.entity_id`, opts.recordIdColumn])
+        .whereIn(`${alias}.token_hash`, opts.hashes)
+        .groupBy(`${alias}.entity_id`, `${alias}.field`)
+        .havingRaw(`count(distinct ${alias}.token_hash) >= ?`, [opts.hashes.length])
+      if (opts.tenantId !== undefined) {
+        this.andWhereRaw(`${alias}.tenant_id is not distinct from ?`, [opts.tenantId ?? null])
+      }
+      if (opts.organizationScope) {
+        engine.applyOrganizationScope(this as any, `${alias}.organization_id`, opts.organizationScope)
+      }
+    })
+    return true
+  }
+
   private jsonbRawAlias(knex: Knex, alias: string, key: string): Knex.Raw {
     // Prefer cf:<key> but fall back to bare <key> for legacy docs
     if (key.startsWith('cf:')) {
@@ -712,9 +917,51 @@ export class HybridQueryEngine implements QueryEngine {
     key: string,
     op: FilterOp,
     value: unknown,
-    sources: IndexDocSource[]
+    sources: IndexDocSource[],
+    search?: SearchRuntime
   ): ResultBuilder {
     if (!sources.length) return builder
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      const tokens = tokenizeText(String(value), search.config)
+      const hashes = tokens.hashes
+      if (hashes.length) {
+        let applied = false
+        if (sources.length) {
+          builder = builder.where((qb) => {
+            sources.forEach((source, idx) => {
+              const ok = this.applySearchTokens(qb as any, {
+                knex,
+                entity: source.entityId,
+                field: key,
+                hashes,
+                recordIdColumn: `${source.alias}.entity_id`,
+                tenantId: search.tenantId ?? null,
+                organizationScope: search.organizationScope ?? null,
+                combineWith: idx === 0 ? 'and' : 'or',
+              })
+              if (ok) applied = true
+            })
+          })
+        }
+        this.logSearchDebug('search:cf-filter-across', {
+          entity: sources.map((src) => src.entityId),
+          field: key,
+          tokens: tokens.tokens,
+          hashes,
+          applied,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope,
+        })
+        if (applied) return builder
+      } else {
+        this.logSearchDebug('search:cf-skip-empty-hashes', {
+          entity: sources.map((src) => src.entityId),
+          field: key,
+          value,
+        })
+      }
+      return builder
+    }
     const { jsonSql, textSql } = this.buildCfExpressions(knex, key, sources)
     if (jsonSql === 'NULL' || textSql === 'NULL') return builder
     const textExpr = knex.raw(textSql)
@@ -764,13 +1011,47 @@ export class HybridQueryEngine implements QueryEngine {
     knex: Knex,
     q: ResultBuilder,
     alias: string,
+    entityType: string,
     key: string,
     op: FilterOp,
-    value: unknown
+    value: unknown,
+    search?: SearchRuntime
   ): ResultBuilder {
     const text = this.cfTextExprAlias(knex, alias, key)
     const arrExpr = knex.raw(`(${alias}.doc -> ?)`, [key])
     const arrContains = (val: unknown) => knex.raw(`${arrExpr.toString()} @> ?::jsonb`, [JSON.stringify([val])])
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      const tokens = tokenizeText(String(value), search.config)
+      const hashes = tokens.hashes
+      if (hashes.length) {
+        const applied = this.applySearchTokens(q, {
+          knex,
+          entity: entityType,
+          field: key,
+          hashes,
+          recordIdColumn: `${alias}.entity_id`,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope ?? null,
+        })
+        this.logSearchDebug('search:cf-filter', {
+          entity: entityType,
+          field: key,
+          tokens: tokens.tokens,
+          hashes,
+          applied,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope,
+        })
+        if (applied) return q
+      } else {
+        this.logSearchDebug('search:cf-skip-empty-hashes', {
+          entity: entityType,
+          field: key,
+          value,
+        })
+      }
+      return q
+    }
     switch (op) {
       case 'eq':
         return q.where((builder) => {
@@ -826,22 +1107,45 @@ export class HybridQueryEngine implements QueryEngine {
       q = this.applyOrganizationScope(q, `${alias}.organization_id`, orgScope)
     }
     if (!opts.withDeleted) q = q.whereNull(`${alias}.deleted_at`)
+    const searchConfig = resolveSearchConfig()
+    const searchEnabled = searchConfig.enabled && await this.tableExists('search_tokens')
+    const hasSearchTokens = searchEnabled
+      ? await this.hasSearchTokens(entity, opts.tenantId ?? null, orgScope)
+      : false
+    const searchRuntime: SearchRuntime = {
+      enabled: searchEnabled && hasSearchTokens,
+      config: searchConfig,
+      organizationScope: orgScope,
+      tenantId: opts.tenantId ?? null,
+    }
 
     const normalizedFilters = normalizeFilters(opts.filters)
 
     // Apply filters: cf:* via JSONB; other keys: special-case id/created_at/updated_at/deleted_at, otherwise from doc
     for (const filter of normalizedFilters) {
       if (filter.field.startsWith('cf:')) {
-        q = this.applyCfFilterFromAlias(knex, q, alias, filter.field, filter.op, filter.value)
+        q = this.applyCfFilterFromAlias(knex, q, alias, entity, filter.field, filter.op, filter.value, searchRuntime)
         continue
       }
       const column = this.resolveCustomEntityColumn(alias, String(filter.field))
       if (column) {
-        q = this.applyColumnFilter(q, column, filter)
+        q = this.applyColumnFilter(q, column, filter, {
+          ...searchRuntime,
+          knex,
+          entity,
+          field: String(filter.field),
+          recordIdColumn: `${alias}.entity_id`,
+        })
         continue
       }
       const docExpr = knex.raw(`(${alias}.doc ->> ?)`, [String(filter.field)])
-      q = this.applyColumnFilter(q, docExpr, filter)
+      q = this.applyColumnFilter(q, docExpr, filter, {
+        ...searchRuntime,
+        knex,
+        entity,
+        field: String(filter.field),
+        recordIdColumn: `${alias}.entity_id`,
+      })
     }
 
     // Determine CFs to include
@@ -938,6 +1242,52 @@ export class HybridQueryEngine implements QueryEngine {
     const knex = this.getKnex()
     const exists = await knex('information_schema.tables').where({ table_name: table }).first()
     return !!exists
+  }
+
+  private async hasSearchTokens(
+    entity: string,
+    tenantId: string | null,
+    orgScope?: { ids: string[]; includeNull: boolean } | null
+  ): Promise<boolean> {
+    try {
+      const knex = this.getKnex()
+      const query = knex('search_tokens').select(1).where('entity_type', entity).limit(1)
+      if (tenantId !== undefined) {
+        query.andWhereRaw('tenant_id is not distinct from ?', [tenantId])
+      }
+      if (orgScope) {
+        this.applyOrganizationScope(query as any, 'search_tokens.organization_id', orgScope)
+      }
+      const row = await query.first()
+      return !!row
+    } catch (err) {
+      this.logSearchDebug('search:has-tokens-error', {
+        entity,
+        tenantId,
+        organizationScope: orgScope,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return false
+    }
+  }
+
+  private async searchSourcesHaveTokens(
+    sources: SearchTokenSource[],
+    tenantId: string | null,
+    orgScope?: { ids: string[]; includeNull: boolean } | null
+  ): Promise<boolean> {
+    for (const source of sources) {
+      const ok = await this.hasSearchTokens(source.entity, tenantId, orgScope)
+      this.logSearchDebug('search:source-has-tokens', {
+        entity: source.entity,
+        recordIdColumn: source.recordIdColumn,
+        tenantId,
+        organizationScope: orgScope,
+        hasTokens: ok,
+      })
+      if (ok) return true
+    }
+    return false
   }
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
@@ -1332,11 +1682,71 @@ export class HybridQueryEngine implements QueryEngine {
     return 0
   }
 
+  private logSearchDebug(event: string, payload: Record<string, unknown>) {
+    if (!this.isDebugVerbosity()) return
+    try {
+      console.info('[query-index:search]', event, JSON.stringify(payload))
+    } catch {
+      console.info('[query-index:search]', event, payload)
+    }
+  }
+
   private applyColumnFilter<TRecord extends ResultRow, TResult>(
     q: Knex.QueryBuilder<TRecord, TResult>,
     column: string | Knex.Raw,
-    filter: NormalizedFilter
+    filter: NormalizedFilter,
+    search?: SearchRuntime & { knex: Knex; entity: string; field: string; recordIdColumn?: string }
   ): Knex.QueryBuilder<TRecord, TResult> {
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      search?.enabled &&
+      typeof filter.value === 'string'
+    ) {
+      const tokens = tokenizeText(String(filter.value), search.config)
+      const hashes = tokens.hashes
+      if (hashes.length) {
+        const sources: SearchTokenSource[] = (search.searchSources && search.searchSources.length
+          ? search.searchSources
+          : [{ entity: search.entity, recordIdColumn: search.recordIdColumn ?? '' }]
+        ).filter((src) => src.recordIdColumn && src.entity)
+        let applied = false
+        if (sources.length) {
+          q = q.where((qb) => {
+            sources.forEach((src, idx) => {
+              const ok = this.applySearchTokens(qb as any, {
+                knex: search.knex,
+                entity: src.entity,
+                field: search.field,
+                hashes,
+                recordIdColumn: src.recordIdColumn,
+                tenantId: search.tenantId ?? null,
+                organizationScope: search.organizationScope ?? null,
+                combineWith: idx === 0 ? 'and' : 'or',
+              })
+              if (ok) applied = true
+            })
+          })
+        }
+        this.logSearchDebug('search:filter', {
+          entity: search.entity,
+          field: search.field,
+          tokens: tokens.tokens,
+          hashes,
+          applied,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope,
+          sources: sources.map((src) => ({ entity: src.entity, recordIdColumn: src.recordIdColumn })),
+        })
+        if (applied) return q
+      } else {
+        this.logSearchDebug('search:skip-empty-hashes', {
+          entity: search.entity,
+          field: search.field,
+          value: filter.value,
+        })
+      }
+      return q
+    }
     const col = column as any
     switch (filter.op) {
       case 'eq':

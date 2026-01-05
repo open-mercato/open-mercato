@@ -36,6 +36,7 @@ export const upsertCustomFieldDefSchema = z.object({
       formEditable: z.boolean().optional(),
       listVisible: z.boolean().optional(),
       priority: z.number().optional(),
+      encrypted: z.boolean().optional(),
       relatedEntityId: z.string().optional(),
       dictionaryId: z.string().uuid().optional(),
       dictionaryInlineCreate: z.boolean().optional(),
@@ -74,5 +75,19 @@ export const customFieldEntityConfigSchema = z.object({
   singleFieldsetPerRecord: z.boolean().optional(),
 })
 
+export const encryptionFieldRuleSchema = z.object({
+  field: z.string().min(1).max(200),
+  hashField: z.string().min(1).max(200).optional().nullable(),
+})
+
+export const upsertEncryptionMapSchema = z.object({
+  entityId: z.string().regex(entityIdRegex),
+  tenantId: z.string().uuid().nullable().optional(),
+  organizationId: z.string().uuid().nullable().optional(),
+  fields: z.array(encryptionFieldRuleSchema).min(1),
+  isActive: z.boolean().optional(),
+})
+
 export type UpsertCustomEntityInput = z.infer<typeof upsertCustomEntitySchema>
 export type UpsertCustomFieldDefInput = z.infer<typeof upsertCustomFieldDefSchema>
+export type UpsertEncryptionMapInput = z.infer<typeof upsertEncryptionMapSchema>

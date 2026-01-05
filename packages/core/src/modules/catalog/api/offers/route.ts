@@ -15,6 +15,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -102,10 +103,12 @@ export async function decorateOffersWithDetails(
         )
       : [],
     offerIds.length
-      ? em.find(
+      ? findWithDecryption(
+          em,
           CatalogProductPrice,
           { offer: { $in: offerIds } },
           { populate: ['priceKind'] },
+          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
         )
       : [],
     productIds.length
@@ -217,7 +220,8 @@ export async function decorateOffersWithDetails(
   const defaultVariantIds = Array.from(variantToProductMap.keys())
   if (defaultVariantIds.length) fallbackTargets.push({ variant: { $in: defaultVariantIds } })
   const fallbackEntries = fallbackTargets.length
-    ? await em.find(
+    ? await findWithDecryption(
+        em,
         CatalogProductPrice,
         {
           offer: null,
@@ -234,6 +238,7 @@ export async function decorateOffersWithDetails(
           ],
         },
         { populate: ['priceKind'] },
+        { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
       )
     : []
   fallbackEntries.forEach((entry) => {

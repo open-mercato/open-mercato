@@ -2,12 +2,20 @@ import { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import crypto from 'node:crypto'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
 
   async findUserByEmail(email: string) {
-    return this.em.findOne(User, { email })
+    const emailHash = computeEmailHash(email)
+    return this.em.findOne(User, {
+      $or: [
+        { email },
+        { emailHash },
+      ],
+    } as any)
   }
 
   async verifyPassword(user: User, password: string) {
@@ -16,17 +24,21 @@ export class AuthService {
   }
 
   async updateLastLoginAt(user: User) {
-    user.lastLoginAt = new Date()
-    await this.em.flush()
+    const now = new Date()
+    // Use native update to avoid flushing unrelated entities that might be pending in this EM
+    await this.em.nativeUpdate(User, { id: user.id }, { lastLoginAt: now })
+    user.lastLoginAt = now
   }
 
   async getUserRoles(user: User, tenantId?: string | null): Promise<string[]> {
     const resolvedTenantId = tenantId ?? user.tenantId ?? null
     if (!resolvedTenantId) return []
-    const links = await this.em.find(
+    const links = await findWithDecryption(
+      this.em,
       UserRole,
       { user, role: { tenantId: resolvedTenantId } as any },
       { populate: ['role'] },
+      { tenantId: resolvedTenantId, organizationId: user.organizationId ?? null },
     )
     return links.map((l) => l.role.name)
   }

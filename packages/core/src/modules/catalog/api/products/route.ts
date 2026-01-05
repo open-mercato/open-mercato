@@ -39,6 +39,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 const rawBodySchema = z.object({}).passthrough()
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
@@ -398,10 +399,12 @@ async function decorateProductsAfterList(
     categoriesByProduct.set(productId, bucket)
   }
 
-  const tagAssignments = await em.find(
+  const tagAssignments = await findWithDecryption(
+    em,
     CatalogProductTagAssignment,
     { product: { $in: productIds } },
-    { populate: ['tag'] }
+    { populate: ['tag'] },
+    { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
   )
   const tagsByProduct = new Map<string, string[]>()
   for (const assignment of tagAssignments) {

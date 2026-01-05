@@ -16,6 +16,7 @@ import {
 } from '../openapi'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_shipment'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -173,10 +174,12 @@ const crud = makeCrudRoute({
       if (!shipmentIds.length) return
       const em = ctx.container.resolve('em') as EntityManager
       const [shipmentItems, shippingMethods] = await Promise.all([
-        em.find(
+        findWithDecryption(
+          em,
           SalesShipmentItem,
           { shipment: { $in: shipmentIds } },
-          { populate: ['orderLine'] }
+          { populate: ['orderLine'] },
+          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
         ),
         (async () => {
           const ids: string[] = Array.from(

@@ -9,6 +9,13 @@ import {
   DEFAULT_ORDER_NUMBER_FORMAT,
   DEFAULT_QUOTE_NUMBER_FORMAT,
 } from '@open-mercato/core/modules/sales/lib/documentNumberTokens'
+import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
+import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
@@ -143,7 +150,13 @@ export async function setupInitialTenant(
       await tem.flush()
 
       const requiredRoleSet = new Set([...roleNames, ...primaryRoles])
-      const links = await tem.find(UserRole, { user: existingUser }, { populate: ['role'] })
+      const links = await findWithDecryption(
+        tem,
+        UserRole,
+        { user: existingUser },
+        { populate: ['role'] },
+        { tenantId: roleTenantId, organizationId: null },
+      )
       const currentRoles = new Set(links.map((link) => link.role.name))
       for (const roleName of requiredRoleSet) {
         if (!currentRoles.has(roleName)) {
@@ -184,6 +197,29 @@ export async function setupInitialTenant(
     organizationId = String(organization.id)
     const roleTenantId = tenantId
 
+    if (isTenantDataEncryptionEnabled()) {
+      try {
+        const kms = createKmsService()
+        if (kms.isHealthy()) {
+          if (isEncryptionDebugEnabled()) {
+            console.info('🔑 [encryption][setup] provisioning tenant DEK', { tenantId: String(tenant.id) })
+          }
+          await kms.createTenantDek(String(tenant.id))
+          if (isEncryptionDebugEnabled()) {
+            console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
+          }   
+        } else {
+          if (isEncryptionDebugEnabled()) {
+            console.warn('⚠️ [encryption][setup] KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
+          }
+        }
+      } catch (err) {
+        if (isEncryptionDebugEnabled()) {
+          console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
+        }   
+      }
+    }
+
     const baseUsers: Array<{ email: string; roles: string[]; name?: string | null }> = [
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
@@ -200,20 +236,51 @@ export async function setupInitialTenant(
     await ensureRolesInContext(tem, roleNames, roleTenantId)
     await tem.flush()
 
+    let encryptionService: TenantDataEncryptionService | null = null
+    if (isTenantDataEncryptionEnabled()) {
+      for (const spec of DEFAULT_ENCRYPTION_MAPS) {
+        const existing = await tem.findOne(EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null })
+        if (!existing) {
+          tem.persist(tem.create(EncryptionMap, {
+            entityId: spec.entityId,
+            tenantId: tenant.id,
+            organizationId: organization.id,
+            fieldsJson: spec.fields,
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }))
+        } else {
+          existing.fieldsJson = spec.fields
+          existing.isActive = true
+        }
+      }
+      await tem.flush()
+      encryptionService = new TenantDataEncryptionService(tem as any, { kms: createKmsService() })
+    }
+
     for (const base of baseUsers) {
       let user = await tem.findOne(User, { email: base.email })
       const confirm = primaryUser.confirm ?? true
+      const encryptedPayload = encryptionService
+        ? await encryptionService.encryptEntityPayload('auth:user', { email: base.email }, tenantId, organizationId)
+        : { email: base.email, emailHash: computeEmailHash(base.email) }
       if (user) {
         user.passwordHash = passwordHash
         user.organizationId = organization.id
         user.tenantId = tenant.id
+        if (isTenantDataEncryptionEnabled()) {
+          user.email = encryptedPayload.email as any
+          user.emailHash = (encryptedPayload as any).emailHash ?? computeEmailHash(base.email)
+        }
         if (base.name) user.name = base.name
         if (confirm) user.isConfirmed = true
         tem.persist(user)
         userSnapshots.push({ user, roles: base.roles, created: false })
       } else {
         user = tem.create(User, {
-          email: base.email,
+          email: (encryptedPayload as any).email ?? base.email,
+          emailHash: isTenantDataEncryptionEnabled() ? (encryptedPayload as any).emailHash ?? computeEmailHash(base.email) : undefined,
           passwordHash,
           organizationId: organization.id,
           tenantId: tenant.id,

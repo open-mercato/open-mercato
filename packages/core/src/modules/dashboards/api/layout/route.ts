@@ -71,7 +71,8 @@ export async function GET(req: Request) {
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as any
+  // Use a fresh fork to avoid carrying over pending entities from other operations
+  const em = (container.resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
   const rbac = container.resolve('rbacService') as any
   const url = new URL(req.url)
 
@@ -199,7 +200,7 @@ export async function PUT(req: Request) {
   }
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as any
+  const em = (resolve('em') as any).fork({ clear: true, freshEventManager: true, useContext: true })
   const rbac = resolve('rbacService') as any
 
   const scope: LayoutScope = {

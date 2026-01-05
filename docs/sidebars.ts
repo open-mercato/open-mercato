@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/custom-fieldsets",
+        "user-guide/encryption",
         "user-guide/user-custom-fields",
         "user-guide/dictionaries",
         "user-guide/user-entities",
@@ -75,7 +76,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview"],
+      items: ["architecture/system-overview", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -184,10 +185,10 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/database/entities",
             "framework/database/data-extensibility",
-          "framework/database/query-engine",
-          "framework/database/hybrid-query-engine",
-          "framework/database/query-index",
-          "framework/database/vector-search",
+            "framework/database/query-engine",
+            "framework/database/hybrid-query-engine",
+            "framework/database/query-index",
+            "framework/database/vector-search",
           ],
         },
         "framework/custom-entities/overview",
@@ -199,6 +200,7 @@ const sidebars: SidebarsConfig = {
             "framework/admin-ui/crud-form",
             "framework/admin-ui/field-registry",
             "framework/admin-ui/custom-field-validation",
+            "framework/widget-injection",
             "framework/admin-ui/perspectives"
           ],
         },
@@ -211,8 +213,9 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "API Routes",
           items: [
-            "framework/api/overview",
+            "framework/api/api-development-guide",
             "framework/api/crud-factory",
+            "framework/api/building-api-modules",
             "framework/api/extending-api",
           ],
         },
@@ -250,9 +253,7 @@ const sidebars: SidebarsConfig = {
         {
           type: "category",
           label: "Business Rules",
-          items: [
-            "tutorials/business-rules/material-availability",
-          ],
+          items: ["tutorials/business-rules/material-availability"],
         },
       ],
     },

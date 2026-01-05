@@ -55,6 +55,9 @@
       "@open-mercato/core/generated/*": [
         "./packages/core/generated/*"
       ],
+      "@open-mercato/core/generated/entity-fields-registry": [
+        "./packages/core/generated/entity-fields-registry.ts"
+      ],
       "@open-mercato/example/*": [
         "./packages/example/src/*"
       ],

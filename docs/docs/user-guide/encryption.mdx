@@ -1,0 +1,88 @@
+---
+title: Encryption setup
+description: Turn on tenant data encryption, wire encryption maps in code, and manage encrypted fields in the admin UI.
+---
+
+Use tenant data encryption to protect sensitive columns with per-tenant DEKs, keep deterministic hashes for lookups, and let admins choose which fields stay encrypted.
+
+## Environment switches
+
+- `TENANT_DATA_ENCRYPTION` – `yes|no` (default `yes`). Set to `no` to run unencrypted (hooks no-op, validation stays).
+- `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to log map evaluation, Vault calls, cache hits, and fallback selection.
+- `VAULT_ADDR`, `VAULT_TOKEN` – required for HashiCorp Vault KMS. Example: `https://vault.example.com`.
+- `VAULT_KV_PATH` – KV v2 mount for tenant keys (default `secret/data`).
+- Fallback (dev / when Vault is down): set `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (preferred) or `TENANT_DATA_ENCRYPTION_KEY`. If none are set, `AUTH_SECRET`/`NEXTAUTH_SECRET` is used in dev; production falls back to noop KMS.
+
+Note: changing encryption maps or toggling the **Encrypted** flag on a custom field only applies to data written after the change; previously stored values stay as they were unless you re-save or migrate them.
+
+## Vector search embeddings (important)
+
+When using the `vector` module (vector search / embeddings), be aware that **embeddings are stored unencrypted** (for example, in Postgres pgvector the raw vector is stored in `vector_search.embedding`). Even though the source text is decrypted only transiently to compute the embedding and result metadata is encrypted by default, embeddings can still indirectly encode information about the underlying text.
+
+In practice, reconstructing the original text from embeddings is difficult, but treat embeddings as sensitive data:
+
+- Avoid embedding raw PII/high-sensitivity text; redact or transform inputs in your module’s `buildSource`.
+- Limit database access to the vector store and rely on disk-level / managed database encryption-at-rest where possible.
+
+## Vault setup (KMS)
+
+1. Enable KV v2 and pick a mount, e.g. `secret/`:
+   - `vault secrets enable -path=secret kv-v2`
+2. Export envs for the backend:
+   - `VAULT_ADDR=https://vault.example.com`
+   - `VAULT_TOKEN=<token>`
+   - `VAULT_KV_PATH=secret/data`
+   - `TENANT_DATA_ENCRYPTION=yes`
+3. Start the app; DEKs are created per tenant at `secret/data/tenant_key_<tenantId>`.
+4. To pre-create a key manually (optional): `vault kv put secret/tenant_key_<tenantId> key=$(openssl rand -base64 32)`.
+
+## Define encryption maps in code
+
+- Default maps live at `packages/core/src/modules/entities/lib/encryptionDefaults.ts`. Add an entry per entity:
+
+```ts
+{
+  entityId: 'customers:customer_address',
+  fields: [
+    { field: 'postal_code' },
+    { field: 'email', hashField: 'email_hash' }, // add hash when lookups must stay deterministic
+  ],
+}
+```
+
+- Seed or update maps for a tenant with the CLI (respects the env toggle):
+  - `npm run cli -- entities:seed-encryption --tenant <tenantId> [--organization <orgId>]`
+- During `auth:setup`, maps from `DEFAULT_ENCRYPTION_MAPS` are applied automatically when encryption is enabled.
+
+## Manage maps in the UI
+
+Open **Configuration → Encryption**. Pick an entity, toggle **Encryption enabled for this entity**, and choose which fields are encrypted plus optional hash columns.
+
+![Encryption map editor](/screenshots/open-mercato-encryption-settings.png)
+
+Notes:
+- Maps are per tenant/organization; use field names from your entities.
+- Hash fields let you keep deterministic lookups (e.g., login by email) while the main column is encrypted.
+- Click **Save encryption map** to persist and invalidate caches.
+
+## Encrypt custom fields
+
+When defining a custom field, check **Encrypted** to store its values with the tenant DEK. Works for text, multiline, integer, float, boolean, select, and relation kinds.
+
+![Encrypted custom field toggle](/screenshots/open-mercato-encrypted-custom-fields.png)
+
+## Debugging
+
+- Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
+- Debug logs also call out Vault health and the selected KMS path (Vault vs derived vs noop) so you can verify `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` without exposing the token value.
+- If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext).
+- Use **Configuration → System status** to confirm the active values of the encryption env vars in the running instance.
+
+## Running without Vault
+
+If you don’t want to depend on Vault, set a fallback secret and the runtime will derive tenant keys from it:
+
+- `TENANT_DATA_ENCRYPTION=yes`
+- `TENANT_DATA_ENCRYPTION_FALLBACK_KEY=<32+ char secret>` (preferred) or `TENANT_DATA_ENCRYPTION_KEY=<secret>`
+
+When Vault is down or not configured, a warning banner appears and shows which env var supplied the derived key. Avoid short/shared secrets—treat this like any other encryption root and store it securely.

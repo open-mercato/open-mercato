@@ -15,6 +15,8 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -108,12 +110,14 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const em = (container.resolve('em') as EntityManager)
 
-  const deal = await em.findOne(
+  const deal = await findOneWithDecryption(
+    em,
     CustomerDeal,
     { id: parsedParams.data.id, deletedAt: null },
     {
       populate: ['people.person', 'people.person.personProfile', 'companies.company', 'companies.company.companyProfile'],
     },
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
   )
   if (!deal) {
     return notFound('Deal not found')
@@ -135,16 +139,36 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return forbidden('Access denied')
   }
 
-  const personLinks = await em.find(
+  const decryptionScope = {
+    tenantId: deal.tenantId ?? auth.tenantId ?? null,
+    organizationId: deal.organizationId ?? auth.orgId ?? null,
+  }
+  const personLinks = await findWithDecryption(
+    em,
     CustomerDealPersonLink,
     { deal: deal.id },
     { populate: ['person', 'person.personProfile'] },
+    decryptionScope,
   )
-  const companyLinks = await em.find(
+  const companyLinks = await findWithDecryption(
+    em,
     CustomerDealCompanyLink,
     { deal: deal.id },
     { populate: ['company', 'company.companyProfile'] },
+    decryptionScope,
   )
+  const fallbackTenantId = deal.tenantId ?? auth.tenantId ?? null
+  const fallbackOrgId = deal.organizationId ?? auth.orgId ?? null
+  await decryptEntitiesWithFallbackScope(personLinks, {
+    em,
+    tenantId: fallbackTenantId,
+    organizationId: fallbackOrgId,
+  })
+  await decryptEntitiesWithFallbackScope(companyLinks, {
+    em,
+    tenantId: fallbackTenantId,
+    organizationId: fallbackOrgId,
+  })
 
   const people: DealAssociation[] = personLinks.reduce<DealAssociation[]>((acc, link) => {
     const entity = link.person as CustomerEntity | null

@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RuleSet, RuleSetMember } from '../../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const paramsSchema = z.object({
   id: z.string().uuid('Invalid rule set id'),
@@ -68,14 +69,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   }
 
   // Fetch members of this rule set
-  const members = await em.find(RuleSetMember, {
-    ruleSet: ruleSet.id,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId,
-  }, {
-    orderBy: { sequence: 'asc', id: 'asc' },
-    populate: ['rule'],
-  })
+  const members = await findWithDecryption(
+    em,
+    RuleSetMember,
+    {
+      ruleSet: ruleSet.id,
+      tenantId: auth.tenantId,
+      organizationId: auth.orgId,
+    },
+    {
+      orderBy: { sequence: 'asc', id: 'asc' },
+      populate: ['rule'],
+    },
+    { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
+  )
 
   const response = {
     id: ruleSet.id,

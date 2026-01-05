@@ -30,6 +30,13 @@ Document shape
 - Custom fields are stored as `cf:<key>` values.
 - Arrays are preserved as arrays; singletons are scalars.
 
+Encryption
+- `entity_indexes.doc` is treated as “at rest” storage: it should contain the same encrypted values as the source tables / `custom_field_values`.
+- Decryption happens on read:
+  - `HybridQueryEngine` decrypts entity payload fields via the tenant encryption service and also decrypts `cf:*` values before returning results.
+- Search token generation (for `like/ilike` token search) may decrypt values transiently to hash the plaintext tokens, but plaintext is never persisted into `entity_indexes.doc`.
+  - Implementation helper: `packages/shared/src/lib/encryption/indexDoc.ts` (shared by Query Engine, indexers, and vector search).
+
 Indexer
 - Build: merges base row with custom field values into a single plain object.
 - Upsert: inserts or updates the JSONB row keyed by `(entity_type, entity_id, organization_id_coalesced)`.
@@ -81,6 +88,7 @@ Limitations and notes
 
 - Standard debug logs honour `LOG_VERBOSITY=debug` (or a development `NODE_ENV`) and describe which path the hybrid engine picks.
 - To additionally print the SQL emitted for the count and data queries, set `QUERY_ENGINE_DEBUG_SQL=true`. The flag is disabled by default to keep development logs readable.
+- To inspect the tokens generated for search, set `OM_SEARCH_DEBUG=true`. It will log each token and hash produced during indexing, plus a per-record summary, without changing query behaviour.
 
 Related files
 - `packages/core/src/modules/query_index/data/entities.ts`

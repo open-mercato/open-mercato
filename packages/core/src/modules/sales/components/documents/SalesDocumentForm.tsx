@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudCustomFieldRenderProps, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -678,6 +678,75 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     [],
   )
 
+  function DocumentNumberField({ value, setValue, values }: CrudCustomFieldRenderProps) {
+    const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
+    const kind: DocumentKind = formValues.documentKind === 'order' ? 'order' : 'quote'
+    const [loading, setLoading] = React.useState(false)
+    const [error, setError] = React.useState<string | null>(null)
+    const autoValueRef = React.useRef<string | null>(null)
+    const lastKindRef = React.useRef<DocumentKind | null>(null)
+
+    const requestNumber = React.useCallback(async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const call = await apiCall<{ number?: string; error?: string }>('/api/sales/document-numbers', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ kind }),
+        })
+        const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
+        if (call.ok && nextNumber) {
+          autoValueRef.current = nextNumber
+          lastKindRef.current = kind
+          setValue(nextNumber)
+        } else {
+          setError(call.result?.error || t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
+        }
+      } catch (err) {
+        console.error('sales.documents.generateNumber', err)
+        setError(t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
+      } finally {
+        setLoading(false)
+      }
+    }, [kind, setValue, t])
+
+    React.useEffect(() => {
+      const current = typeof value === 'string' ? value.trim() : ''
+      const wasAuto = autoValueRef.current && current === autoValueRef.current
+      if (!current.length || (wasAuto && lastKindRef.current && lastKindRef.current !== kind)) {
+        void requestNumber()
+      } else {
+        lastKindRef.current = kind
+      }
+    }, [kind, requestNumber, value])
+
+    return (
+      <div className="space-y-2">
+        <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
+          <Input
+            value={typeof value === 'string' ? value : ''}
+            onChange={(event) => setValue(event.target.value)}
+            disabled={loading}
+            spellCheck={false}
+            className="w-full md:flex-1"
+          />
+          <Button type="button" variant="outline" onClick={requestNumber} disabled={loading}>
+            {loading
+              ? t('sales.documents.form.numberLoading', 'Generating…')
+              : t('sales.documents.form.numberRefresh', 'Generate')}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {kind === 'order'
+            ? t('sales.documents.form.numberHintOrder', 'Format applies to orders and uses the configured counter.')
+            : t('sales.documents.form.numberHintQuote', 'Format applies to quotes and uses the configured counter.')}
+        </p>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      </div>
+    )
+  }
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'documentKind',
@@ -720,78 +789,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       label: t('sales.documents.form.number', 'Document number'),
       type: 'custom',
       required: true,
-      component: ({ value, setValue, values }) => {
-        const updateValue = setValue ?? (() => {})
-        const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
-        const kind: DocumentKind = formValues.documentKind === 'order' ? 'order' : 'quote'
-        const [loading, setLoading] = React.useState(false)
-        const [error, setError] = React.useState<string | null>(null)
-        const autoValueRef = React.useRef<string | null>(null)
-        const lastKindRef = React.useRef<DocumentKind | null>(null)
-
-        const requestNumber = React.useCallback(async () => {
-          setLoading(true)
-          setError(null)
-          try {
-            const call = await apiCall<{ number?: string; error?: string }>('/api/sales/document-numbers', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ kind }),
-            })
-            const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
-            if (call.ok && nextNumber) {
-              autoValueRef.current = nextNumber
-              lastKindRef.current = kind
-              updateValue(nextNumber)
-            } else {
-              setError(
-                call.result?.error ||
-                  t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.')
-              )
-            }
-          } catch (err) {
-            console.error('sales.documents.generateNumber', err)
-            setError(t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
-          } finally {
-            setLoading(false)
-          }
-        }, [kind, updateValue, t])
-
-        React.useEffect(() => {
-          const current = typeof value === 'string' ? value.trim() : ''
-          const wasAuto = autoValueRef.current && current === autoValueRef.current
-          if (!current.length || (wasAuto && lastKindRef.current && lastKindRef.current !== kind)) {
-            void requestNumber()
-          } else {
-            lastKindRef.current = kind
-          }
-        }, [kind, requestNumber, value])
-
-        return (
-          <div className="space-y-2">
-            <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
-              <Input
-                value={typeof value === 'string' ? value : ''}
-                onChange={(event) => updateValue(event.target.value)}
-                disabled={loading}
-                spellCheck={false}
-                className="w-full md:flex-1"
-              />
-              <Button type="button" variant="outline" onClick={requestNumber} disabled={loading}>
-                {loading
-                  ? t('sales.documents.form.numberLoading', 'Generating…')
-                  : t('sales.documents.form.numberRefresh', 'Generate')}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {kind === 'order'
-                ? t('sales.documents.form.numberHintOrder', 'Format applies to orders and uses the configured counter.')
-                : t('sales.documents.form.numberHintQuote', 'Format applies to quotes and uses the configured counter.')}
-            </p>
-            {error ? <p className="text-xs text-destructive">{error}</p> : null}
-          </div>
-        )
-      },
+      component: DocumentNumberField,
     },
     {
       id: 'currencyCode',
@@ -927,7 +925,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       id: 'billingAddressSection',
       label: '',
       type: 'custom',
-      component: ({ values, setFormValue }) => {
+      component: function BillingAddressSectionField({ values, setFormValue }) {
         const formValues = (values ?? {}) as Partial<SalesDocumentFormValues>
         const updateValue = setFormValue ?? (() => {})
         const useCustom = formValues.useCustomBilling === true
@@ -1085,7 +1083,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       title: '',
       column: 1,
       fields: [],
-      component: ({ values, setValue }) => {
+      component: function CustomerGroupComponent({ values, setValue }) {
         const emailValue = typeof values.customerEmail === 'string' ? values.customerEmail : ''
         const { duplicate, checking } = useEmailDuplicateCheck(emailValue, {
           disabled: false,

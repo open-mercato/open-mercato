@@ -28,6 +28,7 @@ import {
   organizationListResponseSchema,
 } from '../openapi'
 import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 type CrudInput = Record<string, unknown>
 const rawBodySchema = z.object({}).passthrough()
@@ -152,10 +153,12 @@ export async function GET(req: Request) {
   const includeInactive = query.includeInactive === 'true' || status !== 'active'
 
   if (!allowAllTenants && !tenantId && !authTenantId && ids?.length) {
-    const scopedOrgs: Organization[] = await em.find(
+    const scopedOrgs: Organization[] = await findWithDecryption(
+      em,
       Organization,
       { id: { $in: ids }, deletedAt: null },
       { populate: ['tenant'] },
+      { tenantId: authTenantId, organizationId: null },
     )
     const tenantCandidates = new Set<string>()
     for (const org of scopedOrgs) {
@@ -194,10 +197,12 @@ export async function GET(req: Request) {
 
     for (const orgId of candidateOrgIds) {
       if (!orgId) continue
-      const org = await em.findOne(
+      const org = await findOneWithDecryption(
+        em,
         Organization,
         { id: orgId, deletedAt: null },
         { populate: ['tenant'] },
+        { tenantId: authTenantId, organizationId: orgId },
       )
       if (org?.tenant && org.tenant.id) {
         tenantId = stringId(org.tenant.id)
@@ -297,10 +302,12 @@ export async function GET(req: Request) {
   if (allowAllTenants) {
     // Multi-tenant aggregate view for super administrators
     const search = (query.search || '').trim().toLowerCase()
-    const allOrgs = await em.find(
+    const allOrgs = await findWithDecryption(
+      em,
       Organization,
       { deletedAt: null },
-      { orderBy: { name: 'ASC' }, populate: ['tenant'] }
+      { orderBy: { name: 'ASC' }, populate: ['tenant'] },
+      { tenantId: null, organizationId: null },
     )
     const byTenant = new Map<string, Organization[]>()
     for (const org of allOrgs) {
