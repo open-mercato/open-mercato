@@ -85,7 +85,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
     const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
-    filters.$or = [{ [numberColumn]: { $ilike: term } }, { status: { $ilike: term } }]
+    filters[numberColumn] = { $ilike: term }
   }
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
