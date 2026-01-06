@@ -115,3 +115,105 @@ You can reuse `fetchVectorResults` in custom UIs to embed vector search in speci
 - Toggle the setting in **Backend → Configuration → Vector Search**; the page talks to `/api/vector/settings` so custom dashboards can reuse the same endpoint.
 - Setting the environment flag `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` forces the toggle off and disables updates from the UI/API.
 - `yarn mercato configs restore-defaults` (automatically executed by `mercato init`) seeds default values and respects the environment override above.
+
+## Multi-Provider Embedding Support
+
+The vector module supports multiple embedding providers through the [Vercel AI SDK](https://sdk.vercel.ai/docs/ai-sdk-core/embeddings). You can switch providers via the settings page or API without code changes.
+
+### Supported Providers
+
+| Provider | Models | Default Dimension | Environment Variable |
+|----------|--------|-------------------|---------------------|
+| **OpenAI** (default) | `text-embedding-3-small`, `text-embedding-3-large` | 1536, 3072 | `OPENAI_API_KEY` |
+| **Google** | `text-embedding-004`, `embedding-001` | 768 | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| **Mistral** | `mistral-embed` | 1024 | `MISTRAL_API_KEY` |
+| **Cohere** | `embed-english-v3.0`, `embed-multilingual-v3.0` | 1024 | `COHERE_API_KEY` |
+| **Amazon Bedrock** | `amazon.titan-embed-text-v2:0`, `cohere.embed-english-v3` | 1024 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
+| **Ollama** (local) | `nomic-embed-text`, `mxbai-embed-large`, `all-minilm` | 768, 1024, 384 | `OLLAMA_BASE_URL` (optional, defaults to `http://localhost:11434`) |
+
+### Provider Configuration
+
+Set the appropriate environment variable for your chosen provider. Only providers with valid credentials will appear as available options in the settings page.
+
+```bash
+# OpenAI (default)
+OPENAI_API_KEY=sk-...
+
+# Google Generative AI
+GOOGLE_GENERATIVE_AI_API_KEY=AIza...
+
+# Mistral
+MISTRAL_API_KEY=...
+
+# Cohere
+COHERE_API_KEY=...
+
+# Amazon Bedrock
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+
+# Ollama (local/self-hosted)
+OLLAMA_BASE_URL=http://localhost:11434
+```
+
+### Changing Providers
+
+Navigate to **Backend → Configuration → Vector Search** to change the embedding provider or model. The settings page displays:
+
+- Current provider and model configuration
+- Available (configured) providers based on environment variables
+- Current indexed dimension vs. selected model dimension
+
+**Warning**: Changing the embedding provider or model triggers a **full reindex** because:
+
+1. Different models produce embeddings with different dimensions
+2. Embeddings from different models are not comparable (mixing them would yield meaningless similarity scores)
+3. The pgvector table must be recreated with the new dimension
+
+When you confirm a provider/model change:
+
+1. All existing vector embeddings are deleted
+2. The `vector_search` table is dropped and recreated with the new dimension
+3. All indexed records must be re-embedded using the new model
+
+Vector search will be unavailable until reindexing completes.
+
+### Programmatic Configuration
+
+You can also configure the embedding provider via the settings API:
+
+```ts
+// Get current configuration
+const response = await fetch('/api/vector/settings')
+const { embeddingConfig, configuredProviders, indexedDimension, reindexRequired } = await response.json()
+
+// Update provider (triggers reindex if dimensions differ)
+await fetch('/api/vector/settings', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    embeddingConfig: {
+      providerId: 'google',
+      model: 'text-embedding-004',
+      dimension: 768,
+    },
+  }),
+})
+```
+
+### Dimension Handling
+
+Each embedding model produces vectors of a specific dimension. The pgvector driver stores the current dimension and detects mismatches:
+
+- `indexedDimension`: The dimension of the current `vector_search` table
+- `reindexRequired`: `true` when the configured dimension differs from the indexed dimension
+
+The system prevents inserting embeddings with mismatched dimensions. If a mismatch is detected, you must either:
+
+1. Change the configuration back to match the indexed dimension, or
+2. Trigger a reindex to recreate the table with the new dimension
+
+### Backward Compatibility
+
+If no explicit embedding configuration exists, the system defaults to OpenAI with `text-embedding-3-small` (1536 dimensions). Existing installations continue working without configuration changes.
