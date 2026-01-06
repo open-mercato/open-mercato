@@ -767,9 +767,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                     type="button"
                     variant={current === kind ? 'default' : 'ghost'}
                     onClick={() => setValue(kind)}
-                    className="capitalize"
                   >
-                    {kind}
+                    {t(`sales.documents.form.kind.${kind}`, kind.charAt(0).toUpperCase() + kind.slice(1))}
                   </Button>
                 ))}
               </div>
