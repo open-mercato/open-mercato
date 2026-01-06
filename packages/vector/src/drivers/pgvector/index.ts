@@ -163,10 +163,45 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         await client.query(
           `CREATE INDEX IF NOT EXISTS ${tableName}_lookup ON ${tableIdent} (tenant_id, organization_id, entity_id)`,
         )
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
-            USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100)`,
-        )
+        // ivfflat index only supports up to 2000 dimensions
+        // For higher dimensions, skip the index (uses sequential scan, slower but works)
+        // Also check actual table dimension in case driver was initialized with different value
+        let actualDimension = dimension
+        try {
+          const dimResult = await client.query<{ atttypmod: number }>(
+            `SELECT a.atttypmod
+             FROM pg_attribute a
+             JOIN pg_class c ON a.attrelid = c.oid
+             WHERE c.relname = $1
+             AND a.attname = 'embedding'
+             AND a.atttypmod > 0`,
+            [tableName]
+          )
+          if (dimResult.rows.length > 0 && dimResult.rows[0].atttypmod > 0) {
+            actualDimension = dimResult.rows[0].atttypmod
+          }
+        } catch {
+          // Ignore errors reading dimension, use configured value
+        }
+
+        if (actualDimension <= 2000) {
+          try {
+            await client.query(
+              `CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
+                USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100)`,
+            )
+          } catch (indexErr: unknown) {
+            // Handle case where dimension exceeds ivfflat limit
+            const errorMessage = indexErr instanceof Error ? indexErr.message : String(indexErr)
+            if (errorMessage.includes('2000 dimensions')) {
+              console.warn(`[pgvector] Skipping ivfflat index - dimension exceeds 2000 limit. Searches will use sequential scan.`)
+            } else {
+              throw indexErr
+            }
+          }
+        } else {
+          console.warn(`[pgvector] Skipping ivfflat index - dimension ${actualDimension} exceeds 2000 limit. Searches will use sequential scan.`)
+        }
 
         const columnAlters = [
           `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_title text`,

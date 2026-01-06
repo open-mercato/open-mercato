@@ -126,6 +126,9 @@ type Props = {
   embeddingModelLabel: string
   embeddingDimensionLabel: string
   embeddingNotConfiguredLabel: string
+  embeddingCustomModelOption?: string
+  embeddingCustomModelNameLabel?: string
+  embeddingCustomDimensionLabel?: string
   embeddingChangeWarningTitle: string
   embeddingChangeWarningDescription: string
   embeddingChangeWarningBullet1: string
@@ -169,6 +172,10 @@ export function VectorSettingsPageClient(props: Props) {
   // Staged selection (not yet applied)
   const [selectedProvider, setSelectedProvider] = React.useState<EmbeddingProviderId | null>(null)
   const [selectedModel, setSelectedModel] = React.useState<string | null>(null)
+
+  // Custom model inputs (when "custom" is selected)
+  const [customModelName, setCustomModelName] = React.useState<string>('')
+  const [customDimension, setCustomDimension] = React.useState<number>(768)
 
   const [pendingConfig, setPendingConfig] = React.useState<EmbeddingProviderConfig | null>(null)
   const [showConfirmDialog, setShowConfirmDialog] = React.useState(false)
@@ -268,6 +275,9 @@ export function VectorSettingsPageClient(props: Props) {
     setSelectedProvider(providerId)
     // Reset model selection when provider changes
     setSelectedModel(null)
+    // Reset custom model inputs
+    setCustomModelName('')
+    setCustomDimension(768)
   }
 
   // Just update staged selection (no API call yet)
@@ -280,12 +290,33 @@ export function VectorSettingsPageClient(props: Props) {
     const newProviderId = selectedProvider ?? settings?.embeddingConfig?.providerId ?? 'openai'
     const newProviderInfo = EMBEDDING_PROVIDERS[newProviderId]
     const newModelId = selectedModel ?? (selectedProvider ? newProviderInfo.defaultModel : settings?.embeddingConfig?.model ?? newProviderInfo.defaultModel)
-    const newModel = newProviderInfo.models.find((m) => m.id === newModelId) ?? newProviderInfo.models[0]
+
+    let modelName: string
+    let dimension: number
+
+    if (newModelId === 'custom') {
+      // Use custom values
+      modelName = customModelName.trim()
+      dimension = customDimension
+      if (!modelName) {
+        flash('Please enter a model name', 'error')
+        return
+      }
+      if (dimension <= 0) {
+        flash('Please enter a valid dimension', 'error')
+        return
+      }
+    } else {
+      // Use predefined model
+      const newModel = newProviderInfo.models.find((m) => m.id === newModelId) ?? newProviderInfo.models[0]
+      modelName = newModel.id
+      dimension = newModel.dimension
+    }
 
     const newConfig: EmbeddingProviderConfig = {
       providerId: newProviderId,
-      model: newModel.id,
-      dimension: newModel.dimension,
+      model: modelName,
+      dimension,
       updatedAt: new Date().toISOString(),
     }
 
@@ -302,6 +333,8 @@ export function VectorSettingsPageClient(props: Props) {
   const handleCancelSelection = () => {
     setSelectedProvider(null)
     setSelectedModel(null)
+    setCustomModelName('')
+    setCustomDimension(768)
   }
 
   const applyEmbeddingConfig = async (config: EmbeddingProviderConfig) => {
@@ -381,18 +414,33 @@ export function VectorSettingsPageClient(props: Props) {
   const savedProvider = settings?.embeddingConfig?.providerId ?? 'openai'
   const savedProviderInfo = EMBEDDING_PROVIDERS[savedProvider]
   const savedModel = settings?.embeddingConfig?.model ?? savedProviderInfo.defaultModel
+  const savedDimension = settings?.embeddingConfig?.dimension ?? savedProviderInfo.models[0]?.dimension ?? 768
+
+  // Check if saved model is a custom model (not in predefined list)
+  const savedModelIsPredefined = savedProviderInfo.models.some((m) => m.id === savedModel)
+  const savedCustomModel = !savedModelIsPredefined && savedModel ? { id: savedModel, name: savedModel, dimension: savedDimension } : null
 
   // Display values (staged selection or saved)
   const displayProvider = selectedProvider ?? savedProvider
   const displayProviderInfo = EMBEDDING_PROVIDERS[displayProvider]
   const displayModel = selectedModel ?? (selectedProvider ? displayProviderInfo.defaultModel : savedModel)
-  const displayModelInfo = displayProviderInfo.models.find((m) => m.id === displayModel) ?? displayProviderInfo.models[0]
-  const displayDimension = displayModelInfo.dimension
+  const isCustomModel = displayModel === 'custom'
+
+  // Check if display model is a saved custom model (not in predefined list and not "custom" input mode)
+  const displayModelIsSavedCustom = !isCustomModel && displayProvider === savedProvider && savedCustomModel && displayModel === savedCustomModel.id
+
+  const displayModelInfo = isCustomModel
+    ? null
+    : displayModelIsSavedCustom
+      ? savedCustomModel
+      : displayProviderInfo.models.find((m) => m.id === displayModel) ?? displayProviderInfo.models[0]
+  const displayDimension = isCustomModel ? customDimension : (displayModelInfo?.dimension ?? 768)
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = (selectedProvider !== null && selectedProvider !== savedProvider) ||
     (selectedModel !== null && selectedModel !== savedModel) ||
-    (selectedProvider !== null && selectedModel === null && displayProviderInfo.defaultModel !== savedModel)
+    (selectedProvider !== null && selectedModel === null && displayProviderInfo.defaultModel !== savedModel) ||
+    (isCustomModel && (customModelName.trim() !== '' || customDimension !== 768))
 
   const statusMessage = settings?.configuredProviders?.includes(savedProvider)
     ? props.statusEnabledMessage
@@ -443,13 +491,55 @@ export function VectorSettingsPageClient(props: Props) {
               onChange={(e) => handleModelChange(e.target.value)}
               disabled={loading || saving}
             >
+              {/* Show saved custom model at top if it exists for this provider */}
+              {savedCustomModel && displayProvider === savedProvider && (
+                <option key={savedCustomModel.id} value={savedCustomModel.id}>
+                  {savedCustomModel.name} ({savedCustomModel.dimension} dimensions)
+                </option>
+              )}
               {displayProviderInfo.models.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name} ({model.dimension} dimensions)
                 </option>
               ))}
+              <option value="custom">{props.embeddingCustomModelOption ?? 'Custom...'}</option>
             </select>
           </div>
+
+          {/* Custom Model Inputs (shown when "custom" is selected) */}
+          {isCustomModel && (
+            <div className="space-y-3 p-3 rounded-md border border-input bg-muted/30">
+              <div className="space-y-2">
+                <Label htmlFor="custom-model-name" className="text-sm font-medium">
+                  {props.embeddingCustomModelNameLabel ?? 'Model Name'}
+                </Label>
+                <input
+                  id="custom-model-name"
+                  type="text"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                  value={customModelName}
+                  onChange={(e) => setCustomModelName(e.target.value)}
+                  placeholder="e.g., nomic-embed-text"
+                  disabled={loading || saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="custom-dimension" className="text-sm font-medium">
+                  {props.embeddingCustomDimensionLabel ?? 'Dimensions'}
+                </Label>
+                <input
+                  id="custom-dimension"
+                  type="number"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                  value={customDimension}
+                  onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
+                  placeholder="e.g., 768"
+                  min={1}
+                  disabled={loading || saving}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Dimension Info */}
           <div className="text-sm text-muted-foreground">

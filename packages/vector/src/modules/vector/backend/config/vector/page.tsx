@@ -27,6 +27,9 @@ export default async function VectorSettingsPage() {
   const embeddingModelLabel = t('vector.settings.embeddingModelLabel', 'Model')
   const embeddingDimensionLabel = t('vector.settings.embeddingDimensionLabel', 'Dimension')
   const embeddingNotConfiguredLabel = t('vector.settings.embeddingNotConfigured', 'not configured')
+  const embeddingCustomModelOption = t('vector.settings.embeddingCustomModelOption', 'Custom...')
+  const embeddingCustomModelNameLabel = t('vector.settings.embeddingCustomModelNameLabel', 'Model Name')
+  const embeddingCustomDimensionLabel = t('vector.settings.embeddingCustomDimensionLabel', 'Dimensions')
   const embeddingChangeWarningTitle = t('vector.settings.embeddingChangeWarningTitle', 'Warning: This change requires full reindexing')
   const embeddingChangeWarningDescription = t(
     'vector.settings.embeddingChangeWarningDescription',
@@ -75,6 +78,9 @@ export default async function VectorSettingsPage() {
           embeddingModelLabel={embeddingModelLabel}
           embeddingDimensionLabel={embeddingDimensionLabel}
           embeddingNotConfiguredLabel={embeddingNotConfiguredLabel}
+          embeddingCustomModelOption={embeddingCustomModelOption}
+          embeddingCustomModelNameLabel={embeddingCustomModelNameLabel}
+          embeddingCustomDimensionLabel={embeddingCustomDimensionLabel}
           embeddingChangeWarningTitle={embeddingChangeWarningTitle}
           embeddingChangeWarningDescription={embeddingChangeWarningDescription}
           embeddingChangeWarningBullet1={embeddingChangeWarningBullet1}
