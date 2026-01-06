@@ -718,6 +718,7 @@ export const modules: Module[] = [
   ${moduleDecls.join(',\n  ')}
 ]
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
+export default modules
 `
   const widgetEntriesList = Array.from(allDashboardWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
   const widgetDecls = widgetEntriesList.map(

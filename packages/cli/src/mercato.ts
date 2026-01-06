@@ -4,7 +4,7 @@
 
 import { createRequestContainer } from '@/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
-import { modules as generatedModules } from '@/generated/modules.generated'
+import generatedModules from '@/generated/modules.generated'
 
 let envLoaded = false
 
