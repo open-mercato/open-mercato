@@ -63,6 +63,18 @@ Optional override for cache time-to-live in milliseconds. Leave blank to use per
 **Default:** `./data/cache.db`  
 Filesystem path for the SQLite cache file used when `CACHE_STRATEGY=sqlite`. Ensure the process has write permissions at this location.
 
+### FEATURE_TOGGLES_CACHE_TTL_MS {#feature_toggles_cache_ttl_ms}
+**Default:** `60000` (60 seconds)  
+Time-to-live in milliseconds for successful feature toggle resolution cache entries.
+
+### FEATURE_TOGGLES_ERROR_CACHE_TTL_MS {#feature_toggles_error_cache_ttl_ms}
+**Default:** `10000` (10 seconds)  
+Time-to-live in milliseconds for feature toggle resolution cache entries that resulted from error conditions or fallbacks.
+
+### FEATURE_TOGGLES_MISSING_TOGGLE_DEFAULT {#feature_toggles_missing_toggle_default}
+**Default:** `disabled`  
+Controls the default behavior when a feature toggle identifier doesn't exist. Set to `enabled` to default unknown toggles to enabled, or `disabled` to default them to disabled.
+
 ## Query index maintenance {#query-index}
 
 ### SCHEDULE_AUTO_REINDEX {#schedule_auto_reindex}

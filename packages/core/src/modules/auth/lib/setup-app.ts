@@ -207,7 +207,7 @@ export async function setupInitialTenant(
           await kms.createTenantDek(String(tenant.id))
           if (isEncryptionDebugEnabled()) {
             console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
-          }   
+          }
         } else {
           if (isEncryptionDebugEnabled()) {
             console.warn('⚠️ [encryption][setup] KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
@@ -216,7 +216,7 @@ export async function setupInitialTenant(
       } catch (err) {
         if (isEncryptionDebugEnabled()) {
           console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
-        }   
+        }
       }
     }
 
@@ -435,15 +435,15 @@ async function ensureRoleAclFor(
   const sanitized =
     removeSet.size
       ? merged.filter((value) => {
-          if (removeSet.has(value)) return false
-          for (const entry of removeSet) {
-            if (entry.endsWith('.*')) {
-              const prefix = entry.slice(0, -1) // keep trailing dot
-              if (value === entry || value.startsWith(prefix)) return false
-            }
+        if (removeSet.has(value)) return false
+        for (const entry of removeSet) {
+          if (entry.endsWith('.*')) {
+            const prefix = entry.slice(0, -1) // keep trailing dot
+            if (value === entry || value.startsWith(prefix)) return false
           }
-          return true
-        })
+        }
+        return true
+      })
       : merged
   const changed =
     sanitized.length !== currentFeatures.length ||

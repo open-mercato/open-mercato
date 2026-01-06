@@ -16,8 +16,8 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "entity_id": {
-          "name": "entity_id",
+        "identifier": {
+          "name": "identifier",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -25,8 +25,8 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "record_id": {
-          "name": "record_id",
+        "name": {
+          "name": "name",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -34,104 +34,41 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "partition_code": {
-          "name": "partition_code",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "file_name": {
-          "name": "file_name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "mime_type": {
-          "name": "mime_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "file_size": {
-          "name": "file_size",
-          "type": "int",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "integer"
-        },
-        "storage_driver": {
-          "name": "storage_driver",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'local'",
-          "mappedType": "text"
-        },
-        "storage_path": {
-          "name": "storage_path",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "storage_metadata": {
-          "name": "storage_metadata",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "content": {
-          "name": "content",
+        "description": {
+          "name": "description",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
+          "mappedType": "text"
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "default_state": {
+          "name": "default_state",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "boolean"
+        },
+        "fail_mode": {
+          "name": "fail_mode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "'fail_closed'",
           "mappedType": "text"
         },
         "created_at": {
@@ -143,33 +80,63 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
         }
       },
-      "name": "attachments",
+      "name": "feature_toggles",
       "schema": "public",
       "indexes": [
         {
+          "keyName": "feature_toggles_name_idx",
           "columnNames": [
-            "record_id"
+            "name"
           ],
           "composite": false,
-          "keyName": "attachments_entity_record_idx",
           "constraint": false,
           "primary": false,
           "unique": false
         },
         {
+          "keyName": "feature_toggles_category_idx",
           "columnNames": [
-            "partition_code"
+            "category"
           ],
           "composite": false,
-          "keyName": "attachments_partition_code_idx",
           "constraint": false,
           "primary": false,
           "unique": false
         },
         {
-          "keyName": "attachments_pkey",
+          "keyName": "feature_toggles_identifier_unique",
+          "columnNames": [
+            "identifier"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "feature_toggles_pkey",
           "columnNames": [
             "id"
           ],
@@ -195,79 +162,31 @@
           "default": "gen_random_uuid()",
           "mappedType": "uuid"
         },
-        "code": {
-          "name": "code",
+        "toggle_id": {
+          "name": "toggle_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "uuid"
+        },
+        "state": {
+          "name": "state",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "mappedType": "text"
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "storage_driver": {
-          "name": "storage_driver",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "'local'",
-          "mappedType": "text"
-        },
-        "config_json": {
-          "name": "config_json",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "is_public": {
-          "name": "is_public",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "false",
-          "mappedType": "boolean"
-        },
-        "requires_ocr": {
-          "name": "requires_ocr",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "true",
-          "mappedType": "boolean"
-        },
-        "ocr_model": {
-          "name": "ocr_model",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
           "mappedType": "text"
         },
         "created_at": {
@@ -291,21 +210,42 @@
           "mappedType": "datetime"
         }
       },
-      "name": "attachment_partitions",
+      "name": "feature_toggle_overrides",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "attachment_partitions_code_unique",
+          "keyName": "feature_toggle_overrides_toggle_idx",
           "columnNames": [
-            "code"
+            "toggle_id"
           ],
           "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "feature_toggle_overrides_tenant_idx",
+          "columnNames": [
+            "tenant_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "feature_toggle_overrides_toggle_tenant_unique",
+          "columnNames": [
+            "toggle_id",
+            "tenant_id"
+          ],
+          "composite": true,
           "constraint": true,
           "primary": false,
           "unique": true
         },
         {
-          "keyName": "attachment_partitions_pkey",
+          "keyName": "feature_toggle_overrides_pkey",
           "columnNames": [
             "id"
           ],
@@ -316,7 +256,20 @@
         }
       ],
       "checks": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "feature_toggle_overrides_toggle_id_foreign": {
+          "constraintName": "feature_toggle_overrides_toggle_id_foreign",
+          "columnNames": [
+            "toggle_id"
+          ],
+          "localTableName": "public.feature_toggle_overrides",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.feature_toggles",
+          "updateRule": "cascade"
+        }
+      },
       "nativeEnums": {}
     }
   ],

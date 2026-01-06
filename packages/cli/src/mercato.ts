@@ -204,7 +204,10 @@ export async function run(argv = process.argv) {
         console.log(setupOutput.trim())
       }
       console.log('✅ RBAC setup complete\n')
-      
+
+      console.log('🎛️  Seeding feature toggle defaults...')
+      runCommand('yarn mercato feature_toggles seed-defaults')
+      console.log('🎛️  ✅ Feature toggle defaults seeded\n')
 
       // Extract organization ID and tenant ID from setup output
       const orgIdMatch = setupOutput.match(/organizationId: '([^']+)'/)
