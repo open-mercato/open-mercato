@@ -1,0 +1,30 @@
+---
+title: mercato feature_toggles toggle-create
+sidebar_label: toggle-create
+description: Creates a new feature toggle.
+---
+
+`yarn mercato feature_toggles toggle-create` creates a new feature toggle in the system.
+
+## Usage
+
+```bash
+yarn mercato feature_toggles toggle-create --identifier <id> --name <name> [options]
+```
+
+## Options
+
+| Option | Description | Required | Default |
+| :--- | :--- | :--- | :--- |
+| `--identifier` | Unique identifier for the toggle (e.g., `new-feature`). | Yes | - |
+| `--name` | Human-readable name for the toggle. | Yes | - |
+| `--defaultState` | Initial state of the toggle (`true` or `false`). | No | `false` |
+| `--category` | Category to group the toggle under. | No | - |
+| `--description` | Description of what the toggle controls. | No | - |
+| `--failMode` | Behavior if the toggle check fails (`fail_open` or `fail_closed`). | No | - |
+
+## Behavior
+
+- Registers a new feature toggle in the database.
+- If successful, outputs: `✅ Feature toggle created: <identifier>`.
+- If mandatory arguments are missing, outputs usage instructions.

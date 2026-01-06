@@ -118,6 +118,8 @@ export type DataTableProps<T> = {
   // Optional row click handler. When provided, rows become clickable and show pointer cursor.
   // If not provided but rowActions contains an 'Edit' action, it will be used as the default row click handler.
   onRowClick?: (row: T) => void
+  // Disable row click navigation when rowActions are present.
+  disableRowClick?: boolean
 
   // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
   searchValue?: string
@@ -529,6 +531,7 @@ export function DataTable<T>({
   error,
   rowActions,
   onRowClick,
+  disableRowClick = false,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -1572,7 +1575,7 @@ export function DataTable<T>({
               </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
-                const isClickable = onRowClick || (rowActions && rowActions(row.original as T))
+                const isClickable = !disableRowClick && (onRowClick || (rowActions && rowActions(row.original as T)))
                 
                 return (
                   <TableRow 
