@@ -1551,7 +1551,7 @@ export function DataTable<T>({
                 })}
                 {rowActions ? (
                   <TableHead className="w-0 text-right">
-                    Actions
+                    {t('ui.dataTable.actionsColumn', 'Actions')}
                   </TableHead>
                 ) : null}
               </TableRow>

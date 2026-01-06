@@ -1489,9 +1489,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         nodes.push(
           <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
             {g.title ? (
-              <div className="text-sm font-medium">{g.title}</div>
+              <div className="text-sm font-medium">{t(g.title, g.title)}</div>
             ) : null}
-            {g.description ? <div className="text-xs text-muted-foreground">{g.description}</div> : null}
+            {g.description ? <div className="text-xs text-muted-foreground">{t(g.description, g.description)}</div> : null}
             {componentNode ? (
               <div>{componentNode}</div>
             ) : null}
