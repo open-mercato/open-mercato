@@ -1,7 +1,8 @@
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService, EmbeddingService } from '@open-mercato/vector'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { resolveEmbeddingConfig } from '../lib/embedding-config'
 
 export const metadata = { event: 'query_index.vectorize_purge', persistent: false }
 
@@ -29,6 +30,17 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     service = ctx.resolve<VectorIndexService>('vectorIndexService')
   } catch {
     return
+  }
+
+  // Load saved embedding config for consistency (dimension info may be needed for table recreation)
+  try {
+    const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
+    if (embeddingConfig) {
+      const embeddingService = ctx.resolve<EmbeddingService>('vectorEmbeddingService')
+      embeddingService.updateConfig(embeddingConfig)
+    }
+  } catch {
+    // Purge operations don't require embedding, ignore config errors
   }
 
   let em: any | null = null
