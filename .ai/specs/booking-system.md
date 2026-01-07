@@ -1,0 +1,453 @@
+# Booking Module Specification (Self-Contained Attendees + Extensions)
+
+Goal: Build a tenant-aware booking module with self-contained attendees, availability, and conflict checks, plus a negotiation phase (waiting list), catalog product/variant linkage, admin widget injection, undo/redo command support, encryption defaults, and RBAC features. Module stays isomorphic (no cross-module ORM relationships) and admin-only.
+
+## 0) Core Constraints
+
+- Keep modules independent; never add cross-module ORM relations.
+- All entities include `tenant_id`, `organization_id`, `created_at`, `updated_at`, `deleted_at`.
+- Soft delete is default; queries exclude `deleted_at` by default.
+- Inputs validated with zod in `src/modules/booking/data/validators.ts`.
+- Use DI (Awilix) for services; no direct `new` in handlers.
+- Use `findWithDecryption`/`findOneWithDecryption` when needed.
+- Avoid `src/` app routes; place everything under `src/modules/booking`.
+
+## 1) Module Layout
+
+```
+src/modules/booking/
+  acl.ts
+  api/
+    services.ts
+    events.ts
+    team-members.ts
+    team-roles.ts
+    resources.ts
+    resource-types.ts
+    availability.ts
+  data/
+    entities.ts
+    validators.ts
+    extensions.ts
+  widgets/
+    injection/
+      booking-service-product-assignment.tsx
+      booking-service-product-assignment.meta.ts
+    injection-table.ts
+```
+
+Optional:
+- `src/modules/booking/cli.ts` if admin CLI needed.
+- `src/modules/booking/index.ts` for module metadata.
+- `src/modules/booking/di.ts` for registration.
+
+## 2) Entities (MikroORM)
+
+All tables: plural snake_case with UUID PKs.
+
+### 2.1 booking_services
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+name: string
+description?: string
+duration_minutes: number
+capacity_model: 'one_to_one' | 'one_to_many' | 'many_to_many'
+max_attendees?: number
+required_roles: { role_id: string; qty: number }[]
+required_members: { member_id: string; qty?: number }[]
+required_resources: { resource_id: string; qty: number }[]
+required_resource_types: { resource_type_id: string; qty: number }[]
+tags: string[]
+is_active: boolean
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.2 booking_team_roles
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+name: string
+description?: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.3 booking_team_members
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+display_name: string
+user_id?: string
+role_ids: string[]
+tags: string[]
+is_active: boolean
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.4 booking_resource_types
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+name: string
+description?: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.5 booking_resources
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+name: string
+resource_type_id?: string
+capacity?: number
+tags: string[]
+is_active: boolean
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.6 booking_availability_rules
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+subject_type: 'member' | 'resource'
+subject_id: string
+timezone: string
+rrule: string
+exdates: string[]
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.7 booking_events
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+service_id: string
+title: string
+starts_at: Date
+ends_at: Date
+timezone?: string
+rrule?: string
+exdates: string[]
+status: 'draft' | 'negotiation' | 'confirmed' | 'cancelled'
+requires_confirmations: boolean
+confirmation_mode: 'all_members' | 'any_member' | 'by_role'
+confirmation_deadline_at?: Date
+confirmed_at?: Date
+tags: string[]
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.8 booking_event_attendees (self-contained)
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+event_id: string
+first_name: string
+last_name: string
+email?: string
+phone?: string
+address_line1?: string
+address_line2?: string
+city?: string
+region?: string
+postal_code?: string
+country?: string
+attendee_type?: string
+external_ref?: string
+tags: string[]
+notes?: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.9 booking_event_members
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+event_id: string
+member_id: string
+role_id?: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.10 booking_event_resources
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+event_id: string
+resource_id: string
+qty: number
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.11 booking_event_confirmations (negotiation phase)
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+event_id: string
+member_id: string
+status: 'pending' | 'accepted' | 'declined'
+responded_at?: Date
+note?: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.12 booking_service_products
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+service_id: string
+product_id: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+### 2.13 booking_service_product_variants
+
+```
+id: uuid
+tenant_id: string
+organization_id: string
+service_id: string
+variant_id: string
+created_at: Date
+updated_at: Date
+deleted_at?: Date
+```
+
+Notes:
+- No ORM relations across modules; use string IDs only.
+- Consider unique constraints on `(service_id, product_id)` and `(service_id, variant_id)`.
+
+## 3) Negotiation Phase (Waiting List)
+
+### 3.1 Status Rules
+
+- `draft` is initial state when an event is created.
+- When `requires_confirmations` is true and at least one member is assigned, `draft -> negotiation`.
+- When confirmations meet `confirmation_mode`, `negotiation -> confirmed` and set `confirmed_at`.
+- Decline behavior: policy-defined (default: `negotiation -> cancelled`).
+- If `requires_confirmations` is false, allow `draft -> confirmed` directly.
+
+### 3.2 Confirmation Modes
+
+- `all_members`: every assigned member must accept.
+- `any_member`: first accept wins, event confirmed.
+- `by_role`: at least one accept per required role (based on service requirements).
+
+### 3.3 Confirmation Lifecycle
+
+- Entering `negotiation` creates confirmations for all assigned members.
+- Changing event time or member allocations resets confirmations to `pending`.
+- Optional `confirmation_deadline_at` triggers auto-cancel on expiry.
+
+## 4) APIs (Admin Only)
+
+API files are grouped by resource and export handlers for multiple verbs.
+
+### 4.1 Services
+
+`src/modules/booking/api/services.ts`:
+- `GET /api/booking/services`
+- `POST /api/booking/services`
+- `PATCH /api/booking/services/:id`
+- `DELETE /api/booking/services/:id`
+
+Product links:
+- `GET /api/booking/services/:id/product-links`
+- `POST /api/booking/services/:id/product-links`
+- `DELETE /api/booking/services/:id/product-links/:linkId`
+
+### 4.2 Events
+
+`src/modules/booking/api/events.ts`:
+- `POST /api/booking/events`
+- `PATCH /api/booking/events/:id`
+- `POST /api/booking/events/:id/confirmations`
+- `POST /api/booking/events/:id/accept` (admin override)
+- `POST /api/booking/events/:id/cancel`
+- `POST /api/booking/events/:id/undo`
+- `POST /api/booking/events/:id/redo`
+
+### 4.3 Team Members / Roles / Resources / Availability
+
+Dedicated files:
+- `team-members.ts`
+- `team-roles.ts`
+- `resources.ts`
+- `resource-types.ts`
+- `availability.ts`
+
+All CRUD via `makeCrudRoute` with `indexer: { entityType }`.
+
+### 4.4 Validation
+
+All input schemas in `src/modules/booking/data/validators.ts`.
+- Define create/update schemas per entity.
+- Export `z.infer` types for DTOs.
+
+## 5) Catalog Linkage
+
+### 5.1 Service Link Semantics
+
+- Services can be linked to multiple products and variants.
+- Products/variants can link to multiple services.
+- For product edit UI, load current links and allow assignment/unassignment.
+- Link edits are tenant+organization scoped.
+
+### 5.2 Product Edit Widget (Admin)
+
+Files:
+- `src/modules/booking/widgets/injection/booking-service-product-assignment.tsx`
+- `src/modules/booking/widgets/injection/booking-service-product-assignment.meta.ts`
+- `src/modules/booking/widgets/injection-table.ts`
+
+Slot: `crud-form:catalog.product`.
+
+UI behavior:
+- Fetch list of services and current product links.
+- Allow multi-select of services and optionally variants.
+- Save using `apiCall` helpers.
+- Support `Cmd/Ctrl + Enter` to save and `Escape` to cancel.
+- Use `LoadingMessage` and `ErrorMessage` for state.
+
+## 6) Undo/Redo
+
+### 6.1 Command Strategy
+
+Use existing command framework if present; otherwise add `booking_commands`.
+
+Command types:
+- `booking.event.create`
+- `booking.event.update`
+- `booking.event.cancel`
+- `booking.event.confirm`
+- `booking.event.reschedule`
+- `booking.event.assign_member`
+- `booking.event.assign_resource`
+
+Each command includes:
+- `payload` (applied data)
+- `inverse_payload` (revert data)
+- `status`: `applied` or `reverted`
+
+Endpoints:
+- `POST /api/booking/events/:id/undo`
+- `POST /api/booking/events/:id/redo`
+
+## 7) Encryption Defaults
+
+Update `packages/core/src/modules/entities/lib/encryptionDefaults.ts`:
+
+- booking_services: `name`, `description`, `tags`
+- booking_team_roles: `name`, `description`
+- booking_team_members: `display_name`, `tags`
+- booking_resource_types: `name`, `description`
+- booking_resources: `name`, `tags`
+- booking_availability_rules: `rrule`, `exdates` (if sensitive)
+- booking_events: `title`, `tags`
+- booking_event_attendees: `first_name`, `last_name`, `email`, `phone`, `address_*`, `notes`, `tags`
+- booking_event_confirmations: `note`
+
+Decryption:
+- Use `findWithDecryption`/`findOneWithDecryption` for populated relations without tenant/org scope.
+
+## 8) RBAC Features
+
+`src/modules/booking/acl.ts`:
+
+```
+export const features = [
+  'booking.view',
+  'booking.create',
+  'booking.edit',
+  'booking.delete',
+  'booking.manage_services',
+  'booking.manage_resources',
+  'booking.manage_team',
+  'booking.manage_events',
+  'booking.manage_availability',
+  'booking.manage_confirmations',
+  'booking.manage_product_links',
+  'booking.manage_commands',
+];
+```
+
+Apply `requireFeatures` in metadata for all pages and API handlers.
+Update default admin role seeding in `packages/core/src/modules/auth/cli.ts`.
+
+## 9) Indexing + Query Engine
+
+- All CRUD routes should include `indexer: { entityType }`.
+- Use `queryEngine` via DI for complex list filtering.
+- Use `ce.ts` only for custom entities/field seeding, not core table registration.
+
+## 10) Migrations + Codegen
+
+- Update `src/modules/booking/data/entities.ts`.
+- Run `npm run db:generate` to create module migrations.
+- Run `npm run modules:prepare` to rebuild generated artifacts.
+- Never hand-write migrations.
+
+## 11) Testing
+
+Minimum coverage:
+- negotiation transitions and confirmation modes
+- deadline expiry behavior
+- product/variant link CRUD
+- undo/redo flows
+- tenant/org scoping
+
+## 12) Open Decisions
+
+- Decline policy: cancel vs revert to draft.
+- Command framework reuse vs new `booking_commands`.
+- Whether negotiation includes attendee confirmation.
+- Product/service scoping by channel vs org-only.
+
