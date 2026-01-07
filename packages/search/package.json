@@ -1,0 +1,21 @@
+{
+  "name": "@open-mercato/search",
+  "version": "0.3.12",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./strategies/*": "./src/strategies/*",
+    "./lib/*": "./src/lib/*",
+    "./indexer/*": "./src/indexer/*",
+    "./types": "./src/types.ts",
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "meilisearch": "^0.37.0"
+  },
+  "peerDependencies": {
+    "@open-mercato/shared": "workspace:*",
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/vector": "workspace:*"
+  }
+}
