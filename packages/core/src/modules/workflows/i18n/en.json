@@ -16,6 +16,16 @@
       "complete_tasks": "Complete User Tasks",
       "view_logs": "View Workflow Logs"
     },
+    "nav": {
+      "graphTest": "Graph Test"
+    },
+    "backend": {
+      "definitions": {
+        "visual_editor": {
+          "title": "Visual Workflow Editor"
+        }
+      }
+    },
     "list": {
       "title": "Workflow Definitions"
     },
@@ -37,6 +47,9 @@
     },
     "actions": {
       "create": "Create Workflow",
+      "createVisual": "Create Workflow (Visual)",
+      "editVisually": "Edit Visually",
+      "openVisualEditor": "Open Visual Editor",
       "toggleEnabled": "Click to enable/disable"
     },
     "confirm": {
@@ -103,7 +116,9 @@
     "edit": {
       "title": "Edit Workflow Definition",
       "description": "Modify workflow steps, transitions, and activities for",
-      "loading": "Loading workflow..."
+      "loading": "Loading workflow...",
+      "visualEditorAvailable": "Visual Editor Available",
+      "visualEditorDescription": "Edit this workflow using the visual drag-and-drop editor"
     },
     "backToList": "Back to workflows",
     "errors": {

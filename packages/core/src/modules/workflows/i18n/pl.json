@@ -16,6 +16,16 @@
       "complete_tasks": "Ukończ Zadania Użytkownika",
       "view_logs": "Przeglądaj Logi Przepływów"
     },
+    "nav": {
+      "graphTest": "Test Grafu"
+    },
+    "backend": {
+      "definitions": {
+        "visual_editor": {
+          "title": "Wizualny Edytor Przepływów Pracy"
+        }
+      }
+    },
     "list": {
       "title": "Definicje Przepływów Pracy"
     },
@@ -37,6 +47,9 @@
     },
     "actions": {
       "create": "Utwórz Przepływ Pracy",
+      "createVisual": "Utwórz Przepływ (Wizualnie)",
+      "editVisually": "Edytuj Wizualnie",
+      "openVisualEditor": "Otwórz Edytor Wizualny",
       "toggleEnabled": "Kliknij aby włączyć/wyłączyć"
     },
     "confirm": {
@@ -103,7 +116,9 @@
     "edit": {
       "title": "Edytuj Definicję Przepływu",
       "description": "Modyfikuj kroki przepływu, przejścia i działania dla",
-      "loading": "Ładowanie przepływu..."
+      "loading": "Ładowanie przepływu...",
+      "visualEditorAvailable": "Dostępny Edytor Wizualny",
+      "visualEditorDescription": "Edytuj ten przepływ używając wizualnego edytora przeciągnij i upuść"
     },
     "backToList": "Powrót do przepływów",
     "errors": {

@@ -1,0 +1,258 @@
+'use client'
+
+import { useCallback, useMemo, useEffect } from 'react'
+import {
+  ReactFlow,
+  Node,
+  Edge,
+  Controls,
+  Background,
+  BackgroundVariant,
+  MiniMap,
+  Panel,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Connection,
+  ConnectionMode,
+  MarkerType,
+} from '@xyflow/react'
+import { StartNode, EndNode, UserTaskNode, AutomatedNode } from './nodes'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { Edit3 } from 'lucide-react'
+
+// NOTE: ReactFlow styles should be imported in the page that uses this component
+// or in a global CSS file. Import: '@xyflow/react/dist/style.css'
+
+export interface WorkflowGraphProps {
+  initialNodes?: Node[]
+  initialEdges?: Edge[]
+  onNodesChange?: (changes: any[]) => void
+  onEdgesChange?: (changes: any[]) => void
+  onNodeClick?: (event: React.MouseEvent, node: Node) => void
+  onEdgeClick?: (event: React.MouseEvent, edge: Edge) => void
+  onConnect?: (connection: Connection) => void
+  editable?: boolean
+  className?: string
+  height?: string
+}
+
+/**
+ * WorkflowGraph - ReactFlow wrapper component for workflow visualization
+ *
+ * Provides a graph-based view of workflow definitions with:
+ * - Pan and zoom controls
+ * - Background grid
+ * - Mini-map for navigation
+ * - Optional editing capabilities
+ */
+export function WorkflowGraph({
+  initialNodes = [],
+  initialEdges = [],
+  onNodesChange: onNodesChangeProp,
+  onEdgesChange: onEdgesChangeProp,
+  onNodeClick: onNodeClickProp,
+  onEdgeClick: onEdgeClickProp,
+  onConnect: onConnectProp,
+  editable = false,
+  className = '',
+  height = '600px',
+}: WorkflowGraphProps) {
+  // Use ReactFlow hooks for node and edge state management
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
+
+  // Sync internal state when external state changes (e.g., when parent adds nodes)
+  useEffect(() => {
+    setNodes(initialNodes)
+  }, [initialNodes, setNodes])
+
+  useEffect(() => {
+    setEdges(initialEdges)
+  }, [initialEdges, setEdges])
+
+  // Handle connection between nodes (when user drags from one node to another)
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (onConnectProp) {
+        // Let parent handle the connection
+        onConnectProp(connection)
+      } else {
+        // Fallback: handle internally if no parent callback
+        const newEdge = {
+          ...connection,
+          type: 'smoothstep',
+          animated: false,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 20,
+            height: 20,
+          },
+        }
+        setEdges((eds) => addEdge(newEdge, eds))
+      }
+    },
+    [setEdges, onConnectProp]
+  )
+
+  // Notify parent when nodes change
+  const handleNodesChange = useCallback(
+    (changes: any) => {
+      onNodesChange(changes)
+      if (onNodesChangeProp) {
+        onNodesChangeProp(changes)
+      }
+    },
+    [onNodesChange, onNodesChangeProp]
+  )
+
+  // Notify parent when edges change
+  const handleEdgesChange = useCallback(
+    (changes: any) => {
+      onEdgesChange(changes)
+      if (onEdgesChangeProp) {
+        onEdgesChangeProp(changes)
+      }
+    },
+    [onEdgesChange, onEdgesChangeProp]
+  )
+
+  // Register custom node types
+  const nodeTypes = useMemo(
+    () => ({
+      start: StartNode,
+      end: EndNode,
+      userTask: UserTaskNode,
+      automated: AutomatedNode,
+    }),
+    []
+  )
+
+  return (
+    <div className={`workflow-graph-container ${className}`} style={{ height }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onConnect={editable ? onConnect : undefined}
+        onNodeClick={onNodeClickProp}
+        onEdgeClick={onEdgeClickProp}
+        connectionMode={ConnectionMode.Loose}
+        fitView
+        fitViewOptions={{
+          padding: 0.2,
+          maxZoom: 1,
+        }}
+        minZoom={0.1}
+        maxZoom={2}
+        defaultEdgeOptions={{
+          type: 'smoothstep',
+          animated: false,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 20,
+            height: 20,
+          },
+        }}
+        nodesDraggable={editable}
+        nodesConnectable={editable}
+        elementsSelectable={editable}
+        proOptions={{ hideAttribution: true }}
+      >
+        {/* Background grid for visual reference */}
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={16}
+          size={1}
+          color="#e5e7eb"
+        />
+
+        {/* Zoom and pan controls */}
+        <Controls
+          showZoom={true}
+          showFitView={true}
+          showInteractive={false}
+          position="top-right"
+        />
+
+        {/* Mini-map for navigation in large workflows */}
+        <MiniMap
+          nodeStrokeWidth={3}
+          nodeColor={(node) => {
+            // Color nodes by type - using accent colors for visibility
+            const nodeId = node.id || ''
+            if (nodeId === 'start' || node.type === 'start') {
+              return '#10B981' // emerald-500 accent
+            }
+            if (nodeId === 'end' || node.type === 'end') {
+              return '#6B7280' // gray-500 accent
+            }
+            if (nodeId.includes('customer') || node.type === 'userTask') {
+              return '#F59E0B' // amber-500 accent
+            }
+            if (node.type === 'automated' || nodeId.includes('validation') || nodeId.includes('processing') || nodeId.includes('confirmation')) {
+              return '#9CA3AF' // gray-400
+            }
+            return '#9CA3AF' // default gray-400
+          }}
+          maskColor="rgba(0, 0, 0, 0.05)"
+          position="bottom-left"
+          style={{
+            backgroundColor: '#f9fafb',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+          }}
+        />
+
+        {/* Info panel */}
+        {!editable && (
+          <Panel position="top-left" style={{ margin: 10 }}>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-2">
+              <p className="text-sm text-gray-600 font-medium">
+                Workflow Visualization
+              </p>
+            </div>
+          </Panel>
+        )}
+
+        {editable && (
+          <Panel position="top-left" style={{ margin: 10 }}>
+            <Alert variant="info" className="max-w-sm">
+              <Edit3 className="size-4" />
+              <AlertDescription className="font-medium">
+                Edit Mode: Drag nodes to reposition
+              </AlertDescription>
+            </Alert>
+          </Panel>
+        )}
+      </ReactFlow>
+    </div>
+  )
+}
+
+/**
+ * WorkflowGraphReadOnly - Read-only version for viewing workflow execution
+ */
+export function WorkflowGraphReadOnly({
+  nodes,
+  edges,
+  className = '',
+  height = '500px',
+}: {
+  nodes: Node[]
+  edges: Edge[]
+  className?: string
+  height?: string
+}) {
+  return (
+    <WorkflowGraph
+      initialNodes={nodes}
+      initialEdges={edges}
+      editable={false}
+      className={className}
+      height={height}
+    />
+  )
+}

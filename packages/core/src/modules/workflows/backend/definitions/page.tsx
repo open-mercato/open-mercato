@@ -265,6 +265,10 @@ export default function WorkflowDefinitionsListPage() {
               href: `/backend/definitions/${row.original.id}`,
             },
             {
+              label: t('workflows.actions.editVisually'),
+              href: `/backend/definitions/visual-editor?id=${row.original.id}`,
+            },
+            {
               label: row.original.enabled ? t('common.disable') : t('common.enable'),
               onSelect: () => handleToggleEnabled(row.original.id, row.original.enabled),
             },
@@ -304,11 +308,18 @@ export default function WorkflowDefinitionsListPage() {
         <DataTable
           title={t('workflows.list.title')}
           actions={(
-            <Button asChild>
-              <Link href="/backend/definitions/create">
-                {t('workflows.actions.create')}
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline">
+                <Link href="/backend/definitions/visual-editor">
+                  {t('workflows.actions.createVisual')}
+                </Link>
+              </Button>
+              <Button asChild>
+                <Link href="/backend/definitions/create">
+                  {t('workflows.actions.create')}
+                </Link>
+              </Button>
+            </div>
           )}
           columns={columns}
           data={data || []}
