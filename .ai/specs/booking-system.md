@@ -351,8 +351,9 @@ Files:
 Slot: `crud-form:catalog.product`.
 
 UI behavior:
-- Fetch list of services and current product links.
-- Allow multi-select of services and optionally variants.
+- Fetch list of services and current product/variant links.
+- Allow multi-select of services and variants.
+- Two-way visibility: product edit shows linked services; service detail shows linked products/variants.
 - Save using `apiCall` helpers.
 - Support `Cmd/Ctrl + Enter` to save and `Escape` to cancel.
 - Use `LoadingMessage` and `ErrorMessage` for state.
@@ -444,10 +445,86 @@ Minimum coverage:
 - undo/redo flows
 - tenant/org scoping
 
-## 12) Open Decisions
+## 12) UI Plan (Admin)
 
-- Decline policy: cancel vs revert to draft.
-- Command framework reuse vs new `booking_commands`.
-- Whether negotiation includes attendee confirmation.
-- Product/service scoping by channel vs org-only.
+### 12.1 Page Inventory
+
+Booking core pages (admin-only):
+- Events list: `/backend/booking/events`
+- Event detail: `/backend/booking/events/[id]`
+- Negotiation/waiting list: `/backend/booking/negotiations`
+- Services list: `/backend/booking/services`
+- Service detail: `/backend/booking/services/[id]`
+- Team members list: `/backend/booking/team-members`
+- Team member detail: `/backend/booking/team-members/[id]`
+- Resources list: `/backend/booking/resources`
+- Resource detail: `/backend/booking/resources/[id]`
+- Availability hub (calendar/list toggle): `/backend/booking/availability`
+- My schedule (admin view scoped to current user): `/backend/booking/my-schedule`
+
+Notes:
+- Negotiation/waiting list is a dedicated page but reuses the same table/calendar components as events.
+- My schedule is a separate admin page with a calendar-first view.
+
+### 12.2 Reusable Calendar/List Component
+
+Create a shared, rich availability component reusable across:
+- Availability hub
+- Team member detail
+- Resource detail
+- Events list (calendar toggle)
+- My schedule
+- Negotiation/waiting list (optional: calendar toggle)
+
+Component requirements:
+- Toggle: calendar view vs list view.
+- Calendar click-to-create: click a date/time block to open a dialog.
+- Dialog supports create/edit for availability rules and exceptions.
+- Reusable filtering toolbar: date range, subject type, member/resource, service.
+- Shared dialog and form controls; no page-specific form logic.
+- Prefer placing shared UI in `packages/ui` if broadly reusable.
+
+### 12.3 Inline Creation Flows
+
+All pages with list views should support inline creation:
+- Create service from services list.
+- Create member and availability from members list/detail.
+- Create resource and availability from resources list/detail.
+- Create event from events list or calendar.
+
+Implementation:
+- Use shared dialog components and shared form controls.
+- Use `CrudForm` and CRUD helpers.
+- `Cmd/Ctrl + Enter` submits, `Escape` cancels.
+
+### 12.4 Two-Way Product/Variant Links
+
+Expose links in both directions:
+- Product edit widget shows services linked to the product and variant.
+- Service detail includes a panel listing linked products/variants with add/remove.
+
+Use the same shared selector component in both places.
+
+## 13) Delivery Phases
+
+Phase 1 (MVP foundation):
+- Build reusable calendar/list component with click-to-create availability dialog.
+- List and create/edit resources.
+
+Phase 2:
+- List and create/edit team members.
+- Team member availability management using the shared calendar/list component.
+
+Phase 3:
+- Services list and detail with requirements and product/variant link panel.
+
+Phase 4:
+- Events list/detail with negotiation status.
+- Negotiation/waiting list page.
+- My schedule page.
+
+All phases:
+- CRUD APIs built via CRUD factory + commands.
+- Shared UI controls for inline creation.
+- Apply RBAC features to all pages.
 
