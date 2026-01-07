@@ -6,6 +6,7 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { registerSearchModule } from '@open-mercato/search'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function bootstrap(container: AwilixContainer) {
@@ -76,5 +77,19 @@ export async function bootstrap(container: AwilixContainer) {
     }
   } catch (err) {
     console.warn('[encryption] Failed to initialize tenant encryption service:', (err as Error)?.message || err)
+  }
+
+  // Register search module
+  try {
+    let searchModuleConfigs: any[] = []
+    try {
+      const mod = await import('@/generated/search.generated') as any
+      searchModuleConfigs = mod?.searchModuleConfigs ?? []
+    } catch {
+      // search.generated.ts may not exist yet
+    }
+    registerSearchModule(container as any, { moduleConfigs: searchModuleConfigs })
+  } catch (err) {
+    console.warn('[search] Failed to register search module:', (err as Error)?.message || err)
   }
 }

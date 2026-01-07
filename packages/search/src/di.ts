@@ -4,7 +4,8 @@ import { SearchService } from './service'
 import { TokenSearchStrategy } from './strategies/token.strategy'
 import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector.strategy'
 import { MeilisearchStrategy } from './strategies/meilisearch.strategy'
-import type { SearchStrategy, ResultMergeConfig } from './types'
+import { SearchIndexer } from './indexer/search-indexer'
+import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig } from './types'
 import type { VectorDriver } from '@open-mercato/vector/types'
 
 /**
@@ -29,6 +30,8 @@ export type SearchModuleOptions = {
   skipVector?: boolean
   /** Skip meilisearch strategy registration */
   skipMeilisearch?: boolean
+  /** Module configurations (from generated/search.generated.ts) */
+  moduleConfigs?: SearchModuleConfig[]
 }
 
 /**
@@ -95,10 +98,15 @@ export function registerSearchModule(
     },
   })
 
+  // Create search indexer with module configs
+  const moduleConfigs = options?.moduleConfigs ?? []
+  const searchIndexer = new SearchIndexer(searchService, moduleConfigs)
+
   // Register in container
   container.register({
     searchService: asValue(searchService),
     searchStrategies: asValue(strategies),
+    searchIndexer: asValue(searchIndexer),
   })
 }
 

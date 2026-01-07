@@ -29,5 +29,8 @@ export * from './strategies'
 // Lib utilities
 export * from './lib'
 
+// Indexer
+export * from './indexer'
+
 // DI registration
 export { registerSearchModule, addSearchStrategy, type SearchContainer, type SearchModuleOptions } from './di'
