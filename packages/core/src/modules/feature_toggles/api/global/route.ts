@@ -40,6 +40,12 @@ const listFields = [
   'updated_at',
 ]
 
+const escapeLikePattern = (value: string): string => {
+  // First escape backslashes, then escape SQL LIKE wildcards (% and _)
+  const escapedBackslashes = value.replace(/\\/g, '\\\\')
+  return escapedBackslashes.replace(/[%_]/g, '\\$&')
+}
+
 const buildFilters = (query: FeatureToggleListQuery): Record<string, unknown> => {
   const filters: Record<string, unknown> = {}
   const search = query.search?.trim()
