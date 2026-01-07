@@ -13,7 +13,7 @@ import type { VectorDriver, VectorDriverDocument } from '@open-mercato/vector/ty
  */
 export interface EmbeddingService {
   createEmbedding(text: string): Promise<number[]>
-  isConfigured(): boolean
+  available: boolean
 }
 
 /**
@@ -45,7 +45,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async isAvailable(): Promise<boolean> {
-    return this.embeddingService.isConfigured()
+    return this.embeddingService.available
   }
 
   async ensureReady(): Promise<void> {
@@ -57,14 +57,27 @@ export class VectorSearchStrategy implements SearchStrategy {
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
     const embedding = await this.embeddingService.createEmbedding(query)
 
+    // Build filter - only include organizationId if it's a real value
+    // The pgvector driver treats null as "only records with null org_id",
+    // but we want null/undefined to mean "no organization filter"
+    const filter: {
+      tenantId: string
+      organizationId?: string | null
+      entityIds?: EntityId[]
+    } = {
+      tenantId: options.tenantId,
+      entityIds: options.entityTypes as EntityId[],
+    }
+
+    // Only add organizationId filter if it's a real org ID
+    if (options.organizationId) {
+      filter.organizationId = options.organizationId
+    }
+
     const results = await this.vectorDriver.query({
       vector: embedding,
       limit: options.limit ?? this.defaultLimit,
-      filter: {
-        tenantId: options.tenantId,
-        organizationId: options.organizationId,
-        entityIds: options.entityTypes as EntityId[],
-      },
+      filter,
     })
 
     return results.map((hit) => ({

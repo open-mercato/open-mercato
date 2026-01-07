@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
+import type { EmbeddingService } from '@open-mercato/vector'
+import { resolveEmbeddingConfig } from '@open-mercato/vector/modules/vector/lib/embedding-config'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -54,24 +56,27 @@ export async function GET(req: Request) {
       )
     }
 
+    // Load embedding config for vector strategy (same as Vector Search playground)
+    try {
+      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+      if (embeddingConfig) {
+        const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
+        embeddingService.updateConfig(embeddingConfig)
+      }
+    } catch {
+      // Embedding config not available, vector strategy may not work
+    }
+
     const startTime = Date.now()
 
-    // For the playground, we don't filter by organization to show all results
-    // This can be made configurable via query param in the future
+    // Don't filter by organization in the playground - show all results
+    // Both strategies handle null as "no organization filter"
     const searchOptions = {
       tenantId: auth.tenantId,
-      organizationId: null, // Don't filter by organization in playground
+      organizationId: null,
       limit,
       strategies,
     }
-
-    console.log('[search.search] executing', {
-      query,
-      tenantId: searchOptions.tenantId,
-      organizationId: searchOptions.organizationId,
-      strategies: searchOptions.strategies,
-      limit: searchOptions.limit,
-    })
 
     const results = await searchService.search(query, searchOptions)
 
@@ -92,7 +97,6 @@ export async function GET(req: Request) {
       error instanceof Error
         ? error.message
         : t('search.api.errors.searchFailed', 'Search failed')
-    console.error('[search.search] failed', error)
     return NextResponse.json({ error: message }, { status: 500 })
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }

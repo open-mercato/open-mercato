@@ -315,13 +315,17 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     await ensureReady()
     const vectorLiteral = toVectorLiteral(input.vector)
     const filter = input.filter ?? { tenantId: '' }
+    // Check if organizationId is explicitly set in filter (vs undefined/missing)
+    // undefined = no org filter, null = filter for records with null org_id
+    const hasOrgFilter = 'organizationId' in filter
     const params: any[] = [
       vectorLiteral,
       DRIVER_ID,
       filter.tenantId,
-      filter.organizationId ?? null,
+      hasOrgFilter ? (filter.organizationId ?? null) : null,
       Array.isArray(filter.entityIds) && filter.entityIds.length ? filter.entityIds : null,
       input.limit ?? 20,
+      hasOrgFilter, // $7: whether to apply org filter
     ]
     const res = await pool.query<{
       entity_id: string
@@ -363,7 +367,8 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         WHERE driver_id = $2
           AND tenant_id = $3::uuid
           AND (
-            ($4::uuid IS NULL AND organization_id IS NULL)
+            $7::boolean = false
+            OR ($4::uuid IS NULL AND organization_id IS NULL)
             OR ($4::uuid IS NOT NULL AND (organization_id = $4::uuid OR organization_id IS NULL))
           )
           AND (

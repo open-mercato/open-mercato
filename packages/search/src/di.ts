@@ -55,25 +55,28 @@ export function registerSearchModule(
   // Token strategy (always available unless explicitly skipped)
   if (!options?.skipTokens) {
     try {
-      const knex = container.resolve<Knex>('knex')
+      const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
+      const knex = em.getConnection().getKnex()
       strategies.push(new TokenSearchStrategy(knex))
     } catch {
-      console.warn('[search] knex not available, skipping TokenSearchStrategy')
+      // knex not available via em, skipping TokenSearchStrategy
     }
   }
 
   // Vector strategy (requires embedding service and driver)
+  // Note: We register even if not currently available - availability is checked at search time
+  // via isAvailable(). The embedding config may be loaded later from the database.
   if (!options?.skipVector) {
     try {
       const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
       const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
       const primaryDriver = drivers?.[0]
 
-      if (embeddingService?.isConfigured?.() && primaryDriver) {
+      if (embeddingService && primaryDriver) {
         strategies.push(new VectorSearchStrategy(embeddingService, primaryDriver))
       }
     } catch {
-      // Vector module not available, skip
+      // Vector module not available, skipping VectorSearchStrategy
     }
   }
 
