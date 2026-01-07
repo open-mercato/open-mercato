@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/cache-management",
         "user-guide/taxes",
         "user-guide/vector-search",
+        "user-guide/hybrid-search",
         "user-guide/perspectives-and-sidebar",
         "user-guide/organizations",
         {
@@ -202,6 +203,7 @@ const sidebars: SidebarsConfig = {
             "framework/database/hybrid-query-engine",
             "framework/database/query-index",
             "framework/database/vector-search",
+            "framework/database/hybrid-search",
           ],
         },
         "framework/custom-entities/overview",
