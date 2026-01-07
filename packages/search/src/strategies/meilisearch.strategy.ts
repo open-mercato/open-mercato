@@ -220,6 +220,76 @@ export class MeilisearchStrategy implements SearchStrategy {
   }
 
   /**
+   * Delete all documents from the index for a tenant (keeps index structure).
+   */
+  async clearIndex(tenantId: string): Promise<void> {
+    const client = this.getClient()
+    const indexName = this.buildIndexName(tenantId)
+
+    try {
+      const index = client.index(indexName)
+      await index.deleteAllDocuments()
+    } catch (error: unknown) {
+      const meilisearchError = error as { code?: string }
+      if (meilisearchError.code === 'index_not_found') {
+        return
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Delete and recreate the index for a tenant.
+   */
+  async recreateIndex(tenantId: string): Promise<void> {
+    const client = this.getClient()
+    const indexName = this.buildIndexName(tenantId)
+
+    // Remove from initialized set so it gets recreated
+    this.initializedIndexes.delete(indexName)
+
+    try {
+      await client.deleteIndex(indexName)
+    } catch (error: unknown) {
+      const meilisearchError = error as { code?: string }
+      if (meilisearchError.code !== 'index_not_found') {
+        throw error
+      }
+    }
+
+    // Recreate with proper settings
+    await this.ensureIndex(indexName)
+  }
+
+  /**
+   * Get stats for the tenant's index.
+   */
+  async getIndexStats(tenantId: string): Promise<{
+    numberOfDocuments: number
+    isIndexing: boolean
+    fieldDistribution: Record<string, number>
+  } | null> {
+    const client = this.getClient()
+    const indexName = this.buildIndexName(tenantId)
+
+    try {
+      const index = client.index(indexName)
+      const stats = await index.getStats()
+      return {
+        numberOfDocuments: stats.numberOfDocuments,
+        isIndexing: stats.isIndexing,
+        fieldDistribution: stats.fieldDistribution,
+      }
+    } catch (error: unknown) {
+      const meilisearchError = error as { code?: string }
+      if (meilisearchError.code === 'index_not_found') {
+        return null
+      }
+      throw error
+    }
+  }
+
+  /**
    * Get or create the Meilisearch client.
    */
   private getClient(): MeiliSearch {

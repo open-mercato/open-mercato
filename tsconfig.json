@@ -87,6 +87,12 @@
       "@open-mercato/vector/*": [
         "./packages/vector/src/*"
       ],
+      "@open-mercato/search": [
+        "./packages/search/src/index.ts"
+      ],
+      "@open-mercato/search/*": [
+        "./packages/search/src/*"
+      ],
       "@open-mercato/cli/*": [
         "./packages/cli/src/*"
       ],

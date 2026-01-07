@@ -7,6 +7,7 @@ import { MeilisearchStrategy } from './strategies/meilisearch.strategy'
 import { SearchIndexer } from './indexer/search-indexer'
 import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig } from './types'
 import type { VectorDriver } from '@open-mercato/vector/types'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 
 /**
  * Container interface - minimal subset needed for registration.
@@ -100,7 +101,18 @@ export function registerSearchModule(
 
   // Create search indexer with module configs
   const moduleConfigs = options?.moduleConfigs ?? []
-  const searchIndexer = new SearchIndexer(searchService, moduleConfigs)
+
+  // Try to resolve queryEngine for reindex support
+  let queryEngine: QueryEngine | undefined
+  try {
+    queryEngine = container.resolve<QueryEngine>('queryEngine')
+  } catch {
+    // QueryEngine not available, reindex will be disabled
+  }
+
+  const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
+    queryEngine,
+  })
 
   // Register in container
   container.register({

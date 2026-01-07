@@ -193,6 +193,23 @@ export class SearchService {
   }
 
   /**
+   * Get a specific strategy by ID.
+   *
+   * @param strategyId - Strategy ID to retrieve
+   * @returns The strategy if registered, undefined otherwise
+   */
+  getStrategy(strategyId: SearchStrategyId): SearchStrategy | undefined {
+    return this.strategies.get(strategyId)
+  }
+
+  /**
+   * Get the default strategies list.
+   */
+  getDefaultStrategies(): SearchStrategyId[] {
+    return [...this.defaultStrategies]
+  }
+
+  /**
    * Check if a specific strategy is available.
    *
    * @param strategyId - Strategy ID to check
