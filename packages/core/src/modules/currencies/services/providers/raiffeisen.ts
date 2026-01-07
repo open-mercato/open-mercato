@@ -24,6 +24,7 @@ interface RaiffeisenResponse {
 export class RaiffeisenProvider implements RateProvider {
   readonly name = 'Raiffeisen Bank'
   readonly source = 'Raiffeisen Bank'
+  readonly baseCurrency = 'PLN'
 
   private readonly baseUrl = 'https://www.rbinternational.com.pl/rest/rates/'
 
@@ -89,7 +90,7 @@ export class RaiffeisenProvider implements RateProvider {
         // - SELL: bank sells XXX for PLN → 1 XXX = sell PLN
         // - BUY: bank buys XXX for PLN → 1 XXX = buy PLN
         
-        // Rate 1: PLN → XXX (inverse of SELL)
+        // Rate 1: PLN → XXX (inverse of SELL) - this is when bank SELLS foreign currency
         // If sell = 4.5 (1 EUR costs 4.5 PLN), then 1 PLN = 1/4.5 EUR
         const sellRate = parseFloat(rateData.sell)
         results.push({
@@ -98,9 +99,10 @@ export class RaiffeisenProvider implements RateProvider {
           rate: (1 / sellRate).toString(),
           source: this.source,
           date: rateDate,
+          type: 'sell', // Bank sells foreign currency (from their perspective)
         })
 
-        // Rate 2: XXX → PLN (using BUY)
+        // Rate 2: XXX → PLN (using BUY) - this is when bank BUYS foreign currency
         // If buy = 4.3 (1 EUR gives 4.3 PLN), then 1 EUR = 4.3 PLN
         results.push({
           fromCurrencyCode: rateData.code,
@@ -108,6 +110,7 @@ export class RaiffeisenProvider implements RateProvider {
           rate: rateData.buy,
           source: this.source,
           date: rateDate,
+          type: 'buy', // Bank buys foreign currency (from their perspective)
         })
       }
 

@@ -67,8 +67,9 @@ const listQuerySchema = z
     toCurrencyCode: z.string().optional(),
     isActive: z.enum(['true', 'false']).optional(),
     source: z.string().optional(),
+    type: z.enum(['buy', 'sell']).optional(),
   })
-  .passthrough()
+  .loose()
 
 type ExchangeRateRow = {
   id: string
@@ -77,6 +78,7 @@ type ExchangeRateRow = {
   rate: string
   date: string
   source: string
+  type: string | null
   isActive: boolean
   createdAt: string | null
   updatedAt: string | null
@@ -91,6 +93,7 @@ const toRow = (rate: ExchangeRate): ExchangeRateRow => ({
   rate: String(rate.rate),
   date: rate.date.toISOString(),
   source: String(rate.source),
+  type: rate.type ?? null,
   isActive: !!rate.isActive,
   createdAt: rate.createdAt ? rate.createdAt.toISOString() : null,
   updatedAt: rate.updatedAt ? rate.updatedAt.toISOString() : null,
@@ -115,6 +118,7 @@ export async function GET(req: Request) {
     toCurrencyCode: url.searchParams.get('toCurrencyCode') ?? undefined,
     isActive: url.searchParams.get('isActive') ?? undefined,
     source: url.searchParams.get('source') ?? undefined,
+    type: url.searchParams.get('type') ?? undefined,
   })
   if (!parsed.success) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 400 })
@@ -123,7 +127,7 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
 
-  const { id, page, pageSize, sortField, sortDir, fromCurrencyCode, toCurrencyCode, isActive, source } = parsed.data
+  const { id, page, pageSize, sortField, sortDir, fromCurrencyCode, toCurrencyCode, isActive, source, type } = parsed.data
   const where: FilterQuery<ExchangeRate> = {
     organizationId: auth.orgId,
     tenantId: auth.tenantId,
@@ -134,6 +138,7 @@ export async function GET(req: Request) {
   if (fromCurrencyCode) where.fromCurrencyCode = fromCurrencyCode
   if (toCurrencyCode) where.toCurrencyCode = toCurrencyCode
   if (source) where.source = source
+  if (type) where.type = type
   if (isActive === 'true') where.isActive = true
   if (isActive === 'false') where.isActive = false
 

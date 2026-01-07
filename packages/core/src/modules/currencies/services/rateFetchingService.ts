@@ -120,6 +120,7 @@ export class RateFetchingService {
         if (existing) {
           // Update existing rate
           existing.rate = rate.rate
+          existing.type = rate.type ?? null
           existing.updatedAt = new Date()
           em.persist(existing)
         } else {
@@ -132,6 +133,7 @@ export class RateFetchingService {
             rate: rate.rate,
             date: rate.date,
             source: rate.source,
+            type: rate.type ?? null,
             isActive: true,
             createdAt: new Date(),
             updatedAt: new Date(),

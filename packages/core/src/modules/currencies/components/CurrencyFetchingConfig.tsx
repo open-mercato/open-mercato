@@ -32,6 +32,7 @@ interface Props {
     providerRaiffeisen: string
     loading: string
     testConnection: string
+    baseCurrency: string
   }
 }
 
@@ -40,12 +41,14 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
   const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState<string | null>(null)
   const [initializing, setInitializing] = useState(false)
+  const [baseCurrency, setBaseCurrency] = useState<string | null>(null)
 
   // Available providers that should be configured
   const availableProviders = ['NBP', 'Raiffeisen Bank']
 
   useEffect(() => {
     loadConfigs()
+    loadBaseCurrency()
   }, [])
 
   async function loadConfigs() {
@@ -71,6 +74,17 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
       flash(err.message || 'Failed to load configurations', 'error')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadBaseCurrency() {
+    try {
+      const { result } = await apiCall<{ items: Array<{ code: string }> }>('/api/currencies/currencies?isBase=true')
+      if (result?.items && result.items.length > 0) {
+        setBaseCurrency(result.items[0].code)
+      }
+    } catch (err: any) {
+      console.error('Failed to load base currency:', err)
     }
   }
 
@@ -208,7 +222,7 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
 
   function getProviderDescription(provider: string): string {
     if (provider === 'NBP') {
-      return '~13 currencies with bid/ask rates from Polish National Bank'
+      return '~13 currencies with buy/sell rates from Polish National Bank'
     }
     if (provider === 'Raiffeisen Bank') {
       return '4 major currencies (EUR, USD, CHF, GBP) with buy/sell rates'
@@ -250,6 +264,11 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
                   <p className="text-sm text-gray-600 mt-1">
                     {getProviderDescription(config.provider)}
                   </p>
+                  {baseCurrency && (
+                    <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-indigo-100 text-indigo-800">
+                      {t.baseCurrency}: {baseCurrency}
+                    </div>
+                  )}
                 </div>
 
                 <label className="flex items-center space-x-2 cursor-pointer">

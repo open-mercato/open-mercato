@@ -22,6 +22,7 @@ type ExchangeRateRow = {
   rate: string
   date: string
   source: string | null
+  type: string | null
   isActive: boolean
   organizationId: string
   tenantId: string
@@ -58,6 +59,7 @@ export default function ExchangeRatesPage() {
         if (filters.fromCurrencyCode) params.set('fromCurrencyCode', String(filters.fromCurrencyCode))
         if (filters.toCurrencyCode) params.set('toCurrencyCode', String(filters.toCurrencyCode))
         if (filters.source) params.set('source', String(filters.source))
+        if (filters.type) params.set('type', String(filters.type))
         if (filters.isActive === 'true') params.set('isActive', 'true')
         if (filters.isActive === 'false') params.set('isActive', 'false')
 
@@ -157,6 +159,23 @@ export default function ExchangeRatesPage() {
         cell: ({ row }) => row.original.source || '—',
       },
       {
+        accessorKey: 'type',
+        header: t('exchangeRates.list.columns.type'),
+        cell: ({ row }) => {
+          const type = row.original.type
+          if (!type) return '—'
+          return (
+            <span className={`inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${
+              type === 'buy' 
+                ? 'bg-green-100 text-green-800' 
+                : 'bg-blue-100 text-blue-800'
+            }`}>
+              {type === 'buy' ? t('exchangeRates.list.type.buy') : t('exchangeRates.list.type.sell')}
+            </span>
+          )
+        },
+      },
+      {
         accessorKey: 'isActive',
         header: t('exchangeRates.list.columns.active'),
         enableSorting: false,
@@ -182,6 +201,16 @@ export default function ExchangeRatesPage() {
         id: 'source',
         label: t('exchangeRates.list.filters.source'),
         type: 'text',
+      },
+      {
+        id: 'type',
+        label: t('exchangeRates.list.filters.type'),
+        type: 'select',
+        options: [
+          { label: t('exchangeRates.list.filters.all'), value: '' },
+          { label: t('exchangeRates.list.type.buy'), value: 'buy' },
+          { label: t('exchangeRates.list.type.sell'), value: 'sell' },
+        ],
       },
       {
         id: 'isActive',

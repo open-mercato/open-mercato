@@ -21,6 +21,7 @@ export default async function CurrencyFetchingPage() {
         providerRaiffeisen: t('currencies.fetch.provider_raiffeisen'),
         loading: t('currencies.fetch.loading'),
         testConnection: t('currencies.fetch.test_connection'),
+        baseCurrency: t('currencies.fetch.baseCurrency'),
       }}
     />
   )

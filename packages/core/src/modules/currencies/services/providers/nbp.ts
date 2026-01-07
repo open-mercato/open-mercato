@@ -17,6 +17,7 @@ interface NBPTableCResponse {
 export class NBPProvider implements RateProvider {
   readonly name = 'NBP (National Bank of Poland)'
   readonly source = 'NBP'
+  readonly baseCurrency = 'PLN'
 
   private readonly baseUrl = 'https://api.nbp.pl/api'
 
@@ -71,7 +72,7 @@ export class NBPProvider implements RateProvider {
         // - ASK (sprzedaż): bank sells XXX for PLN → 1 XXX = ask PLN
         // - BID (kupno): bank buys XXX for PLN → 1 XXX = bid PLN
         
-        // Rate 1: PLN → XXX (inverse of ASK)
+        // Rate 1: PLN → XXX (inverse of ASK) - this is when bank SELLS foreign currency
         // If ask = 4.5 (1 EUR costs 4.5 PLN), then 1 PLN = 1/4.5 EUR
         results.push({
           fromCurrencyCode: 'PLN',
@@ -79,9 +80,10 @@ export class NBPProvider implements RateProvider {
           rate: (1 / rate.ask).toString(),
           source: this.source,
           date: effectiveDate,
+          type: 'sell', // Bank sells foreign currency (from their perspective)
         })
 
-        // Rate 2: XXX → PLN (using BID)
+        // Rate 2: XXX → PLN (using BID) - this is when bank BUYS foreign currency
         // If bid = 4.3 (1 EUR gives 4.3 PLN), then 1 EUR = 4.3 PLN
         results.push({
           fromCurrencyCode: rate.code,
@@ -89,6 +91,7 @@ export class NBPProvider implements RateProvider {
           rate: rate.bid.toString(),
           source: this.source,
           date: effectiveDate,
+          type: 'buy', // Bank buys foreign currency (from their perspective)
         })
       }
 

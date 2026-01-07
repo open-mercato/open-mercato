@@ -23,6 +23,7 @@ type ExchangeRateSnapshot = {
   rate: string
   date: string
   source: string
+  type: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -40,6 +41,7 @@ async function loadExchangeRateSnapshot(em: EntityManager, id: string): Promise<
     rate: record.rate,
     date: record.date.toISOString(),
     source: record.source,
+    type: record.type ?? null,
     isActive: !!record.isActive,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -109,6 +111,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       rate: parsed.rate,
       date: parsed.date,
       source: parsed.source,
+      type: parsed.type ?? null,
       isActive: parsed.isActive !== false,
       createdAt: now,
       updatedAt: now,
@@ -201,6 +204,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       'rate',
       'date',
       'source',
+      'type',
       'isActive',
     ])
 
@@ -260,6 +264,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       rate: before.rate,
       date: new Date(before.date),
       source: before.source,
+      type: before.type,
       isActive: before.isActive,
       updatedAt: new Date(),
     })

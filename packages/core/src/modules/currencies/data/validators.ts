@@ -26,6 +26,9 @@ const sourceSchema = z
   .regex(/^[a-zA-Z0-9\s\-_]+$/, { message: 'sourceInvalidFormat' })
   .transform(s => s.trim())
 
+// Rate type validation schema
+const rateTypeSchema = z.enum(['buy', 'sell']).nullable().optional()
+
 // Currency validators
 export const currencyCreateSchema = z.object({
   organizationId: z.uuid(),
@@ -70,6 +73,7 @@ export const exchangeRateCreateSchema = z
     rate: z.string().regex(/^\d+(\.\d{1,8})?$/, 'Rate must be a positive decimal number'),
     date: z.coerce.date().transform(truncateToMinute),
     source: sourceSchema,
+    type: rateTypeSchema,
     isActive: z.boolean().optional(),
   })
   .refine((data) => data.fromCurrencyCode !== data.toCurrencyCode, {
@@ -91,6 +95,7 @@ export const exchangeRateUpdateSchema = z
     rate: z.string().regex(/^\d+(\.\d{1,8})?$/).optional(),
     date: z.coerce.date().transform(truncateToMinute).optional(),
     source: sourceSchema.optional(),
+    type: rateTypeSchema,
     isActive: z.boolean().optional(),
   })
   .refine(

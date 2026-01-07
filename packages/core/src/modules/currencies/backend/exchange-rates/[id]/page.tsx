@@ -30,6 +30,7 @@ type ExchangeRateData = {
   rate: string
   date: string
   source: string | null
+  type: string | null
   isActive: boolean
   organizationId: string
   tenantId: string
@@ -131,13 +132,13 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             required: true,
             description: t('exchangeRates.form.field.rateHelp'),
           },
-        {
-          id: 'date',
-          type: 'datetime-local',
-          label: t('exchangeRates.form.field.date'),
-          required: true,
-          description: t('exchangeRates.form.field.dateHelp'),
-        },
+          {
+            id: 'date',
+            type: 'datetime-local',
+            label: t('exchangeRates.form.field.date'),
+            required: true,
+            description: t('exchangeRates.form.field.dateHelp'),
+          },
         ],
       },
       {
@@ -145,14 +146,27 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
         column: 2,
         title: t('exchangeRates.form.group.metadata'),
         fields: [
-        {
-          id: 'source',
-          type: 'text',
-          label: t('exchangeRates.form.field.source'),
-          placeholder: t('exchangeRates.form.field.sourcePlaceholder'),
-          required: true,
-          description: t('exchangeRates.form.field.sourceHelp'),
-        },
+          {
+            id: 'source',
+            type: 'text',
+            label: t('exchangeRates.form.field.source'),
+            placeholder: t('exchangeRates.form.field.sourcePlaceholder'),
+            required: true,
+            description: t('exchangeRates.form.field.sourceHelp'),
+          },
+          {
+            id: 'type',
+            type: 'select',
+            label: t('exchangeRates.form.field.type'),
+            placeholder: t('exchangeRates.form.field.typePlaceholder'),
+            required: false,
+            description: t('exchangeRates.form.field.typeHelp'),
+            options: [
+              { value: '', label: t('exchangeRates.form.field.typeNone') },
+              { value: 'buy', label: t('exchangeRates.form.field.typeBuy') },
+              { value: 'sell', label: t('exchangeRates.form.field.typeSell') },
+            ],
+          },
           {
             id: 'isActive',
             type: 'checkbox',
@@ -227,6 +241,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             rate: parseFloat(exchangeRate.rate),
             date: formatDateTimeLocal(new Date(exchangeRate.date)),
             source: exchangeRate.source || '',
+            type: exchangeRate.type || '',
             isActive: exchangeRate.isActive,
           }}
           submitLabel={t('exchangeRates.form.action.save')}
@@ -296,6 +311,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
               rate: rate.toFixed(8),
               date: date.toISOString(),
               source,
+              type: values.type && values.type !== '' ? values.type : null,
               isActive: values.isActive !== false,
             }
 

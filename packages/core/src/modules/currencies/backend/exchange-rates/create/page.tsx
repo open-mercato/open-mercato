@@ -108,6 +108,27 @@ export default function CreateExchangeRatePage() {
             description: t('exchangeRates.form.field.sourceHelp'),
           },
           {
+            id: 'type',
+            type: 'select',
+            label: t('exchangeRates.form.field.type'),
+            placeholder: t('exchangeRates.form.field.typePlaceholder'),
+            required: false,
+            description: t('exchangeRates.form.field.typeHelp'),
+            options: [
+              { value: '', label: t('exchangeRates.form.field.typeNone') },
+              { 
+                value: 'buy', 
+                label: t('exchangeRates.form.field.typeBuy'),
+                description: t('exchangeRates.form.field.typeBuyDescription')
+              },
+              { 
+                value: 'sell', 
+                label: t('exchangeRates.form.field.typeSell'),
+                description: t('exchangeRates.form.field.typeSellDescription')
+              },
+            ],
+          },
+          {
             id: 'isActive',
             type: 'checkbox',
             label: t('exchangeRates.form.field.isActive'),
@@ -195,6 +216,7 @@ export default function CreateExchangeRatePage() {
               rate: rate.toFixed(8),
               date: date.toISOString(),
               source,
+              type: values.type && values.type !== '' ? values.type : null,
               isActive: values.isActive !== false,
             }
 

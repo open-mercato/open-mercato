@@ -96,7 +96,8 @@
       "provider_nbp": "NBP (National Bank of Poland)",
       "provider_raiffeisen": "Raiffeisen Bank",
       "loading": "Loading...",
-      "test_connection": "Test Connection"
+      "test_connection": "Test Connection",
+      "baseCurrency": "Base Currency"
     }
   },
   "exchangeRates": {
@@ -111,16 +112,22 @@
         "rate": "Rate",
         "date": "Date & Time",
         "source": "Source",
+        "type": "Type",
         "active": "Active"
       },
       "filters": {
         "fromCurrency": "From Currency",
         "toCurrency": "To Currency",
         "source": "Source",
+        "type": "Rate Type",
         "status": "Status",
         "all": "All",
         "active": "Active",
         "inactive": "Inactive"
+      },
+      "type": {
+        "buy": "Buy",
+        "sell": "Sell"
       },
       "actions": {
         "create": "Add Exchange Rate"
@@ -155,6 +162,14 @@
         "source": "Source",
         "sourcePlaceholder": "e.g., ECB, Manual",
         "sourceHelp": "Where this rate came from (required, 2-50 characters)",
+        "type": "Rate Type",
+        "typePlaceholder": "Select rate type (optional)",
+        "typeHelp": "Bank's perspective: buying or selling rate (leave empty if not applicable)",
+        "typeNone": "None (unspecified)",
+        "typeBuy": "Buy",
+        "typeSell": "Sell",
+        "typeBuyDescription": "Bank BUYS foreign currency from you",
+        "typeSellDescription": "Bank SELLS foreign currency to you",
         "isActive": "Active"
       },
       "action": {

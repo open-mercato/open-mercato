@@ -58,6 +58,40 @@ const result = await exchangeRateService.getRate({
 })
 ```
 
+### Rate Types
+
+Exchange rates include a `type` field indicating the bank's perspective:
+- **`buy`**: Rate when the bank buys foreign currency (from bank's perspective)
+- **`sell`**: Rate when the bank sells foreign currency (from bank's perspective)  
+- **`null`**: Unspecified or not applicable
+
+The type field is informational and helps users understand which perspective a rate represents. Since rates are stored as directional currency pairs (e.g., USD→PLN for "buy" and PLN→USD for "sell"), you select the appropriate rate by specifying the correct currency pair direction:
+
+```typescript
+// Get the "buy" rate (bank buys USD, you sell USD for PLN)
+// This is stored as USD→PLN with type='buy'
+const buyRate = await exchangeRateService.getRate({
+  fromCurrencyCode: 'USD',
+  toCurrencyCode: 'PLN',
+  date: new Date(),
+  scope: { tenantId, organizationId }
+})
+
+// Get the "sell" rate (bank sells USD, you buy USD with PLN)
+// This is stored as PLN→USD with type='sell'
+const sellRate = await exchangeRateService.getRate({
+  fromCurrencyCode: 'PLN',
+  toCurrencyCode: 'USD',
+  date: new Date(),
+  scope: { tenantId, organizationId }
+})
+```
+
+Providers automatically set the type when fetching rates:
+- **NBP**: Uses bid (buy) and ask (sell) rates - creates two directional pairs
+- **Raiffeisen**: Uses buy and sell rates - creates two directional pairs
+- **Manual entries**: Users can specify the type or leave it null
+
 ### Date Validation
 
 The service validates that the requested date is not in the future:

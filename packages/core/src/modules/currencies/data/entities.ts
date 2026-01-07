@@ -67,8 +67,8 @@ export class Currency {
   properties: ['fromCurrencyCode', 'toCurrencyCode', 'date'],
 })
 @Unique({
-  name: 'exchange_rates_pair_datetime_source_unique',
-  properties: ['organizationId', 'tenantId', 'fromCurrencyCode', 'toCurrencyCode', 'date', 'source'],
+  name: 'exchange_rates_pair_datetime_source_type_unique',
+  properties: ['organizationId', 'tenantId', 'fromCurrencyCode', 'toCurrencyCode', 'date', 'source', 'type'],
 })
 export class ExchangeRate {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -98,6 +98,10 @@ export class ExchangeRate {
   // Source tracking (required)
   @Property({ type: 'text' })
   source!: string
+
+  // Rate type from bank's perspective (nullable for backward compatibility)
+  @Property({ type: 'text', nullable: true })
+  type?: string | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
