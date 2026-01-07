@@ -27,6 +27,9 @@ jobs:
 
       - name: Prepare generated modules
         run: yarn modules:prepare
+        
+      - name: Checking types
+        run: yarn typecheck
 
       - name: Test
         run: yarn test
