@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { BusinessRule } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createBusinessRuleSchema,
   updateBusinessRuleSchema,
@@ -112,8 +113,8 @@ export async function GET(req: Request) {
   }
 
   if (id) filters.id = id
-  if (ruleId) filters.ruleId = { $ilike: `%${ruleId}%` }
-  if (search) filters.ruleName = { $ilike: `%${search}%` }
+  if (ruleId) filters.ruleId = { $ilike: `%${escapeLikePattern(ruleId)}%` }
+  if (search) filters.ruleName = { $ilike: `%${escapeLikePattern(search)}%` }
   if (ruleType) filters.ruleType = ruleType
   if (entityType) filters.entityType = entityType
   if (eventType) filters.eventType = eventType

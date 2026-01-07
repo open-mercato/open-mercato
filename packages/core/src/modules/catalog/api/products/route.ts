@@ -21,6 +21,7 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_product'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
 import {
@@ -150,7 +151,7 @@ export async function buildProductFilters(
   }
   const term = sanitizeSearchTerm(query.search)
   if (term) {
-    const like = `%${term}%`
+    const like = `%${escapeLikePattern(term)}%`
     filters.$or = [
       { title: { $ilike: like } },
       { subtitle: { $ilike: like } },

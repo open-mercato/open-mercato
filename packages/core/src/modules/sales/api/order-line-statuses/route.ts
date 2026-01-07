@@ -14,6 +14,7 @@ import {
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../openapi'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -143,7 +144,7 @@ const crud = makeCrudRoute({
         dictionary_id: dictionaryId,
       }
       if (query.search && query.search.trim().length > 0) {
-        const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
+        const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
           { [F.value]: { $ilike: term } },
           { [F.label]: { $ilike: term } },
