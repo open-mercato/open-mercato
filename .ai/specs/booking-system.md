@@ -2,6 +2,23 @@
 
 Goal: Build a tenant-aware booking module with self-contained attendees, availability, and conflict checks, plus a negotiation phase (waiting list), catalog product/variant linkage, admin widget injection, undo/redo command support, encryption defaults, and RBAC features. Module stays isomorphic (no cross-module ORM relationships) and admin-only.
 
+## Progress (Last Updated 2026-01-07)
+
+Completed:
+- Added booking module scaffolding under `src/modules/booking` with `acl.ts`, `index.ts`, commands, API helpers, entities, and validators.
+- Implemented commands + CRUD APIs for resources, resource types, and availability with `makeCrudRoute` and `indexer` enabled.
+- Enabled module in `src/modules.ts` and ran `npm run modules:prepare` to refresh generated registries.
+- Added encryption defaults for booking entities in `packages/core/src/modules/entities/lib/encryptionDefaults.ts`.
+- Updated admin role seeding to include `booking.*` features in `packages/core/src/modules/auth/lib/setup-app.ts`.
+- Introduced a shared `ensureOrganizationScope` helper in `packages/shared/src/lib/commands/scope.ts` and re-exported it from module shared helpers (catalog/sales/customers/booking).
+
+Next steps:
+- Run `npm run db:generate` and `npm run db:migrate` to generate/apply booking migrations.
+- Implement services, team roles/members, events, attendees, allocations, confirmations, and product/variant link APIs + commands.
+- Build Phase 1 admin UI: resource list/detail and the shared schedule/calendar components.
+- Add negotiation flow commands/endpoints (confirmations, accept/cancel, undo/redo).
+- Add tests for negotiation transitions, confirmation modes, product/variant links, and undo/redo.
+
 ## 0) Core Constraints
 
 - Keep modules independent; never add cross-module ORM relations.
