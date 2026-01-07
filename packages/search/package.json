@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./modules/*": "./src/modules/*",
     "./strategies/*": "./src/strategies/*",
     "./lib/*": "./src/lib/*",
     "./indexer/*": "./src/indexer/*",
@@ -11,7 +12,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "meilisearch": "^0.37.0"
+    "meilisearch": "^0.55.0"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",

@@ -4694,13 +4694,6 @@ cron@^3.1.7:
     "@types/luxon" "~3.4.0"
     luxon "~3.5.0"
 
-cross-fetch@^3.1.6:
-  version "3.2.0"
-  resolved "https://registry.yarnpkg.com/cross-fetch/-/cross-fetch-3.2.0.tgz#34e9192f53bc757d6614304d9e5e6fb4edb782e3"
-  integrity sha512-Q+xVJLoGOeIMXZmbUK4HYk+69cQH6LudR0Vu/pRm2YlU/hDV9CiS0gKUMaWY5f2NeUH9C1nV3bsTlCo0FsTV1Q==
-  dependencies:
-    node-fetch "^2.7.0"
-
 cross-spawn@^7.0.3, cross-spawn@^7.0.5, cross-spawn@^7.0.6:
   version "7.0.6"
   resolved "https://registry.yarnpkg.com/cross-spawn/-/cross-spawn-7.0.6.tgz#8a58fe78f00dcd70c370451759dfbfaf03e8ee9f"
@@ -8426,12 +8419,10 @@ mdast-util-to-string@^4.0.0:
   dependencies:
     "@types/mdast" "^4.0.0"
 
-meilisearch@^0.37.0:
-  version "0.37.0"
-  resolved "https://registry.yarnpkg.com/meilisearch/-/meilisearch-0.37.0.tgz#b4cafd434d1a854a77b92d17d6977ed6c47fd485"
-  integrity sha512-LdbK6JmRghCawrmWKJSEQF0OiE82md+YqJGE/U2JcCD8ROwlhTx0KM6NX4rQt0u0VpV0QZVG9umYiu3CSSIJAQ==
-  dependencies:
-    cross-fetch "^3.1.6"
+meilisearch@^0.55.0:
+  version "0.55.0"
+  resolved "https://registry.yarnpkg.com/meilisearch/-/meilisearch-0.55.0.tgz#c88a9d0bdac22e1e7ec648685a5f0c4c47c2f29e"
+  integrity sha512-qSMeiezfDgIqciIeYzh5E4pXDZZD7CtHeWDCs43kN3trLgl5FtfmBAIkljL3huFaOx08feYtC8FfIFUpVwq6rg==
 
 meow@^13.0.0:
   version "13.2.0"
@@ -9067,13 +9058,6 @@ node-emoji@^2.2.0:
     char-regex "^1.0.2"
     emojilib "^2.4.0"
     skin-tone "^2.0.0"
-
-node-fetch@^2.7.0:
-  version "2.7.0"
-  resolved "https://registry.yarnpkg.com/node-fetch/-/node-fetch-2.7.0.tgz#d0f0fa6e3e2dc1d27efcd8ad99d550bda94d187d"
-  integrity sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==
-  dependencies:
-    whatwg-url "^5.0.0"
 
 node-gyp-build-optional-packages@5.2.2:
   version "5.2.2"
@@ -11730,11 +11714,6 @@ tr46@^5.1.0:
   dependencies:
     punycode "^2.3.1"
 
-tr46@~0.0.3:
-  version "0.0.3"
-  resolved "https://registry.yarnpkg.com/tr46/-/tr46-0.0.3.tgz#8184fd347dac9cdc185992f3a6622e14b9d9ab6a"
-  integrity sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==
-
 traverse@0.6.8:
   version "0.6.8"
   resolved "https://registry.yarnpkg.com/traverse/-/traverse-0.6.8.tgz#5e5e0c41878b57e4b73ad2f3d1e36a715ea4ab15"
@@ -12292,11 +12271,6 @@ web-worker@1.2.0:
   resolved "https://registry.yarnpkg.com/web-worker/-/web-worker-1.2.0.tgz#5d85a04a7fbc1e7db58f66595d7a3ac7c9c180da"
   integrity sha512-PgF341avzqyx60neE9DD+XS26MMNMoUQRz9NOZwW32nPQrF6p77f1htcnjBSEV8BGMKZ16choqUG4hyI0Hx7mA==
 
-webidl-conversions@^3.0.0:
-  version "3.0.1"
-  resolved "https://registry.yarnpkg.com/webidl-conversions/-/webidl-conversions-3.0.1.tgz#24534275e2a7bc6be7bc86611cc16ae0a5654871"
-  integrity sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==
-
 webidl-conversions@^7.0.0:
   version "7.0.0"
   resolved "https://registry.yarnpkg.com/webidl-conversions/-/webidl-conversions-7.0.0.tgz#256b4e1882be7debbf01d05f0aa2039778ea080a"
@@ -12326,14 +12300,6 @@ whatwg-url@^14.0.0, whatwg-url@^14.1.1:
   dependencies:
     tr46 "^5.1.0"
     webidl-conversions "^7.0.0"
-
-whatwg-url@^5.0.0:
-  version "5.0.0"
-  resolved "https://registry.yarnpkg.com/whatwg-url/-/whatwg-url-5.0.0.tgz#966454e8765462e37644d3626f6742ce8b70965d"
-  integrity sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==
-  dependencies:
-    tr46 "~0.0.3"
-    webidl-conversions "^3.0.0"
 
 when-exit@^2.1.4:
   version "2.1.5"
