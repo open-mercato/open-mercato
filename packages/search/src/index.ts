@@ -20,11 +20,14 @@
 // Re-export types
 export * from './types'
 
-// Service will be exported here after implementation
-// export { SearchService } from './service'
+// Service
+export { SearchService } from './service'
 
-// Strategies will be exported here after implementation
-// export * from './strategies'
+// Strategies
+export * from './strategies'
 
-// Lib utilities will be exported here after implementation
-// export * from './lib'
+// Lib utilities
+export * from './lib'
+
+// DI registration
+export { registerSearchModule, addSearchStrategy, type SearchContainer, type SearchModuleOptions } from './di'
