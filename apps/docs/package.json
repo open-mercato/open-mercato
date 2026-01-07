@@ -1,13 +1,14 @@
 {
-  "name": "open-mercato-docs",
-  "version": "0.3.6",
+  "name": "@open-mercato/docs",
+  "version": "0.3.12",
   "private": true,
   "scripts": {
     "dev": "docusaurus start",
     "start": "docusaurus build && docusaurus serve",
     "build": "docusaurus build",
     "serve": "docusaurus serve",
-    "clean": "rimraf build .docusaurus"
+    "clean": "rimraf build .docusaurus",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@docusaurus/core": "^3.9.1",

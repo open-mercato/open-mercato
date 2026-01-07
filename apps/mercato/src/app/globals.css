@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Scan packages for Tailwind classes */
+@source "../../../../packages/ui/src/**/*.{ts,tsx}";
+@source "../../../../packages/core/src/**/*.{ts,tsx}";
+@source "../../../../packages/shared/src/**/*.{ts,tsx}";
+@source "../../../../packages/vector/src/**/*.{ts,tsx}";
+@source "../../../../packages/onboarding/src/**/*.{ts,tsx}";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

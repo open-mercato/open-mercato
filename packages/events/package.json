@@ -1,9 +1,16 @@
 {
   "name": "@open-mercato/events",
   "version": "0.3.12",
-  "private": true,
+  "private": false,
   "main": "src/index.ts",
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@open-mercato/queue": "0.3.9"
   }

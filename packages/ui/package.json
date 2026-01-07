@@ -1,11 +1,14 @@
 {
   "name": "@open-mercato/ui",
   "version": "0.3.12",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@radix-ui/react-tooltip": "^1.2.8"

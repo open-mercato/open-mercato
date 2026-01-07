@@ -34,7 +34,7 @@
     ],
     "paths": {
       "@/*": [
-        "./src/*"
+        "./apps/mercato/src/*"
       ],
       "@/lib/*": [
         "./packages/shared/src/lib/*"
@@ -88,10 +88,10 @@
         "./packages/vector/src/*"
       ],
       "@open-mercato/cli/*": [
-        "./packages/cli/src/*"
+        "./apps/cli/src/*"
       ],
       "@open-mercato/cli/generated/*": [
-        "./packages/cli/generated/*"
+        "./apps/cli/generated/*"
       ],
       "@open-mercato/events/*": [
         "./packages/events/src/*"

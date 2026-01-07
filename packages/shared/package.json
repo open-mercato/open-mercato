@@ -1,9 +1,18 @@
 {
   "name": "@open-mercato/shared",
   "version": "0.3.12",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
-    "./*": "./src/*"
+    ".": "./src/index.ts",
+    "./*": "./src/*",
+    "./lib/*": "./src/lib/*",
+    "./types/*": "./src/types/*",
+    "./modules/registry": "./src/modules/registry.ts",
+    "./modules/dsl": "./src/modules/dsl.ts",
+    "./modules/entities": "./src/modules/entities.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   }
 }

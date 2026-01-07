@@ -1,10 +1,13 @@
 {
   "name": "@open-mercato/onboarding",
   "version": "0.3.12",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
-    "./modules/*": "./src/modules/*",
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./modules/*": "./src/modules/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   }
 }

@@ -1,11 +1,15 @@
 {
   "name": "@open-mercato/example",
   "version": "0.3.12",
-  "private": true,
+  "private": false,
   "type": "module",
   "exports": {
+    ".": "./src/index.ts",
     "./modules/*": "./src/modules/*",
     "./datamodel/entities": "./generated/entities.ids.generated.ts",
-    ".": "./src/index.js"
+    "./generated/*": "./generated/*"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
   }
 }
