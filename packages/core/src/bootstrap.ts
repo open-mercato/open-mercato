@@ -6,7 +6,13 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
-import { registerSearchModule } from '@open-mercato/search'
+import {
+  registerSearchModule,
+  createSearchIndexSubscriber,
+  createSearchDeleteSubscriber,
+  searchIndexMetadata,
+  searchDeleteMetadata,
+} from '@open-mercato/search'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export async function bootstrap(container: AwilixContainer) {
@@ -89,6 +95,27 @@ export async function bootstrap(container: AwilixContainer) {
       // search.generated.ts may not exist yet
     }
     registerSearchModule(container as any, { moduleConfigs: searchModuleConfigs })
+
+    // Register search event subscribers
+    try {
+      const searchIndexer = container.resolve('searchIndexer') as any
+      if (searchIndexer && eventBus) {
+        eventBus.registerModuleSubscribers([
+          {
+            event: searchIndexMetadata.event,
+            persistent: searchIndexMetadata.persistent,
+            handler: createSearchIndexSubscriber(searchIndexer),
+          },
+          {
+            event: searchDeleteMetadata.event,
+            persistent: searchDeleteMetadata.persistent,
+            handler: createSearchDeleteSubscriber(searchIndexer),
+          },
+        ])
+      }
+    } catch {
+      // searchIndexer may not be available
+    }
   } catch (err) {
     console.warn('[search] Failed to register search module:', (err as Error)?.message || err)
   }
