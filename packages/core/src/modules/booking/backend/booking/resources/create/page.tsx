@@ -72,7 +72,7 @@ export default function BookingResourceCreatePage() {
   ], [resourceTypes, t])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...values,
       capacity: values.capacity ? Number(values.capacity) : null,
       isActive: values.isActive ?? true,

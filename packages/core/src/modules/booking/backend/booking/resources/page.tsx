@@ -133,7 +133,9 @@ export default function BookingResourcesPage() {
     const confirmLabel = t('booking.resources.list.confirmDelete', 'Delete resource "{name}"?', { name: row.name })
     if (!window.confirm(confirmLabel)) return
     try {
-      await deleteCrud('booking/resources', { id: row.id }, { errorMessage: t('booking.resources.list.error.delete', 'Failed to delete resource.') })
+      await deleteCrud('booking/resources', row.id, {
+        errorMessage: t('booking.resources.list.error.delete', 'Failed to delete resource.'),
+      })
       flash(t('booking.resources.list.flash.deleted', 'Resource deleted.'), 'success')
       setPage(1)
       router.refresh()

@@ -182,11 +182,10 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     let cancelled = false
     async function loadResource() {
       try {
-        const params = new URLSearchParams({
-          page: '1',
-          pageSize: '1',
-          ids: resourceId,
-        })
+        const params = new URLSearchParams()
+        params.set('page', '1')
+        params.set('pageSize', '1')
+        if (resourceId) params.set('ids', resourceId)
         const record = await readApiResultOrThrow<ResourceResponse>(`/api/booking/resources?${params.toString()}`)
         const resource = Array.isArray(record?.items) ? record.items[0] : null
         if (!resource) throw new Error(t('booking.resources.form.errors.notFound', 'Resource not found.'))
@@ -438,7 +437,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!resourceId) return
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...values,
       id: resourceId,
       resourceTypeId: values.resourceTypeId || null,
@@ -490,9 +489,9 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
             </Button>
           </div>
           {availabilityLoading ? (
-            <LoadingMessage message={t('booking.resources.availability.loading', 'Loading availability...')} />
+            <LoadingMessage label={t('booking.resources.availability.loading', 'Loading availability...')} />
           ) : availabilityError ? (
-            <ErrorMessage message={availabilityError} />
+            <ErrorMessage label={availabilityError} />
           ) : (
             <ScheduleView
               items={availabilityItems}
