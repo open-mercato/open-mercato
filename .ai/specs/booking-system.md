@@ -45,6 +45,25 @@ Optional:
 
 All tables: plural snake_case with UUID PKs.
 
+### 2.0 Entity Implementation Notes
+
+Files:
+- `src/modules/booking/data/entities.ts` contains all entities.
+- Use MikroORM decorators with `@Entity({ tableName })`.
+- Use `@Property({ type: 'jsonb', default: [] })` for array/json fields.
+- Use `@Enum` for constrained string enums.
+- Add `@Property({ nullable: true })` for optional fields.
+- Add indexes for `(tenant_id, organization_id)` and common filters (status, subject_id).
+
+Soft delete:
+- Prefer query filters to exclude `deleted_at` by default.
+
+No cross-module relations:
+- Product and variant IDs are plain strings.
+- All entities support custom fields using shared helpers:
+  - Use `collectCustomFieldValues()` for CRUD submissions and normalize with `normalizeCustomFieldSubmitValue`.
+  - Reuse `splitCustomFieldPayload`, `normalizeCustomFieldValues`, and `normalizeCustomFieldResponse` from `packages/shared`.
+
 ### 2.1 booking_services
 
 ```
@@ -265,6 +284,142 @@ Notes:
 - No ORM relations across modules; use string IDs only.
 - Consider unique constraints on `(service_id, product_id)` and `(service_id, variant_id)`.
 
+## 2A) Validators (Zod Schemas)
+
+File: `src/modules/booking/data/validators.ts`
+
+General:
+- Define create/update schemas for each entity.
+- Use `z.string().uuid()` for IDs.
+- Use `z.enum([...])` for `capacity_model`, `status`, `confirmation_mode`.
+- Use `z.coerce.date()` for date inputs.
+- Export DTO types using `z.infer`.
+
+Schema outline:
+
+```
+bookingServiceCreateSchema
+bookingServiceUpdateSchema
+bookingTeamRoleCreateSchema
+bookingTeamRoleUpdateSchema
+bookingTeamMemberCreateSchema
+bookingTeamMemberUpdateSchema
+bookingResourceTypeCreateSchema
+bookingResourceTypeUpdateSchema
+bookingResourceCreateSchema
+bookingResourceUpdateSchema
+bookingAvailabilityRuleCreateSchema
+bookingAvailabilityRuleUpdateSchema
+bookingEventCreateSchema
+bookingEventUpdateSchema
+bookingEventAttendeeCreateSchema
+bookingEventAttendeeUpdateSchema
+bookingEventMemberCreateSchema
+bookingEventMemberUpdateSchema
+bookingEventResourceCreateSchema
+bookingEventResourceUpdateSchema
+bookingEventConfirmationCreateSchema
+bookingEventConfirmationUpdateSchema
+bookingServiceProductLinkCreateSchema
+bookingServiceProductLinkUpdateSchema
+bookingServiceVariantLinkCreateSchema
+bookingServiceVariantLinkUpdateSchema
+```
+
+Validation rules:
+- `duration_minutes` > 0.
+- `max_attendees` required for `one_to_many` and `many_to_many`.
+- `starts_at` < `ends_at`.
+- `rrule` required when recurring.
+- `exdates` ISO datetime strings.
+- `confirmation_deadline_at` must be after `starts_at` if present.
+- Enforce presence of `tenant_id` and `organization_id` via scoped helpers.
+
+## 2B) OpenAPI Specification (Admin API)
+
+Generate via existing API docs module if present; otherwise define in booking module metadata for auto-discovery.
+
+Base path: `/api/booking`.
+
+Common response envelope:
+```
+{ ok: boolean; result: T; error?: { message: string; details?: any } }
+```
+
+Endpoints (high-level):
+
+Services:
+- `GET /services`
+- `POST /services`
+- `PATCH /services/{id}`
+- `DELETE /services/{id}`
+- `GET /services/{id}/product-links`
+- `POST /services/{id}/product-links`
+- `DELETE /services/{id}/product-links/{linkId}`
+
+Team roles:
+- `GET /team-roles`
+- `POST /team-roles`
+- `PATCH /team-roles/{id}`
+- `DELETE /team-roles/{id}`
+
+Team members:
+- `GET /team-members`
+- `POST /team-members`
+- `PATCH /team-members/{id}`
+- `DELETE /team-members/{id}`
+
+Resources:
+- `GET /resources`
+- `POST /resources`
+- `PATCH /resources/{id}`
+- `DELETE /resources/{id}`
+
+Resource types:
+- `GET /resource-types`
+- `POST /resource-types`
+- `PATCH /resource-types/{id}`
+- `DELETE /resource-types/{id}`
+
+Availability:
+- `GET /availability` (filters: subjectType, subjectIds, dateRange)
+- `POST /availability`
+- `PATCH /availability/{id}`
+- `DELETE /availability/{id}`
+
+Events:
+- `GET /events` (filters: status, dateRange, subjectIds, serviceIds)
+- `POST /events`
+- `PATCH /events/{id}`
+- `POST /events/{id}/confirmations`
+- `POST /events/{id}/accept`
+- `POST /events/{id}/cancel`
+- `POST /events/{id}/undo`
+- `POST /events/{id}/redo`
+
+Attendees:
+- `GET /events/{eventId}/attendees`
+- `POST /events/{eventId}/attendees`
+- `PATCH /events/{eventId}/attendees/{id}`
+- `DELETE /events/{eventId}/attendees/{id}`
+
+Members allocation:
+- `GET /events/{eventId}/members`
+- `POST /events/{eventId}/members`
+- `PATCH /events/{eventId}/members/{id}`
+- `DELETE /events/{eventId}/members/{id}`
+
+Resources allocation:
+- `GET /events/{eventId}/resources`
+- `POST /events/{eventId}/resources`
+- `PATCH /events/{eventId}/resources/{id}`
+- `DELETE /events/{eventId}/resources/{id}`
+
+OpenAPI fields:
+- Define schemas for each entity DTO.
+- Reuse `pagination`, `filters`, and `error` component schemas if available.
+- Include `security` for admin auth.
+
 ## 3) Negotiation Phase (Waiting List)
 
 ### 3.1 Status Rules
@@ -483,6 +638,125 @@ Component requirements:
 - Reusable filtering toolbar: date range, subject type, member/resource, service.
 - Shared dialog and form controls; no page-specific form logic.
 - Prefer placing shared UI in `packages/ui` if broadly reusable.
+- Availability sources are injectable so the same component can render team member or resource availability.
+
+#### 12.2.1 Calendar Feature Details
+
+Core behaviors:
+- Views: day, week, month, agenda (list) with a unified toggle.
+- Timezone: display per user organization settings with explicit timezone selector.
+- Working hours: show highlighted working hours per subject when available.
+- Availability overlays: show repeating availability windows and exception blocks.
+- Booking overlays: show confirmed events with distinct styling from negotiation/draft.
+- Drag interactions:
+  - Drag to create a new availability window.
+  - Drag to reschedule an availability rule occurrence (create exception).
+  - Drag events if user has edit permission (optional for MVP).
+- Click interactions:
+  - Click empty slot: open create dialog pre-filled with start/end.
+  - Click availability block: open edit dialog for rule/exception.
+  - Click event block: open event detail drawer/dialog.
+- Conflict visualization:
+  - Warn if new availability overlaps existing exceptions or blocked periods.
+  - Warn if event time overlaps confirmed allocations.
+- Inline creation: calendar uses the same shared create dialogs as list view.
+
+#### 12.2.2 Data Model Coverage (Calendar Sources)
+
+Calendar must fetch and merge:
+- Availability rules: `booking_availability_rules`.
+- Availability exceptions: stored in `exdates` per rule.
+- Events: `booking_events` with status and allocations.
+- Optional: unconfirmed negotiation events in a separate layer.
+
+Filtering inputs:
+- `subjectType`: `member` | `resource` | `event`.
+- `subjectIds`: array of member/resource IDs.
+- `serviceIds`: array of service IDs (for events).
+- `status`: event status filters.
+- `dateRange`: start/end for query.
+
+Availability injection:
+- `availabilityProvider` prop or hook injects availability items (team members or resources).
+- Provider returns normalized items plus metadata (source type, subject mapping).
+- Default provider uses booking availability APIs; custom providers allowed for other modules.
+
+#### 12.2.3 Shared Components (Suggested)
+
+Place in `packages/ui` if reusable outside booking:
+- `ScheduleView`: main calendar/list wrapper with view toggle.
+- `ScheduleToolbar`: date range picker, view toggle, filters, timezone selector.
+- `ScheduleGrid`: day/week/month grid with time slots.
+- `ScheduleAgenda`: list view with grouped sections by day.
+- `ScheduleItem`: base component for availability/event blocks.
+- `ScheduleLegend`: color key for availability vs events.
+- `ScheduleDialog`: shared dialog host for create/edit.
+
+Booking-specific wrappers in `packages/core`:
+- `BookingScheduleView`: wires to booking APIs and transforms data.
+- `BookingScheduleItem`: styles for booking statuses and subject types.
+
+#### 12.2.4 Interaction Contracts (Props/Events)
+
+`ScheduleView` core props:
+- `items`: normalized schedule items.
+- `availabilityProvider`: `(filters) => Promise<ScheduleItem[]>`.
+- `view`: `'day' | 'week' | 'month' | 'agenda'`.
+- `timezone`: string.
+- `range`: `{ start: Date; end: Date }`.
+- `onRangeChange(nextRange)`.
+- `onViewChange(nextView)`.
+- `onItemClick(item)`.
+- `onSlotClick(slotRange)`.
+- `onItemDrag(item, nextRange)` (optional).
+
+Normalized item shape:
+```
+{
+  id: string
+  kind: 'availability' | 'event' | 'exception'
+  title: string
+  startsAt: Date
+  endsAt: Date
+  status?: 'draft' | 'negotiation' | 'confirmed' | 'cancelled'
+  subjectType?: 'member' | 'resource'
+  subjectId?: string
+  color?: string
+  metadata?: Record<string, unknown>
+}
+```
+
+#### 12.2.5 Dialogs and Inline Creation
+
+Shared dialog components:
+- `AvailabilityDialog` (create/edit rule + exceptions)
+- `EventDialog` (create/edit event, assign members/resources, attendees)
+
+Dialog behavior:
+- Prefill start/end from calendar slot click.
+- `Cmd/Ctrl + Enter` submits; `Escape` cancels.
+- Form uses `CrudForm` with shared validation.
+- Errors displayed with `ErrorMessage`.
+
+#### 12.2.6 UX and Visual Rules
+
+- Availability blocks: subtle fill with border; exceptions use diagonal hatch.
+- Events: solid fill, status badge (draft/negotiation/confirmed).
+- Negotiation items: amber tone with pending icon.
+- Cancelled items: muted and struck-through.
+- Use consistent colors for member vs resource views.
+- Keep keyboard navigation usable for day/week grid.
+
+#### 12.2.7 API Expectations for Calendar
+
+Required endpoints:
+- `GET /api/booking/availability` with date range + subject filters.
+- `GET /api/booking/events` with date range + subject/service/status filters.
+- `POST /api/booking/availability` create rule/exceptions.
+- `PATCH /api/booking/availability/:id`.
+- `DELETE /api/booking/availability/:id`.
+
+All APIs built via CRUD factory + commands.
 
 ### 12.3 Inline Creation Flows
 
@@ -527,4 +801,3 @@ All phases:
 - CRUD APIs built via CRUD factory + commands.
 - Shared UI controls for inline creation.
 - Apply RBAC features to all pages.
-
