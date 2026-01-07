@@ -26,6 +26,7 @@
     "init": "tsx packages/cli/src/bin.ts init",
     "premercato": "npm run modules:prepare",
     "mercato": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts",
+    "typecheck": "bash scripts/typecheck.sh",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "docs:dev": "npm run --prefix docs dev"
