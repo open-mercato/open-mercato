@@ -364,6 +364,7 @@ export class SearchIndexer {
           organizationId: params.organizationId ?? undefined,
           page: { page, pageSize },
           includeCustomFields: true,
+          fields: ['*'], // Fetch all fields for indexing
         })
 
         if (!queryResult.items.length) break

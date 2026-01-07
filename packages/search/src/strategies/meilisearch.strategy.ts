@@ -79,11 +79,27 @@ export class MeilisearchStrategy implements SearchStrategy {
       const index = client.index(indexName)
       const filters = this.buildFilters(options)
 
-      const response = await index.search(query, {
+      console.log('[MeilisearchStrategy.search]', {
+        indexName,
+        query,
+        filters,
+        limit: options.limit ?? this.defaultLimit,
+      })
+
+      const searchParams = {
         limit: options.limit ?? this.defaultLimit,
         offset: options.offset,
         filter: filters.length > 0 ? filters.join(' AND ') : undefined,
         showRankingScore: true,
+      }
+      console.log('[MeilisearchStrategy.search] calling index.search with params', searchParams)
+
+      const response = await index.search(query, searchParams)
+
+      console.log('[MeilisearchStrategy.search] results', {
+        hits: response.hits.length,
+        totalHits: response.estimatedTotalHits,
+        firstHit: response.hits[0] ? JSON.stringify(response.hits[0]).slice(0, 200) : null,
       })
 
       return response.hits.map((hit: Record<string, unknown>) => ({
@@ -97,8 +113,14 @@ export class MeilisearchStrategy implements SearchStrategy {
         metadata: hit._metadata as Record<string, unknown> | undefined,
       }))
     } catch (error: unknown) {
-      const meilisearchError = error as { code?: string }
+      console.error('[MeilisearchStrategy.search] error', error)
+      const meilisearchError = error as { code?: string; message?: string }
+      console.error('[MeilisearchStrategy.search] error details', {
+        code: meilisearchError.code,
+        message: meilisearchError.message,
+      })
       if (meilisearchError.code === 'index_not_found') {
+        console.log('[MeilisearchStrategy.search] index not found, returning empty')
         return []
       }
       throw error
@@ -178,9 +200,24 @@ export class MeilisearchStrategy implements SearchStrategy {
             : []
           const fieldPolicy = this.fieldPolicyResolver?.(record.entityId as EntityId)
 
+          // Debug: log incoming record fields
+          console.log('[MeilisearchStrategy.bulkIndex] record fields', {
+            entityId: record.entityId,
+            recordId: record.recordId,
+            fieldKeys: Object.keys(record.fields),
+            fieldPolicySearchable: fieldPolicy?.searchable,
+          })
+
           const searchableFields = extractSearchableFields(record.fields, {
             encryptedFields,
             fieldPolicy,
+          })
+
+          // Debug: log extracted searchable fields
+          console.log('[MeilisearchStrategy.bulkIndex] searchable fields', {
+            entityId: record.entityId,
+            recordId: record.recordId,
+            searchableFieldKeys: Object.keys(searchableFields),
           })
 
           return {

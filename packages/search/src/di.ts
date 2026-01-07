@@ -5,9 +5,10 @@ import { TokenSearchStrategy } from './strategies/token.strategy'
 import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector.strategy'
 import { MeilisearchStrategy } from './strategies/meilisearch.strategy'
 import { SearchIndexer } from './indexer/search-indexer'
-import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig } from './types'
+import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig, SearchFieldPolicy, SearchEntityConfig } from './types'
 import type { VectorDriver } from '@open-mercato/vector/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 
 /**
  * Container interface - minimal subset needed for registration.
@@ -76,9 +77,24 @@ export function registerSearchModule(
     }
   }
 
+  // Build entity config map for field policy resolution
+  const entityConfigMap = new Map<EntityId, SearchEntityConfig>()
+  for (const moduleConfig of (options?.moduleConfigs ?? [])) {
+    for (const entityConfig of moduleConfig.entities) {
+      if (entityConfig.enabled !== false) {
+        entityConfigMap.set(entityConfig.entityId as EntityId, entityConfig)
+      }
+    }
+  }
+
   // Meilisearch strategy (requires host configuration)
   if (!options?.skipMeilisearch && process.env.MEILISEARCH_HOST) {
-    strategies.push(new MeilisearchStrategy())
+    strategies.push(new MeilisearchStrategy({
+      fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
+        const config = entityConfigMap.get(entityId)
+        return config?.fieldPolicy
+      },
+    }))
   }
 
   // Determine default strategies based on what's available
