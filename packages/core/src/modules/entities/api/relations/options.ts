@@ -7,6 +7,7 @@ import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
     if (!labelField) labelField = 'id'
   }
   const filters: any = {}
-  if (q) filters[labelField] = { $ilike: `%${q}%` }
+  if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
   const res = await qe.query(entityId, {
     organizationId: auth.orgId,
     tenantId: auth.tenantId ?? undefined,

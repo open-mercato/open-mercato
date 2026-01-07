@@ -12,6 +12,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -49,7 +50,7 @@ const crud = makeCrudRoute({
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
       if (query.search) {
-        filters.label = { $ilike: `%${query.search}%` }
+        filters.label = { $ilike: `%${escapeLikePattern(query.search)}%` }
       }
       return filters
     },

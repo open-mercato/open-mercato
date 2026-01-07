@@ -85,7 +85,7 @@ async function withClient<T>(pool: PgPool, fn: (client: PgPoolClient) => Promise
 export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDriver {
   const tableName = assertIdentifier(opts.tableName ?? DEFAULT_TABLE, DEFAULT_TABLE)
   const migrationsTable = assertIdentifier(opts.migrationsTable ?? DEFAULT_MIGRATIONS_TABLE, DEFAULT_MIGRATIONS_TABLE)
-  const dimension = opts.dimension ?? DEFAULT_DIMENSION
+  let dimension = opts.dimension ?? DEFAULT_DIMENSION
   const distanceMetric = opts.distanceMetric ?? 'cosine'
   const tableIdent = quoteIdent(tableName)
   const migrationsIdent = quoteIdent(migrationsTable)
@@ -163,10 +163,45 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
         await client.query(
           `CREATE INDEX IF NOT EXISTS ${tableName}_lookup ON ${tableIdent} (tenant_id, organization_id, entity_id)`,
         )
-        await client.query(
-          `CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
-            USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100)`,
-        )
+        // ivfflat index only supports up to 2000 dimensions
+        // For higher dimensions, skip the index (uses sequential scan, slower but works)
+        // Also check actual table dimension in case driver was initialized with different value
+        let actualDimension = dimension
+        try {
+          const dimResult = await client.query<{ atttypmod: number }>(
+            `SELECT a.atttypmod
+             FROM pg_attribute a
+             JOIN pg_class c ON a.attrelid = c.oid
+             WHERE c.relname = $1
+             AND a.attname = 'embedding'
+             AND a.atttypmod > 0`,
+            [tableName]
+          )
+          if (dimResult.rows.length > 0 && dimResult.rows[0].atttypmod > 0) {
+            actualDimension = dimResult.rows[0].atttypmod
+          }
+        } catch {
+          // Ignore errors reading dimension, use configured value
+        }
+
+        if (actualDimension <= 2000) {
+          try {
+            await client.query(
+              `CREATE INDEX IF NOT EXISTS ${tableName}_embedding_idx ON ${tableIdent}
+                USING ivfflat (embedding vector_${distanceMetric}_ops) WITH (lists = 100)`,
+            )
+          } catch (indexErr: unknown) {
+            // Handle case where dimension exceeds ivfflat limit
+            const errorMessage = indexErr instanceof Error ? indexErr.message : String(indexErr)
+            if (errorMessage.includes('2000 dimensions')) {
+              console.warn(`[pgvector] Skipping ivfflat index - dimension exceeds 2000 limit. Searches will use sequential scan.`)
+            } else {
+              throw indexErr
+            }
+          }
+        } else {
+          console.warn(`[pgvector] Skipping ivfflat index - dimension ${actualDimension} exceeds 2000 limit. Searches will use sequential scan.`)
+        }
 
         const columnAlters = [
           `ALTER TABLE ${tableIdent} ADD COLUMN IF NOT EXISTS result_title text`,
@@ -541,6 +576,36 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     return res.rowCount ?? 0
   }
 
+  const getTableDimension = async (): Promise<number | null> => {
+    try {
+      const res = await pool.query<{ atttypmod: number }>(
+        `SELECT a.atttypmod
+         FROM pg_attribute a
+         JOIN pg_class c ON a.attrelid = c.oid
+         WHERE c.relname = $1
+         AND a.attname = 'embedding'
+         AND a.atttypmod > 0`,
+        [tableName]
+      )
+      if (res.rows.length > 0 && res.rows[0].atttypmod > 0) {
+        return res.rows[0].atttypmod
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  const recreateWithDimension = async (newDimension: number): Promise<void> => {
+    await withClient(pool, async (client) => {
+      await client.query(`DROP TABLE IF EXISTS ${tableIdent} CASCADE`)
+      await client.query(`DROP TABLE IF EXISTS ${migrationsIdent} CASCADE`)
+    })
+    ready = null
+    dimension = newDimension
+    await ensureReady()
+  }
+
   return {
     id: 'pgvector',
     ensureReady,
@@ -552,5 +617,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
     list,
     count,
     removeOrphans,
+    getTableDimension,
+    recreateWithDimension,
   }
 }

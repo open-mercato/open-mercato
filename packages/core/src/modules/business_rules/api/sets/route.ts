@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RuleSet } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createRuleSetSchema,
   updateRuleSetSchema,
@@ -96,8 +97,8 @@ export async function GET(req: Request) {
   }
 
   if (id) filters.id = id
-  if (setId) filters.setId = { $ilike: `%${setId}%` }
-  if (search) filters.setName = { $ilike: `%${search}%` }
+  if (setId) filters.setId = { $ilike: `%${escapeLikePattern(setId)}%` }
+  if (search) filters.setName = { $ilike: `%${escapeLikePattern(search)}%` }
   if (enabled !== undefined) filters.enabled = enabled
 
   const sortFieldMap: Record<string, string> = {

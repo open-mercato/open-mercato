@@ -10,6 +10,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FV from '@open-mercato/core/generated/entities/catalog_product_variant'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createCatalogCrudOpenApi,
   createPagedListResponseSchema,
@@ -73,7 +74,7 @@ export async function buildVariantFilters(
     filters.id = { $eq: query.id }
   }
   if (term) {
-    const like = `%${term}%`
+    const like = `%${escapeLikePattern(term)}%`
     filters.$or = [
       { name: { $ilike: like } },
       { sku: { $ilike: like } },

@@ -1,8 +1,9 @@
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
-import type { VectorIndexOperationResult, VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexOperationResult, VectorIndexService, EmbeddingService } from '@open-mercato/vector'
 import { resolveVectorAutoIndexingEnabled } from '../lib/auto-indexing'
+import { resolveEmbeddingConfig } from '../lib/embedding-config'
 import { logVectorOperation } from '../../../lib/vector-logs'
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
@@ -49,6 +50,17 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     service = ctx.resolve<VectorIndexService>('vectorIndexService')
   } catch {
     return
+  }
+
+  // Load saved embedding config for consistency (dimension info may be needed)
+  try {
+    const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
+    if (embeddingConfig) {
+      const embeddingService = ctx.resolve<EmbeddingService>('vectorEmbeddingService')
+      embeddingService.updateConfig(embeddingConfig)
+    }
+  } catch {
+    // Delete operations don't require embedding, ignore config errors
   }
 
   try {

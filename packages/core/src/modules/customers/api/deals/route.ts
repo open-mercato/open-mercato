@@ -14,6 +14,7 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -120,7 +121,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
       if (query.search) {
-        filters.title = { $ilike: `%${query.search}%` }
+        filters.title = { $ilike: `%${escapeLikePattern(query.search)}%` }
       }
       if (query.status) {
         filters.status = { $eq: query.status }

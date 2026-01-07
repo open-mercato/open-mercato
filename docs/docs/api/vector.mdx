@@ -14,6 +14,8 @@ All endpoints require authentication and the relevant vector permissions.
 | Endpoint | Method | Features | Description |
 | --- | --- | --- | --- |
 | `/api/vector/search` | `GET` | `vector.search` | Runs a vector similarity search for the current tenant/organisation scope. Query string parameters: `q` (required text), `limit` (optional, default 10). |
+| `/api/vector/settings` | `GET` | `vector.manage` | Returns current vector settings including embedding provider configuration, configured providers list, indexed dimension, and auto-indexing status. |
+| `/api/vector/settings` | `POST` | `vector.manage` | Updates vector settings. Body accepts `{ "autoIndexingEnabled": boolean }` and/or `{ "embeddingConfig": { "providerId", "model", "dimension" } }`. Changing embedding config triggers table recreation. |
 | `/api/vector/reindex` | `POST` | `vector.reindex` | Recomputes embeddings. Body accepts `{ "entityId": "module:entity", "purgeFirst": true }`. When `entityId` is omitted the service reindexes every configured entity for the tenant. Also available via `yarn mercato vector reindex`. |
 
 ### Search response
@@ -39,6 +41,50 @@ All endpoints require authentication and the relevant vector permissions.
 ```
 
 Each result includes a similarity `score` (higher is better), a primary URL, optional presenter metadata, and auxiliary links (exposed in the UI as chips / row actions).
+
+### Settings response
+
+```json title="GET /api/vector/settings"
+{
+  "settings": {
+    "openaiConfigured": true,
+    "autoIndexingEnabled": true,
+    "autoIndexingLocked": false,
+    "lockReason": null,
+    "embeddingConfig": {
+      "providerId": "openai",
+      "model": "text-embedding-3-small",
+      "dimension": 1536,
+      "updatedAt": "2024-01-15T10:30:00Z"
+    },
+    "configuredProviders": ["openai", "ollama"],
+    "indexedDimension": 1536,
+    "reindexRequired": false
+  }
+}
+```
+
+The `configuredProviders` array lists providers with valid API keys. Use this to populate provider dropdowns in custom UIs.
+
+### Settings payloads
+
+```bash
+# Toggle auto-indexing
+curl -X POST /api/vector/settings \
+  -H "Content-Type: application/json" \
+  --data '{"autoIndexingEnabled": false}'
+
+# Change embedding provider (triggers reindex if dimensions differ)
+curl -X POST /api/vector/settings \
+  -H "Content-Type: application/json" \
+  --data '{
+    "embeddingConfig": {
+      "providerId": "ollama",
+      "model": "nomic-embed-text",
+      "dimension": 768
+    }
+  }'
+```
 
 ### Reindex payloads
 

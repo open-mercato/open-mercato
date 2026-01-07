@@ -2,6 +2,7 @@ import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/facto
 import { z } from 'zod'
 import { FeatureToggle } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 const listQuerySchema = z
@@ -43,7 +44,7 @@ const buildFilters = (query: FeatureToggleListQuery): Record<string, unknown> =>
   const filters: Record<string, unknown> = {}
   const search = query.search?.trim()
   if (search && search.length > 0) {
-    const escaped = search.replace(/[%_]/g, '\\$&')
+    const escaped = escapeLikePattern(search)
     const pattern = `%${escaped}%`
     filters.$or = [
       { identifier: { $ilike: pattern } },
@@ -54,15 +55,15 @@ const buildFilters = (query: FeatureToggleListQuery): Record<string, unknown> =>
   }
   const category = query.category?.trim()
   if (category && category.length > 0) {
-    filters.category = { $ilike: `%${category.replace(/[%_]/g, '\\$&')}%` }
+    filters.category = { $ilike: `%${escapeLikePattern(category)}%` }
   }
   const name = query.name?.trim()
   if (name && name.length > 0) {
-    filters.name = { $ilike: `%${name.replace(/[%_]/g, '\\$&')}%` }
+    filters.name = { $ilike: `%${escapeLikePattern(name)}%` }
   }
   const identifier = query.identifier?.trim()
   if (identifier && identifier.length > 0) {
-    filters.identifier = { $ilike: `%${identifier.replace(/[%_]/g, '\\$&')}%` }
+    filters.identifier = { $ilike: `%${escapeLikePattern(identifier)}%` }
   }
   if (query.defaultState === 'enabled') {
     filters.default_state = true

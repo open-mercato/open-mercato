@@ -1,6 +1,7 @@
 import { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { FeatureToggle, FeatureToggleOverride } from '../data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 export type FeatureToggleOverrideResponse = {
     id: string
@@ -54,13 +55,13 @@ export async function getOverrides(
 ): Promise<GetOverridesResult> {
     const filters: FilterQuery<FeatureToggle>[] = []
     if (query.category) {
-        filters.push({ category: { $ilike: `%${query.category}%` } })
+        filters.push({ category: { $ilike: `%${escapeLikePattern(query.category)}%` } })
     }
     if (query.name) {
-        filters.push({ name: { $ilike: `%${query.name}%` } })
+        filters.push({ name: { $ilike: `%${escapeLikePattern(query.name)}%` } })
     }
     if (query.identifier) {
-        filters.push({ identifier: { $ilike: `%${query.identifier}%` } })
+        filters.push({ identifier: { $ilike: `%${escapeLikePattern(query.identifier)}%` } })
     }
     if (query.defaultState) {
         filters.push({ defaultState: query.defaultState === 'enabled' })
