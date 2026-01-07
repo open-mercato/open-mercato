@@ -14,6 +14,7 @@ import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fiel
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { userCrudEvents, userCrudIndexer } from '@open-mercato/core/modules/auth/commands/users'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -150,7 +151,7 @@ export async function GET(req: Request) {
     where.tenantId = auth.tenantId
   }
   if (organizationId) where.organizationId = organizationId
-  if (search) where.email = { $ilike: `%${search}%` } as any
+  if (search) where.email = { $ilike: `%${escapeLikePattern(search)}%` } as any
   let idFilter: Set<string> | null = id ? new Set([id]) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))

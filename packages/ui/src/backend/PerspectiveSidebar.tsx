@@ -128,17 +128,17 @@ export function PerspectiveSidebar({
       <div className="absolute inset-0 bg-black/30" onClick={() => onOpenChange(false)} />
       <div className="absolute left-0 top-0 h-full w-full sm:w-[420px] bg-background shadow-xl border-r flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-base font-semibold">Perspectives</h2>
-          <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>Close</button>
+          <h2 className="text-base font-semibold">{t('ui.perspectives.title', 'Perspectives')}</h2>
+          <button className="text-sm text-muted-foreground" onClick={() => onOpenChange(false)}>{t('ui.perspectives.close', 'Close')}</button>
         </div>
         <div className="flex-1 overflow-auto divide-y">
           <section className="p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase text-muted-foreground">My perspectives</h3>
+              <h3 className="text-sm font-semibold uppercase text-muted-foreground">{t('ui.perspectives.myPerspectives.title', 'My perspectives')}</h3>
               {loading ? <Spinner size="sm" /> : null}
             </div>
             {(perspectives ?? emptyArray).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No saved perspectives yet. Adjust columns or filters and save your first perspective.</p>
+              <p className="text-sm text-muted-foreground">{t('ui.perspectives.myPerspectives.empty', 'No saved perspectives yet. Adjust columns or filters and save your first perspective.')}</p>
             ) : (
               <div className="space-y-2">
                 {perspectives.map((p) => {
@@ -179,11 +179,11 @@ export function PerspectiveSidebar({
           </section>
           <section className="p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold uppercase text-muted-foreground">Role perspectives</h3>
+              <h3 className="text-sm font-semibold uppercase text-muted-foreground">{t('ui.perspectives.rolePerspectives.title', 'Role perspectives')}</h3>
               {rolePerspectives.length === 0 ? null : <span className="text-xs text-muted-foreground">{rolePerspectives.length}</span>}
             </div>
             {rolePerspectives.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No shared role perspectives available.</p>
+              <p className="text-sm text-muted-foreground">{t('ui.perspectives.rolePerspectives.empty', 'No shared role perspectives available.')}</p>
             ) : (
               <div className="space-y-3">
                 {Array.from(groupedRolePerspectives.entries()).map(([roleId, items]) => {
@@ -202,7 +202,7 @@ export function PerspectiveSidebar({
                           onClick={() => void onClearRole(roleId)}
                           disabled={clearing}
                         >
-                          {clearing ? 'Clearing…' : 'Clear role'}
+                          {clearing ? t('ui.perspectives.role.clearing', 'Clearing…') : t('ui.perspectives.role.clear', 'Clear role')}
                         </Button>
                       </div>
                       <div className="space-y-2">
@@ -236,7 +236,7 @@ export function PerspectiveSidebar({
             )}
           </section>
           <section className="p-4 space-y-3">
-            <h3 className="text-sm font-semibold uppercase text-muted-foreground">Save current view</h3>
+            <h3 className="text-sm font-semibold uppercase text-muted-foreground">{t('ui.perspectives.saveCurrentView.title', 'Save current view')}</h3>
             {apiWarning ? (
               <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                 {apiWarning}

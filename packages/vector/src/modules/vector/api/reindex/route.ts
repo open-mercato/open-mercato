@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService, EmbeddingService } from '@open-mercato/vector'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveEmbeddingConfig } from '../../lib/embedding-config'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['vector.reindex'] },
@@ -34,6 +35,22 @@ export async function POST(req: Request) {
     service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
     return NextResponse.json({ error: t('vector.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
+  }
+
+  // Load saved embedding config and update the embedding service
+  try {
+    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+    if (embeddingConfig) {
+      const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
+      embeddingService.updateConfig(embeddingConfig)
+      console.log('[vector.reindex] using embedding config', {
+        providerId: embeddingConfig.providerId,
+        model: embeddingConfig.model,
+        dimension: embeddingConfig.dimension,
+      })
+    }
+  } catch (err) {
+    console.warn('[vector.reindex] failed to load embedding config, using defaults', err)
   }
 
   try {

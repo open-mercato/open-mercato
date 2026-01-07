@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService, EmbeddingService } from '@open-mercato/vector'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveEmbeddingConfig } from '../../lib/embedding-config'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['vector.search'] },
@@ -35,6 +36,21 @@ export async function GET(req: Request) {
     service = (container.resolve('vectorIndexService') as VectorIndexService)
   } catch {
     return NextResponse.json({ error: t('vector.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
+  }
+
+  // Load saved embedding config and update the embedding service
+  try {
+    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+    if (embeddingConfig) {
+      const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
+      embeddingService.updateConfig(embeddingConfig)
+      console.log('[vector.search] using embedding config', {
+        providerId: embeddingConfig.providerId,
+        model: embeddingConfig.model,
+      })
+    }
+  } catch (err) {
+    console.warn('[vector.search] failed to load embedding config, using defaults', err)
   }
 
   try {

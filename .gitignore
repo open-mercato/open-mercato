@@ -85,3 +85,5 @@ package-lock.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
+.queue/events/queue.json
+.queue/events/state.json

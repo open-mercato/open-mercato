@@ -1,0 +1,23 @@
+{
+  "name": "@open-mercato/queue",
+  "version": "0.3.9",
+  "description": "Multi-strategy job queue with local and BullMQ support",
+  "private": true,
+  "main": "src/index.ts",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker/runner.ts"
+  },
+  "peerDependencies": {
+    "bullmq": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "bullmq": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

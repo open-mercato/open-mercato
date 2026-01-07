@@ -8,6 +8,7 @@ import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -90,7 +91,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, any> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
-        filters.display_name = { $ilike: `%${query.search}%` }
+        filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
       }
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
@@ -98,9 +99,9 @@ const crud = makeCrudRoute({
       if (email) {
         filters.primary_email = { $eq: email }
       } else if (emailStartsWith) {
-        filters.primary_email = { $ilike: `${emailStartsWith}%` }
+        filters.primary_email = { $ilike: `${escapeLikePattern(emailStartsWith)}%` }
       } else if (emailContains) {
-        filters.primary_email = { $ilike: `%${emailContains}%` }
+        filters.primary_email = { $ilike: `%${escapeLikePattern(emailContains)}%` }
       }
       if (query.status) {
         filters.status = { $eq: query.status }

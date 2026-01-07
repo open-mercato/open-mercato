@@ -16,6 +16,7 @@ import {
 } from '../openapi'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -84,8 +85,8 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
-    const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
-    filters.$or = [{ [numberColumn]: { $ilike: term } }, { status: { $ilike: term } }]
+    const term = `%${escapeLikePattern(query.search.trim())}%`
+    filters[numberColumn] = { $ilike: term }
   }
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
