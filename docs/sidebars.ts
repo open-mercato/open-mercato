@@ -21,6 +21,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/login",
         "user-guide/users-and-roles",
         "user-guide/api-keys",
+        "user-guide/feature-toggles",
         "user-guide/custom-fieldsets",
         "user-guide/encryption",
         "user-guide/user-custom-fields",
@@ -94,6 +95,7 @@ const sidebars: SidebarsConfig = {
             "api/entities",
             "api/attachments",
             "api/vector",
+            "api/feature-toggles",
             {
               type: "category",
               label: "Business Rules",
@@ -136,6 +138,17 @@ const sidebars: SidebarsConfig = {
             "cli/auth-list-orgs",
             "cli/auth-list-users",
             "cli/auth-list-tenants",
+          ],
+        },
+        {
+          type: "category",
+          label: "Feature Toggles Module",
+          items: [
+            "cli/feature-toggles-toggle-create",
+            "cli/feature-toggles-toggle-update",
+            "cli/feature-toggles-toggle-delete",
+            "cli/feature-toggles-override-set",
+            "cli/feature-toggles-seed-defaults",
           ],
         },
         {
@@ -219,9 +232,17 @@ const sidebars: SidebarsConfig = {
             "framework/api/extending-api",
           ],
         },
-        "framework/events/overview",
+        {
+          type: "category",
+          label: "Events & Queue",
+          items: [
+            "framework/events/overview",
+            "framework/events/queue-workers",
+          ],
+        },
         "framework/pricing-tax-overrides",
         "framework/rbac/overview",
+        "framework/feature-toggles/overview",
         {
           type: "category",
           label: "Runtime",

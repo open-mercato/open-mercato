@@ -1,0 +1,104 @@
+---
+title: Feature Toggles
+description: Manage feature flags to control rollout and test new features safely.
+---
+
+Feature toggles (also known as feature flags) allow you to decouple feature deployment from code deployment. You can release code to production but keep the feature hidden or structurally disabled until you are ready to turn it on for specific users, tenants, or globally.
+
+> **Required Role:** Super Admin
+
+## Creating a Global Feature Toggle
+
+Global feature toggles are the default state for a feature across the entire system.
+
+![Creating a global feature toggle](/screenshots/open-mercato-feature-toggles-global-list.png)
+
+1. Open **Admin → Feature Toggles**.
+2. Click **Create Feature Toggle**.
+
+![Creating a global feature toggle](/screenshots/open-mercato-feature-toggles-global-create.png)
+
+3. Enter a **Identifier** (key) for the toggle. This is the identifier used in the code (e.g., `checkout_new_flow`).
+4. Enter a **Name** for the toggle. This is the name that will be displayed in the UI.
+5. Provide a **Description** to explain what this toggle controls.
+6. Set the initial **State** (Enabled or Disabled).
+7. Click **Create**.
+
+## managing Overrides
+
+You can override the global state of a feature toggle for specific tenants. This allows for gradual rollouts or beta testing with specific customers.
+
+![Feature toggle overrides](/screenshots/open-mercato-feature-toggles-overrides-list.png)
+
+1. Navigate to the **Overrides** tab within the Feature Toggles section or select a specific Feature Toggle.
+2. Locate the **Overrides** section.
+3. Select the **Tenant** you want to apply the override to.
+4. Set the **State** for this specific context (Enabled, Disabled, or Inherit to revert to global).
+
+## Using Feature Toggles in Code
+
+Once a toggle is created, you can use it in your backend or frontend code to conditionally execute logic or render components.
+
+### React Components
+
+Use the `FeatureFlag` component to conditionally render UI elements.
+
+```tsx
+import { FeatureFlag } from "@open-mercato/core";
+
+export const MyComponent = () => {
+  return (
+    <div>
+      <h1>Welcome</h1>
+      <FeatureFlag name="payment_new_flow">
+        <NewFeatureComponent />
+      </FeatureFlag>
+    </div>
+  );
+};
+```
+
+### React Hook
+
+Use the `useFeatureFlag` hook for more complex logic.
+
+```tsx
+import { useFeatureFlag } from "@open-mercato/core";
+
+export const MyComponent = () => {
+  const isEnabled = useFeatureFlag("payment_new_flow");
+
+  if (isEnabled) {
+    return <NewFeatureComponent />;
+  }
+
+  return <OldComponent />;
+};
+```
+
+For more details on the framework implementation, refer to the [Framework Reference](/docs/framework/ioc/container). 
+
+## Automating Feature Toggles with the CLI
+
+You can manage feature toggles via the CLI for CI/CD pipelines or scripted setups.
+
+### Seeding from JSON file
+
+You can seed default feature toggles from a file (e.g., for initializing a new environment).
+
+```bash
+yarn mercato feature-toggles seed-defaults --path ./toggles.json
+```
+
+### Overriding with commands
+
+You can script the application of overrides for specific tenants.
+
+```bash
+yarn mercato feature-toggles override-set \
+  --key "checkout_new_flow" \
+  --state enabled \
+  --tenantId <tenant-id>
+```
+
+For a full list of commands, see the [CLI Feature Toggles section](../cli/feature-toggles-toggle-create).

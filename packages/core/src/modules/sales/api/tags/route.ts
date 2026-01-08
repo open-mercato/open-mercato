@@ -7,6 +7,7 @@ import { salesTagCreateSchema, salesTagUpdateSchema } from '../../data/validator
 import { withScopedPayload } from '../utils'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -44,9 +45,10 @@ const crud = makeCrudRoute({
     buildFilters: async (query: any) => {
       const filters: Record<string, any> = {}
       if (query.search) {
+        const pattern = `%${escapeLikePattern(query.search)}%`
         filters.$or = [
-          { label: { $ilike: `%${query.search}%` } },
-          { slug: { $ilike: `%${query.search}%` } },
+          { label: { $ilike: pattern } },
+          { slug: { $ilike: pattern } },
         ]
       }
       return filters

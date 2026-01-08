@@ -7,7 +7,14 @@ The vector module introduces an AI-powered search surface that spans customers, 
 
 ## Prerequisites
 
-- Set `OPENAI_API_KEY` in your `.env`. Without it the module stays visible but all search UIs display a reminder that embeddings are disabled.
+- Configure at least one embedding provider in your `.env`. The module supports multiple providers—set the appropriate API key(s) for your chosen provider(s):
+  - **OpenAI** (default): `OPENAI_API_KEY=sk-...`
+  - **Google Generative AI**: `GOOGLE_GENERATIVE_AI_API_KEY=AIza...`
+  - **Mistral**: `MISTRAL_API_KEY=...`
+  - **Cohere**: `COHERE_API_KEY=...`
+  - **Amazon Bedrock**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
+  - **Ollama** (local): `OLLAMA_BASE_URL=http://localhost:11434` (optional, defaults to localhost)
+- Without any configured provider the module stays visible but all search UIs display a reminder that embeddings are disabled.
 - Run `npm run modules:prepare` (or the individual generator scripts) after enabling the module so the dependency injection graph registers the new services and subscribers.
 - Optional: reindex historic data once per tenant by running `yarn mercato vector reindex --tenant <tenantId>` from the CLI. This is only needed the first time after enabling the module; ongoing CRUD operations stream into the vector index automatically.
 - Set `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` when you need to turn off streaming updates across the whole workspace (the toggle described below becomes read-only in that mode).
@@ -32,10 +39,17 @@ The vector module introduces an AI-powered search surface that spans customers, 
 
 ## Settings & auto-indexing
 
-- Head to **Backend → Configuration → Vector Search** to review the OpenAI status and control auto-indexing.
+- Head to **Backend → Configuration → Vector Search** to manage embedding providers and control auto-indexing.
+- **Embedding Provider**: Select from configured providers (OpenAI, Google, Mistral, Cohere, Bedrock, or Ollama). Only providers with valid API keys appear as available options.
+- **Model Selection**: Choose from predefined models for each provider, or select "Custom..." to enter a custom model name and dimension (useful for self-hosted Ollama models).
+- **Dimension Display**: The settings page shows the current indexed dimension vs. selected model dimension. A mismatch indicates reindexing is required.
 - The checkbox `Index database changes automatically` is powered by the shared configs module (`vector.auto_index_enabled`). Turning it off pauses the background subscribers that feed new/updated rows into the vector index.
 - Updates go through `/api/vector/settings` so you can apply the same change from automations or custom tooling. The endpoint requires the `vector.manage` feature.
 - When `DISABLE_VECTOR_SEARCH_AUTOINDEXING` is set, the toggle is locked in the off position and the API returns a `409` response if you try to re-enable it.
+
+:::warning Changing providers requires reindexing
+Switching embedding providers or models triggers a full reindex because embeddings from different models are incompatible. The system will delete all existing embeddings, recreate the vector table with the new dimension, and require re-embedding all records. Vector search will be unavailable until reindexing completes.
+:::
 
 ## Reindexing options
 

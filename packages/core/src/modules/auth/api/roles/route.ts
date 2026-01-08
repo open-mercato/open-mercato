@@ -11,6 +11,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { roleCrudEvents, roleCrudIndexer } from '@open-mercato/core/modules/auth/commands/roles'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -144,7 +145,7 @@ export async function GET(req: Request) {
   const tenantFilter = isSuperAdmin && requestedTenantId ? String(requestedTenantId) : null
   const filters: any[] = [{ deletedAt: null }]
   if (id) filters.push({ id })
-  if (search) filters.push({ name: { $ilike: `%${search}%` } })
+  if (search) filters.push({ name: { $ilike: `%${escapeLikePattern(search)}%` } })
   if (!isSuperAdmin && actorTenantId) {
     filters.push({ $or: [{ tenantId: actorTenantId }, { tenantId: null }] })
     filters.push({ name: { $ne: 'superadmin' } })
