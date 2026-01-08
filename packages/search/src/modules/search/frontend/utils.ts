@@ -46,3 +46,42 @@ export async function fetchHybridSearchResults(
     error: typeof body?.error === 'string' ? body.error : null,
   }
 }
+
+/**
+ * Fetch global search results for the Cmd+K dialog.
+ * Uses the hybrid search API with configurable strategies.
+ */
+export type FetchGlobalSearchOptions = {
+  limit?: number
+  strategies?: SearchStrategyId[]
+  signal?: AbortSignal
+}
+
+export async function fetchGlobalSearchResults(
+  query: string,
+  opts: FetchGlobalSearchOptions = {}
+): Promise<{ results: SearchResult[]; error?: string | null }> {
+  const params = new URLSearchParams()
+  params.set('q', query)
+
+  const limit = Math.max(1, Math.min(opts.limit ?? 10, 50))
+  params.set('limit', String(limit))
+
+  if (opts.strategies && opts.strategies.length > 0) {
+    params.set('strategies', opts.strategies.join(','))
+  }
+
+  const body = await readApiResultOrThrow<{
+    results?: SearchResult[]
+    error?: string
+  }>(
+    `/api/search/search?${params.toString()}`,
+    { signal: opts.signal },
+    { errorMessage: 'Search failed', allowNullResult: true }
+  )
+
+  return {
+    results: Array.isArray(body?.results) ? body.results : [],
+    error: typeof body?.error === 'string' ? body.error : null,
+  }
+}

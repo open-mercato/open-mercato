@@ -262,6 +262,54 @@ export class MeilisearchStrategy implements SearchStrategy {
   }
 
   /**
+   * Get documents by their IDs for presenter data enrichment.
+   * Used by SearchService to enrich token-only results with presenter data.
+   *
+   * @param ids - Array of entity/record ID pairs to look up
+   * @param tenantId - Tenant for index lookup
+   * @returns Map of "entityId:recordId" to SearchResult with presenter data
+   */
+  async getDocuments(
+    ids: Array<{ entityId: string; recordId: string }>,
+    tenantId: string,
+  ): Promise<Map<string, SearchResult>> {
+    const result = new Map<string, SearchResult>()
+    if (ids.length === 0) return result
+
+    const client = this.getClient()
+    const indexName = this.buildIndexName(tenantId)
+
+    try {
+      const index = client.index(indexName)
+
+      // Meilisearch supports batch document retrieval
+      const recordIds = ids.map((id) => id.recordId)
+      const documents = await index.getDocuments({
+        filter: `_id IN [${recordIds.map((id) => `"${id}"`).join(', ')}]`,
+        limit: recordIds.length,
+      })
+
+      for (const doc of documents.results) {
+        const hit = doc as Record<string, unknown>
+        const key = `${hit._entityId}:${hit._id}`
+        result.set(key, {
+          entityId: hit._entityId as EntityId,
+          recordId: hit._id as string,
+          score: 0,
+          source: this.id,
+          presenter: hit._presenter as SearchResult['presenter'],
+          url: hit._url as string | undefined,
+          links: hit._links as SearchResult['links'],
+        })
+      }
+    } catch {
+      // Index not found or error, return empty map
+    }
+
+    return result
+  }
+
+  /**
    * Get stats for the tenant's index.
    */
   async getIndexStats(tenantId: string): Promise<{

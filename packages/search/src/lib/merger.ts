@@ -52,10 +52,27 @@ export function mergeAndRankResults(
         existing.rrf += rrfScore
         existing.sources.add(source)
 
-        // Keep the result with better presenter/metadata based on strategy priority
-        if (result.score > existing.result.score) {
+        // Merge presenter data - prefer result that has it
+        // This ensures token results get enriched with presenter from meilisearch/vector
+        const hasExistingPresenter = existing.result.presenter?.title != null
+        const hasNewPresenter = result.presenter?.title != null
+
+        if (!hasExistingPresenter && hasNewPresenter) {
+          // Current result has no presenter, new one does - take new one's presenter
+          existing.result = {
+            ...existing.result,
+            presenter: result.presenter,
+            url: existing.result.url ?? result.url,
+            links: existing.result.links ?? result.links,
+          }
+        } else if (hasExistingPresenter && hasNewPresenter && result.score > existing.result.score) {
+          // Both have presenter, keep the one with better score
+          existing.result = { ...result }
+        } else if (!hasExistingPresenter && !hasNewPresenter && result.score > existing.result.score) {
+          // Neither has presenter, keep better score
           existing.result = { ...result }
         }
+        // If existing has presenter and new doesn't, keep existing (do nothing)
       } else {
         seen.set(key, {
           result: { ...result },

@@ -96,7 +96,63 @@ export class SearchService {
     }
 
     // Merge and rank results
-    return mergeAndRankResults(allResults, this.mergeConfig)
+    const merged = mergeAndRankResults(allResults, this.mergeConfig)
+
+    // Enrich results missing presenter data from Meilisearch if available
+    return this.enrichResultsWithPresenter(merged, options.tenantId)
+  }
+
+  /**
+   * Enrich results that are missing presenter data by looking them up in Meilisearch.
+   * This ensures token-only results get proper titles/subtitles for display.
+   */
+  private async enrichResultsWithPresenter(
+    results: SearchResult[],
+    tenantId: string,
+  ): Promise<SearchResult[]> {
+    // Find results missing presenter
+    const missingPresenter = results.filter((r) => !r.presenter?.title)
+    if (missingPresenter.length === 0) return results
+
+    // Try to get Meilisearch strategy for lookup
+    const meilisearch = this.strategies.get('meilisearch')
+    if (!meilisearch) return results
+
+    try {
+      const isAvailable = await meilisearch.isAvailable()
+      if (!isAvailable) return results
+
+      // Look up documents by ID in Meilisearch
+      const lookupMethod = (meilisearch as unknown as { getDocuments?: (ids: Array<{ entityId: string; recordId: string }>, tenantId: string) => Promise<Map<string, SearchResult>> }).getDocuments
+      if (typeof lookupMethod !== 'function') return results
+
+      const lookupIds = missingPresenter.map((r) => ({
+        entityId: r.entityId,
+        recordId: r.recordId,
+      }))
+
+      const presenterMap = await lookupMethod.call(meilisearch, lookupIds, tenantId)
+
+      // Enrich results with presenter data
+      return results.map((result) => {
+        if (result.presenter?.title) return result
+
+        const key = `${result.entityId}:${result.recordId}`
+        const enriched = presenterMap.get(key)
+        if (enriched?.presenter) {
+          return {
+            ...result,
+            presenter: enriched.presenter,
+            url: result.url ?? enriched.url,
+            links: result.links ?? enriched.links,
+          }
+        }
+        return result
+      })
+    } catch {
+      // Enrichment failed, return results as-is
+      return results
+    }
   }
 
   /**

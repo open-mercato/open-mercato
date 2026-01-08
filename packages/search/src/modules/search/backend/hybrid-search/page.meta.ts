@@ -16,10 +16,13 @@ const hybridSearchIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['search.view'],
-  pageTitle: 'Hybrid Search',
+  pageTitle: 'Search',
   pageTitleKey: 'search.nav.hybridSearch',
   pageGroup: 'Data designer',
   pageGroupKey: 'entities.nav.group',
   pageOrder: 15,
   icon: hybridSearchIcon,
+  // Settings panel requires additional permissions (checked at component level)
+  // search.embeddings.manage - for changing embedding provider
+  // search.reindex - for reindexing data
 }

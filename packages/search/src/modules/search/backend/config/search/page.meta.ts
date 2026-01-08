@@ -10,13 +10,13 @@ const searchIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['search.view'],
-  pageTitle: 'Hybrid Search',
+  pageTitle: 'Search Settings',
   pageTitleKey: 'search.config.nav.hybridSearch',
   pageGroup: 'Configuration',
   pageGroupKey: 'backend.nav.configuration',
   pageOrder: 425,
   icon: searchIcon,
   breadcrumb: [
-    { label: 'Hybrid Search', labelKey: 'search.config.nav.hybridSearch' },
+    { label: 'Search Settings', labelKey: 'search.config.nav.hybridSearch' },
   ],
 } as const

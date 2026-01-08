@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import type { EmbeddingService } from '@open-mercato/vector'
-import { resolveEmbeddingConfig } from '@open-mercato/vector/modules/vector/lib/embedding-config'
+import { resolveEmbeddingConfig } from '../../lib/embedding-config'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },

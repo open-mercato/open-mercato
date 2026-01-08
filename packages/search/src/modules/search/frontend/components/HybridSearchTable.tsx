@@ -373,7 +373,7 @@ export function HybridSearchTable() {
 
       {/* Data Table */}
       <DataTable<Row>
-        title={t('search.table.title', 'Hybrid Search')}
+        title={t('search.table.title', 'Search')}
         columns={columns}
         data={rows}
         searchValue={searchValue}
