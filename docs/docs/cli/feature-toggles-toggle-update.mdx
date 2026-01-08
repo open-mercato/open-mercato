@@ -1,0 +1,30 @@
+---
+title: mercato feature_toggles toggle-update
+sidebar_label: toggle-update
+description: Updates an existing feature toggle.
+---
+
+`yarn mercato feature_toggles toggle-update` updates the properties of an existing feature toggle.
+
+## Usage
+
+```bash
+yarn mercato feature_toggles toggle-update --identifier <id> [options]
+```
+
+## Options
+
+| Option | Description | Required | Default |
+| :--- | :--- | :--- | :--- |
+| `--identifier` | Unique identifier of the toggle to update. | Yes | - |
+| `--name` | New name for the toggle. | No | - |
+| `--defaultState` | New default state (`true` or `false`). | No | - |
+| `--category` | New category. | No | - |
+| `--description` | New description. | No | - |
+| `--failMode` | New fail mode (`fail_open` or `fail_closed`). | No | - |
+
+## Behavior
+
+- Finds the toggle by `identifier` and updates the specified fields.
+- If successful, outputs: `✅ Feature toggle updated: <identifier>`.
+- If the toggle is not found, outputs an error message.

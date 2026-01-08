@@ -136,7 +136,11 @@
           "load": "Failed to load products",
           "delete": "Failed to delete product"
         },
-        "deleteConfirm": "Delete this product?"
+        "deleteConfirm": "Delete this product?",
+        "actions": {
+          "edit": "Edit",
+          "delete": "Delete"
+        }
       },
       "flash": {
         "deleted": "Product deleted",
@@ -180,6 +184,7 @@
       "create": {
         "title": "Create product",
         "submit": "Create product",
+        "success": "Product created.",
         "placeholders": {
           "title": "e.g., Summer sneaker",
           "subtitle": "Optional subtitle",
@@ -191,7 +196,8 @@
         },
         "meta": {
           "title": "Product meta",
-          "description": "Manage subtitle, handle, and currency for storefronts."
+          "description": "Manage subtitle, handle, and currency for storefronts.",
+          "handleLabel": "Handle"
         },
         "actions": {
           "generateHandle": "Generate",
@@ -223,6 +229,8 @@
           "manage": "Manage tax classes"
         },
         "organize": {
+          "title": "Categorize",
+          "description": "Assign categories, sales channels, and tags.",
           "categoriesLabel": "Categories",
           "categoriesPlaceholder": "Search categories",
           "categoriesHelp": "Assign products to one or more taxonomy nodes.",
@@ -242,6 +250,7 @@
         "errors": {
           "scope": "Select an organization before creating products.",
           "missingId": "Product identifier missing after create.",
+          "title": "Provide a product title.",
           "titleRequired": "Provide a product title.",
           "id": "Product id missing after create.",
           "variant": "Failed to create variant.",
@@ -377,26 +386,105 @@
           "vatOptionDefault": "Use product tax class ({{label}})",
           "vatOptionNone": "No tax class",
           "inventoryDisabled": "Inventory tracking will be available soon.",
-          "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
+          "noPriceKinds": "Configure price kinds in Catalog settings to add price columns.",
+          "currencyMissing": "Currency missing"
+        },
+        "seoWidget": {
+          "title": "SEO Optimization",
+          "hint": "Keep titles 10–60 chars and descriptions 50+ chars.",
+          "ready": "Ready",
+          "needsAttention": "Needs attention",
+          "titleLabel": "Title ({{count}} chars)",
+          "descriptionLabel": "Description ({{count}} chars)",
+          "missing": "Missing",
+          "tooShort": "Too short",
+          "tooLong": "Too long",
+          "good": "Good",
+          "issues": {
+            "addTitle": "Add a descriptive product title.",
+            "titleTooShort": "Title is too short (min 10 characters).",
+            "titleTooLong": "Title is too long (max 60 characters recommended).",
+            "addDescription": "Add a product description (50+ characters).",
+            "descriptionTooShort": "Description is too short for good SEO (min 50 characters)."
+          },
+          "footer": "Example widget powered by the injection system.",
+          "learnMore": "Learn how to build your own"
         },
         "remove": "Remove",
         "selectPlaceholder": "Select value"
-      }
-    },
-    "edit": {
-      "variantList": {
-        "pricesHeading": "Prices",
-        "actions": "Actions",
-        "pricesEmpty": "No prices yet.",
-        "deleteConfirm": "Delete variant \"{{name}}\"?",
-        "deleting": "Deleting…",
-        "priceFallback": "Price",
-        "generate": "Generate variants",
-        "generating": "Generating…",
-        "generateSuccess": "Missing variants generated.",
-        "generateError": "Failed to generate variants.",
-        "generateEmpty": "All option combinations already exist.",
-        "defaultTitle": "Variant"
+      },
+      "edit": {
+        "title": "Edit product",
+        "loading": "Loading product",
+        "save": "Save changes",
+        "success": "Product updated.",
+        "errors": {
+          "idMissing": "Product identifier is missing.",
+          "notFound": "Product not found.",
+          "load": "Failed to load product details.",
+          "validation": "Fix highlighted fields."
+        },
+        "dimensions": "Dimensions & weight",
+        "dimensions.width": "Width",
+        "dimensions.height": "Height",
+        "dimensions.depth": "Depth",
+        "dimensions.unit": "Size unit",
+        "weight": {
+          "value": "Weight",
+          "unit": "Weight unit"
+        },
+        "variants": "Variants",
+        "variants.add": "Add variant",
+        "variants.default": "Default",
+        "variants.empty": "No variants defined yet.",
+        "custom": {
+          "title": "Custom attributes"
+        },
+        "metadata": {
+          "title": "Metadata",
+          "hint": "Attach structured key/value pairs for integrations.",
+          "add": "Add entry",
+          "remove": "Remove entry",
+          "empty": "No metadata. Add your first entry.",
+          "expand": "Show metadata",
+          "collapse": "Hide metadata",
+          "keyPlaceholder": "Key",
+          "valuePlaceholder": "Value"
+        },
+        "schemas": {
+          "manage": "Open schema library",
+          "save": "Save as schema",
+          "saveTitle": "Save option schema",
+          "dialogTitle": "Option schemas",
+          "loading": "Loading…",
+          "empty": "No saved schemas yet.",
+          "apply": "Apply",
+          "edit": "Edit schema",
+          "delete": "Delete schema",
+          "deleteError": "Failed to delete schema.",
+          "deleted": "Schema deleted.",
+          "nameLabel": "Schema name",
+          "namePlaceholder": "e.g., Color + Size set",
+          "nameRequired": "Provide a schema name.",
+          "saved": "Schema saved."
+        },
+        "offers": {
+          "deleteError": "Failed to remove sales channel offer."
+        },
+        "variantList": {
+          "pricesHeading": "Prices",
+          "actions": "Actions",
+          "pricesEmpty": "No prices yet.",
+          "deleteConfirm": "Delete variant \"{{name}}\"?",
+          "deleting": "Deleting…",
+          "priceFallback": "Price",
+          "generate": "Generate variants",
+          "generating": "Generating…",
+          "generateSuccess": "Missing variants generated.",
+          "generateError": "Failed to generate variants.",
+          "generateEmpty": "All option combinations already exist.",
+          "defaultTitle": "Variant"
+        }
       }
     },
     "options": {
@@ -507,8 +595,13 @@
       "nav": {
         "catalog": "Catalog"
       }
-    }
-    ,
+    },
+    "widgets": {
+      "productSeo": {
+        "groupLabel": "Product SEO Helper",
+        "groupDescription": "Optimize product titles and descriptions before publishing."
+      }
+    },
     "variants": {
       "form": {
         "createTitle": "Create variant",
@@ -562,7 +655,8 @@
         },
         "createSuccess": "Variant created.",
         "updated": "Variant updated.",
-        "deleted": "Variant deleted."
+        "deleted": "Variant deleted.",
+        "deleteError": "Failed to delete variant."
       }
     }
   }

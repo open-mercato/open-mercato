@@ -14,6 +14,7 @@ import {
   defaultDeleteRequestSchema,
 } from '../openapi'
 import { CatalogOffer } from '@open-mercato/core/modules/catalog/data/entities'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -75,7 +76,7 @@ export function buildSearchFilters(query: z.infer<typeof listSchema>): Record<st
     if (ids.length) filters.id = { $in: ids }
   }
   if (query.search && query.search.trim().length > 0) {
-    const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
+    const term = `%${escapeLikePattern(query.search.trim())}%`
     filters.$or = [
       { name: { $ilike: term } },
       { code: { $ilike: term } },

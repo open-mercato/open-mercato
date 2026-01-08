@@ -1,0 +1,320 @@
+---
+title: Feature Toggles
+description: Manage feature flags, overrides and checks.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+The Feature Toggles API enables programmatic access to feature flag management, overrides, and status checks. Use these endpoints to integrate feature toggles into your applications and workflows.
+
+## Base URL
+
+```
+/api/feature_toggles
+```
+
+## Authentication
+
+All Feature Toggles API endpoints require authentication. Include your API key or session token in the request headers.
+
+> **Note:** All admin-related endpoints require the Super Admin role. The check endpoint only requires authentication.
+
+```bash
+curl -X GET "$BASE_URL/feature_toggles/global" \
+  -H "X-Api-Key: YOUR_API_KEY" \
+  -H "Accept: application/json"
+```
+
+## Multi-Tenant Scoping
+
+All endpoints are automatically scoped to your tenant based on your authentication context. You cannot access toggles or overrides from other tenants unless explicitly authorized.
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+```
+
+Use an API key with appropriate permissions for feature toggle management.
+
+## Global
+
+### List Global Toggles — `GET /feature_toggles/global`
+
+
+**Query parameters (selected):**
+
+- `page`, `pageSize` — pagination (default `1`, `50`).
+- `search` — case-insensitive match on `identifier`, `name`, `description`, `category`.
+- `category` — filter by category.
+- `name` — filter by name.
+- `identifier` — filter by identifier.
+- `defaultState` — `enabled`/`disabled`.
+- `sortField` — `id`, `category`, `identifier`, `name`, `createdAt`, `updatedAt`.
+- `sortDir` — `asc`, `desc`.
+
+```bash
+curl -X GET "$BASE_URL/feature_toggles/global?page=1&pageSize=50" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid-of-toggle",
+      "identifier": "new-feature",
+      "name": "New Feature",
+      "description": "Description of the new feature",
+      "category": "experimental",
+      "default_state": false,
+      "fail_mode": "disabled",
+      "created_at": "2025-12-29 21:59:25.246+00",
+      "updated_at": "2025-12-29 21:59:25.246+00"
+    }
+  ],
+  "total": 1,
+  "totalPages": 1,
+  "page": 1,
+  "pageSize": 50,
+  "isSuperAdmin": false
+}
+```
+
+### Get Global Toggle — `GET /feature_toggles/global/{id}`
+
+
+Get details of a specific feature toggle.
+
+```bash
+curl -X GET "$BASE_URL/feature_toggles/global/$TOGGLE_ID" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{
+  "id": "uuid-of-toggle",
+  "identifier": "new-feature",
+  "name": "New Feature",
+  "description": "Description of the new feature",
+  "category": "experimental",
+  "default_state": false,
+  "fail_mode": "disabled",
+  "created_at": "2025-12-29 21:59:25.246+00",
+  "updated_at": "2025-12-29 21:59:25.246+00"
+}
+```
+
+### Create Global Toggle — `POST /feature_toggles/global`
+
+
+Body must satisfy `toggleCreateSchema`:
+
+- Required: `identifier` (lowercase, numbers, underscores), `name`.
+- Optional: `description`, `category`, `defaultState` (boolean, default `false`), `failMode` (`fail_open`, `fail_closed`, default `fail_closed`).
+
+```bash
+curl -X POST "$BASE_URL/feature_toggles/global" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "identifier": "new-feature",
+    "name": "New Feature",
+    "description": "Description of the new feature",
+    "category": "experimental",
+    "defaultState": false,
+    "failMode": "disabled"
+  }'
+```
+
+Response:
+
+```json
+{ "id": "uuid-of-new-toggle" }
+```
+
+### Update Global Toggle — `PUT /feature_toggles/global`
+
+
+Send `id` and any mutable fields from the create schema.
+
+- Required: `id`.
+- Optional: `identifier`, `name`, `description`, `category`, `defaultState`, `failMode`.
+
+```bash
+curl -X PUT "$BASE_URL/feature_toggles/global" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "uuid-of-toggle",
+    "name": "Updated Feature Name",
+    "defaultState": true
+  }'
+```
+
+Response:
+
+```json
+{ "id": "uuid-of-toggle" }
+```
+
+### Delete Global Toggle — `DELETE /feature_toggles/global`
+
+
+Delete a feature toggle.
+
+- Required: `id` (in body).
+
+```bash
+curl -X DELETE "$BASE_URL/feature_toggles/global" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "uuid-of-toggle"
+  }'
+```
+
+Response:
+
+```json
+{ "id": "uuid-of-toggle" }
+```
+
+### Global Specific Override — `GET /feature_toggles/global/{id}/override`
+
+
+**Query parameters:**
+
+- No parameters required.
+
+Get specific override for a feature toggle in current tenant context.
+
+```bash
+# Get override for a specific toggle
+curl -X GET "$BASE_URL/feature_toggles/global/$TOGGLE_ID/override" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{
+  "id": "uuid-of-override",
+  "state": "enabled",
+  "tenantName": "Tenant Name",
+  "tenantId": "uuid-of-tenant"
+}
+```
+
+## Overrides
+
+### List All Overrides — `GET /feature_toggles/overrides`
+
+
+**Query parameters:**
+
+- `page`, `pageSize` — pagination (default `1`, `25`).
+- `category` — filter by category.
+- `name` — filter by name.
+- `identifier` — filter by identifier.
+- `defaultState` — `enabled`/`disabled`.
+- `overrideState` — `enabled`/`disabled`/`inherit`.
+- `sortField` - `identifier`, `name`, `category`, `defaultState`, `overrideState`.
+- `sortDir` — `asc`, `desc`.
+
+```bash
+curl -X GET "$BASE_URL/feature_toggles/overrides?page=1&pageSize=50" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid-of-override",
+      "toggleId": "uuid-of-toggle",
+      "tenantId": "uuid-of-tenant",
+      "overrideState": "enabled",
+      "identifier": "new-feature",
+      "name": "New Feature",
+      "category": "experimental",
+      "defaultState": false,
+      "tenantName": "Tenant Name"
+    }
+  ],
+  "total": 1,
+  "totalPages": 1,
+  "page": 1,
+  "pageSize": 50,
+  "isSuperAdmin": false
+}
+```
+
+### Update Override — `PUT /feature_toggles/overrides`
+
+
+Change the state of a feature toggle override.
+
+- Required: `toggleId`, `state` (`enabled`, `disabled`, `inherit`).
+
+> **Note:** The `tenantId` is automatically resolved from the request context.
+
+```bash
+curl -X PUT "$BASE_URL/feature_toggles/overrides" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "toggleId": "uuid-of-toggle",
+    "state": "enabled"
+  }'
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "overrideToggleId": "uuid-of-override"
+}
+```
+
+## Check
+
+### Check Feature Status — `GET /feature_toggles/check`
+
+Check if a feature is enabled for the current context.
+
+**Query parameters:**
+
+- `identifier` — (required) feature toggle identifier.
+
+> **Note:** The `tenantId` is automatically resolved from the request context.
+
+```bash
+curl -X GET "$BASE_URL/feature_toggles/check?identifier=new-feature" \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Accept: application/json"
+```
+
+Response:
+
+```json
+{
+  "enabled": true,
+  "source": "override",
+  "toggleId": "uuid-of-toggle",
+  "identifier": "new-feature",
+  "tenantId": "uuid-of-tenant"
+}
+```

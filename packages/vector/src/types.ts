@@ -106,4 +106,115 @@ export interface VectorDriver {
   list?(params: VectorDriverListParams): Promise<VectorIndexEntry[]>
   count?(params: VectorDriverCountParams): Promise<number>
   removeOrphans?(params: VectorDriverRemoveOrphansParams): Promise<number | void>
+  getTableDimension?(): Promise<number | null>
+  recreateWithDimension?(newDimension: number): Promise<void>
+}
+
+// ============================================================================
+// Embedding Provider Configuration Types
+// ============================================================================
+
+export type EmbeddingProviderId =
+  | 'openai'
+  | 'google'
+  | 'mistral'
+  | 'cohere'
+  | 'bedrock'
+  | 'ollama'
+
+export type EmbeddingProviderConfig = {
+  providerId: EmbeddingProviderId
+  model: string
+  dimension: number
+  outputDimensionality?: number
+  baseUrl?: string
+  updatedAt: string
+}
+
+export type EmbeddingModelInfo = {
+  id: string
+  name: string
+  dimension: number
+  configurableDimension?: boolean
+  minDimension?: number
+  maxDimension?: number
+}
+
+export type EmbeddingProviderInfo = {
+  name: string
+  envKeyRequired: string
+  defaultModel: string
+  models: EmbeddingModelInfo[]
+}
+
+export const EMBEDDING_PROVIDERS: Record<EmbeddingProviderId, EmbeddingProviderInfo> = {
+  openai: {
+    name: 'OpenAI',
+    envKeyRequired: 'OPENAI_API_KEY',
+    defaultModel: 'text-embedding-3-small',
+    models: [
+      { id: 'text-embedding-3-small', name: 'text-embedding-3-small', dimension: 1536 },
+      { id: 'text-embedding-3-large', name: 'text-embedding-3-large', dimension: 3072, configurableDimension: true, minDimension: 256, maxDimension: 3072 },
+      { id: 'text-embedding-ada-002', name: 'text-embedding-ada-002', dimension: 1536 },
+    ],
+  },
+  google: {
+    name: 'Google Generative AI',
+    envKeyRequired: 'GOOGLE_GENERATIVE_AI_API_KEY',
+    defaultModel: 'text-embedding-004',
+    models: [
+      { id: 'text-embedding-004', name: 'text-embedding-004', dimension: 768, configurableDimension: true, minDimension: 1, maxDimension: 768 },
+      { id: 'embedding-001', name: 'embedding-001', dimension: 768 },
+    ],
+  },
+  mistral: {
+    name: 'Mistral',
+    envKeyRequired: 'MISTRAL_API_KEY',
+    defaultModel: 'mistral-embed',
+    models: [
+      { id: 'mistral-embed', name: 'mistral-embed', dimension: 1024 },
+    ],
+  },
+  cohere: {
+    name: 'Cohere',
+    envKeyRequired: 'COHERE_API_KEY',
+    defaultModel: 'embed-english-v3.0',
+    models: [
+      { id: 'embed-english-v3.0', name: 'embed-english-v3.0', dimension: 1024 },
+      { id: 'embed-multilingual-v3.0', name: 'embed-multilingual-v3.0', dimension: 1024 },
+      { id: 'embed-english-light-v3.0', name: 'embed-english-light-v3.0', dimension: 384 },
+      { id: 'embed-multilingual-light-v3.0', name: 'embed-multilingual-light-v3.0', dimension: 384 },
+    ],
+  },
+  bedrock: {
+    name: 'Amazon Bedrock',
+    envKeyRequired: 'AWS_ACCESS_KEY_ID',
+    defaultModel: 'amazon.titan-embed-text-v2:0',
+    models: [
+      { id: 'amazon.titan-embed-text-v2:0', name: 'Titan Embed Text v2', dimension: 1024, configurableDimension: true, minDimension: 256, maxDimension: 1024 },
+      { id: 'amazon.titan-embed-text-v1', name: 'Titan Embed Text v1', dimension: 1536 },
+      { id: 'cohere.embed-english-v3', name: 'Cohere Embed English v3', dimension: 1024 },
+      { id: 'cohere.embed-multilingual-v3', name: 'Cohere Embed Multilingual v3', dimension: 1024 },
+    ],
+  },
+  ollama: {
+    name: 'Ollama (Local)',
+    envKeyRequired: 'OLLAMA_BASE_URL',
+    defaultModel: 'nomic-embed-text',
+    models: [
+      { id: 'nomic-embed-text', name: 'nomic-embed-text', dimension: 768 },
+      { id: 'mxbai-embed-large', name: 'mxbai-embed-large', dimension: 1024 },
+      { id: 'all-minilm', name: 'all-minilm', dimension: 384 },
+      { id: 'snowflake-arctic-embed', name: 'snowflake-arctic-embed', dimension: 1024 },
+    ],
+  },
+}
+
+export const EMBEDDING_CONFIG_KEY = 'embedding_provider'
+
+export const DEFAULT_EMBEDDING_CONFIG: EmbeddingProviderConfig = {
+  providerId: 'openai',
+  model: 'text-embedding-3-small',
+  dimension: 1536,
+  updatedAt: new Date().toISOString(),
 }
