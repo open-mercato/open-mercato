@@ -1,6 +1,6 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import type { EmbeddingProviderConfig, EmbeddingProviderId } from '@open-mercato/vector'
-import { EMBEDDING_CONFIG_KEY, EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '@open-mercato/vector'
+import type { EmbeddingProviderConfig, EmbeddingProviderId } from '../../../vector'
+import { EMBEDDING_CONFIG_KEY, EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../../../vector'
 
 export { EMBEDDING_CONFIG_KEY }
 

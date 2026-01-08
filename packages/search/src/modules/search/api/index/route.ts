@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '../../../../vector'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'

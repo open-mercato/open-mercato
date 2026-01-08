@@ -6,7 +6,7 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
-import type { VectorDriver, VectorDriverDocument } from '@open-mercato/vector/types'
+import type { VectorDriver, VectorDriverDocument } from '../vector/types'
 
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.

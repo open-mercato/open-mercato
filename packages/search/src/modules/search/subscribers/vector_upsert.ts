@@ -1,10 +1,10 @@
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
-import type { VectorIndexOperationResult, VectorIndexService, EmbeddingService } from '@open-mercato/vector'
+import type { VectorIndexOperationResult, VectorIndexService, EmbeddingService } from '../../../vector'
+import { logVectorOperation } from '../../../vector/lib/vector-logs'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
-import { logVectorOperation } from '@open-mercato/vector/lib/vector-logs'
 
 export const metadata = { event: 'query_index.vectorize_one', persistent: false }
 

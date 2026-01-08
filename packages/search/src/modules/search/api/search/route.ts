@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
-import type { EmbeddingService } from '@open-mercato/vector'
+import type { EmbeddingService } from '../../../../vector'
 import { resolveEmbeddingConfig } from '../../lib/embedding-config'
 
 export const metadata = {

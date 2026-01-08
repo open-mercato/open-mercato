@@ -6,7 +6,7 @@ import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector
 import { MeilisearchStrategy } from './strategies/meilisearch.strategy'
 import { SearchIndexer } from './indexer/search-indexer'
 import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig, SearchFieldPolicy, SearchEntityConfig } from './types'
-import type { VectorDriver } from '@open-mercato/vector/types'
+import type { VectorDriver } from './vector/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 

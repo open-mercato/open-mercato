@@ -12,8 +12,8 @@ import {
   getEffectiveDimension,
 } from '../../lib/embedding-config'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '@open-mercato/vector'
-import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '@open-mercato/vector'
+import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
+import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
 
 const embeddingConfigSchema = z.object({
   providerId: z.enum(['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']),

@@ -1,6 +1,6 @@
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
-import type { VectorIndexService, EmbeddingService } from '@open-mercato/vector'
+import type { VectorIndexService, EmbeddingService } from '../../../vector'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
 
