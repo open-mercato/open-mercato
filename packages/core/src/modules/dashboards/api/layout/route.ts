@@ -8,6 +8,7 @@ import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widget
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   dashboardsTag,
@@ -146,7 +147,13 @@ export async function GET(req: Request) {
   let userEmail: string | null = null
   let userName: string | null = null
   let userLabel: string | null = null
-  const user = await em.findOne(User, { id: scope.userId, deletedAt: null })
+  const user = await findOneWithDecryption(
+    em,
+    User,
+    { id: scope.userId, deletedAt: null },
+    undefined,
+    { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+  )
   if (user) {
     userName = user.name?.trim() ?? null
     userEmail = user.email ?? null
