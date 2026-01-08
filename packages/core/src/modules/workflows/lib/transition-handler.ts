@@ -445,7 +445,8 @@ export async function executeTransition(
         workflowContext: instance.context || {},
         userId: context.userId,
         triggerData: context.triggerData,
-      }
+      },
+      container
     )
 
     console.log('[TRANSITION] Step execution result:', stepExecutionResult)

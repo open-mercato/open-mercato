@@ -447,6 +447,9 @@
         "USER_TASK_CLAIMED": "User Task Claimed",
         "USER_TASK_COMPLETED": "User Task Completed",
         "USER_TASK_ESCALATED": "User Task Escalated",
+        "SUB_WORKFLOW_STARTED": "Sub-Workflow Started",
+        "SUB_WORKFLOW_COMPLETED": "Sub-Workflow Completed",
+        "SUB_WORKFLOW_FAILED": "Sub-Workflow Failed",
         "UserTaskCreated": "User Task Created",
         "UserTaskAssigned": "User Task Assigned",
         "UserTaskClaimed": "User Task Claimed",
@@ -619,6 +622,29 @@
       "description": "This workflow is paused waiting for user input. Please complete the task below to continue.",
       "completeButton": "Complete Task",
       "dueLabel": "Due"
+    },
+    "subWorkflow": {
+      "title": "Sub-Workflow Configuration",
+      "description": "Invoke another workflow as a sub-process",
+      "subWorkflowId": "Workflow to Invoke",
+      "subWorkflowIdPlaceholder": "Select a workflow...",
+      "version": "Version",
+      "versionPlaceholder": "Latest version",
+      "inputMapping": "Input Mapping",
+      "inputMappingDescription": "Map data from parent workflow to child workflow context",
+      "outputMapping": "Output Mapping",
+      "outputMappingDescription": "Map data from child workflow back to parent context",
+      "mappingKey": "Target Key",
+      "mappingValue": "Source Path",
+      "addMapping": "Add Mapping",
+      "removeMapping": "Remove Mapping",
+      "timeoutMs": "Timeout (milliseconds)",
+      "noMappings": "No mappings defined. Data will be passed without transformation.",
+      "parentInstanceId": "Parent Workflow Instance",
+      "childInstanceId": "Child Workflow Instance",
+      "invoking": "Invoking sub-workflow...",
+      "success": "Sub-workflow completed successfully",
+      "failed": "Sub-workflow failed"
     }
   }
 }

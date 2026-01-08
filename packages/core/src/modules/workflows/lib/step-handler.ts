@@ -182,18 +182,21 @@ export async function exitStep(
  * - END: Workflow completion
  * - AUTOMATED: Activity execution (MVP: immediate completion)
  * - USER_TASK: Create user task and wait
+ * - SUB_WORKFLOW: Invoke child workflow
  *
  * @param em - Entity manager
  * @param instance - Workflow instance
  * @param stepId - Step ID to execute
  * @param context - Execution context
+ * @param container - DI container (required for SUB_WORKFLOW steps)
  * @returns Execution result with status and output
  */
 export async function executeStep(
   em: EntityManager,
   instance: WorkflowInstance,
   stepId: string,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  container?: any
 ): Promise<StepExecutionResult> {
   try {
     // Enter the step (create step instance)
@@ -227,7 +230,8 @@ export async function executeStep(
       instance,
       stepInstance,
       stepDef,
-      context
+      context,
+      container
     )
 
     // If step completed, exit it
@@ -298,7 +302,8 @@ async function executeStepByType(
   instance: WorkflowInstance,
   stepInstance: StepInstance,
   stepDef: any,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  container?: any
 ): Promise<StepExecutionResult> {
   const stepType: WorkflowStepType = stepDef.stepType
 
@@ -315,9 +320,18 @@ async function executeStepByType(
     case 'USER_TASK':
       return await handleUserTaskStep(em, instance, stepInstance, stepDef, context)
 
+    case 'SUB_WORKFLOW':
+      if (!container) {
+        throw new StepExecutionError(
+          'Container required for SUB_WORKFLOW execution',
+          'CONTAINER_REQUIRED',
+          { stepType }
+        )
+      }
+      return await handleSubWorkflowStep(em, container, instance, stepInstance, stepDef, context)
+
     case 'PARALLEL_FORK':
     case 'PARALLEL_JOIN':
-    case 'SUB_WORKFLOW':
     case 'WAIT_FOR_SIGNAL':
     case 'WAIT_FOR_TIMER':
       // These will be implemented in later phases
@@ -472,6 +486,144 @@ async function handleUserTaskStep(
   }
 }
 
+/**
+ * Handle SUB_WORKFLOW step - invoke another workflow and wait for completion
+ *
+ * Creates a child workflow instance with mapped input data,
+ * executes it synchronously, and returns mapped output data.
+ */
+async function handleSubWorkflowStep(
+  em: EntityManager,
+  container: any,
+  instance: WorkflowInstance,
+  stepInstance: StepInstance,
+  stepDef: any,
+  context: StepExecutionContext
+): Promise<StepExecutionResult> {
+  const { subWorkflowId, inputMapping, outputMapping, version } = stepDef.config || {}
+
+  if (!subWorkflowId) {
+    return {
+      status: 'FAILED',
+      error: 'Sub-workflow ID not specified in step configuration'
+    }
+  }
+
+  // Map input data from parent context to child context
+  const childContext = mapInputData(instance.context, inputMapping || {})
+
+  // Import workflow executor functions
+  const { startWorkflow, executeWorkflow } = await import('./workflow-executor')
+
+  try {
+    // Start child workflow with parent metadata
+    const childInstance = await startWorkflow(em, {
+      workflowId: subWorkflowId,
+      version,
+      initialContext: childContext,
+      correlationKey: instance.correlationKey || undefined,
+      metadata: {
+        ...instance.metadata,
+        labels: {
+          ...instance.metadata?.labels,
+          parentInstanceId: instance.id,
+          parentStepId: stepDef.stepId,
+          parentStepInstanceId: stepInstance.id,
+        },
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    // Log sub-workflow invocation event
+    await logStepEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      eventType: 'SUB_WORKFLOW_STARTED',
+      eventData: {
+        childInstanceId: childInstance.id,
+        subWorkflowId,
+        version,
+        inputData: childContext,
+      },
+      userId: context.userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    // Execute child workflow synchronously
+    const result = await executeWorkflow(em, container, childInstance.id, {
+      userId: context.userId,
+    })
+
+    // Handle child workflow result
+    if (result.status === 'COMPLETED') {
+      // Map output data from child context to parent context
+      const outputData = mapOutputData(result.context, outputMapping || {})
+
+      await logStepEvent(em, {
+        workflowInstanceId: instance.id,
+        stepInstanceId: stepInstance.id,
+        eventType: 'SUB_WORKFLOW_COMPLETED',
+        eventData: {
+          childInstanceId: childInstance.id,
+          outputData,
+        },
+        userId: context.userId,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+
+      return {
+        status: 'COMPLETED',
+        outputData,
+      }
+    } else if (result.status === 'FAILED') {
+      await logStepEvent(em, {
+        workflowInstanceId: instance.id,
+        stepInstanceId: stepInstance.id,
+        eventType: 'SUB_WORKFLOW_FAILED',
+        eventData: {
+          childInstanceId: childInstance.id,
+          error: result.errors?.join(', '),
+        },
+        userId: context.userId,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+
+      return {
+        status: 'FAILED',
+        error: `Sub-workflow failed: ${result.errors?.join(', ')}`,
+      }
+    } else {
+      // WAITING, PAUSED, etc. - For synchronous execution, treat as error
+      return {
+        status: 'FAILED',
+        error: `Sub-workflow ended in unexpected state: ${result.status}`,
+      }
+    }
+  } catch (error: any) {
+    await logStepEvent(em, {
+      workflowInstanceId: instance.id,
+      stepInstanceId: stepInstance.id,
+      eventType: 'SUB_WORKFLOW_FAILED',
+      eventData: {
+        subWorkflowId,
+        error: error.message,
+      },
+      userId: context.userId,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    return {
+      status: 'FAILED',
+      error: `Sub-workflow execution failed: ${error.message}`,
+    }
+  }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -531,4 +683,80 @@ function calculateDueDate(duration: string): Date {
 
   // Default: 1 day
   return new Date(now.getTime() + 24 * 60 * 60 * 1000)
+}
+
+/**
+ * Get nested value from object using dot notation
+ *
+ * @param obj - Source object
+ * @param path - Dot-notation path (e.g., "user.email")
+ * @returns Value at path or undefined
+ */
+function getNestedValue(obj: any, path: string): any {
+  return path.split('.').reduce((current, key) => current?.[key], obj)
+}
+
+/**
+ * Set nested value in object using dot notation
+ *
+ * @param obj - Target object
+ * @param path - Dot-notation path (e.g., "user.email")
+ * @param value - Value to set
+ */
+function setNestedValue(obj: any, path: string, value: any): void {
+  const keys = path.split('.')
+  const lastKey = keys.pop()!
+  const target = keys.reduce((current, key) => {
+    if (!(key in current)) current[key] = {}
+    return current[key]
+  }, obj)
+  target[lastKey] = value
+}
+
+/**
+ * Map data from source context using mapping configuration
+ *
+ * @param sourceContext - Source data object
+ * @param mapping - Mapping configuration (targetKey -> sourcePath)
+ * @returns Mapped data object
+ */
+function mapInputData(
+  sourceContext: Record<string, any>,
+  mapping: Record<string, string>
+): Record<string, any> {
+  const result: Record<string, any> = {}
+
+  for (const [targetKey, sourcePath] of Object.entries(mapping)) {
+    const value = getNestedValue(sourceContext, sourcePath)
+    if (value !== undefined) {
+      setNestedValue(result, targetKey, value)
+    }
+  }
+
+  // If no mapping provided, pass entire context
+  return Object.keys(result).length > 0 ? result : sourceContext
+}
+
+/**
+ * Map output data from child context back to parent
+ *
+ * @param childContext - Child workflow context
+ * @param mapping - Mapping configuration (targetKey -> sourcePath)
+ * @returns Mapped output data
+ */
+function mapOutputData(
+  childContext: Record<string, any>,
+  mapping: Record<string, string>
+): Record<string, any> {
+  const result: Record<string, any> = {}
+
+  for (const [targetKey, sourcePath] of Object.entries(mapping)) {
+    const value = getNestedValue(childContext, sourcePath)
+    if (value !== undefined) {
+      setNestedValue(result, targetKey, value)
+    }
+  }
+
+  // If no mapping provided, pass entire child context
+  return Object.keys(result).length > 0 ? result : childContext
 }

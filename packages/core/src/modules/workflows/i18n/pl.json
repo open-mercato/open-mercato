@@ -382,6 +382,9 @@
         "USER_TASK_CLAIMED": "Zadanie Użytkownika Przejęte",
         "USER_TASK_COMPLETED": "Zadanie Użytkownika Ukończone",
         "USER_TASK_ESCALATED": "Zadanie Użytkownika Eskalowane",
+        "SUB_WORKFLOW_STARTED": "Podprzepływ Rozpoczęty",
+        "SUB_WORKFLOW_COMPLETED": "Podprzepływ Ukończony",
+        "SUB_WORKFLOW_FAILED": "Podprzepływ Nieudany",
         "UserTaskCreated": "Zadanie Użytkownika Utworzone",
         "UserTaskAssigned": "Zadanie Użytkownika Przypisane",
         "UserTaskClaimed": "Zadanie Użytkownika Przejęte",
@@ -551,6 +554,29 @@
       "description": "Ten proces jest wstrzymany w oczekiwaniu na dane wejściowe użytkownika. Proszę wykonać zadanie poniżej, aby kontynuować.",
       "completeButton": "Wykonaj zadanie",
       "dueLabel": "Termin"
+    },
+    "subWorkflow": {
+      "title": "Konfiguracja Podprzepływu",
+      "description": "Wywołaj inny przepływ pracy jako podproces",
+      "subWorkflowId": "Przepływ do Wywołania",
+      "subWorkflowIdPlaceholder": "Wybierz przepływ...",
+      "version": "Wersja",
+      "versionPlaceholder": "Najnowsza wersja",
+      "inputMapping": "Mapowanie Wejścia",
+      "inputMappingDescription": "Mapuj dane z przepływu nadrzędnego do kontekstu przepływu podrzędnego",
+      "outputMapping": "Mapowanie Wyjścia",
+      "outputMappingDescription": "Mapuj dane z przepływu podrzędnego z powrotem do kontekstu nadrzędnego",
+      "mappingKey": "Klucz Docelowy",
+      "mappingValue": "Ścieżka Źródłowa",
+      "addMapping": "Dodaj Mapowanie",
+      "removeMapping": "Usuń Mapowanie",
+      "timeoutMs": "Limit czasu (milisekundy)",
+      "noMappings": "Nie zdefiniowano mapowań. Dane zostaną przekazane bez transformacji.",
+      "parentInstanceId": "Instancja Przepływu Nadrzędnego",
+      "childInstanceId": "Instancja Przepływu Podrzędnego",
+      "invoking": "Wywoływanie podprzepływu...",
+      "success": "Podprzepływ zakończony pomyślnie",
+      "failed": "Podprzepływ nieudany"
     }
   }
 }

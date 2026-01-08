@@ -104,6 +104,15 @@ export const userTaskConfigSchema = z.object({
   })).optional(),
 })
 
+// Sub-workflow configuration (Phase 8)
+export const subWorkflowConfigSchema = z.object({
+  subWorkflowId: z.string().min(1, 'Sub-workflow ID is required'),
+  version: z.number().int().positive().optional(),
+  inputMapping: z.record(z.string(), z.string()).optional(),
+  outputMapping: z.record(z.string(), z.string()).optional(),
+  timeoutMs: z.number().int().positive().optional(),
+})
+
 // Retry policy
 export const retryPolicySchema = z.object({
   maxAttempts: z.number().int().min(1).max(10),
@@ -126,6 +135,7 @@ export const workflowStepSchema = z.object({
   description: z.string().max(1000).optional(),
   config: z.record(z.string(), z.any()).optional(),
   userTaskConfig: userTaskConfigSchema.optional(),
+  subWorkflowConfig: subWorkflowConfigSchema.optional(),
   timeout: z.string().optional(), // ISO 8601 duration
   retryPolicy: retryPolicySchema.optional(),
 })
