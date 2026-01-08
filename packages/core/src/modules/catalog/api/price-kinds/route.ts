@@ -6,6 +6,7 @@ import { CatalogPriceKind } from '../../data/entities'
 import { priceKindCreateSchema, priceKindUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_price_kind'
 import {
@@ -74,7 +75,7 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       const term = sanitizeSearchTerm(query.search)
       if (term) {
-        const like = `%${term}%`
+        const like = `%${escapeLikePattern(term)}%`
         filters.$or = [{ [F.code]: { $ilike: like } }, { [F.title]: { $ilike: like } }]
       }
       const isPromotion = parseBooleanFlag(query.isPromotion)

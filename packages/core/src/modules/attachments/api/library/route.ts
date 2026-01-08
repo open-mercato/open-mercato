@@ -8,6 +8,7 @@ import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '../../lib/im
 import { readAttachmentMetadata } from '../../lib/metadata'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { applyAssignmentEnrichments, resolveAssignmentEnrichments } from '../../lib/assignmentDetails'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const listQuerySchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -73,7 +74,7 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId,
   })
   if (search && search.trim().length > 0) {
-    qb.andWhere({ fileName: { $ilike: `%${search.trim()}%` } })
+    qb.andWhere({ fileName: { $ilike: `%${escapeLikePattern(search.trim())}%` } })
   }
   if (partition && partition.trim().length > 0) {
     qb.andWhere({ partitionCode: partition.trim() })

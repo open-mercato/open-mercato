@@ -1,4 +1,6 @@
 import { embed } from 'ai'
+import type { EmbeddingModel } from 'ai'
+import type { SharedV3ProviderOptions } from '@ai-sdk/provider'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createMistral } from '@ai-sdk/mistral'
@@ -164,7 +166,7 @@ export class EmbeddingService {
     }
   }
 
-  private getProviderOptions(): Record<string, unknown> | undefined {
+  private getProviderOptions(): SharedV3ProviderOptions | undefined {
     const { providerId, outputDimensionality, model } = this.config
 
     if (!outputDimensionality) {
@@ -177,7 +179,7 @@ export class EmbeddingService {
     switch (providerId) {
       case 'openai':
         if (model === 'text-embedding-3-large' || model === 'text-embedding-3-small') {
-          return { openai: { dimensions: outputDimensionality } }
+        return { openai: { dimensions: outputDimensionality } }
         }
         return undefined
       case 'google':
@@ -204,7 +206,7 @@ export class EmbeddingService {
       throw new Error(`[vector.embedding] Provider ${providerInfo.name} is not configured. Set ${providerInfo.envKeyRequired} environment variable.`)
     }
 
-    const model = this.getEmbeddingModel()
+    const model = this.getEmbeddingModel() as EmbeddingModel
     const providerOptions = this.getProviderOptions()
 
     try {
