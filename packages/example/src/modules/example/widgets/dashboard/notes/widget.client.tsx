@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateNotesSettings, type NotesSettings } from './config'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const NotesWidgetClient: React.FC<DashboardWidgetComponentProps<NotesSettings>> = ({
   mode,

@@ -1,5 +1,5 @@
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { upsertIndexRow } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 

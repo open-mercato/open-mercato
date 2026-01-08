@@ -2,7 +2,7 @@
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { CrudField, CrudForm } from "@open-mercato/ui/backend/CrudForm";
 import { E } from "@open-mercato/core/generated/entities.ids.generated";
-import { useT } from "@/lib/i18n/context";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 import * as React from 'react'
 import { updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { FeatureToggleItem, useFeatureToggleItem } from "@open-mercato/core/modules/feature_toggles/components/hooks/useFeatureToggleItem";

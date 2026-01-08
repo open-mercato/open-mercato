@@ -1,4 +1,4 @@
-import { createRequestContainer } from "@/lib/di/container"
+import { createRequestContainer } from "@open-mercato/shared/lib/di/container"
 import { FeatureToggle, FeatureToggleOverride } from "../data/entities"
 import { EntityManager } from "@mikro-orm/core"
 import { CacheService } from "@open-mercato/cache"

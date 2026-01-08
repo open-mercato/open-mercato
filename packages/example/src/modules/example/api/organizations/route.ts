@@ -1,5 +1,5 @@
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { E } from '@open-mercato/core/datamodel/entities'
 import { id, name } from '@open-mercato/core/datamodel/entities/organization'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'

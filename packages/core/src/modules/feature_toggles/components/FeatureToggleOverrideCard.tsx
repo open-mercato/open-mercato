@@ -4,7 +4,7 @@ import { Label, DataLoader, ErrorNotice } from "@open-mercato/ui";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
-import { useT } from "@/lib/i18n/context";
+import { useT } from "@open-mercato/shared/lib/i18n/context";
 
 type OverrideData = {
     id: string

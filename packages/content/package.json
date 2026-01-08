@@ -5,7 +5,14 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./modules/*": "./src/modules/*"
+    "./index": "./src/index.ts",
+    "./modules/content/frontend/components/ContentLayout": "./src/modules/content/frontend/components/ContentLayout.tsx",
+    "./modules/content/frontend/privacy/page.meta": "./src/modules/content/frontend/privacy/page.meta.ts",
+    "./modules/content/frontend/privacy/page": "./src/modules/content/frontend/privacy/page.tsx",
+    "./modules/content/frontend/terms/page.meta": "./src/modules/content/frontend/terms/page.meta.ts",
+    "./modules/content/frontend/terms/page": "./src/modules/content/frontend/terms/page.tsx",
+    "./modules/content": "./src/modules/content/index.ts",
+    "./modules/content/index": "./src/modules/content/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -16,7 +16,7 @@ import { CrudForm, type CrudField, type CrudFormGroup, type CrudCustomFieldRende
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { z } from 'zod'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import type { LucideIcon } from 'lucide-react'

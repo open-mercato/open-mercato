@@ -61,11 +61,11 @@ const mockContainer: MockContainer = {
 }
 const mockHashApiKey = jest.fn<string, [string]>((secret) => `hashed:${secret}`)
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromCookies: jest.fn(() => mockGetAuthFromCookies()),
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
 }))

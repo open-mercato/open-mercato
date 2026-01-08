@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FeatureToggleItem } from "@open-mercato/core/modules/feature_toggles/components/hooks/useFeatureToggleItem"
 
 type FeatureToggleDetailsCardProps = {

@@ -5,7 +5,25 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./modules/*": "./src/modules/*"
+    "./index": "./src/index.ts",
+    "./modules/onboarding/acl": "./src/modules/onboarding/acl.ts",
+    "./modules/onboarding/api/get/onboarding/verify": "./src/modules/onboarding/api/get/onboarding/verify.ts",
+    "./modules/onboarding/api/post/onboarding": "./src/modules/onboarding/api/post/onboarding.ts",
+    "./modules/onboarding/data/entities": "./src/modules/onboarding/data/entities.ts",
+    "./modules/onboarding/data/validators": "./src/modules/onboarding/data/validators.ts",
+    "./modules/onboarding/emails/AdminNotificationEmail": "./src/modules/onboarding/emails/AdminNotificationEmail.tsx",
+    "./modules/onboarding/emails/VerificationEmail": "./src/modules/onboarding/emails/VerificationEmail.tsx",
+    "./modules/onboarding/frontend/onboarding/page": "./src/modules/onboarding/frontend/onboarding/page.tsx",
+    "./modules/onboarding/i18n/de.json": "./src/modules/onboarding/i18n/de.json",
+    "./modules/onboarding/i18n/en.json": "./src/modules/onboarding/i18n/en.json",
+    "./modules/onboarding/i18n/es.json": "./src/modules/onboarding/i18n/es.json",
+    "./modules/onboarding/i18n/pl.json": "./src/modules/onboarding/i18n/pl.json",
+    "./modules/onboarding": "./src/modules/onboarding/index.ts",
+    "./modules/onboarding/index": "./src/modules/onboarding/index.ts",
+    "./modules/onboarding/lib/service": "./src/modules/onboarding/lib/service.ts",
+    "./datamodel/entities": "./generated/entities.ids.generated.ts",
+    "./datamodel/entities/*": "./generated/entities/*",
+    "./generated/*": "./generated/*"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

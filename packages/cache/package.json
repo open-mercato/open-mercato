@@ -2,9 +2,19 @@
   "name": "@open-mercato/cache",
   "version": "0.3.12",
   "description": "Multi-strategy cache service with tag-based invalidation support",
-  "main": "dist/index.js",
   "private": false,
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./service": "./src/service.ts",
+    "./errors": "./src/errors.ts",
+    "./tenantContext": "./src/tenantContext.ts",
+    "./strategies/memory": "./src/strategies/memory.ts",
+    "./strategies/redis": "./src/strategies/redis.ts",
+    "./strategies/sqlite": "./src/strategies/sqlite.ts",
+    "./strategies/jsonfile": "./src/strategies/jsonfile.ts"
+  },
   "scripts": {
     "test": "jest"
   },

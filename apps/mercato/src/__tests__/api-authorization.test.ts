@@ -1,11 +1,11 @@
 import { NextRequest } from 'next/server'
 import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { Module, HttpMethod, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 // Mock the auth module
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn()
 }))
 
@@ -20,7 +20,7 @@ const mockRbac = {
     Parameters<RbacService['loadAcl']>
   >()
 }
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: <T>(key: string): T | null => (key === 'rbacService' ? (mockRbac as unknown as T) : null)
   }),

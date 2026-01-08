@@ -2,11 +2,12 @@
   "name": "@open-mercato/events",
   "version": "0.3.12",
   "private": false,
-  "main": "src/index.ts",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*"
+    "./index": "./src/index.ts",
+    "./bus": "./src/bus.ts",
+    "./types": "./src/types.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

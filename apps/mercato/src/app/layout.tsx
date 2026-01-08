@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
-import { I18nProvider } from '@/lib/i18n/context'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
 import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
 import { detectLocale, loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'

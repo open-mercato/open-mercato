@@ -19,7 +19,7 @@ module.exports = {
     '^@open-mercato/cache/(.*)$': '<rootDir>/packages/cache/src/$1',
     '^@open-mercato/cache$': '<rootDir>/packages/cache/src/index.ts',
     '^@open-mercato/shared/(.*)$': '<rootDir>/packages/shared/src/$1',
-    '^@/(.*)$': '<rootDir>/src/$1',
+    '^@/(.*)$': '<rootDir>/apps/mercato/src/$1',
     '^@tests/(.*)$': '<rootDir>/tests/$1',
   },
   transform: {

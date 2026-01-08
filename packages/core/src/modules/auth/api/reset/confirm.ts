@@ -1,7 +1,7 @@
 import { confirmPasswordResetSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { z } from 'zod'
 

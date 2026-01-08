@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recordIndexerError } from '@/lib/indexers/error-log'
-import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { reindexEntity } from '../lib/reindexer'
 import type { VectorIndexService } from '@open-mercato/vector'
 

@@ -1,4 +1,4 @@
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   assigneeQuerySchema,

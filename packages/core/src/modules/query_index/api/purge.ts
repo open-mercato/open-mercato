@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexOkSchema, queryIndexPurgeRequestSchema } from './openapi'
-import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['query_index.purge'] },

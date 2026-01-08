@@ -1,8 +1,8 @@
 import { isFeatureEnabled } from '../feature-flag-check'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { FeatureToggle, FeatureToggleOverride } from '../../data/entities'
 
-jest.mock('@/lib/di/container')
+jest.mock('@open-mercato/shared/lib/di/container')
 jest.mock('@open-mercato/cache')
 jest.mock('../../data/entities')
 

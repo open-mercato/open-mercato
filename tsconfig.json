@@ -10,7 +10,6 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
-    // Safety net: if someone forces emit at repo root, keep JS out of src/
     "outDir": "./dist",
     "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "esModuleInterop": true,
@@ -33,105 +32,9 @@
       "./node_modules/@types"
     ],
     "paths": {
-      "@/*": [
-        "./apps/mercato/src/*"
-      ],
-      "@/lib/*": [
-        "./packages/shared/src/lib/*"
-      ],
-      "@/types/*": [
-        "./packages/shared/src/types/*"
-      ],
-      "@open-mercato/core/*": [
-        "./packages/core/src/*"
-      ],
-      "@open-mercato/core/datamodel/entities": [
-        "./packages/core/generated/entities.ids.generated.ts"
-      ],
-      "@open-mercato/core/datamodel/entities/*": [
-        "./packages/core/generated/entities/*"
-      ],
-      "@open-mercato/core/generated/*": [
-        "./packages/core/generated/*"
-      ],
-      "@open-mercato/core/generated/entity-fields-registry": [
-        "./packages/core/generated/entity-fields-registry.ts"
-      ],
-      "@open-mercato/example/*": [
-        "./packages/example/src/*"
-      ],
-      "@open-mercato/example/datamodel/entities": [
-        "./packages/example/generated/entities.ids.generated.ts"
-      ],
-      "@open-mercato/example/datamodel/entities/*": [
-        "./packages/example/generated/entities/*"
-      ],
-      "@open-mercato/example/generated/*": [
-        "./packages/example/generated/*"
-      ],
-      "@open-mercato/content/*": [
-        "./packages/content/src/*"
-      ],
-      "@open-mercato/content/generated/*": [
-        "./packages/content/generated/*"
-      ],
-      "@open-mercato/onboarding/*": [
-        "./packages/onboarding/src/*"
-      ],
-      "@open-mercato/onboarding/generated/*": [
-        "./packages/onboarding/generated/*"
-      ],
-      "@open-mercato/vector": [
-        "./packages/vector/src/index.ts"
-      ],
-      "@open-mercato/vector/*": [
-        "./packages/vector/src/*"
-      ],
-      "@open-mercato/cli/*": [
-        "./apps/cli/src/*"
-      ],
-      "@open-mercato/cli/generated/*": [
-        "./apps/cli/generated/*"
-      ],
-      "@open-mercato/events/*": [
-        "./packages/events/src/*"
-      ],
-      "@open-mercato/events/generated/*": [
-        "./packages/events/generated/*"
-      ],
-      "@open-mercato/cache": [
-        "./packages/cache/src/index.ts"
-      ],
-      "@open-mercato/cache/*": [
-        "./packages/cache/src/*"
-      ],
-      "@open-mercato/shared/*": [
-        "./packages/shared/src/*"
-      ],
-      "@open-mercato/shared/generated/*": [
-        "./packages/shared/generated/*"
-      ],
-      "@open-mercato/ui": [
-        "./packages/ui/src/index.ts"
-      ],
-      "@open-mercato/ui/*": [
-        "./packages/ui/src/*"
-      ],
-      "@/modules/registry": [
-        "./packages/shared/src/modules/registry.ts"
-      ],
-      "@/modules/dsl": [
-        "./packages/shared/src/modules/dsl.ts"
-      ],
-      "@/modules/entities": [
-        "./packages/shared/src/modules/entities.ts"
-      ],
-      "@/generated/*": [
-        "./generated/*"
-      ],
-      "@tests/*": [
-        "./tests/*"
-      ]
+      "@/*": ["./apps/mercato/src/*"],
+      "@/generated/*": ["./generated/*"],
+      "@tests/*": ["./tests/*"]
     }
   },
   "include": [

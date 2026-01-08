@@ -2,7 +2,7 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
 import generatedModules from '@/generated/modules.generated'
 
@@ -507,7 +507,7 @@ export async function run(argv = process.argv) {
           if (payloadArg) {
             try { payload = JSON.parse(payloadArg) } catch { payload = payloadArg }
           }
-          const { createRequestContainer } = await import('@/lib/di/container')
+          const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
           await bus.emit(eventName, payload, { persistent })
@@ -517,7 +517,7 @@ export async function run(argv = process.argv) {
       {
         command: 'clear',
         run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
+          const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
           const res = await bus.clearQueue()

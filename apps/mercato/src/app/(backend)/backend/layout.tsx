@@ -3,7 +3,7 @@ import Script from 'next/script'
 import type { ReactNode } from 'react'
 import { modules } from '@/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
-import { getAuthFromCookies } from '@/lib/auth/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
@@ -11,7 +11,7 @@ import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import { VectorSearchDialog } from '@open-mercato/vector/modules/vector/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import {
   applySidebarPreference,
   loadFirstRoleSidebarPreference,

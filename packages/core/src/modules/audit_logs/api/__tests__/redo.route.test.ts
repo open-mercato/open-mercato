@@ -11,11 +11,11 @@ const mockCommandBus = {
   execute: jest.fn(),
 }
 
-jest.mock('@/lib/auth/server', () => ({
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
 }))
 
-jest.mock('@/lib/di/container', () => ({
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
     resolve: (token: string) => {
       if (token === 'rbacService') return mockRbac
@@ -61,7 +61,7 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
   })
 
   it('returns 401 when unauthenticated', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
 
     const res = await POST(makeRequest({ logId: 'log-1' }))
@@ -69,7 +69,7 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
   })
 
   it('replays latest undone log and returns undo metadata', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',

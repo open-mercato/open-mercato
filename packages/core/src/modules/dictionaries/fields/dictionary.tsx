@@ -4,7 +4,7 @@ import * as React from 'react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { FieldRegistry } from '@open-mercato/ui/backend/fields/registry'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DictionarySelectControl } from '../components/DictionarySelectControl'
 
 type DictionaryFieldDefinition = {

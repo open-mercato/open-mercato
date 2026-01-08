@@ -6,7 +6,7 @@ import { Plus, Code } from 'lucide-react'
 import { ActionRow } from './ActionRow'
 import type { Action } from './utils/actionValidation'
 import { validateActions } from './utils/actionValidation'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ActionBuilderProps = {
   value: Action[] | null | undefined

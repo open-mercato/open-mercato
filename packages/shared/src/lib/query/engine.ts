@@ -1,5 +1,5 @@
 import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource } from './types'
-import type { EntityId } from '@/modules/entities'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import {

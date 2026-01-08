@@ -1,8 +1,8 @@
 import { notFound, redirect } from 'next/navigation'
 import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
 import { modules } from '@/generated/modules.generated'
-import { getAuthFromCookies } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 export default async function SiteCatchAll({ params }: { params: Promise<{ slug: string[] }> }) {

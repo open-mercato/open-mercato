@@ -7,38 +7,9 @@
     "paths": {
       "@/*": ["./src/*"],
       "@/generated/*": ["../../generated/*"],
-      "@/lib/*": ["../../packages/shared/src/lib/*"],
-      "@/types/*": ["../../packages/shared/src/types/*"],
-      "@/modules/registry": ["../../packages/shared/src/modules/registry.ts"],
-      "@/modules/dsl": ["../../packages/shared/src/modules/dsl.ts"],
-      "@/modules/entities": ["../../packages/shared/src/modules/entities.ts"],
-      "@tests/*": ["../../tests/*"],
-      "@open-mercato/core/*": ["../../packages/core/src/*"],
-      "@open-mercato/core/datamodel/entities": ["../../packages/core/generated/entities.ids.generated.ts"],
-      "@open-mercato/core/datamodel/entities/*": ["../../packages/core/generated/entities/*"],
-      "@open-mercato/core/generated/*": ["../../packages/core/generated/*"],
-      "@open-mercato/example/*": ["../../packages/example/src/*"],
-      "@open-mercato/example/datamodel/entities": ["../../packages/example/generated/entities.ids.generated.ts"],
-      "@open-mercato/example/datamodel/entities/*": ["../../packages/example/generated/entities/*"],
-      "@open-mercato/example/generated/*": ["../../packages/example/generated/*"],
-      "@open-mercato/content/*": ["../../packages/content/src/*"],
-      "@open-mercato/onboarding/*": ["../../packages/onboarding/src/*"],
-      "@open-mercato/vector": ["../../packages/vector/src/index.ts"],
-      "@open-mercato/vector/*": ["../../packages/vector/src/*"],
-      "@open-mercato/cli/*": ["../../apps/cli/src/*"],
-      "@open-mercato/events/*": ["../../packages/events/src/*"],
-      "@open-mercato/cache": ["../../packages/cache/src/index.ts"],
-      "@open-mercato/cache/*": ["../../packages/cache/src/*"],
-      "@open-mercato/shared/*": ["../../packages/shared/src/*"],
-      "@open-mercato/ui": ["../../packages/ui/src/index.ts"],
-      "@open-mercato/ui/*": ["../../packages/ui/src/*"]
+      "@tests/*": ["../../tests/*"]
     }
   },
-  "include": [
-    "next-env.d.ts",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
+  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
 }

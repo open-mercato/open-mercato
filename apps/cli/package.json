@@ -9,5 +9,15 @@
   },
   "bin": {
     "mercato": "./dist/bin.js"
+  },
+  "dependencies": {
+    "@open-mercato/cache": "*",
+    "@open-mercato/core": "*",
+    "@open-mercato/events": "*",
+    "@open-mercato/example": "*",
+    "@open-mercato/onboarding": "*",
+    "@open-mercato/queue": "*",
+    "@open-mercato/shared": "*",
+    "@open-mercato/vector": "*"
   }
 }

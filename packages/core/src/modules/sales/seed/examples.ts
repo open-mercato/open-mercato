@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
   SalesOrder,
   SalesOrderLine,

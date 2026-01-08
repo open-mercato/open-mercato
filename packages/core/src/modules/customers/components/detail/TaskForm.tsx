@@ -5,7 +5,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { Button } from '@open-mercato/ui/primitives/button'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 

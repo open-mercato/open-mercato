@@ -6,7 +6,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { fetchCrudList, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import type { TodoListItem } from '@open-mercato/example/modules/example/types'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type TodoItem = TodoListItem
 type TodoCustomFieldValues = Record<`cf_${string}`, unknown>

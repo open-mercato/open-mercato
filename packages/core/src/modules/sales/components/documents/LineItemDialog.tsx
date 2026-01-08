@@ -23,8 +23,8 @@ import {
   renderDictionaryColor,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeDetail } from '@/lib/frontend/useOrganizationScope'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { SalesLineRecord } from './lineItemTypes'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'

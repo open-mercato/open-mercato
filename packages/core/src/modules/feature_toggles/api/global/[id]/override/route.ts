@@ -1,11 +1,11 @@
-import { getAuthFromRequest } from "@/lib/auth/server"
-import { createRequestContainer } from "@/lib/di/container"
+import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server"
+import { createRequestContainer } from "@open-mercato/shared/lib/di/container"
 import { EntityManager } from "@mikro-orm/postgresql"
 import { NextResponse } from "next/server"
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
 import { Tenant } from "@open-mercato/core/modules/directory/data/entities"
 import { logCrudAccess } from "@open-mercato/shared/lib/crud/factory"
-import { OpenApiRouteDoc } from "@/lib/openapi"
+import { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi"
 import { FeatureToggleOverride } from '../../../../data/entities'
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {

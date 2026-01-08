@@ -1,4 +1,4 @@
-import { createOpenMercatoClient } from '../packages/client/src/index'
+import { createOpenMercatoClient } from '@open-mercato/client'
 
 async function main() {
   const apiKey = process.env.OPEN_MERCATO_API_KEY

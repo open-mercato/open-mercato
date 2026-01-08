@@ -8,7 +8,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { VectorSearchHit } from '@open-mercato/vector'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { fetchVectorResults } from '../utils'
 
 type VectorLink = { href: string; label?: string; kind?: string }
