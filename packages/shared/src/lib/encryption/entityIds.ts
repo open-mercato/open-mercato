@@ -1,5 +1,5 @@
 import type { EntityMetadata } from '@mikro-orm/core'
-import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
+import { E as GeneratedEntities } from '@open-mercato/generated/entity-ids'
 
 const toSnake = (value: string): string =>
   value

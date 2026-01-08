@@ -77,5 +77,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@open-mercato/generated": "*"
   }
 }

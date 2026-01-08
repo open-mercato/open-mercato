@@ -1,6 +1,6 @@
 import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
-import { injectionWidgetEntries } from '@/generated/injection-widgets.generated'
+import { injectionWidgetEntries } from '@open-mercato/generated/injection-widgets'
 
 type Entry = ModuleInjectionWidgetEntry
 

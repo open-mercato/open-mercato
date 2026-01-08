@@ -1,5 +1,5 @@
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 
 const systemEntities: CustomEntitySpec[] = [
   {

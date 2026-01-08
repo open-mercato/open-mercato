@@ -3,9 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
+import { getGeneratedPath, ensureGenDir } from './shared/generated-paths'
 
-const outFile = path.resolve('generated/entities.generated.ts')
-const checksumFile = path.resolve('generated/entities.generated.checksum')
+ensureGenDir()
+
+const outFile = getGeneratedPath('entities.generated.ts')
+const checksumFile = getGeneratedPath('entities.generated.checksum')
 
 function toVar(s: string) {
   return s.replace(/[^a-zA-Z0-9_]/g, '_')

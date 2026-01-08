@@ -12,7 +12,7 @@ import {
   createPagedListResponseSchema,
   createSalesCrudOpenApi,
 } from '../openapi'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import * as F from '@open-mercato/core/generated/entities/sales_payment'
 
 const rawBodySchema = z.object({}).passthrough()

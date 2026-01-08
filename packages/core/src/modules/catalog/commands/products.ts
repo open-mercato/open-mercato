@@ -16,7 +16,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventAction, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import {
   CatalogOffer,

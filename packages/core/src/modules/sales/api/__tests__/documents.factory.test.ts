@@ -17,7 +17,7 @@ jest.mock('@open-mercato/core/generated/entities.ids.generated', () => ({
 
 import { buildDocumentCrudOptions } from '../documents/factory'
 import { SalesOrder, SalesQuote } from '../../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 
 describe('buildDocumentCrudOptions', () => {
   describe('buildFilters', () => {

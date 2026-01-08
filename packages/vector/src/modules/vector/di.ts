@@ -1,7 +1,7 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { EmbeddingService, VectorIndexService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '@open-mercato/vector'
-import { vectorModuleConfigs } from '@/generated/vector.generated'
+import { vectorModuleConfigs } from '@open-mercato/generated/vector'
 
 function resolveEventBus(container: AppContainer): { emitEvent: (...args: any[]) => Promise<any> } | undefined {
   const getBus = () => {

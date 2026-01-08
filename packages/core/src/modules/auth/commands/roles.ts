@@ -15,7 +15,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,

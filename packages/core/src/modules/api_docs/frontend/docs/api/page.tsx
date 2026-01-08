@@ -1,5 +1,5 @@
 import ApiDocsExplorer from './Explorer'
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 

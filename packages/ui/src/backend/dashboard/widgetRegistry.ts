@@ -1,6 +1,6 @@
 import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import { dashboardWidgetEntries } from '@/generated/dashboard-widgets.generated'
+import { dashboardWidgetEntries } from '@open-mercato/generated/dashboard-widgets'
 
 type Entry = ModuleDashboardWidgetEntry
 

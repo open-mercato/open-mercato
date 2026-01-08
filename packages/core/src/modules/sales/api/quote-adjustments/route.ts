@@ -6,7 +6,7 @@ import { SalesQuoteAdjustment } from '../../data/entities'
 import { quoteAdjustmentCreateSchema } from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import * as F from '@open-mercato/core/generated/entities/sales_quote_adjustment'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 

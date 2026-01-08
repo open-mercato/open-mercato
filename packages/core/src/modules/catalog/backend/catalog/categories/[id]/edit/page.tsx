@@ -8,7 +8,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { CategorySelect } from '../../../../../components/categories/CategorySelect'
 import { CategorySlugFieldSync } from '../../../../../components/categories/CategorySlugFieldSync'
 

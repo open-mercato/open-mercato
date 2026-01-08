@@ -9,7 +9,7 @@ export async function getOrm() {
   if (ormInstance) {
     return ormInstance
   }
-  const { entities } = await import('@/generated/entities.generated')
+  const { entities } = await import('@open-mercato/generated/entities')
   const clientUrl = process.env.DATABASE_URL
   if (!clientUrl) throw new Error('DATABASE_URL is not set')
   

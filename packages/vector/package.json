@@ -36,6 +36,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@open-mercato/generated": "*",
     "@ai-sdk/amazon-bedrock": "^4.0.8",
     "@ai-sdk/cohere": "^3.0.4",
     "@ai-sdk/google": "^1.2.6",

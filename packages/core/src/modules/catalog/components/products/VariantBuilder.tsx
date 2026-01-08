@@ -10,7 +10,7 @@ import { MetadataEditor } from './MetadataEditor'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 
 type VariantBuilderProps = {
   values: VariantFormValues

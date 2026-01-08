@@ -53,10 +53,8 @@ next-env.d.ts
 
 # /**/migrations/*
 # Generated module files
-/src/generated/
-/src/generated/*
-/generated/
 packages/*/generated/
+packages/generated/.gen/
 packages/client/src/generated/
 # package build outputs
 packages/*/dist/
@@ -87,6 +85,5 @@ package-lock.json
 .claude
 packages/cache/node_modules/*
 newrelic_agent.log
-/generated/
 .queue/events/queue.json
 .queue/events/state.json

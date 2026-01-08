@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

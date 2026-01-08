@@ -97,7 +97,7 @@ export async function GET(req: Request) {
       }
       const coverageRefreshKeys = new Set<string>()
       try {
-        const { E: allEntities } = await import('@/generated/entities.ids.generated') as {
+        const { E: allEntities } = await import('@open-mercato/generated/entity-ids') as {
           E: Record<string, Record<string, string>>
         }
         const entityIds = flattenSystemEntityIds(allEntities)

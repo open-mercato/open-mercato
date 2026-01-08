@@ -2,7 +2,7 @@ import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 
 // Mock modules with one entity extension
-jest.mock('@/generated/modules.generated', () => ({
+jest.mock('@open-mercato/generated/modules', () => ({
   modules: [
     { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
   ],

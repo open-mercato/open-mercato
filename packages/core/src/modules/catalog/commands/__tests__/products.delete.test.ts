@@ -1,7 +1,7 @@
 export {}
 
 import { CatalogOffer, CatalogProductVariant } from '../../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 
 const registerCommand = jest.fn()
 const emitCatalogQueryIndexEvent = jest.fn().mockResolvedValue(undefined)

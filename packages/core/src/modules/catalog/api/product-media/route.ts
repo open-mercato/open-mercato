@@ -7,7 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { CatalogProduct } from '../../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {

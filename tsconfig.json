@@ -33,7 +33,7 @@
     ],
     "paths": {
       "@/*": ["./apps/mercato/src/*"],
-      "@/generated/*": ["./generated/*"],
+      "@open-mercato/generated/modules/*/entities": ["./packages/generated/.gen/modules/*/entities.ts"],
       "@tests/*": ["./tests/*"]
     }
   },

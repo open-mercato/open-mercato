@@ -5,7 +5,7 @@ import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import {
   parseWithCustomFields,
   setCustomFieldsIfAny,

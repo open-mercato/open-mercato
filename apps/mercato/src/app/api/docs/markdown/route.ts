@@ -1,4 +1,4 @@
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { buildOpenApiDocument, generateMarkdownFromOpenApi, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 

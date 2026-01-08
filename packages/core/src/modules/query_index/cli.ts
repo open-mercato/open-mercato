@@ -397,7 +397,7 @@ const rebuildAll: ModuleCli = {
     try {
       const knex = em.getConnection().getKnex()
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
+      const { E: All } = await import('@open-mercato/generated/entity-ids') as {
         E: Record<string, Record<string, string>>
       }
       const entityIds = flattenSystemEntityIds(All)
@@ -645,7 +645,7 @@ const reindex: ModuleCli = {
         return
       }
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
+      const { E: All } = await import('@open-mercato/generated/entity-ids') as {
         E: Record<string, Record<string, string>>
       }
       const entityIds = flattenSystemEntityIds(All)
@@ -859,7 +859,7 @@ const purge: ModuleCli = {
         return
       }
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
+      const { E: All } = await import('@open-mercato/generated/entity-ids') as {
         E: Record<string, Record<string, string>>
       }
       const entityIds = flattenSystemEntityIds(All)

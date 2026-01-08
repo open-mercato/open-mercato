@@ -1,7 +1,7 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { AttachmentAssignment } from './metadata'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 
 type AssignmentLinkSpec = {
   labelFields?: string[]
@@ -82,7 +82,7 @@ let entitySpecsPromise: Promise<Map<string, CustomEntitySpec>> | null = null
 
 async function loadEntitySpecs(): Promise<Map<string, CustomEntitySpec>> {
   if (!entitySpecsPromise) {
-    entitySpecsPromise = import('@/generated/modules.generated')
+    entitySpecsPromise = import('@open-mercato/generated/modules')
       .then((registry) => {
         const map = new Map<string, CustomEntitySpec>()
         const mods = registry.modules ?? []

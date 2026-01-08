@@ -1,4 +1,4 @@
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { StartPageContent } from '@/components/StartPageContent'
 import { cookies } from 'next/headers'
 import Image from 'next/image'

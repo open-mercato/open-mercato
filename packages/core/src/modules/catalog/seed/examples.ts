@@ -18,7 +18,7 @@ import { ensureCustomFieldDefinitions, type FieldSetInput } from '@open-mercato/
 import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
 import { rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
 import { defineFields, cf } from '@open-mercato/shared/modules/dsl'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { SalesTaxRate } from '@open-mercato/core/modules/sales/data/entities'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
 import { ensureDefaultPartitions, resolveDefaultPartitionCode } from '@open-mercato/core/modules/attachments/lib/partitions'

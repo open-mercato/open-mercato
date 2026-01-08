@@ -15,7 +15,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatMoney, normalizeNumber } from './lineItemUtils'

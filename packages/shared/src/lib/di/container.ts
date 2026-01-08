@@ -2,7 +2,7 @@ import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
-import diRegistrarsDefault from '@/generated/di.generated'
+import diRegistrarsDefault from '@open-mercato/generated/di'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'

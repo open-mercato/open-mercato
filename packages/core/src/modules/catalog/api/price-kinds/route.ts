@@ -7,7 +7,7 @@ import { priceKindCreateSchema, priceKindUpdateSchema } from '../../data/validat
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import * as F from '@open-mercato/core/generated/entities/catalog_price_kind'
 import {
   createCatalogCrudOpenApi,

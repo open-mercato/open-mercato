@@ -17,7 +17,7 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { z } from 'zod'
 import {
   loadCustomFieldSnapshot,

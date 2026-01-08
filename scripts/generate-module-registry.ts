@@ -3,19 +3,22 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
+import { getGeneratedPath, ensureGenDir } from './shared/generated-paths'
 
 type HttpMethod = 'GET'|'POST'|'PUT'|'PATCH'|'DELETE'
 
-const outFile = path.resolve('generated/modules.generated.ts')
-const checksumFile = path.resolve('generated/modules.generated.checksum')
-const widgetsOutFile = path.resolve('generated/dashboard-widgets.generated.ts')
-const widgetsChecksumFile = path.resolve('generated/dashboard-widgets.generated.checksum')
-const injectionWidgetsOutFile = path.resolve('generated/injection-widgets.generated.ts')
-const injectionWidgetsChecksumFile = path.resolve('generated/injection-widgets.generated.checksum')
-const injectionTablesOutFile = path.resolve('generated/injection-tables.generated.ts')
-const injectionTablesChecksumFile = path.resolve('generated/injection-tables.generated.checksum')
-const vectorOutFile = path.resolve('generated/vector.generated.ts')
-const vectorChecksumFile = path.resolve('generated/vector.generated.checksum')
+ensureGenDir()
+
+const outFile = getGeneratedPath('modules.generated.ts')
+const checksumFile = getGeneratedPath('modules.generated.checksum')
+const widgetsOutFile = getGeneratedPath('dashboard-widgets.generated.ts')
+const widgetsChecksumFile = getGeneratedPath('dashboard-widgets.generated.checksum')
+const injectionWidgetsOutFile = getGeneratedPath('injection-widgets.generated.ts')
+const injectionWidgetsChecksumFile = getGeneratedPath('injection-widgets.generated.checksum')
+const injectionTablesOutFile = getGeneratedPath('injection-tables.generated.ts')
+const injectionTablesChecksumFile = getGeneratedPath('injection-tables.generated.checksum')
+const vectorOutFile = getGeneratedPath('vector.generated.ts')
+const vectorChecksumFile = getGeneratedPath('vector.generated.checksum')
 
 type ChecksumRecord = { content: string; structure: string }
 

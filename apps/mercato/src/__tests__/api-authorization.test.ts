@@ -78,7 +78,7 @@ function getMockedModules(): Module[] {
 }
 
 // Mock the modules registry
-jest.mock('@/generated/modules.generated', () => ({
+jest.mock('@open-mercato/generated/modules', () => ({
   modules: getMockedModules(),
 }))
 

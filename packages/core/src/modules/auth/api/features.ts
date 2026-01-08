@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['auth.acl.manage'] },

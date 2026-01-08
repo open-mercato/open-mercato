@@ -22,7 +22,7 @@ describe('dashboard widget discovery', () => {
         Widget: () => null,
       } satisfies DashboardWidgetModule<any>,
     }))
-    jest.doMock('@/generated/modules.generated', () => ({
+    jest.doMock('@open-mercato/generated/modules', () => ({
       modules: [
         { id: 'example', dashboardWidgets: [{ key: 'example:notes:widget', moduleId: 'example', loader: loaderA }] },
         { id: 'custom', dashboardWidgets: [{ key: 'custom:notes:widget', moduleId: 'custom', loader: loaderB }] },
@@ -48,7 +48,7 @@ describe('dashboard widget discovery', () => {
   })
 
   it('returns null for unknown widget id', async () => {
-    jest.doMock('@/generated/modules.generated', () => ({
+    jest.doMock('@open-mercato/generated/modules', () => ({
       modules: [],
     }))
     const { loadWidgetById } = await import('../lib/widgets')
@@ -57,7 +57,7 @@ describe('dashboard widget discovery', () => {
 
   it('throws when widget metadata is invalid', async () => {
     const badLoader = jest.fn(async () => ({ default: { Widget: () => null } }))
-    jest.doMock('@/generated/modules.generated', () => ({
+    jest.doMock('@open-mercato/generated/modules', () => ({
       modules: [
         { id: 'broken', dashboardWidgets: [{ key: 'broken:widget', moduleId: 'broken', loader: badLoader }] },
       ],

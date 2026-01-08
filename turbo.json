@@ -17,7 +17,7 @@
       "outputs": []
     },
     "modules:prepare": {
-      "outputs": ["generated/**", "packages/*/generated/**"],
+      "outputs": ["packages/generated/.gen/**"],
       "cache": false
     }
   }

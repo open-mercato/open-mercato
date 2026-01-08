@@ -53,7 +53,7 @@ export function invalidateInjectionWidgetCache() {
 
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = import('@/generated/injection-widgets.generated').then((registry) => {
+    widgetEntriesPromise = import('@open-mercato/generated/injection-widgets').then((registry) => {
       const list = (registry.injectionWidgetEntries ?? []) as ModuleInjectionWidgetEntry[]
       return list.map((entry) => ({ ...entry }))
     })
@@ -63,7 +63,7 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
 
 async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>> {
   if (!injectionTablePromise) {
-    injectionTablePromise = import('@/generated/injection-tables.generated').then((registry) => {
+    injectionTablePromise = import('@open-mercato/generated/injection-tables').then((registry) => {
       const list = (registry.injectionTables ?? []) as Array<{ moduleId: string; table: ModuleInjectionTable }>
       const table = new Map<InjectionSpotId, TableEntry[]>()
 

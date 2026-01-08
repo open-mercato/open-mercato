@@ -15,7 +15,7 @@ import { normalizeCustomFieldResponse, normalizeCustomFieldValues } from '@open-
 import { DictionaryEntrySelect, type DictionaryOption } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { SalesAdjustmentKind } from '../../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { Settings } from 'lucide-react'
 import { extractCustomFieldValues, normalizeCustomFieldSubmitValue } from './customFieldHelpers'
 

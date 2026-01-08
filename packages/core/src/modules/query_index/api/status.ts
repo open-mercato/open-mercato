@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { E as AllEntities } from '@open-mercato/generated/entity-ids'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { VectorIndexService } from '@open-mercato/vector'

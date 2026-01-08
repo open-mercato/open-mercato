@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'

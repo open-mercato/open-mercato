@@ -16,7 +16,7 @@ import {
   resolveOrganizationScopeForRequest,
 } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { organizationCrudEvents, organizationCrudIndexer } from '@open-mercato/core/modules/directory/commands/organizations'

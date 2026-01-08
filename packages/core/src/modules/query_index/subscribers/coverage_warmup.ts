@@ -1,4 +1,4 @@
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { E as AllEntities } from '@open-mercato/generated/entity-ids'
 import type { EventBus } from '@open-mercato/events/types'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 

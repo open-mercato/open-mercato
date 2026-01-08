@@ -49,8 +49,8 @@ Generated route structure (simplified):
 import { z } from "zod";
 import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
 import { Product } from "@/modules/inventory/data/entities";
-import { E } from "@/generated/entities.ids.generated";
-import * as F from "@/generated/entities/product";
+import { E } from "@open-mercato/generated/entity-ids";
+import * as F from "@open-mercato/core/generated/entities/product";
 import fieldSets from "@/modules/inventory/data/fields";
 import {
   buildCustomFieldSelectorsForEntity,

@@ -8,7 +8,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { toLocalDateTimeInput } from './utils'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 

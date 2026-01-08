@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesPaymentMethod } from '../../data/entities'
 import { paymentMethodCreateSchema, paymentMethodUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import * as F from '@open-mercato/core/generated/entities/sales_payment_method'
 import {
   createPagedListResponseSchema,

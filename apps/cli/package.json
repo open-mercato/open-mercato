@@ -15,6 +15,7 @@
     "@open-mercato/core": "*",
     "@open-mercato/events": "*",
     "@open-mercato/example": "*",
+    "@open-mercato/generated": "*",
     "@open-mercato/onboarding": "*",
     "@open-mercato/queue": "*",
     "@open-mercato/shared": "*",

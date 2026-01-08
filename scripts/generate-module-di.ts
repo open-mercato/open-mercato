@@ -3,9 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { loadEnabledModules, moduleFsRoots, moduleImportBase } from './shared/modules-config'
+import { getGeneratedPath, ensureGenDir } from './shared/generated-paths'
 
-const outFile = path.resolve('generated/di.generated.ts')
-const checksumFile = path.resolve('generated/di.generated.checksum')
+ensureGenDir()
+
+const outFile = getGeneratedPath('di.generated.ts')
+const checksumFile = getGeneratedPath('di.generated.checksum')
 
 function calculateChecksum(content: string): string {
   return crypto.createHash('md5').update(content).digest('hex')

@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AttachmentPartition } from '../data/entities'
 import { resolveDefaultAttachmentOcrEnabled } from './ocrConfig'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 
 export type AttachmentPartitionSeed = {
   code: string

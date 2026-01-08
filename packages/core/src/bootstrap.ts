@@ -46,7 +46,7 @@ export async function bootstrap(container: AwilixContainer) {
   try {
     let loadedModules: any[] = []
     try {
-      const mod = await import('@/generated/modules.generated') as any
+      const mod = await import('@open-mercato/generated/modules') as any
       loadedModules = Array.isArray(mod?.modules) ? mod.modules : []
     } catch {}
     const subs = loadedModules.flatMap((m) => m.subscribers || [])

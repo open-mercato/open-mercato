@@ -14,7 +14,7 @@ import {
   createSalesCrudOpenApi,
   defaultOkResponseSchema,
 } from '../openapi'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import * as F from '@open-mercato/core/generated/entities/sales_shipment'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 

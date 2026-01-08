@@ -24,7 +24,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
 
 export const metadata = {

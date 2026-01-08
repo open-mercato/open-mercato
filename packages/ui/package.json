@@ -80,6 +80,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@open-mercato/generated": "*",
     "@radix-ui/react-tooltip": "^1.2.8"
   }
 }

@@ -17,7 +17,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Plus, Trash2, FileText, AlignLeft, ChevronLeft, ChevronRight, AlertCircle, Settings } from 'lucide-react'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { ProductCategorizeSection } from '@open-mercato/core/modules/catalog/components/products/ProductCategorizeSection'
 import {

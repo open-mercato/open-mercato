@@ -22,7 +22,7 @@ import {
   renderDictionaryIcon,
   renderDictionaryColor,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatMoney, normalizeNumber } from './lineItemUtils'

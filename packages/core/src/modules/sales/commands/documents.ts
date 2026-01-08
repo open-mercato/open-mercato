@@ -14,7 +14,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesQuote,

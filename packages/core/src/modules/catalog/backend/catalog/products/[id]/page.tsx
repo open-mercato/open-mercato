@@ -19,7 +19,7 @@ import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { ProductMediaManager, type ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import {
   fetchOptionSchemaTemplate,

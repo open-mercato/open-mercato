@@ -6,7 +6,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { TenantSelect } from '@open-mercato/core/modules/directory/components/TenantSelect'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 

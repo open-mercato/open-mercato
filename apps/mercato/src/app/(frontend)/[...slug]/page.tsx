@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'

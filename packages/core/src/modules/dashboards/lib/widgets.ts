@@ -17,7 +17,7 @@ export function invalidateWidgetCache() {
 }
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = import('@/generated/modules.generated').then((registry) => {
+    widgetEntriesPromise = import('@open-mercato/generated/modules').then((registry) => {
       const list = (registry.modules ?? []) as Module[]
       return list.flatMap((mod) => {
         const entries = mod.dashboardWidgets ?? []

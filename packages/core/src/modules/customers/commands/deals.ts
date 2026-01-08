@@ -33,7 +33,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '@open-mercato/generated/entity-ids'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'

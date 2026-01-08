@@ -14,7 +14,7 @@ import {
   type OpenAPITSOptions,
 } from 'openapi-typescript'
 import { buildOpenApiDocument, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
-import { modules } from '../generated/modules.generated'
+import { modules } from '../packages/generated/.gen/modules.generated'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..')

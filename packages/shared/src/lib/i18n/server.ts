@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
-import { modules } from '@/generated/modules.generated'
+import { modules } from '@open-mercato/generated/modules'
 import { createFallbackTranslator, createTranslator } from './translate'
 
 function flattenDictionary(source: unknown, prefix = ''): Dict {
