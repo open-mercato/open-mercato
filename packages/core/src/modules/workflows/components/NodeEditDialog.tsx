@@ -60,6 +60,12 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [slaDuration, setSlaDuration] = useState('')
   const [escalationRules, setEscalationRules] = useState<any[]>([])
 
+  // Sub-workflow configuration fields (Phase 8)
+  const [subWorkflowId, setSubWorkflowId] = useState('')
+  const [subWorkflowVersion, setSubWorkflowVersion] = useState('')
+  const [inputMappings, setInputMappings] = useState<Array<{ key: string; value: string }>>([])
+  const [outputMappings, setOutputMappings] = useState<Array<{ key: string; value: string }>>([])
+
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
     if (!schema || !schema.properties) return []
@@ -139,6 +145,39 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         setAssignmentRule('')
         setSlaDuration('')
         setEscalationRules([])
+      }
+
+      // Load sub-workflow configuration (Phase 8)
+      if (node.type === 'subWorkflow' && nodeData?.config) {
+        setSubWorkflowId(nodeData.config.subWorkflowId || '')
+        setSubWorkflowVersion(nodeData.config.version?.toString() || '')
+
+        // Convert inputMapping object to array for editing
+        if (nodeData.config.inputMapping) {
+          const mappings = Object.entries(nodeData.config.inputMapping).map(([key, value]) => ({
+            key,
+            value: value as string
+          }))
+          setInputMappings(mappings)
+        } else {
+          setInputMappings([])
+        }
+
+        // Convert outputMapping object to array for editing
+        if (nodeData.config.outputMapping) {
+          const mappings = Object.entries(nodeData.config.outputMapping).map(([key, value]) => ({
+            key,
+            value: value as string
+          }))
+          setOutputMappings(mappings)
+        } else {
+          setOutputMappings([])
+        }
+      } else {
+        setSubWorkflowId('')
+        setSubWorkflowVersion('')
+        setInputMappings([])
+        setOutputMappings([])
       }
 
       // Load form fields from userTaskConfig.formSchema
@@ -260,6 +299,40 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
     if (node.type === 'automated') {
       updates.activityType = activityType || undefined
       updates.activityId = activityId || undefined
+    }
+
+    // Sub-workflow specific fields (Phase 8)
+    if (node.type === 'subWorkflow') {
+      const config: any = {}
+
+      if (subWorkflowId) {
+        config.subWorkflowId = subWorkflowId
+      }
+
+      if (subWorkflowVersion) {
+        const versionNum = parseInt(subWorkflowVersion, 10)
+        if (!isNaN(versionNum)) {
+          config.version = versionNum
+        }
+      }
+
+      // Convert inputMappings array to object
+      if (inputMappings.length > 0) {
+        config.inputMapping = inputMappings
+          .filter(m => m.key && m.value)
+          .reduce((acc, m) => ({ ...acc, [m.key]: m.value }), {})
+      }
+
+      // Convert outputMappings array to object
+      if (outputMappings.length > 0) {
+        config.outputMapping = outputMappings
+          .filter(m => m.key && m.value)
+          .reduce((acc, m) => ({ ...acc, [m.key]: m.value }), {})
+      }
+
+      if (Object.keys(config).length > 0) {
+        updates.config = config
+      }
     }
 
     // Parse advanced config (JSON)
@@ -696,6 +769,199 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <p className="text-xs text-gray-500 mt-1">
                       Unique identifier for this activity
                     </p>
+                  </div>
+                </>
+              )}
+
+              {/* Sub-Workflow Configuration (Phase 8) */}
+              {node.type === 'subWorkflow' && (
+                <>
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                      Sub-Workflow Configuration
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Workflow to Invoke *
+                    </label>
+                    <input
+                      type="text"
+                      value={subWorkflowId}
+                      onChange={(e) => setSubWorkflowId(e.target.value)}
+                      placeholder="child-workflow"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Workflow ID of the sub-workflow to invoke
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Version
+                    </label>
+                    <input
+                      type="number"
+                      value={subWorkflowVersion}
+                      onChange={(e) => setSubWorkflowVersion(e.target.value)}
+                      placeholder="Latest version"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Specific version to invoke (leave empty for latest)
+                    </p>
+                  </div>
+
+                  {/* Input Mapping */}
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-900">
+                          Input Mapping ({inputMappings.length})
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Map data from parent workflow to child workflow context
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setInputMappings([...inputMappings, { key: '', value: '' }])}
+                      >
+                        <Plus className="size-3 mr-1" />
+                        Add Mapping
+                      </Button>
+                    </div>
+
+                    {inputMappings.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">
+                        No input mappings. Entire parent context will be passed to child.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {inputMappings.map((mapping, index) => (
+                          <div key={index} className="flex gap-2 items-start">
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={mapping.key}
+                                onChange={(e) => {
+                                  const newMappings = [...inputMappings]
+                                  newMappings[index].key = e.target.value
+                                  setInputMappings(newMappings)
+                                }}
+                                placeholder="childKey"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-0.5">Target key in child context</p>
+                            </div>
+                            <span className="text-gray-400 mt-2">→</span>
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={mapping.value}
+                                onChange={(e) => {
+                                  const newMappings = [...inputMappings]
+                                  newMappings[index].value = e.target.value
+                                  setInputMappings(newMappings)
+                                }}
+                                placeholder="parent.field.path"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-0.5">Source path in parent context</p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setInputMappings(inputMappings.filter((_, i) => i !== index))
+                              }}
+                              className="mt-1"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Output Mapping */}
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-900">
+                          Output Mapping ({outputMappings.length})
+                        </h4>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Map data from child workflow back to parent context
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setOutputMappings([...outputMappings, { key: '', value: '' }])}
+                      >
+                        <Plus className="size-3 mr-1" />
+                        Add Mapping
+                      </Button>
+                    </div>
+
+                    {outputMappings.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">
+                        No output mappings. Entire child context will be returned to parent.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {outputMappings.map((mapping, index) => (
+                          <div key={index} className="flex gap-2 items-start">
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={mapping.key}
+                                onChange={(e) => {
+                                  const newMappings = [...outputMappings]
+                                  newMappings[index].key = e.target.value
+                                  setOutputMappings(newMappings)
+                                }}
+                                placeholder="parentKey"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-0.5">Target key in parent context</p>
+                            </div>
+                            <span className="text-gray-400 mt-2">←</span>
+                            <div className="flex-1">
+                              <input
+                                type="text"
+                                value={mapping.value}
+                                onChange={(e) => {
+                                  const newMappings = [...outputMappings]
+                                  newMappings[index].value = e.target.value
+                                  setOutputMappings(newMappings)
+                                }}
+                                placeholder="child.result.path"
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-0.5">Source path in child context</p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setOutputMappings(outputMappings.filter((_, i) => i !== index))
+                              }}
+                              className="mt-1"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
