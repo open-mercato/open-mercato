@@ -273,6 +273,10 @@ export async function run(argv = process.argv) {
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
+          console.log('🪑 Seeding booking resource examples...')
+          runCommand(`yarn mercato booking seed-examples --tenant ${tenantId} --org ${orgId}`)
+          console.log('🪑 ✅ Booking resource examples seeded\n')
+
           console.log('🛍️  Seeding catalog examples...')
           runCommand(`yarn mercato catalog seed-examples --tenant ${tenantId} --org ${orgId}`)
           console.log('🛍️ ✅ Catalog examples seeded\n')
