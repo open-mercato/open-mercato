@@ -17,6 +17,7 @@ const QUOTE_DISPLAY_HINTS: DisplayHints = {
   readOnlyFields: ['createdAt', 'updatedAt'],
 
   customRenderers: {
+    quoteNumber: 'QuoteNumberRenderer',
     status: 'StatusRenderer',
   },
 

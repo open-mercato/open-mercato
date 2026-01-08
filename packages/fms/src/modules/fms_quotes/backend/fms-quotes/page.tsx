@@ -40,6 +40,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTableConfig } from '../../components/useTableConfig'
 import { QuoteDrawer } from '../../components/QuoteDrawer'
+import { QuotePreviewDrawer } from '../../components/QuotePreviewDrawer'
 
 interface FmsQuoteRow {
   id: string
@@ -81,8 +82,34 @@ const StatusRenderer = ({ value }: { value: string }) => {
   )
 }
 
+// Global ref to store the quote click handler (set by the page component)
+let onQuoteClickHandler: ((quoteId: string) => void) | null = null
+
+export function setQuoteClickHandler(handler: ((quoteId: string) => void) | null) {
+  onQuoteClickHandler = handler
+}
+
+const QuoteNumberRenderer = ({ value, rowData }: { value: string; rowData: { id: string } }) => {
+  const displayValue = value || `#${rowData.id?.slice(0, 8) || '...'}`
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        if (onQuoteClickHandler && rowData.id) {
+          onQuoteClickHandler(rowData.id)
+        }
+      }}
+      className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-left"
+    >
+      {displayValue}
+    </button>
+  )
+}
+
 const RENDERERS: Record<string, (value: any, rowData: any) => React.ReactNode> = {
   StatusRenderer: (value) => <StatusRenderer value={value} />,
+  QuoteNumberRenderer: (value, rowData) => <QuoteNumberRenderer value={value} rowData={rowData} />,
 }
 
 function apiToDynamicTable(dto: PerspectiveDto, allColumns: string[]): PerspectiveConfig {
@@ -131,6 +158,8 @@ export default function FmsQuotesPage() {
   const router = useRouter()
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [previewQuoteId, setPreviewQuoteId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [sortField, setSortField] = useState('createdAt')
@@ -142,6 +171,15 @@ export default function FmsQuotesPage() {
   const [activePerspectiveId, setActivePerspectiveId] = useState<string | null>(null)
 
   const { data: tableConfig, isLoading: configLoading } = useTableConfig('fms_quotes')
+
+  // Register the quote click handler for the renderer
+  useEffect(() => {
+    setQuoteClickHandler((quoteId: string) => {
+      setPreviewQuoteId(quoteId)
+      setIsPreviewOpen(true)
+    })
+    return () => setQuoteClickHandler(null)
+  }, [])
 
   const { data: perspectivesData } = useQuery({
     queryKey: ['perspectives', 'fms_quotes'],
@@ -324,7 +362,7 @@ export default function FmsQuotesPage() {
         const existingPerspective = savedPerspectives.find(
           (p) => p.name === payload.perspective.name
         )
-        const response = await apiCall('/api/perspectives/fms-quotes', {
+        const response = await apiCall('/api/perspectives/fms_quotes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -362,7 +400,7 @@ export default function FmsQuotesPage() {
         const perspective = savedPerspectives.find((p) => p.id === payload.id)
         if (perspective) {
           const settings = dynamicTableToApi(perspective)
-          const response = await apiCall('/api/perspectives/fms-quotes', {
+          const response = await apiCall('/api/perspectives/fms_quotes', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: payload.id, name: payload.newName, settings }),
@@ -377,7 +415,7 @@ export default function FmsQuotesPage() {
       },
 
       [TableEvents.PERSPECTIVE_DELETE]: async (payload: PerspectiveDeleteEvent) => {
-        const response = await apiCall(`/api/perspectives/fms-quotes/${payload.id}`, {
+        const response = await apiCall(`/api/perspectives/fms_quotes/${payload.id}`, {
           method: 'DELETE',
         })
         if (response.ok) {
@@ -446,6 +484,11 @@ export default function FmsQuotesPage() {
           open={isDrawerOpen}
           onOpenChange={setIsDrawerOpen}
           onCreated={handleQuoteCreated}
+        />
+        <QuotePreviewDrawer
+          quoteId={previewQuoteId}
+          open={isPreviewOpen}
+          onOpenChange={setIsPreviewOpen}
         />
       </PageBody>
     </Page>
