@@ -130,6 +130,7 @@ export const bookingResourceCreateSchema = z.object({
   name: z.string().min(1),
   resourceTypeId: z.string().uuid().optional().nullable(),
   capacity: z.coerce.number().int().positive().optional().nullable(),
+  capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: tagsSchema,
   isActive: z.boolean().optional(),
 })
@@ -139,6 +140,7 @@ export const bookingResourceUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   resourceTypeId: z.string().uuid().optional().nullable(),
   capacity: z.coerce.number().int().positive().optional().nullable(),
+  capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().min(1)).optional(),
   isActive: z.boolean().optional(),
 })

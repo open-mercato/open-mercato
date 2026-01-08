@@ -22,5 +22,8 @@
   "booking.resourceTypes.messages.deleted": "Resource type deleted.",
   "booking.resourceTypes.errors.load": "Failed to load resource types.",
   "booking.resourceTypes.errors.save": "Failed to save resource type.",
-  "booking.resourceTypes.errors.delete": "Failed to delete resource type."
+  "booking.resourceTypes.errors.delete": "Failed to delete resource type.",
+  "booking.resources.form.fields.capacity.help": "Depends on the resource and can mean spots, units, quantity, or another type of capacity.",
+  "booking.resources.form.fields.capacityUnit": "Capacity unit",
+  "booking.resources.form.fields.capacityUnit.missing": "Capacity unit dictionary is not configured."
 }

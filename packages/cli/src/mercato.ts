@@ -232,6 +232,10 @@ export async function run(argv = process.argv) {
         runCommand(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`)
         console.log('📏 ✅ Catalog units seeded\n')
 
+        console.log('📐 Seeding booking capacity units...')
+        runCommand(`yarn mercato booking seed-capacity-units --tenant ${tenantId} --org ${orgId}`)
+        console.log('📐 ✅ Booking capacity units seeded\n')
+
         const encryptionEnv = String(process.env.TENANT_DATA_ENCRYPTION ?? 'yes').toLowerCase()
         const encryptionEnabled = encryptionEnv === 'yes' || encryptionEnv === 'true' || encryptionEnv === '1' || encryptionEnv === ''
         if (encryptionEnabled) {

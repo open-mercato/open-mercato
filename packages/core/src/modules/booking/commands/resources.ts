@@ -2,6 +2,8 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { BookingResource } from '../data/entities'
 import {
   bookingResourceCreateSchema,
@@ -10,6 +12,63 @@ import {
   type BookingResourceUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
+import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
+
+type CapacityUnitSnapshot = {
+  value: string
+  name: string
+  color: string | null
+  icon: string | null
+}
+
+async function resolveCapacityUnit(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  rawValue: string,
+): Promise<CapacityUnitSnapshot> {
+  const trimmed = rawValue.trim()
+  if (!trimmed) {
+    throw new CrudHttpError(400, { error: 'Capacity unit is required.' })
+  }
+  const dictionary = await findOneWithDecryption(
+    em,
+    Dictionary,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      key: BOOKING_CAPACITY_UNIT_DICTIONARY_KEY,
+      deletedAt: null,
+      isActive: true,
+    },
+    undefined,
+    scope,
+  )
+  if (!dictionary) {
+    throw new CrudHttpError(400, { error: 'Capacity unit dictionary is not configured.' })
+  }
+  const normalizedValue = trimmed.toLowerCase()
+  const entry = await findOneWithDecryption(
+    em,
+    DictionaryEntry,
+    {
+      dictionary,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      normalizedValue,
+    },
+    { populate: ['dictionary'] },
+    scope,
+  )
+  if (!entry) {
+    throw new CrudHttpError(400, { error: 'Capacity unit not found.' })
+  }
+  return {
+    value: entry.value,
+    name: entry.label?.trim().length ? entry.label : entry.value,
+    color: entry.color ?? null,
+    icon: entry.icon ?? null,
+  }
+}
 
 const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resourceId: string }> = {
   id: 'booking.resources.create',
@@ -20,12 +79,21 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
+    const unitValue =
+      typeof parsed.capacityUnitValue === 'string' ? parsed.capacityUnitValue.trim() : ''
+    const unitSnapshot = unitValue
+      ? await resolveCapacityUnit(em, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, unitValue)
+      : null
     const record = em.create(BookingResource, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       name: parsed.name,
       resourceTypeId: parsed.resourceTypeId ?? null,
       capacity: parsed.capacity ?? null,
+      capacityUnitValue: unitSnapshot?.value ?? null,
+      capacityUnitName: unitSnapshot?.name ?? null,
+      capacityUnitColor: unitSnapshot?.color ?? null,
+      capacityUnitIcon: unitSnapshot?.icon ?? null,
       tags: parsed.tags ?? [],
       isActive: parsed.isActive ?? true,
       createdAt: now,
@@ -47,6 +115,26 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
 
+    if (parsed.capacityUnitValue !== undefined) {
+      const unitValue =
+        typeof parsed.capacityUnitValue === 'string' ? parsed.capacityUnitValue.trim() : ''
+      if (!unitValue) {
+        record.capacityUnitValue = null
+        record.capacityUnitName = null
+        record.capacityUnitColor = null
+        record.capacityUnitIcon = null
+      } else {
+        const unitSnapshot = await resolveCapacityUnit(
+          em,
+          { tenantId: record.tenantId, organizationId: record.organizationId },
+          unitValue,
+        )
+        record.capacityUnitValue = unitSnapshot.value
+        record.capacityUnitName = unitSnapshot.name
+        record.capacityUnitColor = unitSnapshot.color
+        record.capacityUnitIcon = unitSnapshot.icon
+      }
+    }
     if (parsed.name !== undefined) record.name = parsed.name
     if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
     if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null

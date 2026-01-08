@@ -15,7 +15,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleViewMode, type ScheduleSlot } from '@open-mercato/ui/backend/schedule'
+import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { useT } from '@/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '@open-mercato/core/modules/booking/lib/capacityUnits'
 
 const DEFAULT_PAGE_SIZE = 200
 
@@ -30,6 +33,10 @@ type ResourceRecord = {
   name: string
   resourceTypeId: string | null
   capacity: number | null
+  capacityUnitValue: string | null
+  capacityUnitName: string | null
+  capacityUnitColor: string | null
+  capacityUnitIcon: string | null
   tags: string[]
   isActive: boolean
 } & Record<string, unknown>
@@ -176,6 +183,8 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     return { start, end }
   })
   const [slotSeed, setSlotSeed] = React.useState<ScheduleSlot | null>(null)
+  const [capacityUnitDictionaryId, setCapacityUnitDictionaryId] = React.useState<string | null>(null)
+  const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
     if (!resourceId) return
@@ -200,6 +209,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
             name: resource.name,
             resourceTypeId: resource.resourceTypeId || '',
             capacity: resource.capacity ?? '',
+            capacityUnitValue: resource.capacityUnitValue ?? '',
             tags: Array.isArray(resource.tags) ? resource.tags : [],
             isActive: resource.isActive ?? true,
             ...customValues,
@@ -230,7 +240,24 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     }
     loadResourceTypes()
     return () => { cancelled = true }
-  }, [])
+  }, [scopeVersion])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadCapacityUnitDictionary() {
+      try {
+        const call = await apiCall<{ items?: Array<{ id?: string; key?: string; isInherited?: boolean }> }>('/api/dictionaries')
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const matches = items.filter((item) => item?.key === BOOKING_CAPACITY_UNIT_DICTIONARY_KEY)
+        const preferred = matches.find((item) => item?.isInherited === false) ?? matches[0] ?? null
+        if (!cancelled) setCapacityUnitDictionaryId(preferred?.id ?? null)
+      } catch {
+        if (!cancelled) setCapacityUnitDictionaryId(null)
+      }
+    }
+    loadCapacityUnitDictionary()
+    return () => { cancelled = true }
+  }, [scopeVersion])
 
   const refreshAvailability = React.useCallback(async () => {
     if (!resourceId) return
@@ -285,7 +312,33 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     {
       id: 'capacity',
       label: t('booking.resources.form.fields.capacity', 'Capacity'),
+      description: t(
+        'booking.resources.form.fields.capacity.help',
+        'Depends on the resource and can mean spots, units, quantity, or another type of capacity.',
+      ),
       type: 'number',
+    },
+    {
+      id: 'capacityUnitValue',
+      label: t('booking.resources.form.fields.capacityUnit', 'Capacity unit'),
+      type: 'custom',
+      component: ({ value, setValue }) => {
+        if (!capacityUnitDictionaryId) {
+          return (
+            <p className="text-xs text-muted-foreground">
+              {t('booking.resources.form.fields.capacityUnit.missing', 'Capacity unit dictionary is not configured.')}
+            </p>
+          )
+        }
+        return (
+          <DictionarySelectControl
+            dictionaryId={capacityUnitDictionaryId}
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => setValue(next ?? '')}
+            selectClassName="w-full"
+          />
+        )
+      },
     },
     {
       id: 'tags',
@@ -297,7 +350,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [resourceTypes, t])
+  ], [capacityUnitDictionaryId, resourceTypes, t])
 
   const availabilityFields = React.useMemo<CrudField[]>(() => [
     {
@@ -442,6 +495,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       id: resourceId,
       resourceTypeId: values.resourceTypeId || null,
       capacity: values.capacity ? Number(values.capacity) : null,
+      capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
       isActive: values.isActive ?? true,
       ...collectCustomFieldValues(values),
     }

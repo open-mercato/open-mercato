@@ -22,5 +22,8 @@
   "booking.resourceTypes.messages.deleted": "Ressourcentyp gelöscht.",
   "booking.resourceTypes.errors.load": "Ressourcentypen konnten nicht geladen werden.",
   "booking.resourceTypes.errors.save": "Ressourcentyp konnte nicht gespeichert werden.",
-  "booking.resourceTypes.errors.delete": "Ressourcentyp konnte nicht gelöscht werden."
+  "booking.resourceTypes.errors.delete": "Ressourcentyp konnte nicht gelöscht werden.",
+  "booking.resources.form.fields.capacity.help": "Hängt von der Ressource ab und kann Plätze, Einheiten, Menge oder eine andere Kapazitätsart bedeuten.",
+  "booking.resources.form.fields.capacityUnit": "Kapazitätseinheit",
+  "booking.resources.form.fields.capacityUnit.missing": "Das Kapazitätseinheiten-Wörterbuch ist nicht konfiguriert."
 }

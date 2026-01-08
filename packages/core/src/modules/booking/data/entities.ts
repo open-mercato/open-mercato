@@ -180,6 +180,18 @@ export class BookingResource {
   @Property({ type: 'int', nullable: true })
   capacity?: number | null
 
+  @Property({ name: 'capacity_unit_value', type: 'text', nullable: true })
+  capacityUnitValue?: string | null
+
+  @Property({ name: 'capacity_unit_name', type: 'text', nullable: true })
+  capacityUnitName?: string | null
+
+  @Property({ name: 'capacity_unit_color', type: 'text', nullable: true })
+  capacityUnitColor?: string | null
+
+  @Property({ name: 'capacity_unit_icon', type: 'text', nullable: true })
+  capacityUnitIcon?: string | null
+
   @Property({ type: 'jsonb', default: [] })
   tags: string[] = []
 

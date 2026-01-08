@@ -247,7 +247,7 @@ export type KnownEntities = typeof E
     ensureDir(OUT_CONSOLIDATED)
     fs.writeFileSync(OUT_CONSOLIDATED, consolidatedSrc)
     fs.writeFileSync(checksumFile, newChecksum)
-    console.log('Generated', path.relative(process.cwd(), OUT_CONSOLIDATED))
+    console.log('✅ Generated', path.relative(process.cwd(), OUT_CONSOLIDATED))
   }
 
   // Write per-group outputs

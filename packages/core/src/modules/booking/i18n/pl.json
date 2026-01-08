@@ -22,5 +22,8 @@
   "booking.resourceTypes.messages.deleted": "Typ zasobu usunięty.",
   "booking.resourceTypes.errors.load": "Nie udało się wczytać typów zasobów.",
   "booking.resourceTypes.errors.save": "Nie udało się zapisać typu zasobu.",
-  "booking.resourceTypes.errors.delete": "Nie udało się usunąć typu zasobu."
+  "booking.resourceTypes.errors.delete": "Nie udało się usunąć typu zasobu.",
+  "booking.resources.form.fields.capacity.help": "Zależy od zasobu i może oznaczać miejsca, jednostki, ilość lub inny typ pojemności.",
+  "booking.resources.form.fields.capacityUnit": "Jednostka pojemności",
+  "booking.resources.form.fields.capacityUnit.missing": "Słownik jednostek pojemności nie jest skonfigurowany."
 }

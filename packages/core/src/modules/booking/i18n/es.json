@@ -22,5 +22,8 @@
   "booking.resourceTypes.messages.deleted": "Tipo de recurso eliminado.",
   "booking.resourceTypes.errors.load": "No se pudieron cargar los tipos de recurso.",
   "booking.resourceTypes.errors.save": "No se pudo guardar el tipo de recurso.",
-  "booking.resourceTypes.errors.delete": "No se pudo eliminar el tipo de recurso."
+  "booking.resourceTypes.errors.delete": "No se pudo eliminar el tipo de recurso.",
+  "booking.resources.form.fields.capacity.help": "Depende del recurso y puede significar plazas, unidades, cantidad u otro tipo de capacidad.",
+  "booking.resources.form.fields.capacityUnit": "Unidad de capacidad",
+  "booking.resources.form.fields.capacityUnit.missing": "El diccionario de unidades de capacidad no está configurado."
 }

@@ -1,17 +1,16 @@
 "use client"
 
 import * as React from 'react'
-import { z } from 'zod'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -30,24 +29,9 @@ type ResourceTypesResponse = {
   totalPages?: number
 }
 
-type DialogState =
-  | { mode: 'create' }
-  | { mode: 'edit'; entry: ResourceTypeRow }
-
-const resourceTypeFormSchema = z.object({
-  name: z.string().trim().min(1),
-  description: z.string().trim().optional(),
-})
-
-type ResourceTypeFormValues = z.infer<typeof resourceTypeFormSchema>
-
-const DEFAULT_FORM_VALUES: ResourceTypeFormValues = {
-  name: '',
-  description: '',
-}
-
 export default function BookingResourceTypesPage() {
   const translate = useT()
+  const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<ResourceTypeRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -57,7 +41,6 @@ export default function BookingResourceTypesPage() {
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
-  const [dialog, setDialog] = React.useState<DialogState | null>(null)
 
   const translations = React.useMemo(() => ({
     title: translate('booking.resourceTypes.page.title', 'Resource types'),
@@ -94,11 +77,6 @@ export default function BookingResourceTypesPage() {
       delete: translate('booking.resourceTypes.errors.delete', 'Failed to delete resource type.'),
     },
   }), [translate])
-
-  const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'name', label: translations.form.name, type: 'text', required: true },
-    { id: 'description', label: translations.form.description, type: 'textarea' },
-  ], [translations.form.description, translations.form.name])
 
   const columns = React.useMemo<ColumnDef<ResourceTypeRow>[]>(() => [
     {
@@ -179,39 +157,6 @@ export default function BookingResourceTypesPage() {
     setReloadToken((token) => token + 1)
   }, [])
 
-  const openCreate = React.useCallback(() => {
-    setDialog({ mode: 'create' })
-  }, [])
-
-  const openEdit = React.useCallback((entry: ResourceTypeRow) => {
-    setDialog({ mode: 'edit', entry })
-  }, [])
-
-  const closeDialog = React.useCallback(() => {
-    setDialog(null)
-  }, [])
-
-  const handleSubmit = React.useCallback(async (values: ResourceTypeFormValues) => {
-    if (!dialog) return
-    const payload: Record<string, unknown> = {
-      name: values.name.trim(),
-      description: values.description?.trim() || undefined,
-    }
-    try {
-      if (dialog.mode === 'create') {
-        await createCrud('booking/resource-types', payload, { errorMessage: translations.errors.save })
-      } else {
-        await updateCrud('booking/resource-types', { ...payload, id: dialog.entry.id }, { errorMessage: translations.errors.save })
-      }
-      flash(translations.messages.saved, 'success')
-      closeDialog()
-      handleRefresh()
-    } catch (error) {
-      console.error('booking.resource-types.save', error)
-      flash(translations.errors.save, 'error')
-    }
-  }, [dialog, translations.errors.save, translations.messages.saved, closeDialog, handleRefresh])
-
   const handleDelete = React.useCallback(async (entry: ResourceTypeRow) => {
     const message = translations.actions.deleteConfirm.replace('{{name}}', entry.name)
     if (typeof window !== 'undefined' && !window.confirm(message)) return
@@ -225,83 +170,45 @@ export default function BookingResourceTypesPage() {
     }
   }, [handleRefresh, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
 
-  const dialogValues: ResourceTypeFormValues = React.useMemo(() => {
-    if (!dialog || dialog.mode === 'create') return { ...DEFAULT_FORM_VALUES }
-    return {
-      name: dialog.entry.name ?? '',
-      description: dialog.entry.description ?? '',
-    }
-  }, [dialog])
-
   return (
     <Page>
       <PageBody>
-        <section className="rounded border bg-card text-card-foreground shadow-sm">
-          <div className="border-b px-6 py-4 space-y-1">
-            <h1 className="text-lg font-medium">{translations.title}</h1>
-            <p className="text-sm text-muted-foreground">{translations.description}</p>
-          </div>
-          <div className="px-2 py-4 sm:px-4">
-            <DataTable<ResourceTypeRow>
-              data={rows}
-              columns={columns}
-              isLoading={isLoading}
-              embedded
-              searchValue={search}
-              onSearchChange={handleSearchChange}
-              searchPlaceholder={translations.table.search}
-              emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{translations.table.empty}</p>}
-              actions={(
-                <Button onClick={openCreate} size="sm">
-                  {translations.actions.add}
-                </Button>
-              )}
-              refreshButton={{
-                label: translations.actions.refresh,
-                onRefresh: handleRefresh,
-                isRefreshing: isLoading,
-              }}
-              sortable
-              sorting={sorting}
-              onSortingChange={setSorting}
-              pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
-              rowActions={(row) => (
-                <RowActions
-                  items={[
-                    { label: translations.actions.edit, onSelect: () => openEdit(row) },
-                    { label: translations.actions.delete, destructive: true, onSelect: () => handleDelete(row) },
-                  ]}
-                />
-              )}
-              onRowClick={openEdit}
-              perspective={{ tableId: 'booking.resource-types.list' }}
+        <DataTable<ResourceTypeRow>
+          title={translations.title}
+          data={rows}
+          columns={columns}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={handleSearchChange}
+          searchPlaceholder={translations.table.search}
+          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{translations.table.empty}</p>}
+          actions={(
+            <Button asChild size="sm">
+              <Link href="/backend/booking/resource-types/create">
+                {translations.actions.add}
+              </Link>
+            </Button>
+          )}
+          refreshButton={{
+            label: translations.actions.refresh,
+            onRefresh: handleRefresh,
+            isRefreshing: isLoading,
+          }}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { label: translations.actions.edit, href: `/backend/booking/resource-types/${row.id}/edit` },
+                { label: translations.actions.delete, destructive: true, onSelect: () => handleDelete(row) },
+              ]}
             />
-          </div>
-        </section>
-
-        <Dialog open={Boolean(dialog)} onOpenChange={(isOpen) => { if (!isOpen) closeDialog() }}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {dialog?.mode === 'edit' ? translations.form.editTitle : translations.form.createTitle}
-              </DialogTitle>
-            </DialogHeader>
-            <CrudForm<ResourceTypeFormValues>
-              schema={resourceTypeFormSchema}
-              fields={fields}
-              initialValues={dialogValues}
-              submitLabel={translations.form.save}
-              cancelHref={undefined}
-              embedded
-              onSubmit={handleSubmit}
-              extraActions={(
-                <Button type="button" variant="ghost" onClick={closeDialog}>
-                  {translations.form.cancel}
-                </Button>
-              )}
-            />
-          </DialogContent>
-        </Dialog>
+          )}
+          onRowClick={(row) => router.push(`/backend/booking/resource-types/${row.id}/edit`)}
+          perspective={{ tableId: 'booking.resource-types.list' }}
+        />
       </PageBody>
     </Page>
   )
