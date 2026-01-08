@@ -108,11 +108,6 @@ export default function BookingResourceCreatePage() {
       },
     },
     {
-      id: 'tags',
-      label: t('booking.resources.form.fields.tags', 'Tags'),
-      type: 'tags',
-    },
-    {
       id: 'isActive',
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',

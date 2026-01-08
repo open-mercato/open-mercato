@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index, Enum } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, Enum, OneToMany, ManyToOne, Collection, Unique } from '@mikro-orm/core'
 
 export type BookingCapacityModel = 'one_to_one' | 'one_to_many' | 'many_to_many'
 export type BookingEventStatus = 'draft' | 'negotiation' | 'confirmed' | 'cancelled'
@@ -192,9 +192,6 @@ export class BookingResource {
   @Property({ name: 'capacity_unit_icon', type: 'text', nullable: true })
   capacityUnitIcon?: string | null
 
-  @Property({ type: 'jsonb', default: [] })
-  tags: string[] = []
-
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
@@ -206,6 +203,70 @@ export class BookingResource {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'booking_resource_tags' })
+@Index({ name: 'booking_resource_tags_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'booking_resource_tags_slug_unique', properties: ['organizationId', 'tenantId', 'slug'] })
+export class BookingResourceTag {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ type: 'text', nullable: true })
+  color?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @OneToMany(() => BookingResourceTagAssignment, (assignment) => assignment.tag)
+  assignments = new Collection<BookingResourceTagAssignment>(this)
+}
+
+@Entity({ tableName: 'booking_resource_tag_assignments' })
+@Index({ name: 'booking_resource_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'booking_resource_tag_assignments_unique',
+  properties: ['tag', 'resource'],
+})
+export class BookingResourceTagAssignment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => BookingResourceTag, { fieldName: 'tag_id' })
+  tag!: BookingResourceTag
+
+  @ManyToOne(() => BookingResource, { fieldName: 'resource_id' })
+  resource!: BookingResource
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }
 
 @Entity({ tableName: 'booking_availability_rules' })

@@ -25,5 +25,18 @@
   "booking.resourceTypes.errors.delete": "Nie udało się usunąć typu zasobu.",
   "booking.resources.form.fields.capacity.help": "Zależy od zasobu i może oznaczać miejsca, jednostki, ilość lub inny typ pojemności.",
   "booking.resources.form.fields.capacityUnit": "Jednostka pojemności",
-  "booking.resources.form.fields.capacityUnit.missing": "Słownik jednostek pojemności nie jest skonfigurowany."
+  "booking.resources.form.fields.capacityUnit.missing": "Słownik jednostek pojemności nie jest skonfigurowany.",
+  "booking.resources.list.filters.tags": "Tagi",
+  "booking.resources.tags.title": "Tagi",
+  "booking.resources.tags.loading": "Ładowanie tagów...",
+  "booking.resources.tags.placeholder": "Wpisz, aby dodać tagi",
+  "booking.resources.tags.loadError": "Nie udało się wczytać tagów.",
+  "booking.resources.tags.createError": "Nie udało się utworzyć taga.",
+  "booking.resources.tags.updateError": "Nie udało się zaktualizować tagów.",
+  "booking.resources.tags.labelRequired": "Nazwa taga jest wymagana.",
+  "booking.resources.tags.saveShortcut": "Zapisz Cmd+Enter / Ctrl+Enter",
+  "booking.resources.tags.cancelShortcut": "Anuluj (Esc)",
+  "booking.resources.tags.success": "Tagi zaktualizowane.",
+  "booking.resources.tags.errors.invalid": "Nieprawidłowe dane taga",
+  "booking.resources.tags.errors.required": "Wymagany identyfikator taga"
 }

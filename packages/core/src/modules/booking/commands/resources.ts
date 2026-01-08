@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { BookingResource } from '../data/entities'
+import { BookingResource, BookingResourceTag, BookingResourceTagAssignment } from '../data/entities'
 import {
   bookingResourceCreateSchema,
   bookingResourceUpdateSchema,
@@ -70,6 +70,51 @@ async function resolveCapacityUnit(
   }
 }
 
+function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
+  if (!Array.isArray(tags)) return []
+  const set = new Set<string>()
+  tags.forEach((id) => {
+    if (typeof id === 'string' && id.trim().length > 0) set.add(id.trim())
+  })
+  return Array.from(set)
+}
+
+async function syncBookingResourceTags(em: EntityManager, params: {
+  resourceId: string
+  organizationId: string
+  tenantId: string
+  tagIds?: Array<string | null | undefined> | null
+}) {
+  if (params.tagIds === undefined) return
+  const tagIds = normalizeTagIds(params.tagIds)
+  if (tagIds.length === 0) {
+    await em.nativeDelete(BookingResourceTagAssignment, { resource: params.resourceId })
+    return
+  }
+  const tagsInScope = await em.find(BookingResourceTag, {
+    id: { $in: tagIds },
+    organizationId: params.organizationId,
+    tenantId: params.tenantId,
+  })
+  if (tagsInScope.length !== tagIds.length) {
+    throw new CrudHttpError(400, { error: 'One or more tags not found for this scope' })
+  }
+  const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]))
+  await em.nativeDelete(BookingResourceTagAssignment, { resource: params.resourceId })
+  const resource = em.getReference(BookingResource, params.resourceId)
+  for (const tagId of tagIds) {
+    const tag = byId.get(tagId)
+    if (!tag) continue
+    const assignment = em.create(BookingResourceTagAssignment, {
+      organizationId: params.organizationId,
+      tenantId: params.tenantId,
+      resource,
+      tag,
+    })
+    em.persist(assignment)
+  }
+}
+
 const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resourceId: string }> = {
   id: 'booking.resources.create',
   async execute(input, ctx) {
@@ -94,12 +139,18 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       capacityUnitName: unitSnapshot?.name ?? null,
       capacityUnitColor: unitSnapshot?.color ?? null,
       capacityUnitIcon: unitSnapshot?.icon ?? null,
-      tags: parsed.tags ?? [],
       isActive: parsed.isActive ?? true,
       createdAt: now,
       updatedAt: now,
     })
     em.persist(record)
+    await em.flush()
+    await syncBookingResourceTags(em, {
+      resourceId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      tagIds: parsed.tags,
+    })
     await em.flush()
     return { resourceId: record.id }
   },
@@ -138,7 +189,12 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (parsed.name !== undefined) record.name = parsed.name
     if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
     if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null
-    if (parsed.tags !== undefined) record.tags = parsed.tags
+    await syncBookingResourceTags(em, {
+      resourceId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      tagIds: parsed.tags,
+    })
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
 
     await em.flush()

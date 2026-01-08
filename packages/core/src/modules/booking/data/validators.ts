@@ -131,7 +131,7 @@ export const bookingResourceCreateSchema = z.object({
   resourceTypeId: z.string().uuid().optional().nullable(),
   capacity: z.coerce.number().int().positive().optional().nullable(),
   capacityUnitValue: z.string().min(1).optional().nullable(),
-  tags: tagsSchema,
+  tags: z.array(z.string().uuid()).optional(),
   isActive: z.boolean().optional(),
 })
 
@@ -141,7 +141,7 @@ export const bookingResourceUpdateSchema = z.object({
   resourceTypeId: z.string().uuid().optional().nullable(),
   capacity: z.coerce.number().int().positive().optional().nullable(),
   capacityUnitValue: z.string().min(1).optional().nullable(),
-  tags: z.array(z.string().min(1)).optional(),
+  tags: z.array(z.string().uuid()).optional(),
   isActive: z.boolean().optional(),
 })
 
@@ -316,6 +316,25 @@ export const bookingServiceVariantLinkUpdateSchema = z.object({
   variantId: z.string().uuid().optional(),
 })
 
+export const bookingResourceTagCreateSchema = z.object({
+  ...scopedCreateFields,
+  slug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9_-]+$/, 'Slug must be lowercase and may contain dashes or underscores'),
+  label: z.string().trim().min(1).max(120),
+  color: z.string().trim().max(30).optional(),
+  description: z.string().trim().max(400).optional(),
+})
+
+export const bookingResourceTagUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(bookingResourceTagCreateSchema.partial())
+
 export type BookingServiceCreateInput = z.infer<typeof bookingServiceCreateSchema>
 export type BookingServiceUpdateInput = z.infer<typeof bookingServiceUpdateSchema>
 export type BookingTeamRoleCreateInput = z.infer<typeof bookingTeamRoleCreateSchema>
@@ -342,3 +361,5 @@ export type BookingServiceProductLinkCreateInput = z.infer<typeof bookingService
 export type BookingServiceProductLinkUpdateInput = z.infer<typeof bookingServiceProductLinkUpdateSchema>
 export type BookingServiceVariantLinkCreateInput = z.infer<typeof bookingServiceVariantLinkCreateSchema>
 export type BookingServiceVariantLinkUpdateInput = z.infer<typeof bookingServiceVariantLinkUpdateSchema>
+export type BookingResourceTagCreateInput = z.infer<typeof bookingResourceTagCreateSchema>
+export type BookingResourceTagUpdateInput = z.infer<typeof bookingResourceTagUpdateSchema>

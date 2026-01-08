@@ -25,5 +25,18 @@
   "booking.resourceTypes.errors.delete": "Failed to delete resource type.",
   "booking.resources.form.fields.capacity.help": "Depends on the resource and can mean spots, units, quantity, or another type of capacity.",
   "booking.resources.form.fields.capacityUnit": "Capacity unit",
-  "booking.resources.form.fields.capacityUnit.missing": "Capacity unit dictionary is not configured."
+  "booking.resources.form.fields.capacityUnit.missing": "Capacity unit dictionary is not configured.",
+  "booking.resources.list.filters.tags": "Tags",
+  "booking.resources.tags.title": "Tags",
+  "booking.resources.tags.loading": "Loading tags...",
+  "booking.resources.tags.placeholder": "Type to add tags",
+  "booking.resources.tags.loadError": "Failed to load tags.",
+  "booking.resources.tags.createError": "Failed to create tag.",
+  "booking.resources.tags.updateError": "Failed to update tags.",
+  "booking.resources.tags.labelRequired": "Tag name is required.",
+  "booking.resources.tags.saveShortcut": "Save Cmd+Enter / Ctrl+Enter",
+  "booking.resources.tags.cancelShortcut": "Cancel (Esc)",
+  "booking.resources.tags.success": "Tags updated.",
+  "booking.resources.tags.errors.invalid": "Invalid tag payload",
+  "booking.resources.tags.errors.required": "Tag id is required"
 }

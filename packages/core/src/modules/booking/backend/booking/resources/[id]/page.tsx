@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { updateCrud, deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -13,7 +13,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
 import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleViewMode, type ScheduleSlot } from '@open-mercato/ui/backend/schedule'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { useT } from '@/lib/i18n/context'
@@ -37,7 +37,7 @@ type ResourceRecord = {
   capacityUnitName: string | null
   capacityUnitColor: string | null
   capacityUnitIcon: string | null
-  tags: string[]
+  tags?: TagOption[] | null
   isActive: boolean
 } & Record<string, unknown>
 
@@ -176,6 +176,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const [editingRule, setEditingRule] = React.useState<AvailabilityRule | null>(null)
   const [scheduleView, setScheduleView] = React.useState<ScheduleViewMode>('week')
   const [timezone, setTimezone] = React.useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+  const [tags, setTags] = React.useState<TagOption[]>([])
   const [range, setRange] = React.useState<ScheduleRange>(() => {
     const now = new Date()
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -204,13 +205,13 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
             if (key.startsWith('cf_')) customValues[key] = value
             else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
           }
+          setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setInitialValues({
             id: resource.id,
             name: resource.name,
             resourceTypeId: resource.resourceTypeId || '',
             capacity: resource.capacity ?? '',
             capacityUnitValue: resource.capacityUnitValue ?? '',
-            tags: Array.isArray(resource.tags) ? resource.tags : [],
             isActive: resource.isActive ?? true,
             ...customValues,
           })
@@ -339,11 +340,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
           />
         )
       },
-    },
-    {
-      id: 'tags',
-      label: t('booking.resources.form.fields.tags', 'Tags'),
-      type: 'tags',
     },
     {
       id: 'isActive',
@@ -508,6 +504,101 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     flash(t('booking.resources.form.flash.updated', 'Resource updated.'), 'success')
   }, [resourceId, t])
 
+  const tagLabels = React.useMemo(
+    () => ({
+      loading: t('booking.resources.tags.loading', 'Loading tags...'),
+      placeholder: t('booking.resources.tags.placeholder', 'Type to add tags'),
+      empty: t('booking.resources.tags.placeholder', 'No tags yet. Add labels to keep resources organized.'),
+      loadError: t('booking.resources.tags.loadError', 'Failed to load tags.'),
+      createError: t('booking.resources.tags.createError', 'Failed to create tag.'),
+      updateError: t('booking.resources.tags.updateError', 'Failed to update tags.'),
+      labelRequired: t('booking.resources.tags.labelRequired', 'Tag name is required.'),
+      saveShortcut: t('booking.resources.tags.saveShortcut', 'Save Cmd+Enter / Ctrl+Enter'),
+      cancelShortcut: t('booking.resources.tags.cancelShortcut', 'Cancel (Esc)'),
+      edit: t('ui.forms.actions.edit', 'Edit'),
+      cancel: t('ui.forms.actions.cancel', 'Cancel'),
+      success: t('booking.resources.tags.success', 'Tags updated.'),
+    }),
+    [t],
+  )
+
+  const loadTagOptions = React.useCallback(
+    async (query?: string): Promise<TagOption[]> => {
+      const params = new URLSearchParams({ pageSize: '100' })
+      if (query) params.set('search', query)
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/booking/tags?${params.toString()}`,
+        undefined,
+        { errorMessage: t('booking.resources.tags.loadError', 'Failed to load tags.') },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      return items
+        .map((item: unknown): TagOption | null => {
+          if (!item || typeof item !== 'object') return null
+          const raw = item as { id?: unknown; tagId?: unknown; label?: unknown; slug?: unknown; color?: unknown }
+          const rawId =
+            typeof raw.id === 'string'
+              ? raw.id
+              : typeof raw.tagId === 'string'
+                ? raw.tagId
+                : null
+          if (!rawId) return null
+          const labelValue =
+            (typeof raw.label === 'string' && raw.label.trim().length && raw.label.trim()) ||
+            (typeof raw.slug === 'string' && raw.slug.trim().length && raw.slug.trim()) ||
+            rawId
+          const color = typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
+          return { id: rawId, label: labelValue, color }
+        })
+        .filter((entry): entry is TagOption => entry !== null)
+    },
+    [t],
+  )
+
+  const createTag = React.useCallback(
+    async (label: string): Promise<TagOption> => {
+      const trimmed = label.trim()
+      if (!trimmed.length) {
+        throw new Error(t('booking.resources.tags.labelRequired', 'Tag name is required.'))
+      }
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/booking/tags',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: trimmed }),
+        },
+        { errorMessage: t('booking.resources.tags.createError', 'Failed to create tag.') },
+      )
+      const payload = response.result ?? {}
+      const id =
+        typeof payload?.id === 'string'
+          ? payload.id
+          : typeof (payload as any)?.tagId === 'string'
+            ? (payload as any).tagId
+            : ''
+      if (!id) throw new Error(t('booking.resources.tags.createError', 'Failed to create tag.'))
+      const color = typeof (payload as any)?.color === 'string' && (payload as any).color.trim().length
+        ? (payload as any).color.trim()
+        : null
+      return { id, label: trimmed, color }
+    },
+    [t],
+  )
+
+  const handleTagsSave = React.useCallback(
+    async ({ next }: { next: TagOption[] }) => {
+      if (!resourceId) return
+      const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
+      await updateCrud('booking/resources', { id: resourceId, tags: tagIds }, {
+        errorMessage: t('booking.resources.tags.updateError', 'Failed to update tags.'),
+      })
+      setTags(next)
+      flash(t('booking.resources.tags.success', 'Tags updated.'), 'success')
+    },
+    [resourceId, t],
+  )
+
   const handleDelete = React.useCallback(async () => {
     if (!resourceId) return
     await deleteCrud('booking/resources', resourceId, {
@@ -532,6 +623,18 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
           isLoading={!initialValues}
           loadingMessage={t('booking.resources.form.loading', 'Loading resource...')}
         />
+
+        <div className="mt-6">
+          <TagsSection
+            title={t('booking.resources.tags.title', 'Tags')}
+            tags={tags}
+            onChange={setTags}
+            loadOptions={loadTagOptions}
+            createTag={createTag}
+            onSave={handleTagsSave}
+            labels={tagLabels}
+          />
+        </div>
 
         <div className="mt-8 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">

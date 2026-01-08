@@ -25,5 +25,18 @@
   "booking.resourceTypes.errors.delete": "No se pudo eliminar el tipo de recurso.",
   "booking.resources.form.fields.capacity.help": "Depende del recurso y puede significar plazas, unidades, cantidad u otro tipo de capacidad.",
   "booking.resources.form.fields.capacityUnit": "Unidad de capacidad",
-  "booking.resources.form.fields.capacityUnit.missing": "El diccionario de unidades de capacidad no está configurado."
+  "booking.resources.form.fields.capacityUnit.missing": "El diccionario de unidades de capacidad no está configurado.",
+  "booking.resources.list.filters.tags": "Etiquetas",
+  "booking.resources.tags.title": "Etiquetas",
+  "booking.resources.tags.loading": "Cargando etiquetas...",
+  "booking.resources.tags.placeholder": "Escribe para agregar etiquetas",
+  "booking.resources.tags.loadError": "No se pudieron cargar las etiquetas.",
+  "booking.resources.tags.createError": "No se pudo crear la etiqueta.",
+  "booking.resources.tags.updateError": "No se pudieron actualizar las etiquetas.",
+  "booking.resources.tags.labelRequired": "El nombre de la etiqueta es obligatorio.",
+  "booking.resources.tags.saveShortcut": "Guardar Cmd+Enter / Ctrl+Enter",
+  "booking.resources.tags.cancelShortcut": "Cancelar (Esc)",
+  "booking.resources.tags.success": "Etiquetas actualizadas.",
+  "booking.resources.tags.errors.invalid": "Datos de etiqueta inválidos",
+  "booking.resources.tags.errors.required": "Se requiere el id de la etiqueta"
 }

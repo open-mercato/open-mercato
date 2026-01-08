@@ -12,6 +12,8 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import type { FilterDef, FilterOption, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
+import type { TagOption } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -22,7 +24,7 @@ type ResourceRow = {
   name: string
   resourceTypeId: string | null
   capacity: number | null
-  tags: string[]
+  tags?: TagOption[] | null
   isActive: boolean
 }
 
@@ -48,9 +50,11 @@ export default function BookingResourcesPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [resourceTypes, setResourceTypes] = React.useState<Map<string, string>>(new Map())
   const [canManage, setCanManage] = React.useState(false)
+  const [tagOptions, setTagOptions] = React.useState<FilterOption[]>([])
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
@@ -94,6 +98,50 @@ export default function BookingResourcesPage() {
     return () => { cancelled = true }
   }, [scopeVersion])
 
+  const loadTagOptions = React.useCallback(
+    async (query?: string): Promise<FilterOption[]> => {
+      try {
+        const params = new URLSearchParams({ pageSize: '100' })
+        if (query && query.trim().length) params.set('search', query.trim())
+        const call = await apiCall<{ items?: Array<{ id?: string; label?: string; slug?: string }> }>(`/api/booking/tags?${params.toString()}`)
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const options = items
+          .map((entry) => {
+            const value = typeof entry.id === 'string' ? entry.id : null
+            if (!value) return null
+            const label = typeof entry.label === 'string' && entry.label.trim().length
+              ? entry.label.trim()
+              : typeof entry.slug === 'string' && entry.slug.trim().length
+                ? entry.slug.trim()
+                : value
+            return { value, label }
+          })
+          .filter((option): option is FilterOption => option !== null)
+        if (options.length > 0) {
+          setTagOptions((prev) => {
+            const map = new Map(prev.map((opt) => [opt.value, opt]))
+            options.forEach((opt) => map.set(opt.value, opt))
+            return Array.from(map.values())
+          })
+        }
+        return options
+      } catch {
+        return []
+      }
+    },
+    [],
+  )
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'tagIds',
+      label: t('booking.resources.list.filters.tags', 'Tags'),
+      type: 'tags',
+      loadOptions: loadTagOptions,
+      options: tagOptions,
+    },
+  ], [loadTagOptions, tagOptions, t])
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
@@ -104,6 +152,12 @@ export default function BookingResourcesPage() {
           pageSize: String(PAGE_SIZE),
         })
         if (search) params.set('search', search)
+        const tagIds = Array.isArray(filterValues.tagIds)
+          ? filterValues.tagIds
+              .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
+              .filter((value) => value.length > 0)
+          : []
+        if (tagIds.length > 0) params.set('tagIds', tagIds.join(','))
         const fallback: ResourcesResponse = { items: [], total: 0, page, totalPages: 1 }
         const call = await apiCall<ResourcesResponse>(`/api/booking/resources?${params.toString()}`, undefined, { fallback })
         if (!call.ok) {
@@ -127,7 +181,7 @@ export default function BookingResourcesPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search, scopeVersion, t])
+  }, [filterValues, page, search, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: ResourceRow) => {
     const confirmLabel = t('booking.resources.list.confirmDelete', 'Delete resource "{name}"?', { name: row.name })
@@ -176,8 +230,8 @@ export default function BookingResourcesPage() {
         return (
           <div className="flex flex-wrap gap-1">
             {tags.map((tag) => (
-              <span key={tag} className="rounded-full border px-2 py-0.5 text-xs font-medium">
-                {tag}
+              <span key={tag.id} className="rounded-full border px-2 py-0.5 text-xs font-medium">
+                {tag.label}
               </span>
             ))}
           </div>
@@ -206,6 +260,10 @@ export default function BookingResourcesPage() {
           data={rows}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
           perspective={{ tableId: 'booking.resources.list' }}
           rowActions={(row) => {
             if (!canManage) return null

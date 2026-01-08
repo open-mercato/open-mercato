@@ -25,5 +25,18 @@
   "booking.resourceTypes.errors.delete": "Ressourcentyp konnte nicht gelöscht werden.",
   "booking.resources.form.fields.capacity.help": "Hängt von der Ressource ab und kann Plätze, Einheiten, Menge oder eine andere Kapazitätsart bedeuten.",
   "booking.resources.form.fields.capacityUnit": "Kapazitätseinheit",
-  "booking.resources.form.fields.capacityUnit.missing": "Das Kapazitätseinheiten-Wörterbuch ist nicht konfiguriert."
+  "booking.resources.form.fields.capacityUnit.missing": "Das Kapazitätseinheiten-Wörterbuch ist nicht konfiguriert.",
+  "booking.resources.list.filters.tags": "Tags",
+  "booking.resources.tags.title": "Tags",
+  "booking.resources.tags.loading": "Tags werden geladen...",
+  "booking.resources.tags.placeholder": "Zum Hinzufügen tippen",
+  "booking.resources.tags.loadError": "Tags konnten nicht geladen werden.",
+  "booking.resources.tags.createError": "Tag konnte nicht erstellt werden.",
+  "booking.resources.tags.updateError": "Tags konnten nicht aktualisiert werden.",
+  "booking.resources.tags.labelRequired": "Tag-Name ist erforderlich.",
+  "booking.resources.tags.saveShortcut": "Speichern Cmd+Enter / Ctrl+Enter",
+  "booking.resources.tags.cancelShortcut": "Abbrechen (Esc)",
+  "booking.resources.tags.success": "Tags aktualisiert.",
+  "booking.resources.tags.errors.invalid": "Ungültige Tag-Daten",
+  "booking.resources.tags.errors.required": "Tag-ID ist erforderlich"
 }
