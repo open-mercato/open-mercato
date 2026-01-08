@@ -11,7 +11,11 @@ import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import type { WorkflowInstance, WorkflowEvent } from '../../../data/entities'
+import type { WorkflowInstance, WorkflowEvent, WorkflowDefinition } from '../../../data/entities'
+import { WorkflowGraphReadOnly } from '../../../components/WorkflowGraph'
+import { WorkflowLegend } from '../../../components/WorkflowLegend'
+import { definitionToGraph } from '../../../lib/graph-utils'
+import { Node, Edge } from '@xyflow/react'
 
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -45,6 +49,21 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       return (data.items || []) as WorkflowEvent[]
     },
     enabled: !!instance?.id,
+  })
+
+  const { data: workflowDefinition, isLoading: definitionLoading } = useQuery({
+    queryKey: ['workflow-definition-for-instance', instance?.definitionId],
+    queryFn: async () => {
+      // Fetch definition by ID
+      const response = await apiFetch(`/api/workflows/definitions/${instance!.definitionId}`)
+      if (!response.ok) {
+        console.error('Failed to fetch workflow definition:', response.statusText)
+        return null
+      }
+      const result = await response.json()
+      return result.data as WorkflowDefinition
+    },
+    enabled: !!instance?.definitionId,
   })
 
   const calculateDuration = (startedAt: string | Date, completedAt: string | Date | null | undefined) => {
@@ -153,6 +172,167 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     }
     retryMutation.mutate()
   }
+
+  // Generate graph with execution status
+  const { graphNodes, graphEdges } = React.useMemo(() => {
+    if (!workflowDefinition?.definition) {
+      return { graphNodes: [], graphEdges: [] }
+    }
+
+    // Convert definition to graph
+    const { nodes, edges } = definitionToGraph(workflowDefinition.definition, { autoLayout: true })
+
+    // Determine step statuses from events
+    const stepStatuses = new Map<string, 'completed' | 'active' | 'pending' | 'failed' | 'skipped'>()
+    const stepTimings = new Map<string, { startedAt?: Date; completedAt?: Date }>()
+
+    // Process events to determine status
+    for (const event of events) {
+      const stepId = event.eventData?.stepId || event.eventData?.toStepId
+      if (!stepId) continue
+
+      if (event.eventType === 'STEP_ENTERED' || event.eventType === 'StepEntered') {
+        stepTimings.set(stepId, { ...stepTimings.get(stepId), startedAt: new Date(event.occurredAt) })
+        if (!stepStatuses.has(stepId)) {
+          stepStatuses.set(stepId, 'active')
+        }
+      } else if (event.eventType === 'STEP_COMPLETED' || event.eventType === 'STEP_EXITED' || event.eventType === 'StepExited') {
+        stepTimings.set(stepId, { ...stepTimings.get(stepId), completedAt: new Date(event.occurredAt) })
+        stepStatuses.set(stepId, 'completed')
+      } else if (event.eventType === 'STEP_FAILED' || event.eventType === 'StepFailed') {
+        stepTimings.set(stepId, { ...stepTimings.get(stepId), completedAt: new Date(event.occurredAt) })
+        stepStatuses.set(stepId, 'failed')
+      }
+    }
+
+    // Mark current step as active
+    if (instance?.currentStepId && !stepStatuses.has(instance.currentStepId)) {
+      stepStatuses.set(instance.currentStepId, 'active')
+    } else if (instance?.currentStepId && stepStatuses.get(instance.currentStepId) !== 'completed') {
+      stepStatuses.set(instance.currentStepId, 'active')
+    }
+
+    // Mark all other steps as pending, with special handling for START/END
+    for (const node of nodes) {
+      if (!stepStatuses.has(node.id)) {
+        const nodeType = node.type
+        const isCurrentStep = instance?.currentStepId === node.id
+
+        if (nodeType === 'start') {
+          // START node is completed if we've moved past it
+          // It's active if we're still at start (edge case)
+          if (isCurrentStep) {
+            stepStatuses.set(node.id, 'active')
+          } else {
+            stepStatuses.set(node.id, 'completed')
+          }
+        } else if (nodeType === 'end') {
+          // END node is completed if we've reached it
+          // Or if workflow is in COMPLETED status
+          if (isCurrentStep || instance?.status === 'COMPLETED') {
+            stepStatuses.set(node.id, 'completed')
+          } else {
+            stepStatuses.set(node.id, 'pending')
+          }
+        } else {
+          // All other nodes without events are pending
+          stepStatuses.set(node.id, 'pending')
+        }
+      }
+    }
+
+    // Apply styles to nodes based on status
+    const styledNodes: Node[] = nodes.map((node) => {
+      const status = stepStatuses.get(node.id) || 'pending'
+      const timing = stepTimings.get(node.id)
+
+      // Calculate duration for tooltip
+      const duration = timing?.startedAt && timing?.completedAt
+        ? calculateDuration(timing.startedAt, timing.completedAt)
+        : timing?.startedAt
+        ? calculateDuration(timing.startedAt, null)
+        : null
+
+      // Build tooltip content
+      let tooltipContent = `${node.data.label || node.id}\n`
+      tooltipContent += `Status: ${status}\n`
+      if (timing?.startedAt) {
+        tooltipContent += `Started: ${timing.startedAt.toLocaleString()}\n`
+      }
+      if (timing?.completedAt) {
+        tooltipContent += `Completed: ${timing.completedAt.toLocaleString()}\n`
+      }
+      if (duration) {
+        tooltipContent += `Duration: ${duration}`
+      }
+
+      // Define colors and styles based on status
+      let style: React.CSSProperties = {}
+      switch (status) {
+        case 'completed':
+          style = {
+            backgroundColor: '#10B981', // green-500
+            color: 'white',
+            borderColor: '#059669', // green-600
+            borderWidth: '3px',
+            borderRadius: '16px',
+          }
+          break
+        case 'active':
+          style = {
+            backgroundColor: '#3B82F6', // blue-500
+            color: 'white',
+            borderColor: '#1D4ED8', // blue-700
+            borderWidth: '3px',
+            borderRadius: '16px',
+            boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.3)',
+          }
+          break
+        case 'failed':
+          style = {
+            backgroundColor: '#EF4444', // red-500
+            color: 'white',
+            borderColor: '#B91C1C', // red-700
+            borderWidth: '3px',
+            borderRadius: '16px',
+          }
+          break
+        case 'skipped':
+          style = {
+            backgroundColor: '#FEF3C7', // yellow-100
+            color: '#78350F', // yellow-900
+            borderColor: '#F59E0B', // yellow-500
+            borderWidth: '3px',
+            borderRadius: '16px',
+          }
+          break
+        case 'pending':
+        default:
+          style = {
+            backgroundColor: '#E5E7EB', // gray-200
+            color: '#374151', // gray-700
+            borderColor: '#9CA3AF', // gray-400
+            borderWidth: '2px',
+            borderRadius: '8px',
+          }
+          break
+      }
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          status,
+          timing,
+          duration,
+          tooltip: tooltipContent,
+        },
+        style,
+      }
+    })
+
+    return { graphNodes: styledNodes, graphEdges: edges }
+  }, [workflowDefinition, events, instance?.currentStepId])
 
   if (isLoading) {
     return (
@@ -308,6 +488,50 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
               </div>
             </dl>
           </div>
+
+          {/* Visual Workflow Graph */}
+          {definitionLoading && (
+            <div className="rounded-lg border bg-card p-6">
+              <div className="flex items-center justify-center py-8">
+                <Spinner className="h-6 w-6" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading workflow visualization...</span>
+              </div>
+            </div>
+          )}
+          {!definitionLoading && workflowDefinition && graphNodes.length > 0 && (
+            <div className="rounded-lg border bg-card p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                {t('workflows.instances.sections.visualFlow') || 'Visual Workflow Flow'}
+              </h2>
+
+              <div className="flex gap-6">
+                {/* Left Sidebar - Legend */}
+                <div className="w-64 flex-shrink-0">
+                  <WorkflowLegend />
+                </div>
+
+                {/* Main Visualization */}
+                <div className="flex-1 border rounded-lg overflow-hidden" style={{ minHeight: '800px' }}>
+                  <WorkflowGraphReadOnly
+                    nodes={graphNodes}
+                    edges={graphEdges}
+                    height="800px"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          {!definitionLoading && !workflowDefinition && instance && (
+            <div className="rounded-lg border bg-card p-6">
+              <h2 className="text-lg font-semibold mb-4">
+                {t('workflows.instances.sections.visualFlow') || 'Visual Workflow Flow'}
+              </h2>
+              <div className="flex items-center justify-center py-8 text-muted-foreground">
+                <p className="text-sm">Workflow definition not found (ID: {instance.definitionId})</p>
+              </div>
+            </div>
+          )}
+
 
           {/* Error Message (if present) */}
           {instance.errorMessage && (

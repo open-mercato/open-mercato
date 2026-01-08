@@ -179,6 +179,8 @@
       },
       "sections": {
         "overview": "Przegląd",
+        "visualFlow": "Wizualny Przepływ Workflow",
+        "stepExecutionTimeline": "Oś Czasu Wykonania Kroków",
         "context": "Dane Kontekstu",
         "metadata": "Metadane",
         "executionTimeline": "Oś Czasu Wykonania",

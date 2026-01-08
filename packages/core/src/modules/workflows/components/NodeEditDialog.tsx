@@ -321,7 +321,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {nodeTypeLabel}
             </Badge>
           </div>
-          <DialogDescription className="space-y-1">
+          <div className="space-y-1 text-sm text-muted-foreground">
             <div className="flex items-center gap-2 text-xs">
               <span className="font-medium">ID:</span>
               <code className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">{node.id}</code>
@@ -332,7 +332,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 <span>{(node.data as any).stepName}</span>
               </div>
             )}
-          </DialogDescription>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4">

@@ -18,6 +18,8 @@ import {
   MarkerType,
 } from '@xyflow/react'
 import { StartNode, EndNode, UserTaskNode, AutomatedNode } from './nodes'
+import { WorkflowTransitionEdge } from './WorkflowTransitionEdge'
+import { STATUS_COLORS } from '../lib/status-colors'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Edit3 } from 'lucide-react'
 
@@ -81,12 +83,13 @@ export function WorkflowGraph({
         // Fallback: handle internally if no parent callback
         const newEdge = {
           ...connection,
-          type: 'smoothstep',
+          type: 'workflowTransition',
           animated: false,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 20,
-            height: 20,
+            width: 16,
+            height: 16,
+            color: '#9ca3af',
           },
         }
         setEdges((eds) => addEdge(newEdge, eds))
@@ -128,12 +131,21 @@ export function WorkflowGraph({
     []
   )
 
+  // Register custom edge types
+  const edgeTypes = useMemo(
+    () => ({
+      workflowTransition: WorkflowTransitionEdge,
+    }),
+    []
+  )
+
   return (
     <div className={`workflow-graph-container ${className}`} style={{ height }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={editable ? onConnect : undefined}
@@ -148,12 +160,13 @@ export function WorkflowGraph({
         minZoom={0.1}
         maxZoom={2}
         defaultEdgeOptions={{
-          type: 'smoothstep',
+          type: 'workflowTransition',
           animated: false,
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 20,
-            height: 20,
+            width: 16,
+            height: 16,
+            color: '#9ca3af',
           },
         }}
         nodesDraggable={editable}
@@ -181,21 +194,9 @@ export function WorkflowGraph({
         <MiniMap
           nodeStrokeWidth={3}
           nodeColor={(node) => {
-            // Color nodes by type - using accent colors for visibility
-            const nodeId = node.id || ''
-            if (nodeId === 'start' || node.type === 'start') {
-              return '#10B981' // emerald-500 accent
-            }
-            if (nodeId === 'end' || node.type === 'end') {
-              return '#6B7280' // gray-500 accent
-            }
-            if (nodeId.includes('customer') || node.type === 'userTask') {
-              return '#F59E0B' // amber-500 accent
-            }
-            if (node.type === 'automated' || nodeId.includes('validation') || nodeId.includes('processing') || nodeId.includes('confirmation')) {
-              return '#9CA3AF' // gray-400
-            }
-            return '#9CA3AF' // default gray-400
+            // Color nodes by status - using status-based colors
+            const status = (node.data?.status || 'not_started') as keyof typeof STATUS_COLORS
+            return STATUS_COLORS[status]?.hex || STATUS_COLORS.not_started.hex
           }}
           maskColor="rgba(0, 0, 0, 0.05)"
           position="bottom-left"

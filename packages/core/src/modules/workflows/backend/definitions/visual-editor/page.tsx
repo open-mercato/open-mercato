@@ -778,44 +778,66 @@ export default function VisualEditorPage() {
             Click a step type to add it to the canvas
           </p>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {/* START Step */}
             <button
               onClick={() => handleAddNode('start')}
-              className="w-full text-left px-4 py-3 bg-gray-50 border border-l-4 border-l-emerald-500 border-gray-200 rounded-md hover:bg-gray-100 hover:border-gray-300 transition-colors cursor-pointer"
+              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="text-sm font-medium text-gray-900">START</div>
+              <div className="absolute top-2 right-2 text-emerald-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" strokeWidth="2"/>
+                  <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                </svg>
+              </div>
+              <div className="text-sm font-semibold text-gray-900">START</div>
               <div className="text-xs text-gray-500 mt-0.5">Workflow trigger</div>
             </button>
 
             {/* USER_TASK Step */}
             <button
               onClick={() => handleAddNode('userTask')}
-              className="w-full text-left px-4 py-3 bg-gray-50 border border-l-4 border-l-amber-500 border-gray-200 rounded-md hover:bg-gray-100 hover:border-gray-300 transition-colors cursor-pointer"
+              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="text-sm font-medium text-gray-900">USER TASK</div>
+              <div className="absolute top-2 right-2 text-blue-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <div className="text-sm font-semibold text-gray-900">USER TASK</div>
               <div className="text-xs text-gray-500 mt-0.5">Manual action</div>
             </button>
 
             {/* AUTOMATED Step */}
             <button
               onClick={() => handleAddNode('automated')}
-              className="w-full text-left px-4 py-3 bg-gray-50 border border-l-4 border-l-blue-500 border-gray-200 rounded-md hover:bg-gray-100 hover:border-gray-300 transition-colors cursor-pointer"
+              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="text-sm font-medium text-gray-900">AUTOMATED</div>
+              <div className="absolute top-2 right-2 text-amber-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <div className="text-sm font-semibold text-gray-900">AUTOMATED</div>
               <div className="text-xs text-gray-500 mt-0.5">System task</div>
             </button>
 
             {/* END Step */}
             <button
               onClick={() => handleAddNode('end')}
-              className="w-full text-left px-4 py-3 bg-gray-50 border border-l-4 border-l-gray-500 border-gray-200 rounded-md hover:bg-gray-100 hover:border-gray-300 transition-colors cursor-pointer"
+              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="text-sm font-medium text-gray-900">END</div>
+              <div className="absolute top-2 right-2 text-red-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" strokeWidth="2"/>
+                  <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
+                </svg>
+              </div>
+              <div className="text-sm font-semibold text-gray-900">END</div>
               <div className="text-xs text-gray-500 mt-0.5">Workflow completion</div>
             </button>
           </div>
-          
+
           {/* Instructions */}
           <Alert variant="info" className="mt-8">
             <Info className="size-4" />
@@ -850,7 +872,6 @@ export default function VisualEditorPage() {
           {nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
-                <div className="text-6xl mb-4">📊</div>
                 <h2 className="text-xl font-semibold text-gray-900 mb-2">
                   Start Building Your Workflow
                 </h2>

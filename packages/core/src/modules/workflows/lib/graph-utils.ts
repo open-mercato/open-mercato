@@ -295,7 +295,7 @@ export function definitionToGraph(
       id: transition.transitionId,
       source: transition.fromStepId,
       target: transition.toStepId,
-      type: 'smoothstep',
+      type: 'workflowTransition',
       data: {
         trigger: transition.trigger,
         transitionName: (transition as any).transitionName,
@@ -307,6 +307,7 @@ export function definitionToGraph(
         postConditions: transition.postConditions || [],
         activities: transition.activities || [],
         label: (transition as any).transitionName || (transition as any).label, // Backward compat
+        state: (transition as any).state || 'pending', // Default edge state
       },
     }
   })

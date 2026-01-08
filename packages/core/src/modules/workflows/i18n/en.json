@@ -179,6 +179,8 @@
       },
       "sections": {
         "overview": "Overview",
+        "visualFlow": "Visual Workflow Flow",
+        "stepExecutionTimeline": "Step Execution Timeline",
         "context": "Context Data",
         "metadata": "Metadata",
         "executionTimeline": "Execution Timeline",
