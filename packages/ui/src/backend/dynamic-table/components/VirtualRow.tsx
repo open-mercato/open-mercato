@@ -18,6 +18,7 @@ export interface VirtualRowProps {
   onCancelNewRow: (rowIndex: number) => void;
   onRowHeaderDoubleClick: (e: React.MouseEvent, rowIndex: number) => void;
   onCellSave: (row: number, col: number, newValue: any) => void;
+  actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
 }
 
 const VirtualRow: React.FC<VirtualRowProps> = memo(
@@ -34,10 +35,12 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
     onCancelNewRow,
     onRowHeaderDoubleClick,
     onCellSave,
+    actionsRenderer,
   }) => {
     const store = useCellStore();
     const selection = useSelection();
     const isNewRow = store.isNewRow(rowIndex);
+    const rowData = store.getRowData(rowIndex);
 
     // Row-level selection state (for row headers)
     const isInRowRange =
@@ -112,7 +115,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
           data-actions-cell="true"
           data-sticky-right={true}
         >
-          {isNewRow && (
+          {isNewRow ? (
             <button
               className="hot-row-save-btn"
               onClick={(e) => {
@@ -123,6 +126,8 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
             >
               Save
             </button>
+          ) : (
+            actionsRenderer?.(rowData, rowIndex)
           )}
         </td>
       </tr>

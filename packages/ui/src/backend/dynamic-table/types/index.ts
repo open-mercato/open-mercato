@@ -284,6 +284,7 @@ export interface DynamicTableProps {
   tableRef: React.RefObject<HTMLDivElement | null>;
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
+  actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
   pagination?: PaginationProps;
   // Filter management (controlled externally, events dispatched for changes)
   savedFilters?: SavedFilter[];

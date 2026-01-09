@@ -2257,6 +2257,15 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "name": {
           "name": "name",
           "type": "text",
@@ -2328,6 +2337,16 @@
           "constraint": true,
           "primary": false,
           "unique": true
+        },
+        {
+          "columnNames": [
+            "email_hash"
+          ],
+          "composite": false,
+          "keyName": "users_email_hash_idx",
+          "constraint": false,
+          "primary": false,
+          "unique": false
         },
         {
           "keyName": "users_pkey",

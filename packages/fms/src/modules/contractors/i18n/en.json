@@ -1,0 +1,224 @@
+{
+  "contractors": {
+    "title": "Contractors",
+    "description": "Manage contractors and business relationships",
+    "list": {
+      "title": "Contractors",
+      "searchPlaceholder": "Search contractors by name, code, or tax ID...",
+      "columns": {
+        "name": "Name",
+        "code": "Code",
+        "roles": "Roles",
+        "primaryContact": "Primary Contact",
+        "country": "Country",
+        "creditLimit": "Credit Limit",
+        "exposure": "Exposure",
+        "status": "Status"
+      },
+      "filters": {
+        "roleCategory": "Role Category",
+        "roleType": "Role Type",
+        "status": "Status",
+        "country": "Country",
+        "isBranch": "Is Branch",
+        "creditExceeded": "Credit Exceeded",
+        "createdAt": "Created At"
+      },
+      "actions": {
+        "new": "New Contractor",
+        "view": "View",
+        "edit": "Edit",
+        "activate": "Activate",
+        "deactivate": "Deactivate",
+        "delete": "Delete",
+        "refresh": "Refresh"
+      },
+      "empty": "No contractors found",
+      "emptyFiltered": "No contractors match your filters"
+    },
+    "form": {
+      "create": {
+        "title": "New Contractor",
+        "success": "Contractor created successfully",
+        "error": "Failed to create contractor"
+      },
+      "edit": {
+        "title": "Edit Contractor",
+        "success": "Contractor updated successfully",
+        "error": "Failed to update contractor"
+      },
+      "fields": {
+        "name": "Company Name",
+        "shortName": "Short Name",
+        "code": "Internal Code",
+        "parentId": "Parent Company",
+        "taxId": "Tax ID / VAT Number",
+        "legalName": "Legal Name",
+        "registrationNumber": "Registration Number",
+        "isActive": "Active"
+      },
+      "placeholders": {
+        "name": "Enter company name",
+        "shortName": "Enter short name (optional)",
+        "code": "Enter internal code (optional)",
+        "taxId": "Enter tax ID or VAT number",
+        "legalName": "Enter legal entity name",
+        "registrationNumber": "Enter business registration number"
+      }
+    },
+    "detail": {
+      "tabs": {
+        "overview": "Overview",
+        "addresses": "Addresses",
+        "contacts": "Contacts",
+        "roles": "Roles",
+        "financial": "Financial"
+      },
+      "overview": {
+        "basicInfo": "Basic Information",
+        "hierarchy": "Company Hierarchy"
+      }
+    },
+    "addresses": {
+      "title": "Addresses",
+      "add": "Add Address",
+      "edit": "Edit Address",
+      "delete": "Delete Address",
+      "setPrimary": "Set as Primary",
+      "purposes": {
+        "office": "Office",
+        "warehouse": "Warehouse",
+        "billing": "Billing",
+        "shipping": "Shipping",
+        "other": "Other"
+      },
+      "fields": {
+        "purpose": "Type",
+        "label": "Label",
+        "addressLine1": "Address Line 1",
+        "addressLine2": "Address Line 2",
+        "city": "City",
+        "state": "State/Province",
+        "postalCode": "Postal Code",
+        "countryCode": "Country",
+        "isPrimary": "Primary Address"
+      }
+    },
+    "contacts": {
+      "title": "Contacts",
+      "add": "Add Contact",
+      "edit": "Edit Contact",
+      "delete": "Delete Contact",
+      "setPrimary": "Set as Primary",
+      "fields": {
+        "firstName": "First Name",
+        "lastName": "Last Name",
+        "jobTitle": "Job Title",
+        "department": "Department",
+        "email": "Email",
+        "phone": "Phone",
+        "mobile": "Mobile",
+        "isPrimary": "Primary Contact",
+        "notes": "Notes"
+      }
+    },
+    "roles": {
+      "title": "Roles",
+      "assign": "Assign Role",
+      "remove": "Remove Role",
+      "settings": "Role Settings",
+      "categories": {
+        "trading": "Trading Parties",
+        "carrier": "Carriers",
+        "intermediary": "Intermediaries",
+        "facility": "Facility Operators"
+      },
+      "fields": {
+        "roleType": "Role",
+        "effectiveFrom": "Effective From",
+        "effectiveTo": "Effective To",
+        "isActive": "Active"
+      }
+    },
+    "financial": {
+      "title": "Financial",
+      "paymentTerms": {
+        "title": "Payment Terms",
+        "fields": {
+          "paymentDays": "Payment Days",
+          "paymentMethod": "Payment Method",
+          "currencyCode": "Currency"
+        },
+        "paymentDaysOptions": {
+          "net7": "Net 7",
+          "net14": "Net 14",
+          "net30": "Net 30",
+          "net45": "Net 45",
+          "net60": "Net 60",
+          "net90": "Net 90"
+        },
+        "paymentMethods": {
+          "bank_transfer": "Bank Transfer",
+          "card": "Card",
+          "cash": "Cash"
+        }
+      },
+      "bankDetails": {
+        "title": "Bank Details",
+        "fields": {
+          "bankName": "Bank Name",
+          "bankAccountNumber": "Account Number",
+          "bankRoutingNumber": "Routing Number",
+          "iban": "IBAN",
+          "swiftBic": "SWIFT/BIC"
+        }
+      },
+      "creditLimit": {
+        "title": "Credit Limit",
+        "fields": {
+          "creditLimit": "Credit Limit",
+          "currencyCode": "Currency",
+          "isUnlimited": "Unlimited Credit",
+          "currentExposure": "Current Exposure",
+          "availableCredit": "Available Credit",
+          "requiresApprovalAbove": "Requires Approval Above"
+        },
+        "recalculate": "Recalculate Exposure",
+        "lastCalculated": "Last calculated"
+      }
+    },
+    "roleTypes": {
+      "title": "Role Types",
+      "description": "Manage contractor role types",
+      "add": "Add Role Type",
+      "edit": "Edit Role Type",
+      "delete": "Delete Role Type",
+      "cannotDeleteSystem": "Cannot delete system role types",
+      "fields": {
+        "code": "Code",
+        "name": "Name",
+        "category": "Category",
+        "description": "Description",
+        "color": "Color",
+        "icon": "Icon",
+        "hasCustomFields": "Has Custom Fields",
+        "sortOrder": "Sort Order",
+        "isSystem": "System",
+        "isActive": "Active"
+      }
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "credit": {
+      "unlimited": "Unlimited",
+      "exceeded": "Credit limit exceeded"
+    },
+    "validation": {
+      "nameRequired": "Company name is required",
+      "codeUnique": "This code is already in use",
+      "circularParent": "Cannot set parent to create circular reference"
+    }
+  }
+}

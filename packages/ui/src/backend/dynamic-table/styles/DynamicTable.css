@@ -59,11 +59,19 @@
     background: white;
     cursor: cell;
     position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 4px 8px;
 }
 
-.hot-cell[data-custom-renderer="true"] {
-    padding: 0;
+.hot-cell > .cell-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
 }
+
 
 .hot-cell.read-only {
     background: #fafafa;
