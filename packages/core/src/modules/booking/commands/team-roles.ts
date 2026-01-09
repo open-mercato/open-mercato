@@ -76,6 +76,8 @@ const createTeamRoleCommand: CommandHandler<BookingTeamRoleCreateInput, { roleId
       organizationId: parsed.organizationId,
       name: parsed.name,
       description: parsed.description ?? null,
+      appearanceIcon: parsed.appearanceIcon ?? null,
+      appearanceColor: parsed.appearanceColor ?? null,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -173,6 +175,8 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
 
     if (parsed.name !== undefined) role.name = parsed.name
     if (parsed.description !== undefined) role.description = parsed.description ?? null
+    if (parsed.appearanceIcon !== undefined) role.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) role.appearanceColor = parsed.appearanceColor ?? null
     role.updatedAt = new Date()
     await em.flush()
 

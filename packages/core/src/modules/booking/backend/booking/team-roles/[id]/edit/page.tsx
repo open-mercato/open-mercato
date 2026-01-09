@@ -3,36 +3,59 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
-import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
+import { TeamRoleForm, type TeamRoleFormValues, buildTeamRolePayload } from '../../TeamRoleForm'
 
 type TeamRoleRecord = {
   id: string
   name: string
   description?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  appearance_icon?: string | null
+  appearance_color?: string | null
 } & Record<string, unknown>
 
 type TeamRoleResponse = {
   items?: TeamRoleRecord[]
 }
 
-const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
-  const normalized = normalizeCustomFieldValues({ value })
-  return normalized.value
+const extractCustomFieldsFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(record)) {
+    if (key.startsWith('cf_')) customFields[key] = value
+  }
+  const customValues = (record as any).customValues
+  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
+    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
+      if (!key) continue
+      customFields[`cf_${key}`] = value
+    }
+  }
+  const customEntries = (record as any).customFields
+  if (Array.isArray(customEntries)) {
+    customEntries.forEach((entry) => {
+      const key = entry && typeof entry.key === 'string' ? entry.key : null
+      if (!key) return
+      customFields[`cf_${key}`] = (entry as any).value
+    })
+  } else if (customEntries && typeof customEntries === 'object') {
+    for (const [key, value] of Object.entries(customEntries as Record<string, unknown>)) {
+      if (!key) continue
+      customFields[`cf_${key}`] = value
+    }
+  }
+  return customFields
 }
 
 export default function BookingTeamRoleEditPage({ params }: { params?: { id?: string } }) {
   const roleId = params?.id
   const t = useT()
   const router = useRouter()
-  const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
+  const [initialValues, setInitialValues] = React.useState<TeamRoleFormValues | null>(null)
 
   React.useEffect(() => {
     if (!roleId) return
@@ -47,12 +70,23 @@ export default function BookingTeamRoleEditPage({ params }: { params?: { id?: st
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
         if (!record) throw new Error(t('booking.teamRoles.errors.notFound', 'Team role not found.'))
-        const customFields = extractAllCustomFieldEntries(record)
+        const customFields = extractCustomFieldsFromRecord(record)
+        const appearanceIcon = typeof record.appearanceIcon === 'string'
+          ? record.appearanceIcon
+          : typeof record.appearance_icon === 'string'
+            ? record.appearance_icon
+            : null
+        const appearanceColor = typeof record.appearanceColor === 'string'
+          ? record.appearanceColor
+          : typeof record.appearance_color === 'string'
+            ? record.appearance_color
+            : null
         if (!cancelled) {
           setInitialValues({
             id: record.id,
             name: record.name ?? '',
             description: record.description ?? '',
+            appearance: { icon: appearanceIcon, color: appearanceColor },
             ...customFields,
           })
         }
@@ -65,24 +99,9 @@ export default function BookingTeamRoleEditPage({ params }: { params?: { id?: st
     return () => { cancelled = true }
   }, [roleId, t])
 
-  const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'name', label: t('booking.teamRoles.form.fields.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('booking.teamRoles.form.fields.description', 'Description'), type: 'textarea' },
-  ], [t])
-
-  const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
+  const handleSubmit = React.useCallback(async (values: TeamRoleFormValues) => {
     if (!roleId) return
-    const name = typeof values.name === 'string' ? values.name.trim() : ''
-    const description = typeof values.description === 'string' && values.description.trim().length
-      ? values.description.trim()
-      : null
-    const customFields = collectCustomFieldValues(values, { transform: normalizeCustomFieldSubmitValue })
-    const payload: Record<string, unknown> = {
-      id: roleId,
-      name,
-      description,
-      ...(Object.keys(customFields).length ? { customFields } : {}),
-    }
+    const payload = buildTeamRolePayload(values, { id: roleId })
     await updateCrud('booking/team-roles', payload, {
       errorMessage: t('booking.teamRoles.errors.save', 'Failed to save team role.'),
     })
@@ -101,13 +120,11 @@ export default function BookingTeamRoleEditPage({ params }: { params?: { id?: st
   return (
     <Page>
       <PageBody>
-        <CrudForm
+        <TeamRoleForm
           title={t('booking.teamRoles.form.editTitle', 'Edit team role')}
           backHref="/backend/booking/team-roles"
           cancelHref="/backend/booking/team-roles"
-          fields={fields}
-          initialValues={initialValues ?? undefined}
-          entityId={E.booking.booking_team_role}
+          initialValues={initialValues ?? { name: '', description: '', appearance: { icon: null, color: null } }}
           onSubmit={handleSubmit}
           onDelete={handleDelete}
           isLoading={!initialValues}

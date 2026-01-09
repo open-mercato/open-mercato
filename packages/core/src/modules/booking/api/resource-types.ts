@@ -78,6 +78,7 @@ const crud = makeCrudRoute({
       }
       return filters
     },
+    decorateCustomFields: { entityIds: [E.booking.booking_resource_type] },
   },
   actions: {
     create: {
