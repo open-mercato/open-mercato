@@ -2,6 +2,8 @@ import { QueuedJob, JobContext } from '@open-mercato/queue'
 import { VectorIndexJobPayload } from '../queue/vector-indexing'
 import { MeilisearchIndexJobPayload } from '../queue/meilisearch-indexing'
 
+type HandlerContext = { resolve: <T = unknown>(name: string) => T }
+
 // Mock dependencies before importing workers
 jest.mock('@/lib/indexers/error-log', () => ({
   recordIndexerError: jest.fn().mockResolvedValue(undefined),
@@ -56,14 +58,14 @@ describe('Vector Index Worker', () => {
     deleteRecord: jest.fn().mockResolvedValue({ action: 'deleted', existed: true }),
   }
 
-  const mockContainer = {
+  const mockContainer: HandlerContext = {
     resolve: jest.fn((name: string) => {
       if (name === 'vectorIndexService') return mockVectorIndexService
       if (name === 'em') return null
       if (name === 'eventBus') return null
       if (name === 'vectorEmbeddingService') return { updateConfig: jest.fn() }
       throw new Error(`Unknown service: ${name}`)
-    }),
+    }) as HandlerContext['resolve'],
   }
 
   beforeEach(() => {
@@ -126,10 +128,10 @@ describe('Vector Index Worker', () => {
   })
 
   it('should skip when vectorIndexService is not available', async () => {
-    const containerWithoutService = {
+    const containerWithoutService: HandlerContext = {
       resolve: jest.fn(() => {
         throw new Error('Service not available')
-      }),
+      }) as HandlerContext['resolve'],
     }
     const job = createMockJob<VectorIndexJobPayload>({
       jobType: 'index',
@@ -154,13 +156,13 @@ describe('Meilisearch Index Worker', () => {
     purge: jest.fn().mockResolvedValue(undefined),
   }
 
-  const mockContainer = {
+  const mockContainer: HandlerContext = {
     resolve: jest.fn((name: string) => {
       if (name === 'searchStrategies') {
         return [mockMeilisearchStrategy]
       }
       throw new Error(`Unknown service: ${name}`)
-    }),
+    }) as HandlerContext['resolve'],
   }
 
   beforeEach(() => {
@@ -238,8 +240,8 @@ describe('Meilisearch Index Worker', () => {
   })
 
   it('should skip when Meilisearch strategy not configured', async () => {
-    const containerWithoutStrategy = {
-      resolve: jest.fn(() => []),
+    const containerWithoutStrategy: HandlerContext = {
+      resolve: jest.fn(() => []) as HandlerContext['resolve'],
     }
     const job = createMockJob<MeilisearchIndexJobPayload>({
       jobType: 'batch-index',
