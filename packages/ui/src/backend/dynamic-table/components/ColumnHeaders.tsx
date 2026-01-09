@@ -10,6 +10,7 @@ export interface ColumnHeadersProps {
   totalWidth: number;
   sortState: SortState;
   actionsColumnWidth: number;
+  showActionsColumn?: boolean;
   onSort: (colIndex: number) => void;
   onResizeStart: (e: React.MouseEvent, colIndex: number) => void;
   onDoubleClick: (e: React.MouseEvent, colIndex: number) => void;
@@ -26,6 +27,7 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
     totalWidth,
     sortState,
     actionsColumnWidth,
+    showActionsColumn = true,
     onSort,
     onResizeStart,
     onDoubleClick,
@@ -166,20 +168,22 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
               })}
 
               {/* Actions header */}
-              <th
-                className="hot-col-header"
-                style={{
-                  width: actionsColumnWidth,
-                  flexBasis: actionsColumnWidth,
-                  flexShrink: 0,
-                  flexGrow: 0,
-                  position: 'sticky',
-                  right: 0,
-                  zIndex: 3,
-                }}
-              >
-                Actions
-              </th>
+              {showActionsColumn && (
+                <th
+                  className="hot-col-header"
+                  style={{
+                    width: actionsColumnWidth,
+                    flexBasis: actionsColumnWidth,
+                    flexShrink: 0,
+                    flexGrow: 0,
+                    position: 'sticky',
+                    right: 0,
+                    zIndex: 3,
+                  }}
+                >
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
         </table>

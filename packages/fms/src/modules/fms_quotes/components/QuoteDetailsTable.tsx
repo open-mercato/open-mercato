@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DynamicTable,
@@ -509,77 +510,112 @@ export function QuoteDetailsTable({ quote, onFieldSave }: QuoteDetailsTableProps
   )
 
   const hiddenCount = hiddenColumns.length
-  const hasChanges = hiddenCount > 0
+
+  // Determine if there are unsaved changes by comparing current state to:
+  // - The active perspective's saved state (if one is selected)
+  // - The default state (all columns visible) if no perspective is selected
+  const hasChanges = React.useMemo(() => {
+    if (activePerspectiveId) {
+      // Compare against the active perspective's saved state
+      const activePerspective = savedPerspectives.find(p => p.id === activePerspectiveId)
+      if (activePerspective) {
+        const savedVisible = activePerspective.columns.visible
+        const savedHidden = activePerspective.columns.hidden
+
+        // Check if visible columns changed (order or content)
+        const visibleChanged =
+          visibleColumns.length !== savedVisible.length ||
+          visibleColumns.some((col, idx) => col !== savedVisible[idx])
+
+        // Check if hidden columns changed
+        const hiddenChanged =
+          hiddenColumns.length !== savedHidden.length ||
+          hiddenColumns.some(col => !savedHidden.includes(col))
+
+        return visibleChanged || hiddenChanged
+      }
+    }
+
+    // No perspective selected - show save if anything differs from default (all columns visible)
+    return hiddenCount > 0
+  }, [activePerspectiveId, savedPerspectives, visibleColumns, hiddenColumns, hiddenCount])
+
+  // Bottom bar toolbar with Columns and Save buttons
+  const bottomBarToolbar = (
+    <div className="flex items-center gap-2 relative pr-4">
+      <button
+        ref={columnsButtonRef}
+        onClick={() => setIsColumnsOpen(!isColumnsOpen)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 rounded-md bg-white hover:bg-gray-50"
+        style={{ color: hiddenCount > 0 ? '#3b82f6' : '#374151' }}
+      >
+        Columns
+        {hiddenCount > 0 && (
+          <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
+            {hiddenCount} hidden
+          </span>
+        )}
+      </button>
+
+      {hasChanges && (
+        <button
+          ref={saveButtonRef}
+          onClick={() => setIsSaveOpen(!isSaveOpen)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-500 rounded-md bg-blue-500 text-white hover:bg-blue-600"
+        >
+          Save View
+        </button>
+      )}
+
+      <ColumnsPopover
+        columns={COLUMNS}
+        visibleColumns={visibleColumns}
+        hiddenColumns={hiddenColumns}
+        onColumnVisibilityChange={handleColumnVisibilityChange}
+        onColumnOrderChange={handleColumnOrderChange}
+        isOpen={isColumnsOpen}
+        onClose={() => setIsColumnsOpen(false)}
+        anchorRef={columnsButtonRef}
+      />
+
+      {/* Save Popover - rendered via portal to escape stacking context */}
+      {isSaveOpen && saveButtonRef.current && createPortal(
+        <div
+          ref={savePopoverRef}
+          className="fixed z-[10000] bg-white rounded-lg shadow-lg border border-gray-200 p-3 w-64"
+          style={{
+            top: saveButtonRef.current.getBoundingClientRect().top - 124,
+            left: saveButtonRef.current.getBoundingClientRect().right - 256,
+          }}
+        >
+          <label className="block text-xs text-gray-500 mb-1">View name</label>
+          <input
+            type="text"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            placeholder="Enter name..."
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSavePerspective()
+              if (e.key === 'Escape') setIsSaveOpen(false)
+            }}
+            className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={handleSavePerspective}
+            disabled={!saveName.trim()}
+            className="w-full px-3 py-1.5 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
+          >
+            Save
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  )
 
   return (
     <div>
-      {/* Custom toolbar with Columns and Save buttons */}
-      <div className="flex items-center gap-2 mb-2 relative">
-        <button
-          ref={columnsButtonRef}
-          onClick={() => setIsColumnsOpen(!isColumnsOpen)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 rounded-md bg-white hover:bg-gray-50"
-          style={{ color: hiddenCount > 0 ? '#3b82f6' : '#374151' }}
-        >
-          Columns
-          {hiddenCount > 0 && (
-            <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px] font-medium">
-              {hiddenCount} hidden
-            </span>
-          )}
-        </button>
-
-        {hasChanges && (
-          <button
-            ref={saveButtonRef}
-            onClick={() => setIsSaveOpen(!isSaveOpen)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-500 rounded-md bg-blue-500 text-white hover:bg-blue-600"
-          >
-            Save View
-          </button>
-        )}
-
-        <ColumnsPopover
-          columns={COLUMNS}
-          visibleColumns={visibleColumns}
-          hiddenColumns={hiddenColumns}
-          onColumnVisibilityChange={handleColumnVisibilityChange}
-          onColumnOrderChange={handleColumnOrderChange}
-          isOpen={isColumnsOpen}
-          onClose={() => setIsColumnsOpen(false)}
-          anchorRef={columnsButtonRef}
-        />
-
-        {/* Save Popover */}
-        {isSaveOpen && (
-          <div
-            ref={savePopoverRef}
-            className="absolute top-full left-20 mt-1 z-50 bg-white rounded-lg shadow-lg border border-gray-200 p-3 w-64"
-          >
-            <label className="block text-xs text-gray-500 mb-1">View name</label>
-            <input
-              type="text"
-              value={saveName}
-              onChange={(e) => setSaveName(e.target.value)}
-              placeholder="Enter name..."
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleSavePerspective()
-                if (e.key === 'Escape') setIsSaveOpen(false)
-              }}
-              className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <button
-              onClick={handleSavePerspective}
-              disabled={!saveName.trim()}
-              className="w-full px-3 py-1.5 text-xs rounded-md bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed"
-            >
-              Save
-            </button>
-          </div>
-        )}
-      </div>
-
       <DynamicTable
         key={`quote-details-${displayColumns.length}-${displayColumns.map(c => c.data).join(',')}`}
         tableRef={tableRef}
@@ -598,6 +634,7 @@ export function QuoteDetailsTable({ quote, onFieldSave }: QuoteDetailsTableProps
           hideFilterButton: true,
           hideAddRowButton: true,
           hideBottomBar: false,
+          bottomBarEnd: bottomBarToolbar,
         }}
       />
     </div>

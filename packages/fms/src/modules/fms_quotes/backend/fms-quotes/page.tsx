@@ -75,7 +75,7 @@ const StatusRenderer = ({ value }: { value: string }) => {
   if (!value) return <span>-</span>
   return (
     <span
-      className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(value)}`}
+      className={`px-2 py-0.5 inline-flex text-xs leading-4 font-semibold rounded-full ${getStatusColor(value)}`}
     >
       {value.toUpperCase()}
     </span>
@@ -448,13 +448,6 @@ export default function FmsQuotesPage() {
   return (
     <Page>
       <PageBody>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-semibold">Freight Quotes</h1>
-          <Button onClick={() => setIsDrawerOpen(true)} size="sm">
-            <Plus className="h-4 w-4 mr-1" />
-            New Quote
-          </Button>
-        </div>
         <DynamicTable
           tableRef={tableRef}
           data={tableData}
@@ -466,7 +459,16 @@ export default function FmsQuotesPage() {
           rowHeaders={true}
           savedPerspectives={savedPerspectives}
           activePerspectiveId={activePerspectiveId}
-          uiConfig={{ hideAddRowButton: true }}
+          uiConfig={{
+            hideAddRowButton: true,
+            enableFullscreen: true,
+            topBarEnd: (
+              <Button onClick={() => setIsDrawerOpen(true)} size="sm">
+                <Plus className="h-4 w-4 mr-1" />
+                New Quote
+              </Button>
+            ),
+          }}
           pagination={{
             currentPage: page,
             totalPages: Math.ceil((data?.total || 0) / limit),

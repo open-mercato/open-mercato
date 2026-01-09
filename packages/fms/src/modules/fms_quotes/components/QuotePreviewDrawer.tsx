@@ -97,6 +97,7 @@ function SectionTable({ title, columns, data }: { title: string; columns: Column
           hideFilterButton: true,
           hideAddRowButton: true,
           hideBottomBar: true,
+          hideActionsColumn: true,
         }}
       />
     </div>
