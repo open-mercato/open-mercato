@@ -7,36 +7,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { Queue } from '@open-mercato/queue'
 import type { VectorIndexJobPayload } from '../../../../../queue/vector-indexing'
-import { VECTOR_INDEXING_QUEUE_NAME } from '../../../../../queue/vector-indexing'
 import { handleVectorIndexJob } from '../../../workers/vector-index.worker'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
-}
-
-/**
- * Check if there are active workers for the vector-indexing queue.
- * Returns the worker count, or 0 if unable to check.
- */
-async function getWorkerCount(): Promise<number> {
-  if (process.env.QUEUE_STRATEGY !== 'async') {
-    return 0
-  }
-
-  try {
-    const { Queue } = await import('bullmq')
-    const redisUrl = process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
-    const connection = redisUrl
-      ? { url: redisUrl }
-      : { host: 'localhost', port: 6379 }
-    const queue = new Queue(VECTOR_INDEXING_QUEUE_NAME, { connection })
-    const workers = await queue.getWorkers()
-    await queue.close()
-    return workers.length
-  } catch (error) {
-    console.warn('[search.embeddings.reindex] Failed to check worker count', error)
-    return 0
-  }
 }
 
 export async function POST(req: Request) {
@@ -103,29 +77,12 @@ export async function POST(req: Request) {
       await service.reindexAll({ tenantId: auth.tenantId, organizationId: auth.orgId ?? null, purgeFirst })
     }
 
-    // For local queue strategy or async without workers, process jobs immediately
-    // For async strategy (Redis) with workers, jobs are processed by separate workers
+    // For local queue strategy, process jobs immediately in this request
+    // For async strategy (Redis), jobs are processed by separate workers
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-    let warning: string | undefined
     let processedSync = false
 
-    // Check if we should process synchronously
-    let shouldProcessSync = queueStrategy === 'local'
-    if (queueStrategy === 'async') {
-      const workerCount = await getWorkerCount()
-      if (workerCount === 0) {
-        shouldProcessSync = true
-        warning = t(
-          'search.api.warnings.noWorkersAvailable',
-          'No queue workers detected. Processing synchronously instead. Start a worker with: yarn mercato queue worker vector-indexing'
-        )
-        console.warn('[search.embeddings.reindex] No workers available, falling back to sync mode')
-      } else {
-        console.log('[search.embeddings.reindex] Found active workers', { workerCount })
-      }
-    }
-
-    if (shouldProcessSync) {
+    if (queueStrategy === 'local') {
       let queue: Queue<VectorIndexJobPayload> | null = null
       try {
         queue = container.resolve<Queue<VectorIndexJobPayload>>('vectorIndexQueue')
@@ -170,7 +127,7 @@ export async function POST(req: Request) {
         details: { purgeFirst, processedSync },
       },
     ).catch(() => undefined)
-    return NextResponse.json({ ok: true, warning, processedSync })
+    return NextResponse.json({ ok: true, processedSync })
   } catch (error: any) {
     const message = typeof error?.message === 'string' ? error.message : t('search.api.errors.reindexFailed', 'Vector reindex failed')
     const status = typeof error?.status === 'number'
