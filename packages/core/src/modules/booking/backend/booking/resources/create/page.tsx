@@ -10,10 +10,12 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
+import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '@open-mercato/core/modules/booking/lib/capacityUnits'
+import { BOOKING_RESOURCE_FIELDSET_DEFAULT, resolveBookingResourceFieldsetCode } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
 
 const DEFAULT_PAGE_SIZE = 200
 
@@ -68,13 +70,64 @@ export default function BookingResourceCreatePage() {
     return () => { cancelled = true }
   }, [scopeVersion])
 
+  const resourceFieldsetByTypeId = React.useMemo(() => {
+    const map = new Map<string, string>()
+    resourceTypes.forEach((type) => {
+      map.set(type.id, resolveBookingResourceFieldsetCode(type.name))
+    })
+    return map
+  }, [resourceTypes])
+
+  const resolveFieldsetCode = React.useCallback((resourceTypeId?: string | null) => {
+    if (!resourceTypeId) return BOOKING_RESOURCE_FIELDSET_DEFAULT
+    return resourceFieldsetByTypeId.get(resourceTypeId) ?? BOOKING_RESOURCE_FIELDSET_DEFAULT
+  }, [resourceFieldsetByTypeId])
+
+  const appearanceLabels = React.useMemo(() => ({
+    colorLabel: t('booking.resources.form.appearance.colorLabel', 'Color'),
+    colorHelp: t('booking.resources.form.appearance.colorHelp', 'Pick a color for this resource.'),
+    colorClearLabel: t('booking.resources.form.appearance.colorClear', 'Clear color'),
+    iconLabel: t('booking.resources.form.appearance.iconLabel', 'Icon'),
+    iconPlaceholder: t('booking.resources.form.appearance.iconPlaceholder', 'Type an emoji or icon name'),
+    iconPickerTriggerLabel: t('booking.resources.form.appearance.iconPicker', 'Browse icons'),
+    iconSearchPlaceholder: t('booking.resources.form.appearance.iconSearch', 'Search icons or emojis…'),
+    iconSearchEmptyLabel: t('booking.resources.form.appearance.iconSearchEmpty', 'No icons match your search'),
+    iconSuggestionsLabel: t('booking.resources.form.appearance.iconSuggestions', 'Suggestions'),
+    iconClearLabel: t('booking.resources.form.appearance.iconClear', 'Clear icon'),
+    previewEmptyLabel: t('booking.resources.form.appearance.previewEmpty', 'No appearance selected'),
+  }), [t])
+
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('booking.resources.form.fields.name', 'Name'), type: 'text', required: true },
     {
+      id: 'description',
+      label: t('booking.resources.form.fields.description', 'Description'),
+      type: 'richtext',
+      editor: 'markdown',
+    },
+    {
       id: 'resourceTypeId',
       label: t('booking.resources.form.fields.type', 'Resource type'),
-      type: 'select',
-      options: resourceTypes.map((type) => ({ value: type.id, label: type.name })),
+      type: 'custom',
+      component: ({ value, setValue, setFormValue }) => (
+        <select
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => {
+            const next = event.target.value || ''
+            setValue(next)
+            setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
+          }}
+          data-crud-focus-target=""
+        >
+          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
+          {resourceTypes.map((type) => (
+            <option key={type.id} value={type.id}>
+              {type.name}
+            </option>
+          ))}
+        </select>
+      ),
     },
     {
       id: 'capacity',
@@ -108,6 +161,26 @@ export default function BookingResourceCreatePage() {
       },
     },
     {
+      id: 'appearance',
+      label: t('booking.resources.form.appearance.label', 'Appearance'),
+      type: 'custom',
+      component: ({ value, setValue, disabled }) => {
+        const appearance = value && typeof value === 'object'
+          ? value as { icon?: string | null; color?: string | null }
+          : {}
+        return (
+          <AppearanceSelector
+            icon={appearance.icon ?? null}
+            color={appearance.color ?? null}
+            onIconChange={(next) => setValue({ ...appearance, icon: next })}
+            onColorChange={(next) => setValue({ ...appearance, color: next })}
+            labels={appearanceLabels}
+            disabled={disabled}
+          />
+        )
+      },
+    },
+    {
       id: 'isAvailableByDefault',
       label: t('booking.resources.form.fields.defaultAvailability', 'Available by default'),
       description: t(
@@ -121,13 +194,19 @@ export default function BookingResourceCreatePage() {
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [capacityUnitDictionaryId, resourceTypes, t])
+  ], [appearanceLabels, capacityUnitDictionaryId, resolveFieldsetCode, resourceTypes, t])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
+    const appearance = values.appearance && typeof values.appearance === 'object'
+      ? values.appearance as { icon?: string | null; color?: string | null }
+      : {}
+    const { appearance: _appearance, customFieldsetCode: _customFieldsetCode, ...rest } = values
     const payload: Record<string, unknown> = {
-      ...values,
+      ...rest,
       capacity: values.capacity ? Number(values.capacity) : null,
       capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
+      appearanceIcon: appearance.icon ?? null,
+      appearanceColor: appearance.color ?? null,
       isActive: values.isActive ?? true,
       isAvailableByDefault: values.isAvailableByDefault ?? true,
       ...collectCustomFieldValues(values),
@@ -157,8 +236,16 @@ export default function BookingResourceCreatePage() {
           cancelHref="/backend/booking/resources"
           submitLabel={t('booking.resources.form.actions.create', 'Create')}
           fields={fields}
-          initialValues={{ isActive: true, isAvailableByDefault: true, capacityUnitValue: '' }}
+          initialValues={{
+            description: '',
+            isActive: true,
+            isAvailableByDefault: true,
+            capacityUnitValue: '',
+            appearance: { icon: null, color: null },
+            customFieldsetCode: BOOKING_RESOURCE_FIELDSET_DEFAULT,
+          }}
           entityId={E.booking.booking_resource}
+          customFieldsetBindings={{ [E.booking.booking_resource]: { valueKey: 'customFieldsetCode' } }}
           onSubmit={handleSubmit}
         />
       </PageBody>

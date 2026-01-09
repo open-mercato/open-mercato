@@ -115,6 +115,9 @@ export class BookingTeamMember {
   @Property({ name: 'display_name', type: 'text' })
   displayName!: string
 
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
   @Property({ name: 'user_id', type: 'uuid', nullable: true })
   userId?: string | null
 
@@ -186,6 +189,9 @@ export class BookingResource {
   @Property({ type: 'text' })
   name!: string
 
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
   @Property({ name: 'resource_type_id', type: 'uuid', nullable: true })
   resourceTypeId?: string | null
 
@@ -203,6 +209,12 @@ export class BookingResource {
 
   @Property({ name: 'capacity_unit_icon', type: 'text', nullable: true })
   capacityUnitIcon?: string | null
+
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true

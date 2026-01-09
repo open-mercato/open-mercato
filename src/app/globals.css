@@ -137,3 +137,13 @@
 .rbc-today {
   background-color: color-mix(in oklab, var(--accent) 40%, transparent);
 }
+
+.schedule-calendar .rbc-time-gutter,
+.schedule-calendar .rbc-agenda-time-cell,
+.schedule-calendar .rbc-agenda-date-cell {
+  font-size: 0.75rem;
+}
+
+.schedule-calendar .rbc-time-content {
+  font-size: 0.8125rem;
+}

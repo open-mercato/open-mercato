@@ -27,6 +27,8 @@ type ResourceRow = {
   capacity: number | null
   tags?: TagOption[] | null
   isActive: boolean
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
 }
 
 type ResourceTypeRow = {
@@ -320,8 +322,12 @@ export default function BookingResourcesPage() {
         const isGroup = row.original.rowKind === 'group'
         const typeId = row.original.resourceTypeId ?? ''
         const type = resourceTypes.get(typeId) ?? null
-        const icon = isGroup ? row.original.appearanceIcon : type?.appearanceIcon
-        const color = isGroup ? row.original.appearanceColor : type?.appearanceColor
+        const icon = isGroup
+          ? row.original.appearanceIcon
+          : row.original.appearanceIcon ?? type?.appearanceIcon
+        const color = isGroup
+          ? row.original.appearanceColor
+          : row.original.appearanceColor ?? type?.appearanceColor
         if (!icon && !color) {
           return <span className="text-xs text-muted-foreground">—</span>
         }
@@ -437,6 +443,16 @@ function mapApiResource(item: Record<string, unknown>): ResourceRow {
     : typeof item.is_active === 'boolean'
       ? item.is_active
       : false
+  const appearanceIcon = typeof item.appearanceIcon === 'string'
+    ? item.appearanceIcon
+    : typeof item.appearance_icon === 'string'
+      ? item.appearance_icon
+      : null
+  const appearanceColor = typeof item.appearanceColor === 'string'
+    ? item.appearanceColor
+    : typeof item.appearance_color === 'string'
+      ? item.appearance_color
+      : null
   const tags = Array.isArray(item.tags) ? item.tags as TagOption[] : []
   return {
     id,
@@ -445,5 +461,7 @@ function mapApiResource(item: Record<string, unknown>): ResourceRow {
     capacity: Number.isFinite(capacity as number) ? capacity as number : null,
     tags,
     isActive,
+    appearanceIcon,
+    appearanceColor,
   }
 }

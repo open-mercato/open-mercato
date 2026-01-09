@@ -6,35 +6,22 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { updateCrud, deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { Input } from '@open-mercato/ui/primitives/input'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { LoadingMessage, ErrorMessage, TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
-import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleViewMode, type ScheduleSlot } from '@open-mercato/ui/backend/schedule'
+import { TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '@open-mercato/core/modules/booking/lib/capacityUnits'
-import {
-  buildResourceScheduleItems,
-  parseAvailabilityRuleWindow,
-} from '@open-mercato/core/modules/booking/lib/resourceSchedule'
+import { buildResourceScheduleItems } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT, resolveBookingResourceFieldsetCode } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
-import type { BookingEventStatus } from '@open-mercato/core/modules/booking/data/entities'
-import { GanttChart } from 'lucide-react'
+import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
+import { AvailabilitySchedule } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
 
 const DEFAULT_PAGE_SIZE = 200
-
-const REPEAT_OPTIONS = [
-  { value: 'once', labelKey: 'booking.resources.availability.repeat.once', fallback: 'Once' },
-  { value: 'daily', labelKey: 'booking.resources.availability.repeat.daily', fallback: 'Daily' },
-  { value: 'weekly', labelKey: 'booking.resources.availability.repeat.weekly', fallback: 'Weekly' },
-]
 
 type ResourceRecord = {
   id: string
@@ -190,6 +177,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const dialogRef = React.useRef<HTMLDivElement | null>(null)
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [resourceTypes, setResourceTypes] = React.useState<ResourceTypeRow[]>([])
+  const [resourceTypesLoaded, setResourceTypesLoaded] = React.useState(false)
   const [availabilityRules, setAvailabilityRules] = React.useState<AvailabilityRule[]>([])
   const [availabilityLoading, setAvailabilityLoading] = React.useState(true)
   const [availabilityError, setAvailabilityError] = React.useState<string | null>(null)
@@ -214,7 +202,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
-    if (!resourceId) return
+    if (!resourceId || !resourceTypesLoaded) return
     let cancelled = false
     async function loadResource() {
       try {
@@ -255,7 +243,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     }
     loadResource()
     return () => { cancelled = true }
-  }, [resourceId, resolveFieldsetCode, t])
+  }, [resourceId, resolveFieldsetCode, resourceTypesLoaded, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -269,6 +257,8 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
         }
       } catch {
         if (!cancelled) setResourceTypes([])
+      } finally {
+        if (!cancelled) setResourceTypesLoaded(true)
       }
     }
     loadResourceTypes()
@@ -767,6 +757,11 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     [t],
   )
 
+  const tabs = React.useMemo(() => ([
+    { id: 'details', label: t('booking.resources.tabs.details', 'Details') },
+    { id: 'availability', label: t('booking.resources.tabs.availability', 'Availability') },
+  ]), [t])
+
   const loadTagOptions = React.useCallback(
     async (query?: string): Promise<TagOption[]> => {
       const params = new URLSearchParams({ pageSize: '100' })
@@ -856,57 +851,87 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   return (
     <Page>
       <PageBody>
-        <CrudForm
-          title={t('booking.resources.form.editTitle', 'Edit resource')}
-          backHref="/backend/booking/resources"
-          cancelHref="/backend/booking/resources"
-          fields={fields}
-          initialValues={initialValues ?? undefined}
-          entityId={E.booking.booking_resource}
-          onSubmit={handleSubmit}
-          onDelete={handleDelete}
-          isLoading={!initialValues}
-          loadingMessage={t('booking.resources.form.loading', 'Loading resource...')}
-        />
-
-        <div className="mt-6">
-          <TagsSection
-            title={t('booking.resources.tags.title', 'Tags')}
-            tags={tags}
-            onChange={setTags}
-            loadOptions={loadTagOptions}
-            createTag={createTag}
-            onSave={handleTagsSave}
-            labels={tagLabels}
-          />
-        </div>
-
-        <div className="mt-8 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold text-foreground">
-              {t('booking.resources.availability.section.title', 'Availability')}
-            </h2>
-            <Button type="button" variant="outline" onClick={() => openCreateDialog()}>
-              <GanttChart className="mr-2 h-4 w-4" aria-hidden="true" />
-              {availabilityLabels.addAction}
-            </Button>
+        <div className="space-y-6">
+          <div className="border-b">
+            <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={t('booking.resources.tabs.label', 'Resource sections')}>
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.id}
+                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
+                  className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
           </div>
-          {scheduleLoading ? (
-            <LoadingMessage label={t('booking.resources.schedule.loading', 'Loading schedule...')} />
-          ) : scheduleError ? (
-            <ErrorMessage label={scheduleError} />
+
+          {activeTab === 'details' ? (
+            <>
+              <CrudForm
+                title={t('booking.resources.form.editTitle', 'Edit resource')}
+                backHref="/backend/booking/resources"
+                cancelHref="/backend/booking/resources"
+                fields={fields}
+                initialValues={initialValues ?? undefined}
+                entityId={E.booking.booking_resource}
+                customFieldsetBindings={{ [E.booking.booking_resource]: { valueKey: 'customFieldsetCode' } }}
+                onSubmit={handleSubmit}
+                onDelete={handleDelete}
+                isLoading={!initialValues}
+                loadingMessage={t('booking.resources.form.loading', 'Loading resource...')}
+              />
+
+              <div className="mt-6">
+                <TagsSection
+                  title={t('booking.resources.tags.title', 'Tags')}
+                  tags={tags}
+                  onChange={setTags}
+                  loadOptions={loadTagOptions}
+                  createTag={createTag}
+                  onSave={handleTagsSave}
+                  labels={tagLabels}
+                />
+              </div>
+            </>
           ) : (
-            <ScheduleView
-              items={scheduleItems}
-              view={scheduleView}
-              range={range}
-              timezone={timezone}
-              onRangeChange={setRange}
-              onViewChange={setScheduleView}
-              onTimezoneChange={setTimezone}
-              onItemClick={handleItemClick}
-              onSlotClick={handleSlotClick}
-            />
+            <div className="rounded-xl border bg-card p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold text-foreground">
+                  {t('booking.resources.availability.section.title', 'Availability')}
+                </h2>
+                <Button type="button" variant="outline" onClick={() => openCreateDialog()}>
+                  <GanttChart className="mr-2 h-4 w-4" aria-hidden="true" />
+                  {availabilityLabels.addAction}
+                </Button>
+              </div>
+              <div className="mt-4">
+                {scheduleLoading ? (
+                  <LoadingMessage label={t('booking.resources.schedule.loading', 'Loading schedule...')} />
+                ) : scheduleError ? (
+                  <ErrorMessage label={scheduleError} />
+                ) : (
+                  <ScheduleView
+                    items={scheduleItems}
+                    view={scheduleView}
+                    range={range}
+                    timezone={timezone}
+                    onRangeChange={setRange}
+                    onViewChange={setScheduleView}
+                    onTimezoneChange={setTimezone}
+                    onItemClick={handleItemClick}
+                    onSlotClick={handleSlotClick}
+                  />
+                )}
+              </div>
+            </div>
           )}
         </div>
       </PageBody>

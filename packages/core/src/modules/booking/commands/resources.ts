@@ -133,12 +133,15 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       name: parsed.name,
+      description: parsed.description ?? null,
       resourceTypeId: parsed.resourceTypeId ?? null,
       capacity: parsed.capacity ?? null,
       capacityUnitValue: unitSnapshot?.value ?? null,
       capacityUnitName: unitSnapshot?.name ?? null,
       capacityUnitColor: unitSnapshot?.color ?? null,
       capacityUnitIcon: unitSnapshot?.icon ?? null,
+      appearanceIcon: parsed.appearanceIcon ?? null,
+      appearanceColor: parsed.appearanceColor ?? null,
       isActive: parsed.isActive ?? true,
       isAvailableByDefault: parsed.isAvailableByDefault ?? true,
       createdAt: now,
@@ -188,9 +191,12 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
       }
     }
     if (parsed.name !== undefined) record.name = parsed.name
+    if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
     if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null
     if (parsed.isAvailableByDefault !== undefined) record.isAvailableByDefault = parsed.isAvailableByDefault
+    if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
     await syncBookingResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,

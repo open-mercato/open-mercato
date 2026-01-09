@@ -98,6 +98,7 @@ export const bookingTeamRoleUpdateSchema = z.object({
 export const bookingTeamMemberCreateSchema = z.object({
   ...scopedCreateFields,
   displayName: z.string().min(1),
+  description: z.string().optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
   roleIds: z.array(z.string().uuid()).optional().default([]),
   tags: tagsSchema,
@@ -107,6 +108,7 @@ export const bookingTeamMemberCreateSchema = z.object({
 export const bookingTeamMemberUpdateSchema = z.object({
   ...scopedUpdateFields,
   displayName: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
   roleIds: z.array(z.string().uuid()).optional(),
   tags: z.array(z.string().min(1)).optional(),
@@ -142,10 +144,18 @@ export const bookingResourceTypeUpdateSchema = z.object({
 export const bookingResourceCreateSchema = z.object({
   ...scopedCreateFields,
   name: z.string().min(1),
+  description: z.string().optional().nullable(),
   resourceTypeId: z.string().uuid().optional().nullable(),
   capacity: z.coerce.number().int().positive().optional().nullable(),
   capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().uuid()).optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
   isActive: z.boolean().optional(),
   isAvailableByDefault: z.boolean().optional(),
 })
@@ -153,10 +163,18 @@ export const bookingResourceCreateSchema = z.object({
 export const bookingResourceUpdateSchema = z.object({
   ...scopedUpdateFields,
   name: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
   resourceTypeId: z.string().uuid().optional().nullable(),
   capacity: z.coerce.number().int().positive().optional().nullable(),
   capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().uuid()).optional(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
   isActive: z.boolean().optional(),
   isAvailableByDefault: z.boolean().optional(),
 })

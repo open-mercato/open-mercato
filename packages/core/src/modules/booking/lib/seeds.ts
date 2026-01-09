@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { BOOKING_CAPACITY_UNIT_DEFAULTS, BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from './capacityUnits'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
+import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import {
   BookingResource,
   BookingResourceTag,
@@ -11,8 +14,48 @@ import {
   type BookingResourceRequirement,
   type BookingResourceTypeRequirement,
 } from '../data/entities'
+import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import {
+  BOOKING_RESOURCE_CUSTOM_FIELD_SETS,
+  BOOKING_RESOURCE_FIELDSETS,
+} from './resourceCustomFields'
 
 export type BookingSeedScope = { tenantId: string; organizationId: string }
+
+async function ensureResourceFieldsetConfig(em: EntityManager, scope: BookingSeedScope) {
+  const now = new Date()
+  let config = await em.findOne(CustomFieldEntityConfig, {
+    entityId: E.booking.booking_resource,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  if (!config) {
+    config = em.create(CustomFieldEntityConfig, {
+      entityId: E.booking.booking_resource,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+  }
+  config.configJson = {
+    fieldsets: BOOKING_RESOURCE_FIELDSETS,
+    singleFieldsetPerRecord: true,
+  }
+  config.isActive = true
+  config.updatedAt = now
+  em.persist(config)
+}
+
+async function ensureResourceCustomFields(em: EntityManager, scope: BookingSeedScope) {
+  await ensureResourceFieldsetConfig(em, scope)
+  await ensureCustomFieldDefinitions(em, BOOKING_RESOURCE_CUSTOM_FIELD_SETS, {
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+  await em.flush()
+}
 
 export async function seedBookingCapacityUnits(
   em: EntityManager,
@@ -208,6 +251,7 @@ export async function seedBookingResourceExamples(
   scope: BookingSeedScope,
 ) {
   const now = new Date()
+  await ensureResourceCustomFields(em, scope)
   const typeNames = RESOURCE_TYPE_SEEDS.map((seed) => seed.name)
   const existingTypes = await findWithDecryption(
     em,
@@ -332,6 +376,74 @@ export async function seedBookingResourceExamples(
     resourceByKey.set(seed.key, resource)
   }
   await em.flush()
+
+  for (const seed of RESOURCE_SEEDS) {
+    const resource = resourceByKey.get(seed.key)
+    if (!resource) continue
+    const baseValues = {
+      asset_tag: seed.key.toUpperCase(),
+      owner: 'Operations',
+      ops_notes: `Seeded for ${seed.name}.`,
+    }
+    let customValues: Record<string, string | number | boolean | null> = { ...baseValues }
+    switch (seed.typeKey) {
+      case 'room':
+        customValues = {
+          ...baseValues,
+          room_floor: '1',
+          room_zone: 'North Wing',
+          room_projector: true,
+          room_whiteboard: true,
+          room_access_notes: 'Keycard access required after 6pm.',
+        }
+        break
+      case 'laptop':
+        customValues = {
+          ...baseValues,
+          laptop_serial: `LT-${seed.key.toUpperCase()}`,
+          laptop_cpu: 'Intel i7',
+          laptop_ram_gb: 16,
+          laptop_storage_gb: 512,
+          laptop_os: 'windows',
+          laptop_accessories: 'Docking station, charger, spare mouse.',
+        }
+        break
+      case 'client_seat':
+        customValues = {
+          ...baseValues,
+          seat_style: 'standard',
+          seat_heated: false,
+          seat_positioning: 'Adjust headrest for extended sessions.',
+        }
+        break
+      case 'hair_kit':
+        customValues = {
+          ...baseValues,
+          kit_inventory: 'Shears, clippers, comb set, cape, spray bottle.',
+          kit_restock_cycle: 'Monthly',
+          kit_maintenance: 'Replace clipper blades every quarter.',
+        }
+        break
+      case 'dental_chair':
+        customValues = {
+          ...baseValues,
+          chair_model: 'DX-300',
+          chair_ultrasonic: true,
+          chair_last_disinfected: '2025-01-01',
+          chair_inspection_notes: 'Monthly inspection scheduled.',
+        }
+        break
+      default:
+        customValues = { ...baseValues }
+    }
+    await setRecordCustomFields(em, {
+      entityId: E.booking.booking_resource,
+      recordId: resource.id,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      values: customValues,
+    })
+  }
 
   const resourceList = Array.from(resourceByKey.values())
   if (resourceList.length > 0) {

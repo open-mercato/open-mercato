@@ -179,6 +179,7 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     entityId: 'booking:booking_team_member',
     fields: [
       { field: 'display_name' },
+      { field: 'description' },
       { field: 'tags' },
     ],
   },
