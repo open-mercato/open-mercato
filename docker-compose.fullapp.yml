@@ -23,10 +23,14 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       DEMO_MODE: "true"
       CACHE_STRATEGY: redis
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
     networks:
       - mercato-network-fullapp
@@ -66,11 +70,33 @@ services:
     networks:
       - mercato-network-fullapp
 
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: mercato-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network-fullapp
+
 volumes:
   postgres_data:
     name: mercato-postgres-data
   redis_data:
     name: mercato-redis-data
+  meilisearch_data:
+    name: mercato-meilisearch-data
 
 networks:
   mercato-network-fullapp:
