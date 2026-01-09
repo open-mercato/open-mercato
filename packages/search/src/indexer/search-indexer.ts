@@ -10,6 +10,8 @@ import type {
 import type { MeilisearchStrategy } from '../strategies/meilisearch.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { Queue } from '@open-mercato/queue'
+import type { MeilisearchIndexJobPayload } from '../queue/meilisearch-indexing'
 
 /**
  * Parameters for indexing a record.
@@ -51,6 +53,8 @@ export type ReindexEntityParams = {
   recreateIndex?: boolean
   /** Callback for progress tracking */
   onProgress?: (progress: ReindexProgress) => void
+  /** Whether to use queue for batch processing (default: false) */
+  useQueue?: boolean
 }
 
 /**
@@ -63,6 +67,8 @@ export type ReindexAllParams = {
   recreateIndex?: boolean
   /** Callback for progress tracking */
   onProgress?: (progress: ReindexProgress) => void
+  /** Whether to use queue for batch processing (default: false) */
+  useQueue?: boolean
 }
 
 /**
@@ -82,6 +88,8 @@ export type ReindexResult = {
   success: boolean
   entitiesProcessed: number
   recordsIndexed: number
+  /** Number of jobs enqueued (when useQueue is true) */
+  jobsEnqueued?: number
   errors: Array<{ entityId: EntityId; error: string }>
 }
 
@@ -90,6 +98,8 @@ export type ReindexResult = {
  */
 export type SearchIndexerOptions = {
   queryEngine?: QueryEngine
+  /** Queue for Meilisearch batch indexing */
+  meilisearchQueue?: Queue<MeilisearchIndexJobPayload>
 }
 
 /**
@@ -99,6 +109,7 @@ export type SearchIndexerOptions = {
 export class SearchIndexer {
   private readonly entityConfigMap: Map<EntityId, SearchEntityConfig>
   private readonly queryEngine?: QueryEngine
+  private readonly meilisearchQueue?: Queue<MeilisearchIndexJobPayload>
 
   constructor(
     private readonly searchService: SearchService,
@@ -107,6 +118,7 @@ export class SearchIndexer {
   ) {
     this.entityConfigMap = new Map()
     this.queryEngine = options?.queryEngine
+    this.meilisearchQueue = options?.meilisearchQueue
     for (const moduleConfig of moduleConfigs) {
       for (const entityConfig of moduleConfig.entities) {
         if (entityConfig.enabled !== false) {
@@ -306,12 +318,16 @@ export class SearchIndexer {
   /**
    * Reindex a single entity type to Meilisearch.
    * This fetches all records from the database and re-indexes them to Meilisearch only.
+   *
+   * When `useQueue` is true, batches are enqueued for background processing by workers.
+   * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
   async reindexEntityToMeilisearch(params: ReindexEntityParams): Promise<ReindexResult> {
     const result: ReindexResult = {
       success: true,
       entitiesProcessed: 0,
       recordsIndexed: 0,
+      jobsEnqueued: 0,
       errors: [],
     }
 
@@ -319,6 +335,13 @@ export class SearchIndexer {
     if (!meilisearch) {
       result.success = false
       result.errors.push({ entityId: params.entityId, error: 'Meilisearch strategy not available' })
+      return result
+    }
+
+    // If useQueue is requested but no queue is available, return error
+    if (params.useQueue && !this.meilisearchQueue) {
+      result.success = false
+      result.errors.push({ entityId: params.entityId, error: 'Meilisearch queue not configured for queue-based reindexing' })
       return result
     }
 
@@ -351,6 +374,7 @@ export class SearchIndexer {
       const pageSize = 50
       let page = 1
       let totalProcessed = 0
+      let jobsEnqueued = 0
 
       for (;;) {
         params.onProgress?.({
@@ -363,8 +387,6 @@ export class SearchIndexer {
           tenantId: params.tenantId,
           organizationId: params.organizationId ?? undefined,
           page: { page, pageSize },
-          includeCustomFields: true,
-          fields: ['*'], // Fetch all fields for indexing
         })
 
         if (!queryResult.items.length) break
@@ -385,10 +407,41 @@ export class SearchIndexer {
           config,
         )
 
-        // Index to Meilisearch only
+        // Index to Meilisearch - either via queue or directly
         if (indexableRecords.length > 0) {
-          await meilisearch.bulkIndex(indexableRecords)
-          totalProcessed += indexableRecords.length
+          if (params.useQueue && this.meilisearchQueue) {
+            // Enqueue batch for background processing
+            await this.meilisearchQueue.enqueue({
+              jobType: 'batch-index',
+              tenantId: params.tenantId,
+              records: indexableRecords,
+            })
+            jobsEnqueued += 1
+            totalProcessed += indexableRecords.length
+            console.log('[SearchIndexer] Enqueued batch for Meilisearch indexing', {
+              entityId: params.entityId,
+              batchSize: indexableRecords.length,
+              jobsEnqueued,
+              totalProcessed,
+            })
+          } else {
+            // Direct indexing (blocking)
+            try {
+              await meilisearch.bulkIndex(indexableRecords)
+              totalProcessed += indexableRecords.length
+              console.log('[SearchIndexer] Indexed batch to Meilisearch', {
+                entityId: params.entityId,
+                batchSize: indexableRecords.length,
+                totalProcessed,
+              })
+            } catch (indexError) {
+              console.error('[SearchIndexer] Failed to index batch to Meilisearch', {
+                entityId: params.entityId,
+                error: indexError instanceof Error ? indexError.message : indexError,
+              })
+              throw indexError
+            }
+          }
         }
 
         if (queryResult.items.length < pageSize) break
@@ -397,6 +450,7 @@ export class SearchIndexer {
 
       result.entitiesProcessed = 1
       result.recordsIndexed = totalProcessed
+      result.jobsEnqueued = jobsEnqueued
 
       params.onProgress?.({
         entityId: params.entityId,
@@ -417,12 +471,16 @@ export class SearchIndexer {
 
   /**
    * Reindex all enabled entities to Meilisearch.
+   *
+   * When `useQueue` is true, batches are enqueued for background processing by workers.
+   * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
   async reindexAllToMeilisearch(params: ReindexAllParams): Promise<ReindexResult> {
     const result: ReindexResult = {
       success: true,
       entitiesProcessed: 0,
       recordsIndexed: 0,
+      jobsEnqueued: 0,
       errors: [],
     }
 
@@ -446,10 +504,12 @@ export class SearchIndexer {
         organizationId: params.organizationId,
         recreateIndex: false, // Already recreated above
         onProgress: params.onProgress,
+        useQueue: params.useQueue,
       })
 
       result.entitiesProcessed += entityResult.entitiesProcessed
       result.recordsIndexed += entityResult.recordsIndexed
+      result.jobsEnqueued = (result.jobsEnqueued ?? 0) + (entityResult.jobsEnqueued ?? 0)
       result.errors.push(...entityResult.errors)
 
       if (!entityResult.success) {
@@ -472,9 +532,26 @@ export class SearchIndexer {
   ): Promise<IndexableRecord[]> {
     const records: IndexableRecord[] = []
 
+    // Debug: log first item to see structure
+    if (items.length > 0) {
+      console.log('[SearchIndexer] Sample item structure', {
+        entityId,
+        sampleKeys: Object.keys(items[0]),
+        sampleId: items[0].id,
+        hasId: 'id' in items[0],
+        firstName: items[0].first_name,
+        lastName: items[0].last_name,
+        preferredName: items[0].preferred_name,
+        sampleItem: JSON.stringify(items[0]).slice(0, 500),
+      })
+    }
+
     for (const item of items) {
       const recordId = String(item.id ?? '')
-      if (!recordId) continue
+      if (!recordId) {
+        console.warn('[SearchIndexer] Skipping item without id', { entityId, itemKeys: Object.keys(item) })
+        continue
+      }
 
       // Extract custom fields from record
       const customFields: Record<string, unknown> = {}
@@ -498,6 +575,17 @@ export class SearchIndexer {
         try {
           const result = await config.formatResult(buildContext)
           if (result) presenter = result
+          // Debug: log presenter result for first record
+          if (records.length === 0) {
+            console.log('[SearchIndexer] formatResult debug', {
+              entityId,
+              recordId,
+              presenterTitle: result?.title,
+              recordFirstName: item.first_name,
+              recordLastName: item.last_name,
+              recordPreferredName: item.preferred_name,
+            })
+          }
         } catch {
           // Skip presenter on error
         }
@@ -536,6 +624,12 @@ export class SearchIndexer {
         links,
       })
     }
+
+    console.log('[SearchIndexer] Finished building records', {
+      entityId,
+      inputCount: items.length,
+      outputCount: records.length,
+    })
 
     return records
   }

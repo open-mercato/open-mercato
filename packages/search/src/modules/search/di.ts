@@ -2,6 +2,9 @@ import { asValue } from 'awilix'
 import type { AppContainer } from '@/lib/di/container'
 import { EmbeddingService, VectorIndexService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
 import { vectorModuleConfigs } from '@/generated/vector.generated'
+import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
+import { createMeilisearchIndexingQueue, type MeilisearchIndexJobPayload } from '../../queue/meilisearch-indexing'
+import type { Queue } from '@open-mercato/queue'
 
 function resolveEventBus(container: AppContainer): { emitEvent: (...args: any[]) => Promise<any> } | undefined {
   const getBus = () => {
@@ -53,9 +56,27 @@ export function register(container: AppContainer) {
     eventBus,
   })
 
+  // Create queues based on environment strategy
+  const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
+  const queueConnection = queueStrategy === 'async'
+    ? { connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL } }
+    : undefined
+
+  const vectorIndexQueue: Queue<VectorIndexJobPayload> = createVectorIndexingQueue(
+    queueStrategy,
+    queueConnection,
+  )
+
+  const meilisearchIndexQueue: Queue<MeilisearchIndexJobPayload> = createMeilisearchIndexingQueue(
+    queueStrategy,
+    queueConnection,
+  )
+
   container.register({
     vectorEmbeddingService: asValue(embeddingService),
     vectorDrivers: asValue(drivers),
     vectorIndexService: asValue(indexService),
+    vectorIndexQueue: asValue(vectorIndexQueue),
+    meilisearchIndexQueue: asValue(meilisearchIndexQueue),
   })
 }

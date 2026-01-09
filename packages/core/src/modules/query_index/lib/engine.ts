@@ -616,7 +616,8 @@ export class HybridQueryEngine implements QueryEngine {
       })
     }
 
-    const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])
+    // When no fields specified, select all base table columns (like BasicQueryEngine does)
+    const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
     if (opts.includeCustomFields === true) {
       const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
       try {

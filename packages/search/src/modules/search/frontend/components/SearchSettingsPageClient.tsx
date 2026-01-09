@@ -480,7 +480,7 @@ export function SearchSettingsPageClient() {
       const response = await fetch('/api/search/reindex', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, useQueue: action === 'reindex' }),
       })
 
       const body = await response.json() as ReindexResponse

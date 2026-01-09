@@ -9,6 +9,8 @@ import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig, SearchField
 import type { VectorDriver } from './vector/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { Queue } from '@open-mercato/queue'
+import type { MeilisearchIndexJobPayload } from './queue/meilisearch-indexing'
 
 /**
  * Container interface - minimal subset needed for registration.
@@ -129,8 +131,17 @@ export function registerSearchModule(
     // QueryEngine not available, reindex will be disabled
   }
 
+  // Try to resolve meilisearchIndexQueue for queue-based reindexing
+  let meilisearchQueue: Queue<MeilisearchIndexJobPayload> | undefined
+  try {
+    meilisearchQueue = container.resolve<Queue<MeilisearchIndexJobPayload>>('meilisearchIndexQueue')
+  } catch {
+    // Queue not available, queue-based reindex will be disabled
+  }
+
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
     queryEngine,
+    meilisearchQueue,
   })
 
   // Register in container

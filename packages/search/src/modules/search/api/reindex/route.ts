@@ -5,6 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { MeilisearchStrategy } from '@open-mercato/search/strategies/meilisearch.strategy'
 import type { SearchIndexer } from '@open-mercato/search/indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { MEILISEARCH_INDEXING_QUEUE_NAME } from '@open-mercato/search/queue/meilisearch-indexing'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.reindex'] },
@@ -13,6 +14,31 @@ export const metadata = {
 type ReindexAction = 'clear' | 'recreate' | 'reindex'
 
 const toJson = (payload: Record<string, unknown>, init?: ResponseInit) => NextResponse.json(payload, init)
+
+/**
+ * Check if there are active workers for the meilisearch-indexing queue.
+ * Returns the worker count, or 0 if unable to check.
+ */
+async function getWorkerCount(): Promise<number> {
+  if (process.env.QUEUE_STRATEGY !== 'async') {
+    return 0
+  }
+
+  try {
+    const { Queue } = await import('bullmq')
+    const redisUrl = process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
+    const connection = redisUrl
+      ? { url: redisUrl }
+      : { host: 'localhost', port: 6379 }
+    const queue = new Queue(MEILISEARCH_INDEXING_QUEUE_NAME, { connection })
+    const workers = await queue.getWorkers()
+    await queue.close()
+    return workers.length
+  } catch (error) {
+    console.warn('[search.reindex] Failed to check worker count', error)
+    return 0
+  }
+}
 
 const unauthorized = async () => {
   const { t } = await resolveTranslations()
@@ -26,7 +52,7 @@ export async function POST(req: Request) {
     return await unauthorized()
   }
 
-  let payload: { action?: ReindexAction; entityId?: string } = {}
+  let payload: { action?: ReindexAction; entityId?: string; useQueue?: boolean } = {}
   try {
     payload = await req.json()
   } catch {
@@ -37,6 +63,7 @@ export async function POST(req: Request) {
     payload.action === 'clear' ? 'clear' :
     payload.action === 'recreate' ? 'recreate' : 'reindex'
   const entityId = typeof payload.entityId === 'string' ? payload.entityId : undefined
+  const useQueue = payload.useQueue === true
 
   const container = await createRequestContainer()
   try {
@@ -74,7 +101,37 @@ export async function POST(req: Request) {
       }
 
       let result
-      const orgId = typeof auth.organizationId === 'string' ? auth.organizationId : null
+      const orgId = typeof auth.orgId === 'string' ? auth.orgId : null
+
+      // Check if queue mode is requested but no workers are available
+      let effectiveUseQueue = useQueue
+      let warning: string | undefined
+
+      if (useQueue) {
+        const workerCount = await getWorkerCount()
+        if (workerCount === 0) {
+          effectiveUseQueue = false
+          warning = t(
+            'search.api.warnings.noWorkersAvailable',
+            'No queue workers detected. Processing synchronously instead. Start a worker with: yarn mercato queue worker meilisearch-indexing'
+          )
+          console.warn('[search.reindex] No workers available, falling back to sync mode')
+        } else {
+          console.log('[search.reindex] Found active workers', { workerCount })
+        }
+      }
+
+      // Debug: List enabled entities
+      const enabledEntities = searchIndexer.listEnabledEntities()
+      console.log('[search.reindex] Starting reindex', {
+        tenantId: auth.tenantId,
+        orgId,
+        enabledEntities,
+        entityId: entityId ?? 'all',
+        useQueue: effectiveUseQueue,
+        requestedUseQueue: useQueue,
+      })
+
       if (entityId) {
         // Reindex specific entity
         result = await searchIndexer.reindexEntityToMeilisearch({
@@ -82,11 +139,17 @@ export async function POST(req: Request) {
           tenantId: auth.tenantId,
           organizationId: orgId,
           recreateIndex: true,
+          useQueue: effectiveUseQueue,
+          onProgress: (progress) => {
+            console.log('[search.reindex] Progress', progress)
+          },
         })
         console.log('[search.reindex] Reindexed entity to Meilisearch', {
           entityId,
           tenantId: auth.tenantId,
           recordsIndexed: result.recordsIndexed,
+          jobsEnqueued: result.jobsEnqueued,
+          errors: result.errors,
         })
       } else {
         // Reindex all entities
@@ -94,11 +157,17 @@ export async function POST(req: Request) {
           tenantId: auth.tenantId,
           organizationId: orgId,
           recreateIndex: true,
+          useQueue: effectiveUseQueue,
+          onProgress: (progress) => {
+            console.log('[search.reindex] Progress', progress)
+          },
         })
         console.log('[search.reindex] Reindexed all entities to Meilisearch', {
           tenantId: auth.tenantId,
           entitiesProcessed: result.entitiesProcessed,
           recordsIndexed: result.recordsIndexed,
+          jobsEnqueued: result.jobsEnqueued,
+          errors: result.errors,
         })
       }
 
@@ -109,9 +178,12 @@ export async function POST(req: Request) {
         ok: result.success,
         action,
         entityId: entityId ?? null,
+        useQueue: effectiveUseQueue,
+        warning,
         result: {
           entitiesProcessed: result.entitiesProcessed,
           recordsIndexed: result.recordsIndexed,
+          jobsEnqueued: result.jobsEnqueued ?? 0,
           errors: result.errors.length > 0 ? result.errors : undefined,
         },
         stats,

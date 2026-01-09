@@ -9,6 +9,9 @@ import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from '@open-mercato/core/mo
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { SearchService } from '../../service'
 import type { SearchIndexer } from '../../indexer/search-indexer'
+import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../queue/vector-indexing'
+import { MEILISEARCH_INDEXING_QUEUE_NAME, type MeilisearchIndexJobPayload } from '../../queue/meilisearch-indexing'
+import type { QueuedJob, JobContext } from '@open-mercato/queue'
 
 type CliProgressBar = {
   update(completed: number): void
@@ -717,6 +720,86 @@ const reindexHelpCli: ModuleCli = {
   },
 }
 
+/**
+ * Start a queue worker for processing search indexing jobs.
+ */
+async function workerCommand(rest: string[]): Promise<void> {
+  const queueName = rest[0]
+  const args = parseArgs(rest)
+  const concurrency = toPositiveInt(numberOpt(args, 'concurrency')) ?? 1
+
+  const validQueues = [VECTOR_INDEXING_QUEUE_NAME, MEILISEARCH_INDEXING_QUEUE_NAME]
+
+  if (!queueName || !validQueues.includes(queueName)) {
+    console.error('\nUsage: yarn mercato search worker <queue-name> [options]\n')
+    console.error('Available queues:')
+    console.error(`  ${VECTOR_INDEXING_QUEUE_NAME}        Process vector embedding indexing jobs`)
+    console.error(`  ${MEILISEARCH_INDEXING_QUEUE_NAME}   Process Meilisearch indexing jobs`)
+    console.error('\nOptions:')
+    console.error('  --concurrency <n>   Number of concurrent jobs to process (default: 1)')
+    console.error('\nExamples:')
+    console.error(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
+    console.error(`  yarn mercato search worker ${MEILISEARCH_INDEXING_QUEUE_NAME} --concurrency=5`)
+    return
+  }
+
+  // Check if Redis is configured for async queue
+  const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+  if (queueStrategy !== 'async') {
+    console.error('\nError: Queue workers require QUEUE_STRATEGY=async')
+    console.error('Set QUEUE_STRATEGY=async and configure REDIS_URL in your environment.\n')
+    return
+  }
+
+  const redisUrl = process.env.REDIS_URL || process.env.QUEUE_REDIS_URL
+  if (!redisUrl) {
+    console.error('\nError: Redis connection not configured')
+    console.error('Set REDIS_URL or QUEUE_REDIS_URL in your environment.\n')
+    return
+  }
+
+  // Dynamically import runWorker to avoid loading BullMQ unless needed
+  const { runWorker } = await import('@open-mercato/queue/worker')
+
+  console.log(`\nStarting ${queueName} worker...`)
+  console.log(`  Concurrency: ${concurrency}`)
+  console.log(`  Redis: ${redisUrl.replace(/\/\/[^:]+:[^@]+@/, '//<credentials>@')}`)
+  console.log('')
+
+  if (queueName === VECTOR_INDEXING_QUEUE_NAME) {
+    const { handleVectorIndexJob } = await import('./workers/vector-index.worker')
+    const container = await createRequestContainer()
+
+    await runWorker<VectorIndexJobPayload>({
+      queueName: VECTOR_INDEXING_QUEUE_NAME,
+      handler: async (job: QueuedJob<VectorIndexJobPayload>, ctx: JobContext) => {
+        await handleVectorIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+      },
+      connection: { url: redisUrl },
+      concurrency,
+    })
+  } else if (queueName === MEILISEARCH_INDEXING_QUEUE_NAME) {
+    const { handleMeilisearchIndexJob } = await import('./workers/meilisearch-index.worker')
+    const container = await createRequestContainer()
+
+    await runWorker<MeilisearchIndexJobPayload>({
+      queueName: MEILISEARCH_INDEXING_QUEUE_NAME,
+      handler: async (job: QueuedJob<MeilisearchIndexJobPayload>, ctx: JobContext) => {
+        await handleMeilisearchIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+      },
+      connection: { url: redisUrl },
+      concurrency,
+    })
+  }
+}
+
+const workerCli: ModuleCli = {
+  command: 'worker',
+  async run(rest) {
+    await workerCommand(rest)
+  },
+}
+
 const helpCli: ModuleCli = {
   command: 'help',
   async run() {
@@ -728,6 +811,7 @@ const helpCli: ModuleCli = {
     console.log('  reindex             Reindex vector embeddings for entities')
     console.log('  reindex-help        Show reindex command options')
     console.log('  test-meilisearch    Test Meilisearch connection')
+    console.log('  worker              Start a queue worker for search indexing')
     console.log('  help                Show this help message')
     console.log('\nExamples:')
     console.log('  yarn mercato search status')
@@ -735,7 +819,9 @@ const helpCli: ModuleCli = {
     console.log('  yarn mercato search index --entity customers:customer_person_profile --record abc123 --tenant tenant-123')
     console.log('  yarn mercato search reindex --tenant tenant-123 --entity customers:customer_person_profile')
     console.log('  yarn mercato search test-meilisearch')
+    console.log(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
+    console.log(`  yarn mercato search worker ${MEILISEARCH_INDEXING_QUEUE_NAME} --concurrency=5`)
   },
 }
 
-export default [searchCli, statusCli, indexCli, reindexCli, reindexHelpCli, testMeilisearchCli, helpCli]
+export default [searchCli, statusCli, indexCli, reindexCli, reindexHelpCli, testMeilisearchCli, workerCli, helpCli]

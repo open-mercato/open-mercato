@@ -25,6 +25,7 @@
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",
-    "@open-mercato/core": "workspace:*"
+    "@open-mercato/core": "workspace:*",
+    "@open-mercato/queue": "workspace:*"
   }
 }
