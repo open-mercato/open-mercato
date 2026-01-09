@@ -202,7 +202,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       id: 'description',
       label: t('booking.teamMembers.form.fields.description', 'Description'),
       type: 'richtext',
-      editor: 'simple',
+      editor: 'uiw',
     },
     {
       id: 'roleIds',

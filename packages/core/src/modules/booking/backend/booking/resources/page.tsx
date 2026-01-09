@@ -101,7 +101,7 @@ export default function BookingResourcesPage() {
     let cancelled = false
     async function loadResourceTypes() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '200' })
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
         const call = await apiCall<ResourceTypesResponse>(`/api/booking/resource-types?${params.toString()}`)
         const items = Array.isArray(call.result?.items) ? call.result.items : []
         const map = new Map<string, ResourceTypeRow>()

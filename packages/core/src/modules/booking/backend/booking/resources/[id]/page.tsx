@@ -21,7 +21,7 @@ import { BOOKING_RESOURCE_FIELDSET_DEFAULT, resolveBookingResourceFieldsetCode }
 import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
 import { AvailabilitySchedule } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
 
-const DEFAULT_PAGE_SIZE = 200
+const DEFAULT_PAGE_SIZE = 100
 
 type ResourceRecord = {
   id: string
@@ -94,6 +94,19 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const [isAvailableByDefault, setIsAvailableByDefault] = React.useState(true)
   const [capacityUnitDictionaryId, setCapacityUnitDictionaryId] = React.useState<string | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
+
+  const resourceFieldsetByTypeId = React.useMemo(() => {
+    const map = new Map<string, string>()
+    resourceTypes.forEach((type) => {
+      map.set(type.id, resolveBookingResourceFieldsetCode(type.name))
+    })
+    return map
+  }, [resourceTypes])
+
+  const resolveFieldsetCode = React.useCallback((resourceTypeId?: string | null) => {
+    if (!resourceTypeId) return BOOKING_RESOURCE_FIELDSET_DEFAULT
+    return resourceFieldsetByTypeId.get(resourceTypeId) ?? BOOKING_RESOURCE_FIELDSET_DEFAULT
+  }, [resourceFieldsetByTypeId])
 
   React.useEffect(() => {
     if (!resourceId || !resourceTypesLoaded) return
@@ -201,19 +214,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     }),
     [isAvailableByDefault],
   )
-
-  const resourceFieldsetByTypeId = React.useMemo(() => {
-    const map = new Map<string, string>()
-    resourceTypes.forEach((type) => {
-      map.set(type.id, resolveBookingResourceFieldsetCode(type.name))
-    })
-    return map
-  }, [resourceTypes])
-
-  const resolveFieldsetCode = React.useCallback((resourceTypeId?: string | null) => {
-    if (!resourceTypeId) return BOOKING_RESOURCE_FIELDSET_DEFAULT
-    return resourceFieldsetByTypeId.get(resourceTypeId) ?? BOOKING_RESOURCE_FIELDSET_DEFAULT
-  }, [resourceFieldsetByTypeId])
 
   const appearanceLabels = React.useMemo(() => ({
     colorLabel: t('booking.resources.form.appearance.colorLabel', 'Color'),
