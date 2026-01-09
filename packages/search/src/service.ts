@@ -86,13 +86,19 @@ export class SearchService {
       activeStrategies.map((strategy) => this.executeStrategySearch(strategy, query, options)),
     )
 
-    // Collect successful results
+    // Collect successful results, log failures
     const allResults: SearchResult[] = []
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
       if (result.status === 'fulfilled') {
         allResults.push(...result.value)
+      } else {
+        const strategy = activeStrategies[i]
+        console.error('[SearchService] Strategy search failed', {
+          strategyId: strategy?.id,
+          error: result.reason instanceof Error ? result.reason.message : result.reason,
+        })
       }
-      // Failed strategies are silently ignored (graceful degradation)
     }
 
     // Merge and rank results
@@ -163,9 +169,23 @@ export class SearchService {
   async index(record: IndexableRecord): Promise<void> {
     const strategies = await this.getAvailableStrategies()
 
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       strategies.map((strategy) => this.executeStrategyIndex(strategy, record)),
     )
+
+    // Log any failures
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
+      if (result.status === 'rejected') {
+        const strategy = strategies[i]
+        console.error('[SearchService] Strategy index failed', {
+          strategyId: strategy?.id,
+          entityId: record.entityId,
+          recordId: record.recordId,
+          error: result.reason instanceof Error ? result.reason.message : result.reason,
+        })
+      }
+    }
   }
 
   /**
@@ -178,9 +198,23 @@ export class SearchService {
   async delete(entityId: string, recordId: string, tenantId: string): Promise<void> {
     const strategies = await this.getAvailableStrategies()
 
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       strategies.map((strategy) => this.executeStrategyDelete(strategy, entityId, recordId, tenantId)),
     )
+
+    // Log any failures
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
+      if (result.status === 'rejected') {
+        const strategy = strategies[i]
+        console.error('[SearchService] Strategy delete failed', {
+          strategyId: strategy?.id,
+          entityId,
+          recordId,
+          error: result.reason instanceof Error ? result.reason.message : result.reason,
+        })
+      }
+    }
   }
 
   /**
@@ -193,7 +227,7 @@ export class SearchService {
 
     const strategies = await this.getAvailableStrategies()
 
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       strategies.map((strategy) => {
         if (strategy.bulkIndex) {
           return strategy.bulkIndex(records)
@@ -202,6 +236,19 @@ export class SearchService {
         return Promise.all(records.map((record) => this.executeStrategyIndex(strategy, record)))
       }),
     )
+
+    // Log any failures
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
+      if (result.status === 'rejected') {
+        const strategy = strategies[i]
+        console.error('[SearchService] Strategy bulkIndex failed', {
+          strategyId: strategy?.id,
+          recordCount: records.length,
+          error: result.reason instanceof Error ? result.reason.message : result.reason,
+        })
+      }
+    }
   }
 
   /**
@@ -213,7 +260,7 @@ export class SearchService {
   async purge(entityId: string, tenantId: string): Promise<void> {
     const strategies = await this.getAvailableStrategies()
 
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
       strategies.map((strategy) => {
         if (strategy.purge) {
           return strategy.purge(entityId, tenantId)
@@ -221,6 +268,19 @@ export class SearchService {
         return Promise.resolve()
       }),
     )
+
+    // Log any failures
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
+      if (result.status === 'rejected') {
+        const strategy = strategies[i]
+        console.error('[SearchService] Strategy purge failed', {
+          strategyId: strategy?.id,
+          entityId,
+          error: result.reason instanceof Error ? result.reason.message : result.reason,
+        })
+      }
+    }
   }
 
   /**

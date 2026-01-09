@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import type {
   SearchStrategy,
   SearchStrategyId,
@@ -35,6 +36,7 @@ export class VectorSearchStrategy implements SearchStrategy {
 
   private readonly defaultLimit: number
   private ready = false
+  private readyPromise: Promise<void> | null = null
 
   constructor(
     private readonly embeddingService: EmbeddingService,
@@ -50,8 +52,12 @@ export class VectorSearchStrategy implements SearchStrategy {
 
   async ensureReady(): Promise<void> {
     if (this.ready) return
-    await this.vectorDriver.ensureReady()
-    this.ready = true
+    if (!this.readyPromise) {
+      this.readyPromise = this.vectorDriver.ensureReady().then(() => {
+        this.ready = true
+      })
+    }
+    return this.readyPromise
   }
 
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
@@ -158,7 +164,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   /**
-   * Compute a simple checksum for change detection.
+   * Compute a checksum for change detection using SHA-256.
    */
   private computeSimpleChecksum(record: IndexableRecord): string {
     const content = JSON.stringify({
@@ -166,13 +172,6 @@ export class VectorSearchStrategy implements SearchStrategy {
       presenter: record.presenter,
       url: record.url,
     })
-    // Simple hash - in production, use crypto
-    let hash = 0
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i)
-      hash = ((hash << 5) - hash) + char
-      hash = hash & hash // Convert to 32bit integer
-    }
-    return Math.abs(hash).toString(16)
+    return createHash('sha256').update(content).digest('hex').slice(0, 16)
   }
 }

@@ -45,6 +45,7 @@ export class MeilisearchStrategy implements SearchStrategy {
   private readonly encryptionMapResolver?: (entityId: EntityId) => Promise<EncryptionMapEntry[]>
   private readonly fieldPolicyResolver?: (entityId: EntityId) => SearchFieldPolicy | undefined
   private readonly initializedIndexes = new Set<string>()
+  private readonly initializingIndexes = new Map<string, Promise<void>>()
 
   constructor(config?: MeilisearchStrategyConfig) {
     this.host = config?.host ?? process.env.MEILISEARCH_HOST ?? ''
@@ -359,17 +360,24 @@ export class MeilisearchStrategy implements SearchStrategy {
   }
 
   /**
+   * Escape special characters in filter values to prevent injection.
+   */
+  private escapeFilterValue(value: string): string {
+    return value.replace(/["\\]/g, '\\$&')
+  }
+
+  /**
    * Build filter string from search options.
    */
   private buildFilters(options: SearchOptions): string[] {
     const filters: string[] = []
 
     if (options.organizationId) {
-      filters.push(`_organizationId = "${options.organizationId}"`)
+      filters.push(`_organizationId = "${this.escapeFilterValue(options.organizationId)}"`)
     }
 
     if (options.entityTypes?.length) {
-      const entityFilter = options.entityTypes.map((t) => `"${t}"`).join(', ')
+      const entityFilter = options.entityTypes.map((t) => `"${this.escapeFilterValue(t)}"`).join(', ')
       filters.push(`_entityId IN [${entityFilter}]`)
     }
 
@@ -378,10 +386,32 @@ export class MeilisearchStrategy implements SearchStrategy {
 
   /**
    * Ensure index exists with proper settings.
+   * Uses promise-based locking to prevent race conditions.
    */
   private async ensureIndex(indexName: string): Promise<void> {
     if (this.initializedIndexes.has(indexName)) return
 
+    // Check if initialization is already in progress
+    const existingPromise = this.initializingIndexes.get(indexName)
+    if (existingPromise) {
+      return existingPromise
+    }
+
+    // Start initialization and store the promise
+    const initPromise = this.doEnsureIndex(indexName)
+    this.initializingIndexes.set(indexName, initPromise)
+
+    try {
+      await initPromise
+    } finally {
+      this.initializingIndexes.delete(indexName)
+    }
+  }
+
+  /**
+   * Actually create and configure the index.
+   */
+  private async doEnsureIndex(indexName: string): Promise<void> {
     const client = this.getClient()
 
     try {

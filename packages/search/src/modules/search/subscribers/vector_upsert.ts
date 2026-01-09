@@ -64,10 +64,11 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
       organizationId: organizationId ? String(organizationId) : null,
     })
   } catch (error) {
-    console.warn('[search.vector] Failed to enqueue vector index job', {
+    console.error('[search.vector] Failed to enqueue vector index job', {
       entityType,
       recordId,
       error: error instanceof Error ? error.message : error,
     })
+    throw error // Propagate to caller so failure is visible
   }
 }

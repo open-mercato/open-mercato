@@ -278,7 +278,7 @@ async function indexCommand(rest: string[]): Promise<void> {
     const customFields: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(record)) {
       if (key.startsWith('cf:') || key.startsWith('cf_')) {
-        const cfKey = key.startsWith('cf:') ? key.slice(3) : key.slice(3)
+        const cfKey = key.slice(3) // Remove 'cf:' or 'cf_' prefix (both are 3 chars)
         customFields[cfKey] = value
       }
     }
