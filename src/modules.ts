@@ -29,4 +29,5 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'contractors', from: '@open-mercato/fms' },
   { id: 'fms_quotes', from: '@open-mercato/fms' },
+  { id: 'fms_locations', from: '@open-mercato/fms' },
 ]
