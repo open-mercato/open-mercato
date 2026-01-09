@@ -133,6 +133,7 @@ export const bookingResourceCreateSchema = z.object({
   capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().uuid()).optional(),
   isActive: z.boolean().optional(),
+  isAvailableByDefault: z.boolean().optional(),
 })
 
 export const bookingResourceUpdateSchema = z.object({
@@ -143,6 +144,7 @@ export const bookingResourceUpdateSchema = z.object({
   capacityUnitValue: z.string().min(1).optional().nullable(),
   tags: z.array(z.string().uuid()).optional(),
   isActive: z.boolean().optional(),
+  isAvailableByDefault: z.boolean().optional(),
 })
 
 export const bookingAvailabilityRuleCreateSchema = z.object({

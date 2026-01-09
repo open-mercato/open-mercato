@@ -195,6 +195,9 @@ export class BookingResource {
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
+  @Property({ name: 'is_available_by_default', type: 'boolean', default: true })
+  isAvailableByDefault: boolean = true
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

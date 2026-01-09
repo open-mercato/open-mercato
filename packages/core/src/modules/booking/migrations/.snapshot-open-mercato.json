@@ -1099,6 +1099,16 @@
           "default": "true",
           "mappedType": "boolean"
         },
+        "is_available_by_default": {
+          "name": "is_available_by_default",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "boolean"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -1404,6 +1414,18 @@
             "id"
           ],
           "referencedTableName": "public.booking_resource_tags",
+          "updateRule": "cascade"
+        },
+        "booking_resource_tag_assignments_resource_id_foreign": {
+          "constraintName": "booking_resource_tag_assignments_resource_id_foreign",
+          "columnNames": [
+            "resource_id"
+          ],
+          "localTableName": "public.booking_resource_tag_assignments",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.booking_resources",
           "updateRule": "cascade"
         }
       },

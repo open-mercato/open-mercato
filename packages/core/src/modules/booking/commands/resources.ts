@@ -140,6 +140,7 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       capacityUnitColor: unitSnapshot?.color ?? null,
       capacityUnitIcon: unitSnapshot?.icon ?? null,
       isActive: parsed.isActive ?? true,
+      isAvailableByDefault: parsed.isAvailableByDefault ?? true,
       createdAt: now,
       updatedAt: now,
     })
@@ -189,6 +190,7 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (parsed.name !== undefined) record.name = parsed.name
     if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
     if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null
+    if (parsed.isAvailableByDefault !== undefined) record.isAvailableByDefault = parsed.isAvailableByDefault
     await syncBookingResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,

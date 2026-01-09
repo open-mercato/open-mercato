@@ -108,6 +108,15 @@ export default function BookingResourceCreatePage() {
       },
     },
     {
+      id: 'isAvailableByDefault',
+      label: t('booking.resources.form.fields.defaultAvailability', 'Available by default'),
+      description: t(
+        'booking.resources.form.fields.defaultAvailability.help',
+        'When unchecked, this resource is unavailable unless you add availability rules.',
+      ),
+      type: 'checkbox',
+    },
+    {
       id: 'isActive',
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',
@@ -120,6 +129,7 @@ export default function BookingResourceCreatePage() {
       capacity: values.capacity ? Number(values.capacity) : null,
       capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
       isActive: values.isActive ?? true,
+      isAvailableByDefault: values.isAvailableByDefault ?? true,
       ...collectCustomFieldValues(values),
     }
     if (!payload.name || String(payload.name).trim().length === 0) {
@@ -147,7 +157,7 @@ export default function BookingResourceCreatePage() {
           cancelHref="/backend/booking/resources"
           submitLabel={t('booking.resources.form.actions.create', 'Create')}
           fields={fields}
-          initialValues={{ isActive: true, capacityUnitValue: '' }}
+          initialValues={{ isActive: true, isAvailableByDefault: true, capacityUnitValue: '' }}
           entityId={E.booking.booking_resource}
           onSubmit={handleSubmit}
         />

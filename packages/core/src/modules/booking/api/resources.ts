@@ -59,6 +59,7 @@ const crud = makeCrudRoute({
       'capacity_unit_color',
       'capacity_unit_icon',
       F.is_active,
+      'is_available_by_default',
       F.created_at,
       F.updated_at,
     ],
