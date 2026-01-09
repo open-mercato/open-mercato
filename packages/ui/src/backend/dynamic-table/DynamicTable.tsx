@@ -112,6 +112,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   tableRef,
   columnActions,
   rowActions,
+  actionsRenderer,
   pagination,
   // New perspective props
   savedPerspectives: propSavedPerspectives,
@@ -515,6 +516,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
                   onCancelNewRow={handleCancelNewRow}
                   onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
                   onCellSave={handleCellSave}
+                  actionsRenderer={actionsRenderer}
                 />
               ))}
             </tbody>

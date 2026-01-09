@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { NextResponse } from 'next/server'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Contractor } from '../../data/entities'
@@ -6,6 +7,10 @@ import { contractorCreateSchema, contractorUpdateSchema, contractorListQuerySche
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -106,7 +111,12 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        return contractorCreateSchema.parse(scoped)
+        const parsed = contractorCreateSchema.parse(scoped)
+        return {
+          ...parsed,
+          organizationId: scoped.organizationId,
+          tenantId: scoped.tenantId,
+        }
       },
       response: ({ result }) => ({ id: result?.contractorId ?? result?.id ?? null }),
       status: 201,
@@ -117,7 +127,13 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        return contractorUpdateSchema.parse(scoped)
+        const parsed = contractorUpdateSchema.parse(scoped)
+        return {
+          ...parsed,
+          id: scoped.id ?? (raw as Record<string, unknown>)?.id,
+          organizationId: scoped.organizationId,
+          tenantId: scoped.tenantId,
+        }
       },
       response: () => ({ ok: true }),
     },
@@ -139,7 +155,168 @@ const crud = makeCrudRoute({
   },
 })
 
-export const GET = crud.GET
+function buildScopeFilters(
+  auth: { tenantId?: string | null; orgId?: string | null },
+  scope: { tenantId?: string | null; selectedId?: string | null; filterIds?: string[] | null } | null
+): { tenantId?: string; organizationId?: { $in: string[] } } {
+  const filters: { tenantId?: string; organizationId?: { $in: string[] } } = {}
+
+  if (typeof auth.tenantId === 'string') {
+    filters.tenantId = auth.tenantId
+  }
+
+  const allowedOrgIds = new Set<string>()
+  const filterIds = scope?.filterIds
+  if (Array.isArray(filterIds) && filterIds.length > 0) {
+    filterIds.forEach((id) => {
+      if (typeof id === 'string') allowedOrgIds.add(id)
+    })
+  } else {
+    const fallbackOrgId = scope?.selectedId ?? auth.orgId
+    if (typeof fallbackOrgId === 'string') {
+      allowedOrgIds.add(fallbackOrgId)
+    }
+  }
+
+  if (allowedOrgIds.size > 0) {
+    filters.organizationId = { $in: [...allowedOrgIds] }
+  }
+
+  return filters
+}
+
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const url = new URL(req.url)
+  const parsed = listSchema.safeParse({
+    page: url.searchParams.get('page') || undefined,
+    pageSize: url.searchParams.get('pageSize') || undefined,
+    sortField: url.searchParams.get('sortField') || undefined,
+    sortDir: url.searchParams.get('sortDir') || undefined,
+    search: url.searchParams.get('search') || undefined,
+    isActive: url.searchParams.get('isActive') || undefined,
+    hasParent: url.searchParams.get('hasParent') || undefined,
+  })
+
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
+  }
+
+  const { page, pageSize, sortField, sortDir, search, isActive, hasParent } = parsed.data
+
+  const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const em = container.resolve('em') as EntityManager
+
+  const scopeFilters = buildScopeFilters(auth, scope)
+  const filters: Record<string, unknown> = {
+    deletedAt: null,
+    ...scopeFilters,
+  }
+
+  if (search) {
+    const pattern = `%${escapeLikePattern(search)}%`
+    filters.$or = [
+      { name: { $ilike: pattern } },
+      { code: { $ilike: pattern } },
+      { taxId: { $ilike: pattern } },
+    ]
+  }
+
+  if (typeof isActive === 'boolean') {
+    filters.isActive = isActive
+  }
+
+  if (typeof hasParent === 'boolean') {
+    if (hasParent) {
+      filters.parentId = { $ne: null }
+    } else {
+      filters.parentId = { $eq: null }
+    }
+  }
+
+  const orderBy: Record<string, 'asc' | 'desc'> = {}
+  if (sortField) {
+    const fieldMap: Record<string, string> = {
+      name: 'name',
+      code: 'code',
+      createdAt: 'createdAt',
+      updatedAt: 'updatedAt',
+    }
+    const dbField = fieldMap[sortField] || 'createdAt'
+    orderBy[dbField] = sortDir || 'desc'
+  } else {
+    orderBy.createdAt = 'desc'
+  }
+
+  const [contractors, total] = await em.findAndCount(Contractor, filters, {
+    populate: ['roles', 'roles.roleType', 'creditLimit', 'paymentTerms', 'contacts', 'addresses'],
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    orderBy,
+  })
+
+  const items = contractors.map((contractor) => {
+    // Find primary contact or first active contact
+    const contacts = contractor.contacts.getItems()
+    const primaryContact = contacts.find(c => c.isPrimary && c.isActive) ?? contacts.find(c => c.isActive) ?? null
+
+    // Find primary address or first active address
+    const addresses = contractor.addresses.getItems()
+    const primaryAddress = addresses.find(a => a.isPrimary && a.isActive) ?? addresses.find(a => a.isActive) ?? null
+
+    return {
+      id: contractor.id,
+      name: contractor.name,
+      shortName: contractor.shortName ?? null,
+      code: contractor.code ?? null,
+      parentId: contractor.parentId ?? null,
+      taxId: contractor.taxId ?? null,
+      legalName: contractor.legalName ?? null,
+      registrationNumber: contractor.registrationNumber ?? null,
+      isActive: contractor.isActive,
+      organizationId: contractor.organizationId,
+      tenantId: contractor.tenantId,
+      createdAt: contractor.createdAt?.toISOString(),
+      updatedAt: contractor.updatedAt?.toISOString(),
+      roles: contractor.roles.getItems().map((role) => ({
+        id: role.id,
+        roleTypeId: role.roleType.id,
+        roleTypeName: role.roleType.name,
+        roleTypeCode: role.roleType.code,
+        roleTypeColor: role.roleType.color,
+        roleTypeCategory: role.roleType.category,
+        isActive: role.isActive,
+      })),
+      creditLimit: contractor.creditLimit ? {
+        creditLimit: contractor.creditLimit.creditLimit,
+        currencyCode: contractor.creditLimit.currencyCode,
+        isUnlimited: contractor.creditLimit.isUnlimited,
+      } : null,
+      paymentTerms: contractor.paymentTerms ? {
+        paymentDays: contractor.paymentTerms.paymentDays,
+        paymentMethod: contractor.paymentTerms.paymentMethod,
+        currencyCode: contractor.paymentTerms.currencyCode,
+      } : null,
+      primaryContactEmail: primaryContact?.email ?? null,
+      primaryAddress: primaryAddress ? {
+        addressLine1: primaryAddress.addressLine1,
+        city: primaryAddress.city,
+        countryCode: primaryAddress.countryCode,
+      } : null,
+    }
+  })
+
+  return NextResponse.json({
+    items,
+    total,
+    page,
+    totalPages: Math.ceil(total / pageSize),
+  })
+}
+
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE

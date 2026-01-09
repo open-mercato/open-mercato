@@ -1,4 +1,10 @@
-import type { ContractorRoleCategory } from '../data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { ContractorRoleType, type ContractorRoleCategory } from '../data/entities'
+
+export type ContractorSeedScope = {
+  tenantId: string
+  organizationId: string
+}
 
 interface RoleTypeSeed {
   code: string
@@ -202,3 +208,44 @@ export const defaultRoleTypes: RoleTypeSeed[] = [
     sortOrder: 4,
   },
 ]
+
+export async function seedContractorRoleTypes(
+  em: EntityManager,
+  scope: ContractorSeedScope
+): Promise<{ created: number; skipped: number }> {
+  let created = 0
+  let skipped = 0
+
+  for (const seed of defaultRoleTypes) {
+    const existing = await em.findOne(ContractorRoleType, {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      code: seed.code,
+    })
+
+    if (existing) {
+      skipped++
+      continue
+    }
+
+    const roleType = em.create(ContractorRoleType, {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      code: seed.code,
+      name: seed.name,
+      category: seed.category,
+      description: seed.description,
+      color: seed.color,
+      sortOrder: seed.sortOrder,
+      isSystem: true,
+      isActive: true,
+    })
+
+    em.persist(roleType)
+    created++
+  }
+
+  await em.flush()
+
+  return { created, skipped }
+}

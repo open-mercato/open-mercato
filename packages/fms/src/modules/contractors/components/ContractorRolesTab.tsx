@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Trash2 } from 'lucide-react'
 import {
   DynamicTable,
   TableEvents,
@@ -41,11 +42,70 @@ type ContractorRolesTabProps = {
   contractorId: string
   roles: ContractorRole[]
   onUpdated: () => void
+  autoFocusFirstCell?: boolean
 }
 
-export function ContractorRolesTab({ contractorId, roles, onUpdated }: ContractorRolesTabProps) {
+const DeleteButton = ({ id, onDelete }: { id: string; onDelete: (id: string) => void }) => {
+  if (!id) return null
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onDelete(id)
+      }}
+      className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
+      title="Delete"
+    >
+      <Trash2 className="w-4 h-4" />
+    </button>
+  )
+}
+
+export function ContractorRolesTab({ contractorId, roles, onUpdated, autoFocusFirstCell = false }: ContractorRolesTabProps) {
   const tableRef = React.useRef<HTMLDivElement>(null)
   const t = useT()
+
+  // Auto-focus first cell when requested
+  React.useEffect(() => {
+    if (autoFocusFirstCell && tableRef.current) {
+      // Small delay to ensure the table is rendered
+      const timer = setTimeout(() => {
+        const firstCell = tableRef.current?.querySelector('td[data-row="0"][data-col="0"]') as HTMLElement
+        if (firstCell) {
+          // Simulate double-click to start editing
+          const dblClickEvent = new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          })
+          firstCell.dispatchEvent(dblClickEvent)
+        }
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [autoFocusFirstCell])
+
+  const handleDelete = React.useCallback(async (id: string) => {
+    if (!confirm(t('contractors.drawer.confirmDeleteRole', 'Are you sure you want to delete this role?'))) {
+      return
+    }
+    try {
+      const response = await apiCall(`/api/contractors/roles?id=${id}`, {
+        method: 'DELETE',
+      })
+      if (response.ok) {
+        flash(t('contractors.drawer.roleDeleted', 'Role deleted'), 'success')
+        onUpdated()
+      } else {
+        const error = (response.result as { error?: string })?.error ?? 'Delete failed'
+        flash(error, 'error')
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      flash(errorMessage, 'error')
+    }
+  }, [t, onUpdated])
 
   // Fetch available role types
   const { data: roleTypes, isLoading: roleTypesLoading } = useQuery({
@@ -80,11 +140,27 @@ export function ContractorRolesTab({ contractorId, roles, onUpdated }: Contracto
     { data: 'roleTypeCategory', title: 'Category', type: 'text', readOnly: true, width: 100 },
     { data: 'effectiveFrom', title: 'Effective From', type: 'date', width: 120 },
     { data: 'effectiveTo', title: 'Effective To', type: 'date', width: 120 },
-    { data: 'isActive', title: 'Active', type: 'checkbox', width: 70 },
+    { data: 'isActive', title: 'Active', type: 'boolean', width: 70 },
   ], [roleTypeOptions, roleTypes])
 
-  const data = React.useMemo(() =>
-    roles.map((role) => ({
+  const actionsRenderer = React.useCallback((rowData: { id: string }) => {
+    if (!rowData?.id) return null
+    return <DeleteButton id={rowData.id} onDelete={handleDelete} />
+  }, [handleDelete])
+
+  const data = React.useMemo(() => {
+    if (roles.length === 0) {
+      return [{
+        id: '',
+        roleTypeId: '',
+        roleTypeName: '',
+        roleTypeCategory: '',
+        effectiveFrom: '',
+        effectiveTo: '',
+        isActive: true,
+      }]
+    }
+    return roles.map((role) => ({
       id: role.id,
       roleTypeId: role.roleTypeId,
       roleTypeName: role.roleTypeName,
@@ -92,9 +168,8 @@ export function ContractorRolesTab({ contractorId, roles, onUpdated }: Contracto
       effectiveFrom: role.effectiveFrom?.split('T')[0] ?? '',
       effectiveTo: role.effectiveTo?.split('T')[0] ?? '',
       isActive: role.isActive,
-    })),
-    [roles]
-  )
+    }))
+  }, [roles])
 
   useEventHandlers(
     {
@@ -202,11 +277,12 @@ export function ContractorRolesTab({ contractorId, roles, onUpdated }: Contracto
         columns={columns}
         idColumnName="id"
         tableName="Roles"
-        height={Math.min(300, 80 + data.length * 35)}
+        height={Math.max(150, Math.min(300, 80 + data.length * 35))}
         colHeaders={true}
         rowHeaders={false}
+        actionsRenderer={actionsRenderer}
         uiConfig={{
-          hideToolbar: true,
+          hideToolbar: false,
           hideSearch: true,
           hideFilterButton: true,
           hideAddRowButton: false,

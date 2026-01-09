@@ -2,14 +2,13 @@
 
 import * as React from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Building2 } from 'lucide-react'
+import { Building2, Maximize2, Minimize2 } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from '@open-mercato/ui/primitives/sheet'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -18,7 +17,6 @@ import { ContractorDetailsTab } from './ContractorDetailsTab'
 import { ContractorAddressesTab } from './ContractorAddressesTab'
 import { ContractorContactsTab } from './ContractorContactsTab'
 import { ContractorRolesTab } from './ContractorRolesTab'
-import { ContractorFinancialTab } from './ContractorFinancialTab'
 
 type ContractorAddress = {
   id: string
@@ -106,14 +104,16 @@ export type ContractorDetail = {
   creditLimit?: ContractorCreditLimit | null
 }
 
+export type TabId = 'details' | 'addresses' | 'contacts' | 'roles'
+
 export type ContractorDrawerProps = {
   contractorId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onContractorUpdated?: () => void
+  initialTab?: TabId
+  autoFocusFirstCell?: boolean
 }
-
-type TabId = 'details' | 'addresses' | 'contacts' | 'roles' | 'financial'
 
 type TabDefinition = {
   id: TabId
@@ -125,10 +125,22 @@ export function ContractorDrawer({
   open,
   onOpenChange,
   onContractorUpdated,
+  initialTab = 'details',
+  autoFocusFirstCell = false,
 }: ContractorDrawerProps) {
   const t = useT()
   const queryClient = useQueryClient()
-  const [activeTab, setActiveTab] = React.useState<TabId>('details')
+  const [activeTab, setActiveTab] = React.useState<TabId>(initialTab)
+  const [isFullscreen, setIsFullscreen] = React.useState(false)
+
+  // Reset to initialTab when drawer opens or initialTab changes
+  React.useEffect(() => {
+    if (open) {
+      setActiveTab(initialTab)
+    } else {
+      setIsFullscreen(false)
+    }
+  }, [open, initialTab])
 
   const { data: contractor, isLoading, error, refetch } = useQuery({
     queryKey: ['contractor', contractorId],
@@ -147,12 +159,17 @@ export function ContractorDrawer({
     onContractorUpdated?.()
   }, [refetch, queryClient, onContractorUpdated])
 
+  const handleContractorDeleted = React.useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['contractors'] })
+    onContractorUpdated?.()
+    onOpenChange(false)
+  }, [queryClient, onContractorUpdated, onOpenChange])
+
   const tabs: TabDefinition[] = React.useMemo(() => [
     { id: 'details', label: t('contractors.drawer.tabs.details', 'Details') },
     { id: 'addresses', label: t('contractors.drawer.tabs.addresses', 'Addresses') },
     { id: 'contacts', label: t('contractors.drawer.tabs.contacts', 'Contacts') },
     { id: 'roles', label: t('contractors.drawer.tabs.roles', 'Roles') },
-    { id: 'financial', label: t('contractors.drawer.tabs.financial', 'Financial') },
   ], [t])
 
   const displayTitle = contractor?.name ?? t('contractors.drawer.title', 'Contractor')
@@ -162,7 +179,11 @@ export function ContractorDrawer({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full max-w-2xl flex flex-col p-0"
+        className="flex flex-col p-0 transition-[width,max-width] duration-300 ease-in-out"
+        style={{
+          width: isFullscreen ? '100vw' : '56rem',
+          maxWidth: isFullscreen ? '100vw' : '56rem',
+        }}
         overlayClassName="backdrop-blur-none"
       >
         {isLoading ? (
@@ -192,11 +213,20 @@ export function ContractorDrawer({
                       <p className="text-sm text-gray-500">{displayCode}</p>
                     )}
                   </div>
-                  <Badge variant={contractor.isActive ? 'default' : 'secondary'}>
-                    {contractor.isActive
-                      ? t('contractors.status.active', 'Active')
-                      : t('contractors.status.inactive', 'Inactive')}
-                  </Badge>
+                  <button
+                    type="button"
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="p-2 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+                    title={isFullscreen
+                      ? t('contractors.drawer.exitFullscreen', 'Exit fullscreen')
+                      : t('contractors.drawer.fullscreen', 'Fullscreen')}
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="w-4 h-4" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4" />
+                    )}
+                  </button>
                 </div>
               </SheetHeader>
             </div>
@@ -232,6 +262,8 @@ export function ContractorDrawer({
                 <ContractorDetailsTab
                   contractor={contractor}
                   onUpdated={handleContractorUpdated}
+                  onDeleted={handleContractorDeleted}
+                  autoFocusFirstCell={autoFocusFirstCell}
                 />
               )}
               {activeTab === 'addresses' && (
@@ -239,6 +271,7 @@ export function ContractorDrawer({
                   contractorId={contractor.id}
                   addresses={contractor.addresses}
                   onUpdated={handleContractorUpdated}
+                  autoFocusFirstCell={autoFocusFirstCell}
                 />
               )}
               {activeTab === 'contacts' && (
@@ -246,6 +279,7 @@ export function ContractorDrawer({
                   contractorId={contractor.id}
                   contacts={contractor.contacts}
                   onUpdated={handleContractorUpdated}
+                  autoFocusFirstCell={autoFocusFirstCell}
                 />
               )}
               {activeTab === 'roles' && (
@@ -253,14 +287,7 @@ export function ContractorDrawer({
                   contractorId={contractor.id}
                   roles={contractor.roles}
                   onUpdated={handleContractorUpdated}
-                />
-              )}
-              {activeTab === 'financial' && (
-                <ContractorFinancialTab
-                  contractorId={contractor.id}
-                  paymentTerms={contractor.paymentTerms}
-                  creditLimit={contractor.creditLimit}
-                  onUpdated={handleContractorUpdated}
+                  autoFocusFirstCell={autoFocusFirstCell}
                 />
               )}
             </div>

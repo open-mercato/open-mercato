@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { Trash2 } from 'lucide-react'
 import {
   DynamicTable,
   TableEvents,
@@ -32,26 +33,104 @@ type ContractorContactsTabProps = {
   contractorId: string
   contacts: ContractorContact[]
   onUpdated: () => void
+  autoFocusFirstCell?: boolean
 }
 
-const COLUMNS: ColumnDef[] = [
-  { data: 'firstName', title: 'First Name', type: 'text', width: 120 },
-  { data: 'lastName', title: 'Last Name', type: 'text', width: 120 },
-  { data: 'jobTitle', title: 'Job Title', type: 'text', width: 130 },
-  { data: 'department', title: 'Department', type: 'text', width: 110 },
-  { data: 'email', title: 'Email', type: 'text', width: 180 },
-  { data: 'phone', title: 'Phone', type: 'text', width: 120 },
-  { data: 'mobile', title: 'Mobile', type: 'text', width: 120 },
-  { data: 'isPrimary', title: 'Primary', type: 'checkbox', width: 70 },
-  { data: 'isActive', title: 'Active', type: 'checkbox', width: 70 },
-]
+const DeleteButton = ({ id, onDelete }: { id: string; onDelete: (id: string) => void }) => {
+  if (!id) return null
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onDelete(id)
+      }}
+      className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
+      title="Delete"
+    >
+      <Trash2 className="w-4 h-4" />
+    </button>
+  )
+}
 
-export function ContractorContactsTab({ contractorId, contacts, onUpdated }: ContractorContactsTabProps) {
+export function ContractorContactsTab({ contractorId, contacts, onUpdated, autoFocusFirstCell = false }: ContractorContactsTabProps) {
   const tableRef = React.useRef<HTMLDivElement>(null)
   const t = useT()
 
-  const data = React.useMemo(() =>
-    contacts.map((contact) => ({
+  // Auto-focus first cell when requested
+  React.useEffect(() => {
+    if (autoFocusFirstCell && tableRef.current) {
+      // Small delay to ensure the table is rendered
+      const timer = setTimeout(() => {
+        const firstCell = tableRef.current?.querySelector('td[data-row="0"][data-col="0"]') as HTMLElement
+        if (firstCell) {
+          // Simulate double-click to start editing
+          const dblClickEvent = new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          })
+          firstCell.dispatchEvent(dblClickEvent)
+        }
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [autoFocusFirstCell])
+
+  const handleDelete = React.useCallback(async (id: string) => {
+    if (!confirm(t('contractors.drawer.confirmDeleteContact', 'Are you sure you want to delete this contact?'))) {
+      return
+    }
+    try {
+      const response = await apiCall(`/api/contractors/contacts?id=${id}`, {
+        method: 'DELETE',
+      })
+      if (response.ok) {
+        flash(t('contractors.drawer.contactDeleted', 'Contact deleted'), 'success')
+        onUpdated()
+      } else {
+        const error = (response.result as { error?: string })?.error ?? 'Delete failed'
+        flash(error, 'error')
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      flash(errorMessage, 'error')
+    }
+  }, [t, onUpdated])
+
+  const columns: ColumnDef[] = React.useMemo(() => [
+    { data: 'firstName', title: 'First Name', type: 'text', width: 140 },
+    { data: 'lastName', title: 'Last Name', type: 'text', width: 140 },
+    { data: 'jobTitle', title: 'Job Title', type: 'text', width: 130 },
+    { data: 'department', title: 'Department', type: 'text', width: 120 },
+    { data: 'email', title: 'Email', type: 'text', width: 200 },
+    { data: 'phone', title: 'Phone', type: 'text', width: 120 },
+    { data: 'mobile', title: 'Mobile', type: 'text', width: 120 },
+    { data: 'isPrimary', title: 'Primary', type: 'boolean', width: 70 },
+    { data: 'isActive', title: 'Active', type: 'boolean', width: 70 },
+  ], [])
+
+  const actionsRenderer = React.useCallback((rowData: { id: string }) => {
+    if (!rowData?.id) return null
+    return <DeleteButton id={rowData.id} onDelete={handleDelete} />
+  }, [handleDelete])
+
+  const data = React.useMemo(() => {
+    if (contacts.length === 0) {
+      return [{
+        id: '',
+        firstName: '',
+        lastName: '',
+        jobTitle: '',
+        department: '',
+        email: '',
+        phone: '',
+        mobile: '',
+        isPrimary: false,
+        isActive: true,
+      }]
+    }
+    return contacts.map((contact) => ({
       id: contact.id,
       firstName: contact.firstName,
       lastName: contact.lastName,
@@ -62,9 +141,8 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
       mobile: contact.mobile ?? '',
       isPrimary: contact.isPrimary,
       isActive: contact.isActive,
-    })),
-    [contacts]
-  )
+    }))
+  }, [contacts])
 
   useEventHandlers(
     {
@@ -161,14 +239,15 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
       <DynamicTable
         tableRef={tableRef}
         data={data}
-        columns={COLUMNS}
+        columns={columns}
         idColumnName="id"
         tableName="Contacts"
-        height={Math.min(300, 80 + data.length * 35)}
+        height={Math.max(150, Math.min(300, 80 + data.length * 35))}
         colHeaders={true}
         rowHeaders={false}
+        actionsRenderer={actionsRenderer}
         uiConfig={{
-          hideToolbar: true,
+          hideToolbar: false,
           hideSearch: true,
           hideFilterButton: true,
           hideAddRowButton: false,

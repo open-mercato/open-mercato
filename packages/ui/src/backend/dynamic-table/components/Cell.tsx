@@ -77,6 +77,7 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
 
   const renderer = getCellRenderer(colConfig);
   const renderedValue = renderer(cellValue, rowData, colConfig, row, col);
+  const hasCustomRenderer = typeof colConfig.renderer === 'function';
 
   return (
     <td
@@ -93,6 +94,7 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
       data-save-state={state.saveState}
       data-sticky-left={stickyLeft !== undefined}
       data-sticky-right={stickyRight !== undefined}
+      data-custom-renderer={hasCustomRenderer || undefined}
     >
       {state.isEditing
         ? getCellEditor(
@@ -106,7 +108,9 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
           col,
           inputRef
         )
-        : renderedValue}
+        : hasCustomRenderer
+          ? renderedValue
+          : <span className="cell-content" title={typeof cellValue === 'string' ? cellValue : undefined}>{renderedValue}</span>}
     </td>
   );
 });

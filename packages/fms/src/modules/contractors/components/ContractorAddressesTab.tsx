@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { Trash2 } from 'lucide-react'
 import {
   DynamicTable,
   TableEvents,
@@ -32,6 +33,7 @@ type ContractorAddressesTabProps = {
   contractorId: string
   addresses: ContractorAddress[]
   onUpdated: () => void
+  autoFocusFirstCell?: boolean
 }
 
 const PURPOSE_OPTIONS = [
@@ -42,25 +44,103 @@ const PURPOSE_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
-const COLUMNS: ColumnDef[] = [
-  { data: 'purpose', title: 'Purpose', type: 'dropdown', source: PURPOSE_OPTIONS, width: 110 },
-  { data: 'label', title: 'Label', type: 'text', width: 100 },
-  { data: 'addressLine1', title: 'Address Line 1', type: 'text', width: 180 },
-  { data: 'addressLine2', title: 'Address Line 2', type: 'text', width: 150 },
-  { data: 'city', title: 'City', type: 'text', width: 120 },
-  { data: 'state', title: 'State', type: 'text', width: 80 },
-  { data: 'postalCode', title: 'Postal Code', type: 'text', width: 100 },
-  { data: 'countryCode', title: 'Country', type: 'text', width: 80 },
-  { data: 'isPrimary', title: 'Primary', type: 'checkbox', width: 70 },
-  { data: 'isActive', title: 'Active', type: 'checkbox', width: 70 },
-]
+const DeleteButton = ({ id, onDelete }: { id: string; onDelete: (id: string) => void }) => {
+  if (!id) return null
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onDelete(id)
+      }}
+      className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors"
+      title="Delete"
+    >
+      <Trash2 className="w-4 h-4" />
+    </button>
+  )
+}
 
-export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: ContractorAddressesTabProps) {
+export function ContractorAddressesTab({ contractorId, addresses, onUpdated, autoFocusFirstCell = false }: ContractorAddressesTabProps) {
   const tableRef = React.useRef<HTMLDivElement>(null)
   const t = useT()
 
-  const data = React.useMemo(() =>
-    addresses.map((addr) => ({
+  // Auto-focus first cell when requested
+  React.useEffect(() => {
+    if (autoFocusFirstCell && tableRef.current) {
+      // Small delay to ensure the table is rendered
+      const timer = setTimeout(() => {
+        const firstCell = tableRef.current?.querySelector('td[data-row="0"][data-col="0"]') as HTMLElement
+        if (firstCell) {
+          // Simulate double-click to start editing
+          const dblClickEvent = new MouseEvent('dblclick', {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          })
+          firstCell.dispatchEvent(dblClickEvent)
+        }
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [autoFocusFirstCell])
+
+  const handleDelete = React.useCallback(async (id: string) => {
+    if (!confirm(t('contractors.drawer.confirmDeleteAddress', 'Are you sure you want to delete this address?'))) {
+      return
+    }
+    try {
+      const response = await apiCall(`/api/contractors/addresses?id=${id}`, {
+        method: 'DELETE',
+      })
+      if (response.ok) {
+        flash(t('contractors.drawer.addressDeleted', 'Address deleted'), 'success')
+        onUpdated()
+      } else {
+        const error = (response.result as { error?: string })?.error ?? 'Delete failed'
+        flash(error, 'error')
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      flash(errorMessage, 'error')
+    }
+  }, [t, onUpdated])
+
+  const columns: ColumnDef[] = React.useMemo(() => [
+    { data: 'purpose', title: 'Purpose', type: 'dropdown', source: PURPOSE_OPTIONS, width: 130 },
+    { data: 'label', title: 'Label', type: 'text', width: 100 },
+    { data: 'addressLine1', title: 'Address Line 1', type: 'text', width: 200 },
+    { data: 'addressLine2', title: 'Address Line 2', type: 'text', width: 150 },
+    { data: 'city', title: 'City', type: 'text', width: 120 },
+    { data: 'state', title: 'State', type: 'text', width: 100 },
+    { data: 'postalCode', title: 'Postal Code', type: 'text', width: 100 },
+    { data: 'countryCode', title: 'Country', type: 'text', width: 80 },
+    { data: 'isPrimary', title: 'Primary', type: 'boolean', width: 70 },
+    { data: 'isActive', title: 'Active', type: 'boolean', width: 70 },
+  ], [])
+
+  const actionsRenderer = React.useCallback((rowData: { id: string }) => {
+    if (!rowData?.id) return null
+    return <DeleteButton id={rowData.id} onDelete={handleDelete} />
+  }, [handleDelete])
+
+  const data = React.useMemo(() => {
+    if (addresses.length === 0) {
+      return [{
+        id: '',
+        purpose: '',
+        label: '',
+        addressLine1: '',
+        addressLine2: '',
+        city: '',
+        state: '',
+        postalCode: '',
+        countryCode: '',
+        isPrimary: false,
+        isActive: true,
+      }]
+    }
+    return addresses.map((addr) => ({
       id: addr.id,
       purpose: addr.purpose,
       label: addr.label ?? '',
@@ -72,9 +152,8 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
       countryCode: addr.countryCode,
       isPrimary: addr.isPrimary,
       isActive: addr.isActive,
-    })),
-    [addresses]
-  )
+    }))
+  }, [addresses])
 
   useEventHandlers(
     {
@@ -171,14 +250,15 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
       <DynamicTable
         tableRef={tableRef}
         data={data}
-        columns={COLUMNS}
+        columns={columns}
         idColumnName="id"
         tableName="Addresses"
-        height={Math.min(300, 80 + data.length * 35)}
+        height={Math.max(150, Math.min(300, 80 + data.length * 35))}
         colHeaders={true}
         rowHeaders={false}
+        actionsRenderer={actionsRenderer}
         uiConfig={{
-          hideToolbar: true,
+          hideToolbar: false,
           hideSearch: true,
           hideFilterButton: true,
           hideAddRowButton: false,

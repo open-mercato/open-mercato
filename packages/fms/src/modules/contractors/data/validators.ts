@@ -29,15 +29,18 @@ export const scopedContractorCreateSchema = scoped.extend({
 })
 export type ScopedContractorCreateInput = z.infer<typeof scopedContractorCreateSchema>
 
+// Helper to transform empty strings to null (moved up for reuse)
+const emptyToNull = (val: unknown) => (val === '' ? null : val)
+
 export const contractorAddressCreateSchema = z.object({
   purpose: z.enum(contractorAddressPurposes),
-  label: z.string().max(100).optional().nullable(),
+  label: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   addressLine1: z.string().min(1).max(255),
-  addressLine2: z.string().max(255).optional().nullable(),
+  addressLine2: z.preprocess(emptyToNull, z.string().max(255).nullable().optional()),
   city: z.string().min(1).max(100),
-  state: z.string().max(100).optional().nullable(),
-  postalCode: z.string().max(20).optional().nullable(),
-  countryCode: z.string().length(2),
+  state: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
+  postalCode: z.preprocess(emptyToNull, z.string().max(20).nullable().optional()),
+  countryCode: z.string().min(1).max(3),
   isPrimary: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
 })
@@ -49,14 +52,14 @@ export type ContractorAddressUpdateInput = z.infer<typeof contractorAddressUpdat
 export const contractorContactCreateSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  jobTitle: z.string().max(100).optional().nullable(),
-  department: z.string().max(100).optional().nullable(),
-  email: z.string().email().max(255).optional().nullable(),
-  phone: z.string().max(50).optional().nullable(),
-  mobile: z.string().max(50).optional().nullable(),
+  jobTitle: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
+  department: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
+  email: z.preprocess(emptyToNull, z.string().email().max(255).nullable().optional()),
+  phone: z.preprocess(emptyToNull, z.string().max(50).nullable().optional()),
+  mobile: z.preprocess(emptyToNull, z.string().max(50).nullable().optional()),
   isPrimary: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
-  notes: z.string().max(1000).optional().nullable(),
+  notes: z.preprocess(emptyToNull, z.string().max(1000).nullable().optional()),
 })
 export type ContractorContactCreateInput = z.infer<typeof contractorContactCreateSchema>
 

@@ -369,12 +369,10 @@ export const DropdownEditor: React.FC<BaseEditorProps> = ({
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (
-                cellRef.current &&
-                !cellRef.current.contains(e.target as Node) &&
-                dropdownRef.current &&
-                !dropdownRef.current.contains(e.target as Node)
-            ) {
+            const isOutsideCell = cellRef.current && !cellRef.current.contains(e.target as Node);
+            const isOutsideDropdown = !dropdownRef.current || !dropdownRef.current.contains(e.target as Node);
+
+            if (isOutsideCell && isOutsideDropdown) {
                 setShowDropdown(false);
                 onSave(textValue);
             }
