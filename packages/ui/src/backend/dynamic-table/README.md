@@ -45,6 +45,7 @@ A high-performance, feature-rich data table component for React with virtualizat
 - **Debug mode** - Built-in event debugger panel with all events including perspectives
 - **Flexible UI customization** - Hide/show components, move toolbar position, add custom content slots
 - **Content slots** - Inject custom React components into top bar and bottom bar
+- **Fullscreen mode** - Expand tables to fill the viewport with automatic column width scaling
 
 ## Installation
 
@@ -137,6 +138,10 @@ interface TableUIConfig {
   topBarEnd?: React.ReactNode;      // Content at the end of top bar (after search/add button)
   bottomBarStart?: React.ReactNode; // Content at the start of bottom bar (before tabs)
   bottomBarEnd?: React.ReactNode;   // Content at the end of bottom bar (after pagination)
+
+  // Fullscreen mode
+  enableFullscreen?: boolean;       // Show fullscreen toggle button (default: false)
+  onFullscreenChange?: (isFullscreen: boolean) => void;  // Callback when fullscreen state changes
 }
 ```
 
@@ -206,6 +211,30 @@ For embedding tables in detail pages or drawers:
   /* ... */
 />
 ```
+
+#### Fullscreen Mode
+
+Enable fullscreen mode to allow users to expand the table to fill the entire viewport:
+
+```tsx
+<DynamicTable
+  uiConfig={{
+    enableFullscreen: true,
+    onFullscreenChange: (isFullscreen) => {
+      console.log('Fullscreen:', isFullscreen);
+    },
+  }}
+  /* ... */
+/>
+```
+
+When fullscreen is enabled:
+- A maximize button appears in the toolbar (after search)
+- Clicking it opens the table in a full-viewport overlay
+- Column widths are automatically scaled proportionally to fill the available width
+- Exit fullscreen via ESC key, the minimize button in the header, or pressing the close button
+- Original column widths are restored when exiting fullscreen
+- All table functionality (filtering, sorting, editing, perspectives) works in fullscreen mode
 
 ## Column Configuration
 

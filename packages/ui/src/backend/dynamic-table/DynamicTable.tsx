@@ -57,6 +57,8 @@ import ContextMenu from './components/ContextMenu';
 import VirtualRow from './components/VirtualRow';
 import ColumnHeaders from './components/ColumnHeaders';
 import Debugger from './components/Debugger';
+import FullscreenOverlay from './components/FullscreenOverlay';
+import { Maximize2 } from 'lucide-react';
 
 if (typeof window !== 'undefined') {
   import('./styles/DynamicTable.css');
@@ -170,6 +172,8 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     topBarEnd,
     bottomBarStart,
     bottomBarEnd,
+    enableFullscreen = false,
+    onFullscreenChange,
   } = uiConfig;
 
   // -------------------- REFS --------------------
@@ -229,6 +233,10 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     return tableName;
   }, [activePerspectiveId, savedPerspectives, tableName]);
 
+  // -------------------- FULLSCREEN STATE --------------------
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [savedColumnWidths, setSavedColumnWidths] = useState<Map<number, number> | null>(null);
+
   // -------------------- COMPUTED COLUMNS (ordered by perspective) --------------------
   const cols = useMemo(() => {
     // Get columns in the order specified by visibleColumns
@@ -276,6 +284,15 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     estimateSize: () => 32,
     overscan: 10,
   });
+
+  // Re-measure when fullscreen state changes
+  useEffect(() => {
+    // Small delay to ensure DOM is ready after fullscreen transition
+    const timer = setTimeout(() => {
+      rowVirtualizer.measure();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [isFullscreen, rowVirtualizer]);
 
   const virtualRows = rowVirtualizer.getVirtualItems();
 
@@ -338,6 +355,43 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
 
   const handleKeyDown = useKeyboardNavigation(store, cols.length, handleCellSave);
   const handleCopy = useCopyHandler(store);
+
+  // -------------------- FULLSCREEN HANDLERS --------------------
+  const handleEnterFullscreen = () => {
+    // Save current widths
+    setSavedColumnWidths(store.getColumnWidths());
+
+    // Calculate and apply scaled widths
+    const padding = 48; // 24px padding each side
+    const availableWidth = window.innerWidth - padding;
+    const currentTotal = cols.reduce((sum, _, idx) => sum + store.getColumnWidth(idx), 0) +
+      (rowHeaders ? 50 : 0) +
+      (showActionsColumn ? actionsColumnWidth : 0);
+
+    if (availableWidth > currentTotal) {
+      const scaleFactor = availableWidth / currentTotal;
+      cols.forEach((_, idx) => {
+        const originalWidth = store.getColumnWidth(idx);
+        const scaledWidth = Math.max(Math.round(originalWidth * scaleFactor), 60);
+        store.setColumnWidth(idx, scaledWidth);
+      });
+    }
+
+    setIsFullscreen(true);
+    onFullscreenChange?.(true);
+  };
+
+  const handleExitFullscreen = () => {
+    // Restore original widths
+    if (savedColumnWidths) {
+      savedColumnWidths.forEach((width, idx) => {
+        store.setColumnWidth(idx, width);
+      });
+    }
+    setSavedColumnWidths(null);
+    setIsFullscreen(false);
+    onFullscreenChange?.(false);
+  };
 
   // -------------------- EFFECTS --------------------
   // Sync data to store
@@ -424,161 +478,192 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
 
   // -------------------- RENDER --------------------
 
-  return (
-    <CellStoreContext.Provider value={store}>
-      <div className="hot-container" style={{ height, width, position: 'relative' }}>
-        {/* Combined Toolbar - Title, Perspective controls, Search, Add button */}
-        {!hideToolbar && (
-          <div className="flex items-center px-4 py-2 border-b border-gray-200 bg-white gap-4">
-            {/* Custom slot: top bar start */}
-            {topBarStart}
+  // Table content shared between normal and fullscreen modes
+  const tableContent = (
+    <div
+      className="hot-container"
+      style={{
+        height: isFullscreen ? '100%' : height,
+        width: isFullscreen ? '100%' : width,
+        position: 'relative',
+      }}
+    >
+      {/* Combined Toolbar - Title, Perspective controls, Search, Add button */}
+      {!hideToolbar && (
+        <div className="flex items-center px-4 py-2 border-b border-gray-200 bg-white gap-4">
+          {/* Custom slot: top bar start */}
+          {topBarStart}
 
-            <h3 className="text-base font-semibold text-gray-900 whitespace-nowrap">{displayTableName}</h3>
+          <h3 className="text-base font-semibold text-gray-900 whitespace-nowrap">{displayTableName}</h3>
 
-            {/* Perspective Toolbar - only show in top when position is 'top' */}
-            {!hideFilterButton && toolbarPosition === 'top' && (
-              <PerspectiveToolbar
-                columns={baseColumns}
-                visibleColumns={visibleColumns}
-                hiddenColumns={hiddenColumns}
-                filters={filters}
-                sortRules={sortRules}
-                onColumnVisibilityChange={handleColumnVisibilityChange}
-                onColumnOrderChange={handleColumnOrderChange}
-                onFiltersChange={handleFiltersChange}
-                onSortRulesChange={handleSortRulesChange}
-                onSavePerspective={handleSavePerspective}
-              />
-            )}
-
-            {/* Spacer */}
-            <div className="flex-1" />
-
-            {/* Search and Add Row */}
-            <div className="flex items-center gap-2">
-              {!hideSearch && <SearchBar tableRef={tableRef} placeholder="Search..." />}
-              {!hideAddRowButton && (
-                <button
-                  onClick={handleAddRow}
-                  className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
-                  title="Add new row"
-                >
-                  +
-                </button>
-              )}
-            </div>
-
-            {/* Custom slot: top bar end */}
-            {topBarEnd}
-          </div>
-        )}
-
-        {/* Table Container */}
-        <div
-          ref={tableRef}
-          className="hot-virtual-container"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onDoubleClick={handleDoubleClick}
-          style={{
-            height: typeof height === 'string' && height !== 'auto' ? height : '600px',
-            overflow: 'auto',
-            position: 'relative',
-          }}
-        >
-          {/* Column Headers */}
-          {colHeaders && (
-            <ColumnHeaders
-              columns={cols}
-              rowHeaders={rowHeaders}
-              leftOffsets={leftOffsets}
-              rightOffsets={rightOffsets}
-              totalWidth={totalWidth}
-              sortState={sortState}
-              actionsColumnWidth={actionsColumnWidth}
-              showActionsColumn={showActionsColumn}
-              onSort={handleColumnSort}
-              onResizeStart={handleResizeStart}
-              onDoubleClick={handleColumnHeaderDoubleClick}
-              onMouseDown={(e) => handleColumnHeaderMouseDown(e, dragHandlers.handleDragStart)}
-              onMouseMove={handleMouseMove}
+          {/* Perspective Toolbar - only show in top when position is 'top' */}
+          {!hideFilterButton && toolbarPosition === 'top' && (
+            <PerspectiveToolbar
+              columns={baseColumns}
+              visibleColumns={visibleColumns}
+              hiddenColumns={hiddenColumns}
+              filters={filters}
+              sortRules={sortRules}
+              onColumnVisibilityChange={handleColumnVisibilityChange}
+              onColumnOrderChange={handleColumnOrderChange}
+              onFiltersChange={handleFiltersChange}
+              onSortRulesChange={handleSortRulesChange}
+              onSavePerspective={handleSavePerspective}
             />
           )}
 
-          {/* Virtual Body */}
-          <table className="hot-table" style={{ width: `${totalWidth}px` }}>
-            <tbody
-              style={{
-                display: 'block',
-                height: `${rowVirtualizer.getTotalSize()}px`,
-                position: 'relative',
-              }}
-            >
-              {virtualRows.map((virtualRow) => (
-                <VirtualRow
-                  key={virtualRow.index}
-                  rowIndex={virtualRow.index}
-                  columns={cols}
-                  virtualRow={virtualRow}
-                  rowHeaders={rowHeaders}
-                  leftOffsets={leftOffsets}
-                  rightOffsets={rightOffsets}
-                  actionsColumnWidth={actionsColumnWidth}
-                  showActionsColumn={showActionsColumn}
-                  storeRevision={storeRevision}
-                  onSaveNewRow={handleSaveNewRow}
-                  onCancelNewRow={handleCancelNewRow}
-                  onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
-                  onCellSave={handleCellSave}
-                />
-              ))}
-            </tbody>
-          </table>
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Search, Fullscreen, and Add Row */}
+          <div className="flex items-center gap-2">
+            {!hideSearch && <SearchBar tableRef={tableRef} placeholder="Search..." />}
+            {enableFullscreen && !isFullscreen && (
+              <button
+                onClick={handleEnterFullscreen}
+                className="fullscreen-toggle-btn"
+                title="Enter fullscreen"
+              >
+                <Maximize2 className="w-4 h-4" />
+              </button>
+            )}
+            {!hideAddRowButton && (
+              <button
+                onClick={handleAddRow}
+                className="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50 active:bg-gray-100 flex items-center justify-center text-lg text-gray-700 transition-colors"
+                title="Add new row"
+              >
+                +
+              </button>
+            )}
+          </div>
+
+          {/* Custom slot: top bar end */}
+          {topBarEnd}
         </div>
+      )}
 
-        {/* Perspective Tabs / Bottom Bar */}
-        {!hideBottomBar && (
-          <PerspectiveTabs
-            savedPerspectives={savedPerspectives}
-            activePerspectiveId={activePerspectiveId}
-            onPerspectiveSelect={handlePerspectiveSelect}
-            onPerspectiveRename={handlePerspectiveRename}
-            onPerspectiveDelete={handlePerspectiveDelete}
-            pagination={pagination}
-            startContent={bottomBarStart}
-            endContent={bottomBarEnd}
-            toolbar={!hideFilterButton && toolbarPosition === 'bottom' ? (
-              <PerspectiveToolbar
-                columns={baseColumns}
-                visibleColumns={visibleColumns}
-                hiddenColumns={hiddenColumns}
-                filters={filters}
-                sortRules={sortRules}
-                onColumnVisibilityChange={handleColumnVisibilityChange}
-                onColumnOrderChange={handleColumnOrderChange}
-                onFiltersChange={handleFiltersChange}
-                onSortRulesChange={handleSortRulesChange}
-                onSavePerspective={handleSavePerspective}
+      {/* Table Container */}
+      <div
+        ref={tableRef}
+        className="hot-virtual-container"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+        style={{
+          height: isFullscreen ? 'calc(100% - 90px)' : (typeof height === 'string' && height !== 'auto' ? height : '600px'),
+          overflow: 'auto',
+          position: 'relative',
+        }}
+      >
+        {/* Column Headers */}
+        {colHeaders && (
+          <ColumnHeaders
+            columns={cols}
+            rowHeaders={rowHeaders}
+            leftOffsets={leftOffsets}
+            rightOffsets={rightOffsets}
+            totalWidth={totalWidth}
+            sortState={sortState}
+            actionsColumnWidth={actionsColumnWidth}
+            showActionsColumn={showActionsColumn}
+            onSort={handleColumnSort}
+            onResizeStart={handleResizeStart}
+            onDoubleClick={handleColumnHeaderDoubleClick}
+            onMouseDown={(e) => handleColumnHeaderMouseDown(e, dragHandlers.handleDragStart)}
+            onMouseMove={handleMouseMove}
+          />
+        )}
+
+        {/* Virtual Body */}
+        <table className="hot-table" style={{ width: `${totalWidth}px` }}>
+          <tbody
+            style={{
+              display: 'block',
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: 'relative',
+            }}
+          >
+            {virtualRows.map((virtualRow) => (
+              <VirtualRow
+                key={virtualRow.index}
+                rowIndex={virtualRow.index}
+                columns={cols}
+                virtualRow={virtualRow}
+                rowHeaders={rowHeaders}
+                leftOffsets={leftOffsets}
+                rightOffsets={rightOffsets}
+                actionsColumnWidth={actionsColumnWidth}
+                showActionsColumn={showActionsColumn}
+                storeRevision={storeRevision}
+                onSaveNewRow={handleSaveNewRow}
+                onCancelNewRow={handleCancelNewRow}
+                onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
+                onCellSave={handleCellSave}
               />
-            ) : undefined}
-          />
-        )}
-
-        {/* Context Menu */}
-        {contextMenu && (
-          <ContextMenu
-            isOpen={contextMenu.isOpen}
-            position={contextMenu.position}
-            actions={contextMenu.actions}
-            onClose={handleContextMenuClose}
-            onActionClick={handleContextMenuAction}
-          />
-        )}
-
-        {/* Debugger */}
-        {debug && <Debugger tableRef={tableRef} />}
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      {/* Perspective Tabs / Bottom Bar */}
+      {!hideBottomBar && (
+        <PerspectiveTabs
+          savedPerspectives={savedPerspectives}
+          activePerspectiveId={activePerspectiveId}
+          onPerspectiveSelect={handlePerspectiveSelect}
+          onPerspectiveRename={handlePerspectiveRename}
+          onPerspectiveDelete={handlePerspectiveDelete}
+          pagination={pagination}
+          startContent={bottomBarStart}
+          endContent={bottomBarEnd}
+          toolbar={!hideFilterButton && toolbarPosition === 'bottom' ? (
+            <PerspectiveToolbar
+              columns={baseColumns}
+              visibleColumns={visibleColumns}
+              hiddenColumns={hiddenColumns}
+              filters={filters}
+              sortRules={sortRules}
+              onColumnVisibilityChange={handleColumnVisibilityChange}
+              onColumnOrderChange={handleColumnOrderChange}
+              onFiltersChange={handleFiltersChange}
+              onSortRulesChange={handleSortRulesChange}
+              onSavePerspective={handleSavePerspective}
+            />
+          ) : undefined}
+        />
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          isOpen={contextMenu.isOpen}
+          position={contextMenu.position}
+          actions={contextMenu.actions}
+          onClose={handleContextMenuClose}
+          onActionClick={handleContextMenuAction}
+        />
+      )}
+
+      {/* Debugger */}
+      {debug && <Debugger tableRef={tableRef} />}
+    </div>
+  );
+
+  return (
+    <CellStoreContext.Provider value={store}>
+      {isFullscreen ? (
+        <FullscreenOverlay
+          isOpen={isFullscreen}
+          onClose={handleExitFullscreen}
+          tableName={displayTableName}
+        >
+          {tableContent}
+        </FullscreenOverlay>
+      ) : (
+        tableContent
+      )}
     </CellStoreContext.Provider>
   );
 };

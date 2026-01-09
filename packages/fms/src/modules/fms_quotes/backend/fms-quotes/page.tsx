@@ -461,6 +461,7 @@ export default function FmsQuotesPage() {
           activePerspectiveId={activePerspectiveId}
           uiConfig={{
             hideAddRowButton: true,
+            enableFullscreen: true,
             topBarEnd: (
               <Button onClick={() => setIsDrawerOpen(true)} size="sm">
                 <Plus className="h-4 w-4 mr-1" />

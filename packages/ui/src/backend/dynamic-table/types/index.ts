@@ -282,6 +282,10 @@ export interface TableUIConfig {
   bottomBarStart?: React.ReactNode;
   /** Custom content rendered at the end of the bottom bar (after pagination) */
   bottomBarEnd?: React.ReactNode;
+  /** Enable fullscreen toggle button. Default: false */
+  enableFullscreen?: boolean;
+  /** Callback when fullscreen state changes */
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export interface DynamicTableProps {
