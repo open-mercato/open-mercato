@@ -1035,6 +1035,15 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "resource_type_id": {
           "name": "resource_type_id",
           "type": "uuid",
@@ -1082,6 +1091,24 @@
         },
         "capacity_unit_icon": {
           "name": "capacity_unit_icon",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "appearance_icon": {
+          "name": "appearance_icon",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "appearance_color": {
+          "name": "appearance_color",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -2038,6 +2065,15 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "mappedType": "text"
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "mappedType": "text"
         },
         "user_id": {

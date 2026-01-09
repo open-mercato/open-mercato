@@ -6,10 +6,10 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
@@ -62,96 +62,8 @@ type ResourceTypesResponse = {
   items: ResourceTypeRow[]
 }
 
-type AvailabilityRule = {
-  id: string
-  subjectType: 'resource' | 'member'
-  subjectId: string
-  timezone: string
-  rrule: string
-  exdates: string[]
-  createdAt?: string | null
-}
-
-type AvailabilityResponse = {
-  items: AvailabilityRule[]
-}
-
-type AvailabilityFormValues = {
-  timezone: string
-  startAt: string
-  endAt: string
-  repeat: string
-  exdates: string[]
-}
-
-type BookedEvent = {
-  id: string
-  title: string
-  startsAt: string
-  endsAt: string
-  status?: BookingEventStatus | null
-}
-
 type BookedEventsResponse = {
-  items: BookedEvent[]
-}
-
-const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'] as const
-
-function formatDateTimeLocal(value: Date): string {
-  const offset = value.getTimezoneOffset()
-  const adjusted = new Date(value.getTime() - offset * 60000)
-  return adjusted.toISOString().slice(0, 16)
-}
-
-function parseDateTimeLocal(value: string): Date | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return null
-  return parsed
-}
-
-function formatDuration(minutes: number): string {
-  const clamped = Math.max(1, minutes)
-  const hours = Math.floor(clamped / 60)
-  const mins = clamped % 60
-  if (hours > 0 && mins > 0) return `PT${hours}H${mins}M`
-  if (hours > 0) return `PT${hours}H`
-  return `PT${mins}M`
-}
-
-function buildAvailabilityRrule(start: Date, end: Date, repeat: string): string {
-  const dtStart = start.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
-  const durationMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
-  const duration = formatDuration(durationMinutes)
-  let rule = ''
-  if (repeat === 'once') {
-    rule = 'FREQ=DAILY;COUNT=1'
-  } else if (repeat === 'weekly') {
-    const dayCode = DAY_CODES[start.getDay()]
-    rule = `FREQ=WEEKLY;BYDAY=${dayCode}`
-  } else {
-    rule = 'FREQ=DAILY'
-  }
-  return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:${rule}`
-}
-
-function normalizeExdatesInput(value: unknown): string[] {
-  const values = Array.isArray(value) ? value : []
-  return values
-    .map((item) => parseDateTimeLocal(String(item ?? '')))
-    .filter((item): item is Date => item !== null)
-    .map((item) => item.toISOString())
-}
-
-function formatExdatesInput(exdates: string[]): string[] {
-  return exdates
-    .map((value) => {
-      const parsed = new Date(value)
-      if (Number.isNaN(parsed.getTime())) return null
-      return formatDateTimeLocal(parsed)
-    })
-    .filter((value): value is string => value !== null)
+  items: AvailabilityBookedEvent[]
 }
 
 function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
@@ -174,30 +86,12 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const resourceId = params?.id
   const t = useT()
   const router = useRouter()
-  const dialogRef = React.useRef<HTMLDivElement | null>(null)
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [resourceTypes, setResourceTypes] = React.useState<ResourceTypeRow[]>([])
   const [resourceTypesLoaded, setResourceTypesLoaded] = React.useState(false)
-  const [availabilityRules, setAvailabilityRules] = React.useState<AvailabilityRule[]>([])
-  const [availabilityLoading, setAvailabilityLoading] = React.useState(true)
-  const [availabilityError, setAvailabilityError] = React.useState<string | null>(null)
-  const [bookedEvents, setBookedEvents] = React.useState<BookedEvent[]>([])
-  const [bookedLoading, setBookedLoading] = React.useState(false)
-  const [bookedError, setBookedError] = React.useState<string | null>(null)
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [editingRule, setEditingRule] = React.useState<AvailabilityRule | null>(null)
-  const [scheduleView, setScheduleView] = React.useState<ScheduleViewMode>('week')
-  const [timezone, setTimezone] = React.useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [isAvailableByDefault, setIsAvailableByDefault] = React.useState(true)
-  const [range, setRange] = React.useState<ScheduleRange>(() => {
-    const now = new Date()
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000)
-    return { start, end }
-  })
-  const [slotSeed, setSlotSeed] = React.useState<ScheduleSlot | null>(null)
   const [capacityUnitDictionaryId, setCapacityUnitDictionaryId] = React.useState<string | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
 
@@ -282,107 +176,31 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     return () => { cancelled = true }
   }, [scopeVersion])
 
-  const refreshAvailability = React.useCallback(async () => {
-    if (!resourceId) return
-    setAvailabilityLoading(true)
-    setAvailabilityError(null)
-    try {
-      const params = new URLSearchParams({
-        page: '1',
-        pageSize: '200',
-        subjectType: 'resource',
-        subjectIds: resourceId,
-      })
-      const call = await apiCall<AvailabilityResponse>(`/api/booking/availability?${params.toString()}`)
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      setAvailabilityRules(items)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('booking.resources.availability.error.load', 'Failed to load availability.')
-      setAvailabilityError(message)
-    } finally {
-      setAvailabilityLoading(false)
+  const availabilityMode = isAvailableByDefault ? 'unavailability' : 'availability'
+
+  const loadBookedEvents = React.useCallback(async (nextRange: { start: Date; end: Date }): Promise<AvailabilityBookedEvent[]> => {
+    if (!resourceId) return []
+    const params = new URLSearchParams({
+      resourceId,
+      startsAt: nextRange.start.toISOString(),
+      endsAt: nextRange.end.toISOString(),
+    })
+    const call = await apiCall<BookedEventsResponse>(`/api/booking/resource-events?${params.toString()}`)
+    if (!call.ok) {
+      throw new Error(t('booking.resources.schedule.error.load', 'Failed to load schedule.'))
     }
+    return Array.isArray(call.result?.items) ? call.result.items : []
   }, [resourceId, t])
 
-  React.useEffect(() => {
-    void refreshAvailability()
-  }, [refreshAvailability])
-
-  const refreshBookedEvents = React.useCallback(async () => {
-    if (!resourceId) return
-    setBookedLoading(true)
-    setBookedError(null)
-    try {
-      const params = new URLSearchParams({
-        resourceId,
-        startsAt: range.start.toISOString(),
-        endsAt: range.end.toISOString(),
-      })
-      const call = await apiCall<BookedEventsResponse>(`/api/booking/resource-events?${params.toString()}`)
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      setBookedEvents(items)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : t('booking.resources.schedule.error.load', 'Failed to load schedule.')
-      setBookedError(message)
-    } finally {
-      setBookedLoading(false)
-    }
-  }, [range.end, range.start, resourceId, t])
-
-  React.useEffect(() => {
-    void refreshBookedEvents()
-  }, [refreshBookedEvents])
-
-  const scheduleItems = React.useMemo<ScheduleItem[]>(() => (
-    buildResourceScheduleItems({
+  const buildScheduleItems = React.useCallback<AvailabilityScheduleItemBuilder>(
+    ({ availabilityRules, bookedEvents, translate }) => buildResourceScheduleItems({
       availabilityRules,
       bookedEvents,
       isAvailableByDefault,
-      translate: t,
-    })
-  ), [availabilityRules, bookedEvents, isAvailableByDefault, t])
-
-  const ruleMap = React.useMemo(() => new Map(availabilityRules.map((rule) => [rule.id, rule])), [availabilityRules])
-  const availabilityLabels = React.useMemo(() => {
-    const mode = isAvailableByDefault ? 'unavailability' : 'availability'
-    return {
-      addAction: isAvailableByDefault
-        ? t('booking.resources.unavailability.actions.add', 'Add unavailability')
-        : t('booking.resources.availability.actions.add', 'Add availability'),
-      editTitle: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.title.edit', 'Edit unavailability')
-        : t('booking.resources.availability.form.title.edit', 'Edit availability'),
-      createTitle: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.title.create', 'Add unavailability')
-        : t('booking.resources.availability.form.title.create', 'Add availability'),
-      createError: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.errors.create', 'Failed to create unavailability.')
-        : t('booking.resources.availability.form.errors.create', 'Failed to create availability.'),
-      updateError: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.errors.update', 'Failed to update unavailability.')
-        : t('booking.resources.availability.form.errors.update', 'Failed to update availability.'),
-      deleteError: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.errors.delete', 'Failed to delete unavailability.')
-        : t('booking.resources.availability.form.errors.delete', 'Failed to delete availability.'),
-      createdFlash: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.flash.created', 'Unavailability created.')
-        : t('booking.resources.availability.form.flash.created', 'Availability created.'),
-      updatedFlash: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.flash.updated', 'Unavailability updated.')
-        : t('booking.resources.availability.form.flash.updated', 'Availability updated.'),
-      deletedFlash: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.flash.deleted', 'Unavailability deleted.')
-        : t('booking.resources.availability.form.flash.deleted', 'Availability deleted.'),
-      exdatesLabel: t(`booking.resources.${mode}.form.fields.exdates`, 'Exceptions'),
-      exdatesHelp: isAvailableByDefault
-        ? t('booking.resources.unavailability.form.fields.exdates.help', 'Exclude these dates from unavailability.')
-        : t('booking.resources.availability.form.fields.exdates.help', 'Exclude these dates from availability.'),
-      exdatesAdd: t('booking.resources.availability.form.fields.exdates.add', 'Add exception'),
-      exdatesRemove: t('booking.resources.availability.form.fields.exdates.remove', 'Remove'),
-    }
-  }, [isAvailableByDefault, t])
-  const scheduleLoading = availabilityLoading || bookedLoading
-  const scheduleError = availabilityError ?? bookedError
+      translate,
+    }),
+    [isAvailableByDefault],
+  )
 
   const resourceFieldsetByTypeId = React.useMemo(() => {
     const map = new Map<string, string>()
@@ -536,179 +354,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     resourceTypes,
     t,
   ])
-
-  const availabilityFields = React.useMemo<CrudField[]>(() => [
-    {
-      id: 'startAt',
-      label: t('booking.resources.availability.form.fields.start', 'Start'),
-      type: 'custom',
-      component: ({ value, setValue }) => (
-        <Input
-          type="datetime-local"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(event) => setValue(event.target.value)}
-        />
-      ),
-    },
-    {
-      id: 'endAt',
-      label: t('booking.resources.availability.form.fields.end', 'End'),
-      type: 'custom',
-      component: ({ value, setValue }) => (
-        <Input
-          type="datetime-local"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(event) => setValue(event.target.value)}
-        />
-      ),
-    },
-    {
-      id: 'repeat',
-      label: t('booking.resources.availability.form.fields.repeat', 'Repeat'),
-      type: 'select',
-      options: REPEAT_OPTIONS.map((opt) => ({ value: opt.value, label: t(opt.labelKey, opt.fallback) })),
-    },
-    {
-      id: 'timezone',
-      label: t('booking.resources.availability.form.fields.timezone', 'Timezone'),
-      type: 'text',
-    },
-    {
-      id: 'exdates',
-      label: availabilityLabels.exdatesLabel,
-      description: availabilityLabels.exdatesHelp,
-      type: 'custom',
-      component: ({ value, setValue }) => {
-        const values = Array.isArray(value) ? value : []
-        return (
-          <div className="space-y-2">
-            {values.map((item, index) => (
-              <div key={`${index}-${item}`} className="flex items-center gap-2">
-                <Input
-                  type="datetime-local"
-                  value={typeof item === 'string' ? item : ''}
-                  onChange={(event) => {
-                    const next = [...values]
-                    next[index] = event.target.value
-                    setValue(next)
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    const next = values.filter((_, idx) => idx !== index)
-                    setValue(next)
-                  }}
-                >
-                  {availabilityLabels.exdatesRemove}
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setValue([...values, ''])}
-            >
-              {availabilityLabels.exdatesAdd}
-            </Button>
-          </div>
-        )
-      },
-    },
-  ], [availabilityLabels, t])
-
-  const availabilityInitialValues = React.useMemo<AvailabilityFormValues>(() => {
-    if (editingRule) {
-      const parsed = parseAvailabilityRuleWindow(editingRule)
-      return {
-        timezone: editingRule.timezone || timezone,
-        startAt: formatDateTimeLocal(parsed.startAt),
-        endAt: formatDateTimeLocal(parsed.endAt),
-        repeat: parsed.repeat,
-        exdates: Array.isArray(editingRule.exdates) ? formatExdatesInput(editingRule.exdates) : [],
-      }
-    }
-    const slot = slotSeed
-    const start = slot?.start ?? new Date()
-    const end = slot?.end ?? new Date(start.getTime() + 60 * 60000)
-    return {
-      timezone,
-      startAt: formatDateTimeLocal(start),
-      endAt: formatDateTimeLocal(end),
-      repeat: 'once',
-      exdates: [],
-    }
-  }, [editingRule, slotSeed, timezone])
-
-  const handleAvailabilitySubmit = React.useCallback(async (values: Record<string, unknown>) => {
-    if (!resourceId) return
-    const startAt = parseDateTimeLocal(String(values.startAt || ''))
-    const endAt = parseDateTimeLocal(String(values.endAt || ''))
-    if (!startAt || !endAt) {
-      throw createCrudFormError(t('booking.resources.availability.form.errors.invalidDates', 'Start and end times are required.'))
-    }
-    if (startAt >= endAt) {
-      throw createCrudFormError(t('booking.resources.availability.form.errors.invalidRange', 'End time must be after start.'))
-    }
-    const repeat = String(values.repeat || 'once')
-    const rule = buildAvailabilityRrule(startAt, endAt, repeat)
-    const payload = {
-      subjectType: 'resource',
-      subjectId: resourceId,
-      timezone: String(values.timezone || timezone),
-      rrule: rule,
-      exdates: normalizeExdatesInput(values.exdates),
-    }
-    if (editingRule) {
-      await updateCrud('booking/availability', { id: editingRule.id, ...payload }, {
-        errorMessage: availabilityLabels.updateError,
-      })
-      flash(availabilityLabels.updatedFlash, 'success')
-    } else {
-      await createCrud('booking/availability', payload, {
-        errorMessage: availabilityLabels.createError,
-      })
-      flash(availabilityLabels.createdFlash, 'success')
-    }
-    setDialogOpen(false)
-    setEditingRule(null)
-    setSlotSeed(null)
-    await refreshAvailability()
-  }, [availabilityLabels, editingRule, refreshAvailability, resourceId, t, timezone])
-
-  const handleAvailabilityDelete = React.useCallback(async () => {
-    if (!editingRule) return
-    await deleteCrud('booking/availability', editingRule.id, {
-      errorMessage: availabilityLabels.deleteError,
-    })
-    flash(availabilityLabels.deletedFlash, 'success')
-    setDialogOpen(false)
-    setEditingRule(null)
-    setSlotSeed(null)
-    await refreshAvailability()
-  }, [availabilityLabels, editingRule, refreshAvailability])
-
-  const openCreateDialog = React.useCallback((slot?: ScheduleSlot) => {
-    setEditingRule(null)
-    setSlotSeed(slot ?? null)
-    setDialogOpen(true)
-  }, [])
-
-  const openEditDialog = React.useCallback((rule: AvailabilityRule) => {
-    setEditingRule(rule)
-    setSlotSeed(null)
-    setDialogOpen(true)
-  }, [])
-
-  const handleItemClick = React.useCallback((item: ScheduleItem) => {
-    const rule = ruleMap.get(item.id)
-    if (rule) openEditDialog(rule)
-  }, [openEditDialog, ruleMap])
-
-  const handleSlotClick = React.useCallback((slot: ScheduleSlot) => {
-    openCreateDialog(slot)
-  }, [openCreateDialog])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!resourceId) return
@@ -902,74 +547,17 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
               </div>
             </>
           ) : (
-            <div className="rounded-xl border bg-card p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {t('booking.resources.availability.section.title', 'Availability')}
-                </h2>
-                <Button type="button" variant="outline" onClick={() => openCreateDialog()}>
-                  <GanttChart className="mr-2 h-4 w-4" aria-hidden="true" />
-                  {availabilityLabels.addAction}
-                </Button>
-              </div>
-              <div className="mt-4">
-                {scheduleLoading ? (
-                  <LoadingMessage label={t('booking.resources.schedule.loading', 'Loading schedule...')} />
-                ) : scheduleError ? (
-                  <ErrorMessage label={scheduleError} />
-                ) : (
-                  <ScheduleView
-                    items={scheduleItems}
-                    view={scheduleView}
-                    range={range}
-                    timezone={timezone}
-                    onRangeChange={setRange}
-                    onViewChange={setScheduleView}
-                    onTimezoneChange={setTimezone}
-                    onItemClick={handleItemClick}
-                    onSlotClick={handleSlotClick}
-                  />
-                )}
-              </div>
-            </div>
+            <AvailabilitySchedule
+              subjectType="resource"
+              subjectId={resourceId ?? ''}
+              labelPrefix="booking.resources"
+              mode={availabilityMode}
+              buildScheduleItems={buildScheduleItems}
+              loadBookedEvents={loadBookedEvents}
+            />
           )}
         </div>
       </PageBody>
-
-      <Dialog open={dialogOpen} onOpenChange={(open) => {
-        if (!open) {
-          setDialogOpen(false)
-          setEditingRule(null)
-          setSlotSeed(null)
-        }
-      }}>
-        <DialogContent
-          ref={dialogRef}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              const form = dialogRef.current?.querySelector('form')
-              if (form instanceof HTMLFormElement) form.requestSubmit()
-            }
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {editingRule ? availabilityLabels.editTitle : availabilityLabels.createTitle}
-            </DialogTitle>
-          </DialogHeader>
-          <CrudForm
-            embedded
-            fields={availabilityFields}
-            initialValues={availabilityInitialValues}
-            submitLabel={editingRule
-              ? t('booking.resources.availability.form.actions.save', 'Save')
-              : t('booking.resources.availability.form.actions.create', 'Create')}
-            onSubmit={handleAvailabilitySubmit}
-            onDelete={editingRule ? handleAvailabilityDelete : undefined}
-            deleteVisible={Boolean(editingRule)}
-          />
-        </DialogContent>
-      </Dialog>
     </Page>
   )
 }
