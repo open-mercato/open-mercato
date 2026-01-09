@@ -139,7 +139,9 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
             appearance: { icon: resource.appearanceIcon ?? null, color: resource.appearanceColor ?? null },
             isActive: resource.isActive ?? true,
             isAvailableByDefault: resource.isAvailableByDefault ?? true,
-            customFieldsetCode: resolveFieldsetCode(resource.resourceTypeId ?? null),
+            customFieldsetCode: resource.resourceTypeId
+              ? (resourceFieldsetByTypeId.get(resource.resourceTypeId) ?? BOOKING_RESOURCE_FIELDSET_DEFAULT)
+              : BOOKING_RESOURCE_FIELDSET_DEFAULT,
             ...customValues,
           })
         }
@@ -150,7 +152,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     }
     loadResource()
     return () => { cancelled = true }
-  }, [resourceId, resolveFieldsetCode, resourceTypesLoaded, t])
+  }, [resourceId, resourceFieldsetByTypeId, resourceTypesLoaded, t])
 
   React.useEffect(() => {
     let cancelled = false
