@@ -66,7 +66,7 @@ function getEventStyles(item: ScheduleItem): React.CSSProperties {
     return { backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.5)', color: '#1e3a8a' }
   }
   if (item.kind === 'exception') {
-    return { backgroundColor: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.5)', color: '#92400e' }
+    return { backgroundColor: 'rgba(148, 163, 184, 0.2)', border: '1px solid rgba(100, 116, 139, 0.6)', color: '#334155' }
   }
   return { backgroundColor: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.5)', color: '#064e3b' }
 }
@@ -128,8 +128,10 @@ export function ScheduleView({
     if (resolved !== view) onViewChange(resolved)
   }, [onViewChange, view])
 
+  const rootClassName = ['schedule-view', className].filter(Boolean).join(' ')
+
   return (
-    <div className={className}>
+    <div className={rootClassName}>
       <ScheduleToolbar
         view={view}
         range={range}
@@ -138,7 +140,7 @@ export function ScheduleView({
         onViewChange={onViewChange}
         onTimezoneChange={onTimezoneChange}
       />
-      <div className="mt-4 rounded-xl border bg-card p-2">
+      <div className="schedule-calendar mt-4 rounded-xl border bg-card p-3">
         <Calendar
           localizer={localizer}
           culture="en-US"
@@ -161,6 +163,29 @@ export function ScheduleView({
           eventPropGetter={(event) => ({
             style: getEventStyles((event as CalendarEvent).resource),
           })}
+          components={{
+            event: ({ event }) => {
+              const resource = (event as CalendarEvent).resource
+              const hasLink = Boolean(resource.linkLabel) && typeof onItemClick === 'function'
+              return (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs font-medium">{resource.title}</span>
+                  {hasLink ? (
+                    <button
+                      type="button"
+                      className="text-[11px] font-medium underline-offset-2 hover:underline"
+                      onClick={(clickEvent) => {
+                        clickEvent.stopPropagation()
+                        onItemClick?.(resource)
+                      }}
+                    >
+                      {resource.linkLabel}
+                    </button>
+                  ) : null}
+                </div>
+              )
+            },
+          }}
           style={{ height: 640 }}
         />
       </div>

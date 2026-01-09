@@ -16,6 +16,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { LoadingMessage, ErrorMessage, TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
 import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleViewMode, type ScheduleSlot } from '@open-mercato/ui/backend/schedule'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
+import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '@open-mercato/core/modules/booking/lib/capacityUnits'
@@ -23,6 +24,7 @@ import {
   buildResourceScheduleItems,
   parseAvailabilityRuleWindow,
 } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
+import { BOOKING_RESOURCE_FIELDSET_DEFAULT, resolveBookingResourceFieldsetCode } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
 import type { BookingEventStatus } from '@open-mercato/core/modules/booking/data/entities'
 import { GanttChart } from 'lucide-react'
 
@@ -37,6 +39,7 @@ const REPEAT_OPTIONS = [
 type ResourceRecord = {
   id: string
   name: string
+  description?: string | null
   resourceTypeId: string | null
   capacity: number | null
   capacityUnitValue: string | null
@@ -46,11 +49,15 @@ type ResourceRecord = {
   tags?: TagOption[] | null
   isActive: boolean
   isAvailableByDefault: boolean
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
   resource_type_id?: string | null
   capacity_unit_value?: string | null
   capacity_unit_name?: string | null
   capacity_unit_color?: string | null
   capacity_unit_icon?: string | null
+  appearance_icon?: string | null
+  appearance_color?: string | null
   is_active?: boolean
   is_available_by_default?: boolean
 } & Record<string, unknown>
@@ -164,10 +171,13 @@ function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
   return {
     ...record,
     resourceTypeId: record.resourceTypeId ?? record.resource_type_id ?? null,
+    description: record.description ?? null,
     capacityUnitValue: record.capacityUnitValue ?? record.capacity_unit_value ?? null,
     capacityUnitName: record.capacityUnitName ?? record.capacity_unit_name ?? null,
     capacityUnitColor: record.capacityUnitColor ?? record.capacity_unit_color ?? null,
     capacityUnitIcon: record.capacityUnitIcon ?? record.capacity_unit_icon ?? null,
+    appearanceIcon: record.appearanceIcon ?? record.appearance_icon ?? null,
+    appearanceColor: record.appearanceColor ?? record.appearance_color ?? null,
     isActive: record.isActive ?? record.is_active ?? true,
     isAvailableByDefault: record.isAvailableByDefault ?? record.is_available_by_default ?? true,
   }
@@ -191,6 +201,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const [scheduleView, setScheduleView] = React.useState<ScheduleViewMode>('week')
   const [timezone, setTimezone] = React.useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
   const [tags, setTags] = React.useState<TagOption[]>([])
+  const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [isAvailableByDefault, setIsAvailableByDefault] = React.useState(true)
   const [range, setRange] = React.useState<ScheduleRange>(() => {
     const now = new Date()
@@ -226,11 +237,14 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
           setInitialValues({
             id: resource.id,
             name: resource.name,
+            description: resource.description ?? '',
             resourceTypeId: resource.resourceTypeId || '',
             capacity: resource.capacity ?? '',
             capacityUnitValue: resource.capacityUnitValue ?? '',
+            appearance: { icon: resource.appearanceIcon ?? null, color: resource.appearanceColor ?? null },
             isActive: resource.isActive ?? true,
             isAvailableByDefault: resource.isAvailableByDefault ?? true,
+            customFieldsetCode: resolveFieldsetCode(resource.resourceTypeId ?? null),
             ...customValues,
           })
         }
@@ -241,7 +255,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     }
     loadResource()
     return () => { cancelled = true }
-  }, [resourceId, t])
+  }, [resourceId, resolveFieldsetCode, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -380,6 +394,33 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const scheduleLoading = availabilityLoading || bookedLoading
   const scheduleError = availabilityError ?? bookedError
 
+  const resourceFieldsetByTypeId = React.useMemo(() => {
+    const map = new Map<string, string>()
+    resourceTypes.forEach((type) => {
+      map.set(type.id, resolveBookingResourceFieldsetCode(type.name))
+    })
+    return map
+  }, [resourceTypes])
+
+  const resolveFieldsetCode = React.useCallback((resourceTypeId?: string | null) => {
+    if (!resourceTypeId) return BOOKING_RESOURCE_FIELDSET_DEFAULT
+    return resourceFieldsetByTypeId.get(resourceTypeId) ?? BOOKING_RESOURCE_FIELDSET_DEFAULT
+  }, [resourceFieldsetByTypeId])
+
+  const appearanceLabels = React.useMemo(() => ({
+    colorLabel: t('booking.resources.form.appearance.colorLabel', 'Color'),
+    colorHelp: t('booking.resources.form.appearance.colorHelp', 'Pick a color for this resource.'),
+    colorClearLabel: t('booking.resources.form.appearance.colorClear', 'Clear color'),
+    iconLabel: t('booking.resources.form.appearance.iconLabel', 'Icon'),
+    iconPlaceholder: t('booking.resources.form.appearance.iconPlaceholder', 'Type an emoji or icon name'),
+    iconPickerTriggerLabel: t('booking.resources.form.appearance.iconPicker', 'Browse icons'),
+    iconSearchPlaceholder: t('booking.resources.form.appearance.iconSearch', 'Search icons or emojis…'),
+    iconSearchEmptyLabel: t('booking.resources.form.appearance.iconSearchEmpty', 'No icons match your search'),
+    iconSuggestionsLabel: t('booking.resources.form.appearance.iconSuggestions', 'Suggestions'),
+    iconClearLabel: t('booking.resources.form.appearance.iconClear', 'Clear icon'),
+    previewEmptyLabel: t('booking.resources.form.appearance.previewEmpty', 'No appearance selected'),
+  }), [t])
+
   const defaultAvailabilityLabel = t('booking.resources.form.fields.defaultAvailability', 'Available by default')
   const defaultAvailabilityDescription = t(
     'booking.resources.form.fields.defaultAvailability.help',
@@ -389,10 +430,34 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('booking.resources.form.fields.name', 'Name'), type: 'text', required: true },
     {
+      id: 'description',
+      label: t('booking.resources.form.fields.description', 'Description'),
+      type: 'richtext',
+      editor: 'markdown',
+    },
+    {
       id: 'resourceTypeId',
       label: t('booking.resources.form.fields.type', 'Resource type'),
-      type: 'select',
-      options: resourceTypes.map((type) => ({ value: type.id, label: type.name })),
+      type: 'custom',
+      component: ({ value, setValue, setFormValue }) => (
+        <select
+          className="w-full h-9 rounded border px-2 text-sm"
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => {
+            const next = event.target.value || ''
+            setValue(next)
+            setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
+          }}
+          data-crud-focus-target=""
+        >
+          <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
+          {resourceTypes.map((type) => (
+            <option key={type.id} value={type.id}>
+              {type.name}
+            </option>
+          ))}
+        </select>
+      ),
     },
     {
       id: 'capacity',
@@ -426,6 +491,26 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       },
     },
     {
+      id: 'appearance',
+      label: t('booking.resources.form.appearance.label', 'Appearance'),
+      type: 'custom',
+      component: ({ value, setValue, disabled }) => {
+        const appearance = value && typeof value === 'object'
+          ? value as { icon?: string | null; color?: string | null }
+          : {}
+        return (
+          <AppearanceSelector
+            icon={appearance.icon ?? null}
+            color={appearance.color ?? null}
+            onIconChange={(next) => setValue({ ...appearance, icon: next })}
+            onColorChange={(next) => setValue({ ...appearance, color: next })}
+            labels={appearanceLabels}
+            disabled={disabled}
+          />
+        )
+      },
+    },
+    {
       id: 'isAvailableByDefault',
       label: defaultAvailabilityLabel,
       description: defaultAvailabilityDescription,
@@ -452,7 +537,15 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [capacityUnitDictionaryId, defaultAvailabilityDescription, defaultAvailabilityLabel, resourceTypes, t])
+  ], [
+    appearanceLabels,
+    capacityUnitDictionaryId,
+    defaultAvailabilityDescription,
+    defaultAvailabilityLabel,
+    resolveFieldsetCode,
+    resourceTypes,
+    t,
+  ])
 
   const availabilityFields = React.useMemo<CrudField[]>(() => [
     {
@@ -630,12 +723,18 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!resourceId) return
     const nextIsAvailableByDefault = values.isAvailableByDefault ?? true
+    const appearance = values.appearance && typeof values.appearance === 'object'
+      ? values.appearance as { icon?: string | null; color?: string | null }
+      : {}
+    const { appearance: _appearance, customFieldsetCode: _customFieldsetCode, ...rest } = values
     const payload: Record<string, unknown> = {
-      ...values,
+      ...rest,
       id: resourceId,
       resourceTypeId: values.resourceTypeId || null,
       capacity: values.capacity ? Number(values.capacity) : null,
       capacityUnitValue: values.capacityUnitValue ? String(values.capacityUnitValue) : null,
+      appearanceIcon: appearance.icon ?? null,
+      appearanceColor: appearance.color ?? null,
       isActive: values.isActive ?? true,
       isAvailableByDefault: nextIsAvailableByDefault,
       ...collectCustomFieldValues(values),

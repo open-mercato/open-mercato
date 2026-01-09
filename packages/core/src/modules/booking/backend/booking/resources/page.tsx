@@ -49,14 +49,14 @@ type ResourceGroupRow = {
 type ResourceTableRow = (ResourceRow & { rowKind: 'resource'; depth: number }) | ResourceGroupRow
 
 type ResourcesResponse = {
-  items: ResourceRow[]
+  items: Array<Record<string, unknown>>
   total: number
   page: number
   totalPages: number
 }
 
 type ResourceTypesResponse = {
-  items: ResourceTypeRow[]
+  items: Array<Record<string, unknown>>
 }
 
 export default function BookingResourcesPage() {
@@ -104,19 +104,22 @@ export default function BookingResourcesPage() {
         const items = Array.isArray(call.result?.items) ? call.result.items : []
         const map = new Map<string, ResourceTypeRow>()
         for (const item of items) {
-          const appearanceIcon = typeof item.appearanceIcon === 'string'
-            ? item.appearanceIcon
-            : typeof item.appearance_icon === 'string'
-              ? item.appearance_icon
+          const raw = item as Record<string, unknown>
+          const id = typeof raw.id === 'string' ? raw.id : ''
+          const name = typeof raw.name === 'string' ? raw.name : id
+          const appearanceIcon = typeof raw.appearanceIcon === 'string'
+            ? raw.appearanceIcon
+            : typeof raw.appearance_icon === 'string'
+              ? raw.appearance_icon
               : null
-          const appearanceColor = typeof item.appearanceColor === 'string'
-            ? item.appearanceColor
-            : typeof item.appearance_color === 'string'
-              ? item.appearance_color
+          const appearanceColor = typeof raw.appearanceColor === 'string'
+            ? raw.appearanceColor
+            : typeof raw.appearance_color === 'string'
+              ? raw.appearance_color
               : null
-          map.set(item.id, {
-            id: item.id,
-            name: item.name,
+          map.set(id, {
+            id,
+            name,
             appearanceIcon,
             appearanceColor,
           })
@@ -416,18 +419,31 @@ export default function BookingResourcesPage() {
   )
 }
 
-function mapApiResource(item: ResourceRow): ResourceRow {
-  const resourceTypeId = item.resourceTypeId ?? (item as { resource_type_id?: string | null }).resource_type_id ?? null
-  const isActive = item.isActive ?? (item as { is_active?: boolean }).is_active ?? false
-  const tags = Array.isArray(item.tags) ? item.tags : (item as { tags?: TagOption[] | null }).tags ?? []
+function mapApiResource(item: Record<string, unknown>): ResourceRow {
+  const id = typeof item.id === 'string' ? item.id : ''
+  const name = typeof item.name === 'string' ? item.name : id
+  const resourceTypeId = typeof item.resourceTypeId === 'string'
+    ? item.resourceTypeId
+    : typeof item.resource_type_id === 'string'
+      ? item.resource_type_id
+      : null
   const capacity = typeof item.capacity === 'number'
     ? item.capacity
-    : (item as { capacity?: number | null }).capacity ?? null
+    : typeof item.capacity === 'string'
+      ? Number(item.capacity)
+      : null
+  const isActive = typeof item.isActive === 'boolean'
+    ? item.isActive
+    : typeof item.is_active === 'boolean'
+      ? item.is_active
+      : false
+  const tags = Array.isArray(item.tags) ? item.tags as TagOption[] : []
   return {
-    ...item,
+    id,
+    name,
     resourceTypeId,
-    isActive,
+    capacity: Number.isFinite(capacity as number) ? capacity as number : null,
     tags,
-    capacity,
+    isActive,
   }
 }

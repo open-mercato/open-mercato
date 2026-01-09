@@ -20,5 +20,7 @@ export type ScheduleItem = {
   subjectType?: 'member' | 'resource'
   subjectId?: string
   color?: string
+  linkLabel?: string
+  linkHref?: string
   metadata?: Record<string, unknown>
 }

@@ -104,12 +104,14 @@ export function buildResourceScheduleItems(params: {
   translate: (key: string, fallback?: string) => string
 }): ScheduleItem[] {
   const availabilityKind: ScheduleItem['kind'] = params.isAvailableByDefault ? 'exception' : 'availability'
+  const availabilityLinkLabel = params.translate('booking.resources.schedule.actions.details', 'Details')
   const availabilityItems = params.availabilityRules.map((rule) => {
     const window = parseAvailabilityRuleWindow(rule)
     return {
       id: rule.id,
       kind: availabilityKind,
       title: buildAvailabilityTitle(window.repeat, params.isAvailableByDefault, params.translate),
+      linkLabel: availabilityLinkLabel,
       startsAt: window.startAt,
       endsAt: window.endAt,
       metadata: { rule },
