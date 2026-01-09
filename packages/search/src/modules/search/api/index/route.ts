@@ -54,13 +54,26 @@ export async function GET(req: Request) {
       offset,
     })
     return NextResponse.json({ entries, limit, offset })
-  } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : t('search.api.errors.indexFetchFailed', 'Vector index fetch failed')
-    const status = typeof error?.status === 'number'
-      ? error.status
-      : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
-    console.error('[search.index.list] failed', error)
-    return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
+  } catch (error: unknown) {
+    const err = error as { status?: number; statusCode?: number }
+    const status = typeof err?.status === 'number'
+      ? err.status
+      : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
+    // Log full error details server-side only
+    console.error('[search.index.list] failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+    // Return generic message to client - don't expose internal error details
+    return NextResponse.json(
+      { error: t('search.api.errors.indexFetchFailed', 'Failed to fetch vector index. Please try again.') },
+      { status: status >= 400 ? status : 500 }
+    )
+  } finally {
+    const disposable = container as unknown as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
   }
 }
 
@@ -73,6 +86,15 @@ export async function DELETE(req: Request) {
 
   const url = new URL(req.url)
   const entityIdParam = url.searchParams.get('entityId')
+  const confirmAll = url.searchParams.get('confirmAll') === 'true'
+
+  // Require explicit confirmation when purging ALL entities (dangerous operation)
+  if (!entityIdParam && !confirmAll) {
+    return NextResponse.json(
+      { error: t('search.api.errors.confirmAllRequired', 'Purging all entities requires confirmAll=true parameter.') },
+      { status: 400 }
+    )
+  }
 
   const container = await createRequestContainer()
   let service: VectorIndexService
@@ -178,12 +200,17 @@ export async function DELETE(req: Request) {
       },
     ).catch(() => undefined)
     return NextResponse.json({ ok: true })
-  } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : t('search.api.errors.purgeFailed', 'Vector index purge failed')
-    const status = typeof error?.status === 'number'
-      ? error.status
-      : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
-    console.error('[search.index.purge] failed', error)
+  } catch (error: unknown) {
+    const err = error as { status?: number; statusCode?: number }
+    const status = typeof err?.status === 'number'
+      ? err.status
+      : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    // Log full error details server-side only
+    console.error('[search.index.purge] failed', {
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
     await recordIndexerLog(
       { em: em ?? undefined },
       {
@@ -196,9 +223,13 @@ export async function DELETE(req: Request) {
         entityType: entityIdParam ?? null,
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
-        details: { error: message, entityIds },
+        details: { error: errorMessage, entityIds },
       },
     ).catch(() => undefined)
-    return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
+    // Return generic message to client - don't expose internal error details
+    return NextResponse.json(
+      { error: t('search.api.errors.purgeFailed', 'Vector index purge failed. Please try again.') },
+      { status: status >= 400 ? status : 500 }
+    )
   }
 }

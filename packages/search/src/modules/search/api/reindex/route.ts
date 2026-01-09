@@ -166,10 +166,15 @@ export async function POST(req: Request) {
       stats,
     })
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[search.reindex] Failed', { error: errorMessage, tenantId: auth.tenantId })
+    // Log full error details server-side only
+    console.error('[search.reindex] Failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      tenantId: auth.tenantId,
+    })
+    // Return generic message to client - don't expose internal error details
     return toJson(
-      { error: t('search.api.errors.reindexFailed', 'Failed to reindex: ') + errorMessage },
+      { error: t('search.api.errors.reindexFailed', 'Reindex operation failed. Please try again or contact support.') },
       { status: 500 }
     )
   } finally {

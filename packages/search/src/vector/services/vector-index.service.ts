@@ -489,9 +489,12 @@ export class VectorIndexService {
       badge: resultBadge ?? undefined,
     }
 
-    console.log('Storing vector index entry', 
-      encryptedResult
-    )
+    console.log('[VectorIndexService] Storing vector index entry', {
+      entityId: args.entityId,
+      recordId: args.recordId,
+      tenantId: args.tenantId,
+      organizationId: resolvedOrgId,
+    })
     await driver.upsert({
       driverId: entry.driverId,
       entityId: args.entityId,

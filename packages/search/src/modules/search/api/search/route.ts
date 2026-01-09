@@ -93,11 +93,16 @@ export async function GET(req: Request) {
       limit,
     })
   } catch (error: unknown) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : t('search.api.errors.searchFailed', 'Search failed')
-    return NextResponse.json({ error: message }, { status: 500 })
+    // Log full error details server-side only
+    console.error('[search.api.search] failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+    // Return generic message to client - don't expose internal error details
+    return NextResponse.json(
+      { error: t('search.api.errors.searchFailed', 'Search failed. Please try again.') },
+      { status: 500 }
+    )
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {

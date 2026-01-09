@@ -35,7 +35,8 @@ export function mergeAndRankResults(
   }
 
   // Track seen results with their RRF scores
-  const seen = new Map<string, { result: SearchResult; rrf: number; sources: Set<SearchStrategyId> }>()
+  // bestContribution tracks the highest single RRF contribution for the kept result object
+  const seen = new Map<string, { result: SearchResult; rrf: number; sources: Set<SearchStrategyId>; bestContribution: number }>()
 
   // Calculate RRF score for each result
   for (const [source, sourceResults] of bySource) {
@@ -65,12 +66,15 @@ export function mergeAndRankResults(
             url: existing.result.url ?? result.url,
             links: existing.result.links ?? result.links,
           }
-        } else if (hasExistingPresenter && hasNewPresenter && result.score > existing.result.score) {
-          // Both have presenter, keep the one with better score
+          existing.bestContribution = Math.max(existing.bestContribution, rrfScore)
+        } else if (hasExistingPresenter && hasNewPresenter && rrfScore > existing.bestContribution) {
+          // Both have presenter, keep the one with better RRF contribution (not raw score)
           existing.result = { ...result }
-        } else if (!hasExistingPresenter && !hasNewPresenter && result.score > existing.result.score) {
-          // Neither has presenter, keep better score
+          existing.bestContribution = rrfScore
+        } else if (!hasExistingPresenter && !hasNewPresenter && rrfScore > existing.bestContribution) {
+          // Neither has presenter, keep result with better RRF contribution
           existing.result = { ...result }
+          existing.bestContribution = rrfScore
         }
         // If existing has presenter and new doesn't, keep existing (do nothing)
       } else {
@@ -78,6 +82,7 @@ export function mergeAndRankResults(
           result: { ...result },
           rrf: rrfScore,
           sources: new Set([source]),
+          bestContribution: rrfScore,
         })
       }
     }

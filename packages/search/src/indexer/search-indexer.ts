@@ -14,6 +14,12 @@ import type { Queue } from '@open-mercato/queue'
 import type { MeilisearchIndexJobPayload } from '../queue/meilisearch-indexing'
 
 /**
+ * Maximum number of pages to process during reindex to prevent infinite loops.
+ * At 50 records per page, this allows up to 500,000 records per entity.
+ */
+const MAX_PAGES = 10000
+
+/**
  * Parameters for indexing a record.
  */
 export type IndexRecordParams = {
@@ -88,6 +94,8 @@ export type ReindexResult = {
   success: boolean
   entitiesProcessed: number
   recordsIndexed: number
+  /** Number of records dropped due to missing id or other validation failures */
+  recordsDropped?: number
   /** Number of jobs enqueued (when useQueue is true) */
   jobsEnqueued?: number
   errors: Array<{ entityId: EntityId; error: string }>
@@ -327,6 +335,7 @@ export class SearchIndexer {
       success: true,
       entitiesProcessed: 0,
       recordsIndexed: 0,
+      recordsDropped: 0,
       jobsEnqueued: 0,
       errors: [],
     }
@@ -399,13 +408,14 @@ export class SearchIndexer {
         })
 
         // Build IndexableRecords for this batch
-        const indexableRecords = await this.buildIndexableRecords(
+        const { records: indexableRecords, dropped } = await this.buildIndexableRecords(
           params.entityId,
           params.tenantId,
           params.organizationId ?? null,
           queryResult.items,
           config,
         )
+        result.recordsDropped = (result.recordsDropped ?? 0) + dropped
 
         // Index to Meilisearch - either via queue or directly
         if (indexableRecords.length > 0) {
@@ -435,17 +445,34 @@ export class SearchIndexer {
                 totalProcessed,
               })
             } catch (indexError) {
-              console.error('[SearchIndexer] Failed to index batch to Meilisearch', {
+              // Log error but continue with remaining batches
+              const errorMsg = indexError instanceof Error ? indexError.message : String(indexError)
+              console.error('[SearchIndexer] Failed to index batch to Meilisearch, continuing', {
                 entityId: params.entityId,
-                error: indexError instanceof Error ? indexError.message : indexError,
+                page,
+                batchSize: indexableRecords.length,
+                error: errorMsg,
               })
-              throw indexError
+              result.errors.push({
+                entityId: params.entityId,
+                error: `Batch ${page} failed: ${errorMsg}`,
+              })
             }
           }
         }
 
         if (queryResult.items.length < pageSize) break
         page += 1
+
+        // Safety check to prevent infinite loops
+        if (page > MAX_PAGES) {
+          console.warn('[SearchIndexer] Reached MAX_PAGES limit, stopping pagination', {
+            entityId: params.entityId,
+            maxPages: MAX_PAGES,
+            totalProcessed,
+          })
+          break
+        }
       }
 
       result.entitiesProcessed = 1
@@ -480,6 +507,7 @@ export class SearchIndexer {
       success: true,
       entitiesProcessed: 0,
       recordsIndexed: 0,
+      recordsDropped: 0,
       jobsEnqueued: 0,
       errors: [],
     }
@@ -509,6 +537,7 @@ export class SearchIndexer {
 
       result.entitiesProcessed += entityResult.entitiesProcessed
       result.recordsIndexed += entityResult.recordsIndexed
+      result.recordsDropped = (result.recordsDropped ?? 0) + (entityResult.recordsDropped ?? 0)
       result.jobsEnqueued = (result.jobsEnqueued ?? 0) + (entityResult.jobsEnqueued ?? 0)
       result.errors.push(...entityResult.errors)
 
@@ -522,6 +551,7 @@ export class SearchIndexer {
 
   /**
    * Build IndexableRecords from raw query results.
+   * Returns records and count of dropped items (missing id or other validation failures).
    */
   private async buildIndexableRecords(
     entityId: EntityId,
@@ -529,8 +559,9 @@ export class SearchIndexer {
     organizationId: string | null,
     items: Record<string, unknown>[],
     config: SearchEntityConfig,
-  ): Promise<IndexableRecord[]> {
+  ): Promise<{ records: IndexableRecord[]; dropped: number }> {
     const records: IndexableRecord[] = []
+    let dropped = 0
 
     // Debug: log first item to see structure
     if (items.length > 0) {
@@ -550,6 +581,7 @@ export class SearchIndexer {
       const recordId = String(item.id ?? '')
       if (!recordId) {
         console.warn('[SearchIndexer] Skipping item without id', { entityId, itemKeys: Object.keys(item) })
+        dropped++
         continue
       }
 
@@ -629,8 +661,9 @@ export class SearchIndexer {
       entityId,
       inputCount: items.length,
       outputCount: records.length,
+      dropped,
     })
 
-    return records
+    return { records, dropped }
   }
 }

@@ -29,34 +29,34 @@ export async function POST(req: Request) {
   const purgeFirst = payload?.purgeFirst === true
 
   const container = await createRequestContainer()
-  let em: any | null = null
   try {
-    em = container.resolve('em')
-  } catch {}
-  let service: VectorIndexService
-  try {
-    service = (container.resolve('vectorIndexService') as VectorIndexService)
-  } catch {
-    return NextResponse.json({ error: t('search.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
-  }
-
-  // Load saved embedding config and update the embedding service
-  try {
-    const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
-    if (embeddingConfig) {
-      const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
-      embeddingService.updateConfig(embeddingConfig)
-      console.log('[search.embeddings.reindex] using embedding config', {
-        providerId: embeddingConfig.providerId,
-        model: embeddingConfig.model,
-        dimension: embeddingConfig.dimension,
-      })
+    let em: any | null = null
+    try {
+      em = container.resolve('em')
+    } catch {}
+    let service: VectorIndexService
+    try {
+      service = (container.resolve('vectorIndexService') as VectorIndexService)
+    } catch {
+      return NextResponse.json({ error: t('search.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
     }
-  } catch (err) {
-    console.warn('[search.embeddings.reindex] failed to load embedding config, using defaults', err)
-  }
 
-  try {
+    // Load saved embedding config and update the embedding service
+    try {
+      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+      if (embeddingConfig) {
+        const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
+        embeddingService.updateConfig(embeddingConfig)
+        console.log('[search.embeddings.reindex] using embedding config', {
+          providerId: embeddingConfig.providerId,
+          model: embeddingConfig.model,
+          dimension: embeddingConfig.dimension,
+        })
+      }
+    } catch (err) {
+      console.warn('[search.embeddings.reindex] failed to load embedding config, using defaults', err)
+    }
+
     await recordIndexerLog(
       { em: em ?? undefined },
       {
@@ -71,6 +71,7 @@ export async function POST(req: Request) {
         details: { purgeFirst },
       },
     ).catch(() => undefined)
+
     if (entityId) {
       await service.reindexEntity({ entityId, tenantId: auth.tenantId, organizationId: auth.orgId ?? null, purgeFirst })
     } else {
@@ -128,27 +129,27 @@ export async function POST(req: Request) {
       },
     ).catch(() => undefined)
     return NextResponse.json({ ok: true, processedSync })
-  } catch (error: any) {
-    const message = typeof error?.message === 'string' ? error.message : t('search.api.errors.reindexFailed', 'Vector reindex failed')
-    const status = typeof error?.status === 'number'
-      ? error.status
-      : (typeof error?.statusCode === 'number' ? error.statusCode : undefined)
-    console.error('[search.embeddings.reindex] failed', error)
-    await recordIndexerLog(
-      { em: em ?? undefined },
-      {
-        source: 'vector',
-        handler: 'api:search.embeddings.reindex',
-        level: 'warn',
-        message: entityId
-          ? `Vector reindex failed for ${entityId}`
-          : 'Vector reindex failed for all entities',
-        entityType: entityId ?? null,
-        tenantId: auth.tenantId ?? null,
-        organizationId: auth.orgId ?? null,
-        details: { error: message },
-      },
-    ).catch(() => undefined)
-    return NextResponse.json({ error: message }, { status: status && status >= 400 ? status : 500 })
+  } catch (error: unknown) {
+    const err = error as { message?: string; status?: number; statusCode?: number }
+    // Determine HTTP status from error, if available
+    const status = typeof err?.status === 'number'
+      ? err.status
+      : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
+    // Log full error details server-side only
+    console.error('[search.embeddings.reindex] failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      status,
+    })
+    // Return generic message to client - don't expose internal error details
+    return NextResponse.json(
+      { error: t('search.api.errors.reindexFailed', 'Vector reindex failed. Please try again or contact support.') },
+      { status: status >= 400 ? status : 500 }
+    )
+  } finally {
+    const disposable = container as unknown as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
   }
 }
