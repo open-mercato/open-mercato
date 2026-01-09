@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Trash2, ChevronDown, Info, Plus } from 'lucide-react'
 import { sanitizeId, validateId } from '../lib/graph-utils'
+import { WorkflowSelector, WorkflowDefinition } from './WorkflowSelector'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -65,6 +66,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [subWorkflowVersion, setSubWorkflowVersion] = useState('')
   const [inputMappings, setInputMappings] = useState<Array<{ key: string; value: string }>>([])
   const [outputMappings, setOutputMappings] = useState<Array<{ key: string; value: string }>>([])
+  const [showWorkflowSelector, setShowWorkflowSelector] = useState(false)
 
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
@@ -253,6 +255,12 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       newExpanded.add(index)
     }
     setExpandedFields(newExpanded)
+  }
+
+  const handleWorkflowSelect = (workflowId: string, workflow: WorkflowDefinition) => {
+    setSubWorkflowId(workflowId)
+    setSubWorkflowVersion(workflow.version.toString())
+    setShowWorkflowSelector(false)
   }
 
   const handleSave = () => {
@@ -786,13 +794,23 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Workflow to Invoke *
                     </label>
-                    <input
-                      type="text"
-                      value={subWorkflowId}
-                      onChange={(e) => setSubWorkflowId(e.target.value)}
-                      placeholder="child-workflow"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={subWorkflowId}
+                        onChange={(e) => setSubWorkflowId(e.target.value)}
+                        placeholder="child-workflow"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        readOnly
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setShowWorkflowSelector(true)}
+                      >
+                        Browse...
+                      </Button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">
                       Workflow ID of the sub-workflow to invoke
                     </p>
@@ -1034,6 +1052,19 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
           </div>
         </DialogFooter>
       </DialogContent>
+
+      {/* Workflow Selector Dialog */}
+      {node?.type === 'subWorkflow' && (
+        <WorkflowSelector
+          isOpen={showWorkflowSelector}
+          onClose={() => setShowWorkflowSelector(false)}
+          onSelect={handleWorkflowSelect}
+          excludeWorkflowIds={[]}
+          title="Select Sub-Workflow"
+          description="Choose a workflow to invoke as a sub-workflow step"
+          onlyEnabled={true}
+        />
+      )}
     </Dialog>
   )
 }

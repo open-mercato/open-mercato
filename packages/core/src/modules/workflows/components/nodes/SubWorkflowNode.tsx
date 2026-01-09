@@ -58,7 +58,7 @@ export function SubWorkflowNode({ data, isConnectable, selected }: NodeProps) {
         title={nodeData.label}
         description={description}
         status={workflowStatus}
-        nodeType="automated"
+        nodeType="subWorkflow"
         selected={selected}
       />
 

@@ -15,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives
 import { useT } from '@/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { Info } from 'lucide-react'
+import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NodeType } from '../../../lib/node-type-icons'
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -784,14 +785,14 @@ export default function VisualEditorPage() {
               onClick={() => handleAddNode('start')}
               className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="absolute top-2 right-2 text-emerald-500 opacity-60 group-hover:opacity-100 transition-opacity">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="10" strokeWidth="2"/>
-                  <circle cx="12" cy="12" r="3" fill="currentColor"/>
-                </svg>
+              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.start} opacity-60 group-hover:opacity-100 transition-opacity`}>
+                {(() => {
+                  const Icon = NODE_TYPE_ICONS.start
+                  return <Icon className="w-4 h-4" />
+                })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">START</div>
-              <div className="text-xs text-gray-500 mt-0.5">Workflow trigger</div>
+              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.start.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.start.description}</div>
             </button>
 
             {/* USER_TASK Step */}
@@ -799,13 +800,14 @@ export default function VisualEditorPage() {
               onClick={() => handleAddNode('userTask')}
               className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="absolute top-2 right-2 text-blue-500 opacity-60 group-hover:opacity-100 transition-opacity">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
+              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.userTask} opacity-60 group-hover:opacity-100 transition-opacity`}>
+                {(() => {
+                  const Icon = NODE_TYPE_ICONS.userTask
+                  return <Icon className="w-4 h-4" />
+                })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">USER TASK</div>
-              <div className="text-xs text-gray-500 mt-0.5">Manual action</div>
+              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.userTask.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.userTask.description}</div>
             </button>
 
             {/* AUTOMATED Step */}
@@ -813,13 +815,14 @@ export default function VisualEditorPage() {
               onClick={() => handleAddNode('automated')}
               className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="absolute top-2 right-2 text-amber-500 opacity-60 group-hover:opacity-100 transition-opacity">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.automated} opacity-60 group-hover:opacity-100 transition-opacity`}>
+                {(() => {
+                  const Icon = NODE_TYPE_ICONS.automated
+                  return <Icon className="w-4 h-4" />
+                })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">AUTOMATED</div>
-              <div className="text-xs text-gray-500 mt-0.5">System task</div>
+              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.automated.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.automated.description}</div>
             </button>
 
             {/* SUB_WORKFLOW Step */}
@@ -827,13 +830,14 @@ export default function VisualEditorPage() {
               onClick={() => handleAddNode('subWorkflow')}
               className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="absolute top-2 right-2 text-purple-500 opacity-60 group-hover:opacity-100 transition-opacity">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3z" />
-                </svg>
+              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.subWorkflow} opacity-60 group-hover:opacity-100 transition-opacity`}>
+                {(() => {
+                  const Icon = NODE_TYPE_ICONS.subWorkflow
+                  return <Icon className="w-4 h-4" />
+                })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">SUB-WORKFLOW</div>
-              <div className="text-xs text-gray-500 mt-0.5">Invoke workflow</div>
+              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.subWorkflow.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.subWorkflow.description}</div>
             </button>
 
             {/* END Step */}
@@ -841,14 +845,14 @@ export default function VisualEditorPage() {
               onClick={() => handleAddNode('end')}
               className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
             >
-              <div className="absolute top-2 right-2 text-red-500 opacity-60 group-hover:opacity-100 transition-opacity">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="10" strokeWidth="2"/>
-                  <rect x="8" y="8" width="8" height="8" fill="currentColor"/>
-                </svg>
+              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.end} opacity-60 group-hover:opacity-100 transition-opacity`}>
+                {(() => {
+                  const Icon = NODE_TYPE_ICONS.end
+                  return <Icon className="w-4 h-4" />
+                })()}
               </div>
-              <div className="text-sm font-semibold text-gray-900">END</div>
-              <div className="text-xs text-gray-500 mt-0.5">Workflow completion</div>
+              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.end.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.end.description}</div>
             </button>
           </div>
 

@@ -1,11 +1,12 @@
-import { Check, Play, Pause, Circle, CircleDot, User, Zap, CircleStop } from 'lucide-react'
+import { Check, Play, Pause, Circle } from 'lucide-react'
 import { STATUS_COLORS, WorkflowStatus } from '../lib/status-colors'
+import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NodeType } from '../lib/node-type-icons'
 
 interface WorkflowNodeCardProps {
   title: string
   description?: string
   status?: WorkflowStatus
-  nodeType: 'start' | 'end' | 'userTask' | 'automated'
+  nodeType: NodeType
   selected?: boolean
 }
 
@@ -27,20 +28,8 @@ export function WorkflowNodeCard({
     not_started: Circle,
   }[status]
 
-  const NodeTypeIcon = {
-    start: CircleDot,
-    end: CircleStop,
-    userTask: User,
-    automated: Zap,
-  }[nodeType]
-
-  // Node type icon colors
-  const nodeTypeIconColor = {
-    start: 'text-emerald-500',
-    end: 'text-red-500',
-    userTask: 'text-blue-500',
-    automated: 'text-amber-500',
-  }[nodeType]
+  const NodeTypeIcon = NODE_TYPE_ICONS[nodeType]
+  const nodeTypeIconColor = NODE_TYPE_COLORS[nodeType]
 
   return (
     <div
