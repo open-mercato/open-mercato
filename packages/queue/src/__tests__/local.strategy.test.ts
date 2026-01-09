@@ -189,4 +189,159 @@ describe('Queue - local strategy', () => {
 
     await queue.close()
   })
+
+  describe('processLoop', () => {
+    function sleep(ms: number): Promise<void> {
+      return new Promise(resolve => setTimeout(resolve, ms))
+    }
+
+    test('continuously polls for new jobs', async () => {
+      const queue = createQueue<{ data: string }>('test-poll', 'local')
+      const processed: string[] = []
+
+      // Enqueue initial job
+      await queue.enqueue({ data: 'job1' })
+
+      // Start polling with abort signal
+      const abortController = new AbortController()
+
+      const loopPromise = queue.processLoop!((job) => {
+        processed.push(job.payload.data)
+      }, {
+        pollIntervalMs: 100,
+        signal: abortController.signal,
+      })
+
+      // Wait for first job to process
+      await sleep(200)
+      expect(processed).toContain('job1')
+      expect(processed.length).toBe(1)
+
+      // Enqueue more jobs while loop is running
+      await queue.enqueue({ data: 'job2' })
+      await queue.enqueue({ data: 'job3' })
+
+      // Wait for processing
+      await sleep(250)
+      expect(processed).toContain('job2')
+      expect(processed).toContain('job3')
+      expect(processed.length).toBe(3)
+
+      // Stop loop
+      abortController.abort()
+      await loopPromise
+
+      await queue.close()
+    })
+
+    test('handles job errors and continues polling', async () => {
+      const queue = createQueue<{ shouldFail: boolean }>('test-errors', 'local')
+      const processed: boolean[] = []
+
+      await queue.enqueue({ shouldFail: true })
+      await queue.enqueue({ shouldFail: false })
+
+      const abortController = new AbortController()
+
+      const loopPromise = queue.processLoop!((job) => {
+        if (job.payload.shouldFail) {
+          throw new Error('Processing failed')
+        }
+        processed.push(job.payload.shouldFail)
+      }, {
+        pollIntervalMs: 100,
+        signal: abortController.signal,
+      })
+
+      // Wait for both jobs to be attempted
+      await sleep(300)
+
+      // Should have processed the non-failing job (handler errors are caught internally)
+      expect(processed).toContain(false)
+      expect(processed.length).toBe(1)
+
+      // Check that both jobs were marked as processed (one failed, one succeeded)
+      const counts = await queue.getJobCounts()
+      expect(counts.completed).toBe(2) // Both jobs processed (one failed, one succeeded)
+
+      abortController.abort()
+      await loopPromise
+
+      await queue.close()
+    })
+
+    test('stops polling when signal is aborted', async () => {
+      const queue = createQueue<{ data: string }>('test-stop', 'local')
+      const processed: string[] = []
+
+      await queue.enqueue({ data: 'job1' })
+
+      const abortController = new AbortController()
+
+      const loopPromise = queue.processLoop!((job) => {
+        processed.push(job.payload.data)
+      }, {
+        pollIntervalMs: 50,
+        signal: abortController.signal,
+      })
+
+      // Wait for first job
+      await sleep(100)
+      expect(processed).toContain('job1')
+
+      // Stop immediately
+      abortController.abort()
+      await loopPromise
+
+      // Add another job after stopping
+      await queue.enqueue({ data: 'job2' })
+      await sleep(150)
+
+      // Should NOT have processed job2
+      expect(processed).not.toContain('job2')
+      expect(processed.length).toBe(1)
+
+      await queue.close()
+    })
+
+    test('uses custom poll interval', async () => {
+      const queue = createQueue<{ data: string }>('test-interval', 'local')
+      const processed: string[] = []
+      const timestamps: number[] = []
+
+      await queue.enqueue({ data: 'job1' })
+
+      const abortController = new AbortController()
+
+      // Use 200ms poll interval
+      const loopPromise = queue.processLoop!((job) => {
+        processed.push(job.payload.data)
+        timestamps.push(Date.now())
+      }, {
+        pollIntervalMs: 200,
+        signal: abortController.signal,
+      })
+
+      await sleep(100)
+      expect(processed.length).toBe(1)
+
+      // Add job immediately after first poll
+      await queue.enqueue({ data: 'job2' })
+
+      // Should wait ~200ms before next poll
+      await sleep(250)
+      expect(processed.length).toBe(2)
+
+      // Check that there was a delay between polls
+      if (timestamps.length >= 2) {
+        const delay = timestamps[1] - timestamps[0]
+        expect(delay).toBeGreaterThan(150) // Allow some margin
+      }
+
+      abortController.abort()
+      await loopPromise
+
+      await queue.close()
+    })
+  })
 })

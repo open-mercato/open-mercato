@@ -173,9 +173,13 @@ async function checkAndResumeWorkflow(
   // Import here to avoid circular dependency
   const { resumeWorkflowAfterActivities } = await import('./workflow-executor')
 
+  console.log(`[ActivityWorker] Attempting to resume workflow ${workflowInstanceId}`)
+
   try {
     await resumeWorkflowAfterActivities(em, container, workflowInstanceId)
+    console.log(`[ActivityWorker] Successfully resumed workflow ${workflowInstanceId}`)
   } catch (error: any) {
+    console.log(`[ActivityWorker] Resume error for ${workflowInstanceId}:`, error.message)
     // Ignore error if workflow not ready to resume yet
     if (!error.message?.includes('Activities still pending')) {
       console.error(`[ActivityWorker] Failed to resume workflow ${workflowInstanceId}:`, error)

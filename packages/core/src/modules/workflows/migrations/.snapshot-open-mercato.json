@@ -904,12 +904,12 @@
         },
         "status": {
           "name": "status",
-          "type": "varchar(20)",
+          "type": "varchar(30)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "length": 20,
+          "length": 30,
           "mappedType": "string"
         },
         "current_step_id": {
@@ -1001,6 +1001,15 @@
         },
         "error_details": {
           "name": "error_details",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
+        },
+        "pending_transition": {
+          "name": "pending_transition",
           "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,

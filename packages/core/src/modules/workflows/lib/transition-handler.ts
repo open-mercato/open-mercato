@@ -51,6 +51,7 @@ export interface TransitionExecutionContext {
 export interface TransitionExecutionResult {
   success: boolean
   nextStepId?: string
+  pausedForActivities?: boolean
   conditionsEvaluated?: {
     preConditions: boolean
     postConditions: boolean
@@ -423,6 +424,78 @@ export async function executeTransition(
           activityOutputs[key] = result.output
         }
       })
+    }
+
+    // Check if any activities are async - if so, pause before executing step
+    console.log('[TRANSITION] Checking for async activities:', {
+      activityResultsLength: activityResults.length,
+      activityResults: activityResults.map(r => ({ activityId: r.activityId, async: r.async })),
+    })
+    const hasAsyncActivities = activityResults.some(r => r.async)
+    console.log('[TRANSITION] hasAsyncActivities:', hasAsyncActivities)
+
+    if (hasAsyncActivities) {
+      console.log('[TRANSITION] Async activities detected - pausing transition')
+
+      const pendingJobIds = activityResults
+        .filter(a => a.async && a.jobId)
+        .map(a => ({ activityId: a.activityId, jobId: a.jobId }))
+
+      console.log('[TRANSITION] Pending job IDs:', pendingJobIds)
+
+      // Store pending transition state
+      instance.pendingTransition = {
+        toStepId,
+        activityResults,
+        timestamp: new Date(),
+      }
+      console.log('[TRANSITION] Set pendingTransition:', instance.pendingTransition)
+
+      // Store pending activities in context for tracking
+      instance.context = {
+        ...instance.context,
+        ...context.workflowContext,
+        ...activityOutputs,
+        _pendingAsyncActivities: pendingJobIds,
+      }
+      console.log('[TRANSITION] Updated context with pending activities')
+
+      // Set status to waiting
+      instance.status = 'WAITING_FOR_ACTIVITIES'
+      instance.updatedAt = new Date()
+      console.log('[TRANSITION] Set status to WAITING_FOR_ACTIVITIES, flushing...')
+      await em.flush()
+      console.log('[TRANSITION] Flush complete')
+
+      // Log event
+      console.log('[TRANSITION] Logging TRANSITION_PAUSED_FOR_ACTIVITIES event...')
+      await logTransitionEvent(em, {
+        workflowInstanceId: instance.id,
+        eventType: 'TRANSITION_PAUSED_FOR_ACTIVITIES',
+        eventData: {
+          fromStepId,
+          toStepId,
+          transitionId: transition.transitionId,
+          pendingActivities: pendingJobIds,
+        },
+        userId: context.userId,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+      console.log('[TRANSITION] Event logged')
+
+      // Return WITHOUT executing step
+      console.log('[TRANSITION] Returning with pausedForActivities=true')
+      return {
+        success: true,
+        pausedForActivities: true,
+        nextStepId: toStepId,
+        conditionsEvaluated: {
+          preConditions: true,
+          postConditions: false, // Not evaluated yet
+        },
+        activitiesExecuted: activityResults,
+      }
     }
 
     // Update workflow instance - set current step and update context atomically

@@ -215,15 +215,24 @@ const startWorker: ModuleCli = {
     const args = parseArgs(rest)
     const concurrency = parseInt(args.concurrency ?? args.c ?? '5')
 
-    console.log('[Workflow Worker] Starting worker...')
+    const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
+
+    console.log('[Workflow Worker] Starting activity worker...')
+    console.log(`[Workflow Worker] Strategy: ${strategy}`)
+
+    if (strategy === 'local') {
+      const pollMs = process.env.LOCAL_QUEUE_POLL_MS || '5000'
+      console.log(`[Workflow Worker] Polling interval: ${pollMs}ms`)
+      console.log('[Workflow Worker] NOTE: Local strategy is for development only.')
+      console.log('[Workflow Worker] Use QUEUE_STRATEGY=async with Redis for production.')
+    } else {
+      console.log(`[Workflow Worker] Concurrency: ${concurrency}`)
+      console.log(`[Workflow Worker] Redis: ${process.env.REDIS_URL || process.env.QUEUE_REDIS_URL}`)
+    }
 
     try {
-      const { resolve } = await createRequestContainer()
-      const em = resolve<EntityManager>('em')
-
-      // Get strategy from environment
-      const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
-      console.log(`[Workflow Worker] Using ${strategy} queue strategy`)
+      const container = await createRequestContainer()
+      const em = container.resolve<EntityManager>('em')
 
       // Import queue and handler
       const { runWorker } = await import('@open-mercato/queue/worker')
@@ -231,7 +240,7 @@ const startWorker: ModuleCli = {
       const { WORKFLOW_ACTIVITIES_QUEUE_NAME } = await import('./lib/activity-queue-types')
 
       // Create handler
-      const handler = createActivityWorkerHandler(em, resolve as any)
+      const handler = createActivityWorkerHandler(em, container)
 
       // Run worker
       await runWorker({
@@ -245,6 +254,67 @@ const startWorker: ModuleCli = {
       })
     } catch (error) {
       console.error('[Workflow Worker] Failed to start worker:', error)
+      throw error
+    }
+  },
+}
+
+/**
+ * Seed checkout failure demo
+ */
+const seedCheckoutFailure: ModuleCli = {
+  command: 'seed-checkout-failure',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
+
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato workflows seed-checkout-failure --tenant <tenantId> --org <organizationId>')
+      return
+    }
+
+    try {
+      const { resolve } = await createRequestContainer()
+      const em = resolve<EntityManager>('em')
+
+      // Read the failure demo workflow definition
+      const failurePath = path.join(__dirname, 'examples', 'checkout-failure-demo.json')
+      const failureData = JSON.parse(fs.readFileSync(failurePath, 'utf8'))
+
+      // Check if it already exists
+      const existing = await em.findOne(WorkflowDefinition, {
+        workflowId: failureData.workflowId,
+        tenantId,
+        organizationId,
+      })
+
+      if (existing) {
+        console.log(`✓ Checkout failure demo workflow '${failureData.workflowId}' already exists (ID: ${existing.id})`)
+        return
+      }
+
+      // Create the workflow definition
+      const workflow = em.create(WorkflowDefinition, {
+        ...failureData,
+        tenantId,
+        organizationId,
+      })
+
+      await em.persistAndFlush(workflow)
+
+      console.log(`✓ Seeded checkout failure demo workflow: ${workflow.workflowName}`)
+      console.log(`  - ID: ${workflow.id}`)
+      console.log(`  - Workflow ID: ${workflow.workflowId}`)
+      console.log(`  - Version: ${workflow.version}`)
+      console.log(`  - Steps: ${workflow.definition.steps.length}`)
+      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
+      console.log('')
+      console.log('Checkout failure demo workflow is ready!')
+      console.log('This workflow is designed to fail at the payment step to demonstrate')
+      console.log('the compensation (saga pattern) feature.')
+    } catch (error) {
+      console.error('Error seeding checkout failure demo workflow:', error)
       throw error
     }
   },
@@ -280,6 +350,10 @@ const seedAll: ModuleCli = {
       await seedSimpleApproval.run(rest)
       console.log('')
 
+      // Seed checkout failure demo
+      await seedCheckoutFailure.run(rest)
+      console.log('')
+
       console.log('✓ All example workflows seeded successfully!')
     } catch (error) {
       console.error('Error seeding workflows:', error)
@@ -288,11 +362,76 @@ const seedAll: ModuleCli = {
   },
 }
 
+/**
+ * Manually process pending workflow activities
+ */
+const processActivities: ModuleCli = {
+  command: 'process-activities',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const limit = parseInt(args.limit ?? args.l ?? '0')
+
+    console.log('[Workflow Activities] Processing pending activities...')
+    if (limit > 0) {
+      console.log(`[Workflow Activities] Limit: ${limit} jobs`)
+    }
+
+    try {
+      const container = await createRequestContainer()
+      const em = container.resolve<EntityManager>('em')
+
+      // Import queue and handler
+      const { createQueue } = await import('@open-mercato/queue')
+      const { createActivityWorkerHandler } = await import('./lib/activity-worker-handler')
+      const { WORKFLOW_ACTIVITIES_QUEUE_NAME } = await import('./lib/activity-queue-types')
+
+      // Create queue instance
+      const queue = createQueue(WORKFLOW_ACTIVITIES_QUEUE_NAME, 'local', {
+        baseDir: process.env.QUEUE_BASE_DIR || '.queue',
+      })
+
+      // Create handler
+      const handler = createActivityWorkerHandler(em, container)
+
+      // Get initial counts
+      const initialCounts = await queue.getJobCounts()
+      console.log(`[Workflow Activities] Pending jobs: ${initialCounts.waiting}`)
+
+      if (initialCounts.waiting === 0) {
+        console.log('[Workflow Activities] No jobs to process')
+        await queue.close()
+        return
+      }
+
+      // Process jobs
+      const result = await queue.process(handler, limit > 0 ? { limit } : undefined)
+
+      console.log(`\n[Workflow Activities] ✓ Processed ${result.processed} activities`)
+      if (result.failed > 0) {
+        console.log(`[Workflow Activities] ✗ Failed: ${result.failed} activities`)
+      }
+
+      // Show remaining
+      const finalCounts = await queue.getJobCounts()
+      if (finalCounts.waiting > 0) {
+        console.log(`[Workflow Activities] Remaining: ${finalCounts.waiting} jobs`)
+      }
+
+      await queue.close()
+    } catch (error) {
+      console.error('[Workflow Activities] Error processing activities:', error)
+      throw error
+    }
+  },
+}
+
 const workflowsCliCommands = [
   startWorker,
+  processActivities,
   seedDemo,
   seedSalesPipeline,
   seedSimpleApproval,
+  seedCheckoutFailure,
   seedAll,
 ]
 

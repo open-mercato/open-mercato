@@ -119,6 +119,20 @@ export type ProcessResult = {
   lastJobId?: string
 }
 
+/**
+ * Options for the processLoop operation (local strategy only).
+ */
+export type ProcessLoopOptions = {
+  /** Interval between polling attempts in milliseconds. Defaults to 5000 (5 seconds) */
+  pollIntervalMs?: number
+  /** Error handler called when job processing fails */
+  onError?: (error: Error) => void
+  /** AbortSignal to gracefully stop the polling loop */
+  signal?: AbortSignal
+  /** Options passed to the underlying process() call */
+  processOptions?: ProcessOptions
+}
+
 // ============================================================================
 // Queue Interface
 // ============================================================================
@@ -151,6 +165,21 @@ export interface Queue<T = unknown> {
    * @returns ProcessResult with counts (or sentinel for async worker mode)
    */
   process(handler: JobHandler<T>, options?: ProcessOptions): Promise<ProcessResult>
+
+  /**
+   * Continuously poll and process jobs (local strategy only).
+   *
+   * This method provides a polling loop for the local file-based queue strategy,
+   * making it behave more like the async/BullMQ strategy for development.
+   *
+   * The loop checks for new jobs at regular intervals and processes them.
+   * Use the AbortSignal to gracefully stop the loop.
+   *
+   * @param handler - Function to handle each job
+   * @param options - Polling configuration options
+   * @returns Promise that resolves when polling is stopped via signal
+   */
+  processLoop?(handler: JobHandler<T>, options?: ProcessLoopOptions): Promise<void>
 
   /**
    * Remove all jobs from the queue.

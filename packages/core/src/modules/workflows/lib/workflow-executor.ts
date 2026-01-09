@@ -396,30 +396,19 @@ export async function executeWorkflow(
           },
         })
 
-        // Check for async activities that were queued
-        const hasAsyncActivities = transitionResult.activitiesExecuted?.some(a => a.async)
-
-        if (hasAsyncActivities) {
-          // Collect job IDs from async activities
-          const pendingJobIds = transitionResult.activitiesExecuted!
-            .filter(a => a.async && a.jobId)
-            .map(a => ({ activityId: a.activityId, jobId: a.jobId }))
-
-          // Store in workflow context for tracking
-          currentInstance.context = {
-            ...currentInstance.context,
-            _pendingAsyncActivities: pendingJobIds,
-          }
-
-          // Update status to WAITING_FOR_ACTIVITIES
-          currentInstance.status = 'WAITING_FOR_ACTIVITIES'
-          await em.flush()
+        // Check if transition paused for async activities
+        if (transitionResult.pausedForActivities) {
+          console.log('[WORKFLOW] Transition paused - waiting for async activities')
 
           await logWorkflowEvent(em, {
             workflowInstanceId: currentInstance.id,
             eventType: 'WORKFLOW_WAITING_FOR_ACTIVITIES',
             eventData: {
-              pendingActivities: pendingJobIds,
+              pendingActivities: transitionResult.activitiesExecuted?.filter(a => a.async),
+              pausedAtTransition: {
+                fromStepId: selectedTransition.fromStepId,
+                toStepId: selectedTransition.toStepId,
+              },
             },
             tenantId: currentInstance.tenantId,
             organizationId: currentInstance.organizationId,
@@ -428,13 +417,15 @@ export async function executeWorkflow(
           events.push({
             eventType: 'WORKFLOW_WAITING_FOR_ACTIVITIES',
             occurredAt: new Date(),
-            data: { pendingActivities: pendingJobIds },
+            data: {
+              pendingActivities: transitionResult.activitiesExecuted?.filter(a => a.async),
+            },
           })
 
-          // Exit execution loop (will resume when activities complete)
+          // Exit execution loop - will resume when activities complete
           return {
             status: 'WAITING_FOR_ACTIVITIES',
-            currentStep: currentInstance.currentStepId,
+            currentStep: currentInstance.currentStepId, // Still at old step
             context: currentInstance.context,
             events,
             executionTime: Date.now() - startTime,
@@ -446,6 +437,8 @@ export async function executeWorkflow(
       } catch (error) {
         // Transition failed
         const errorMessage = error instanceof Error ? error.message : String(error)
+        console.error('[WORKFLOW] Transition execution failed:', error)
+        console.error('[WORKFLOW] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
         errors.push(errorMessage)
 
         events.push({
@@ -717,22 +710,91 @@ export async function resumeWorkflowAfterActivities(
   // Clean up tracking
   delete instance.context._pendingAsyncActivities
 
-  // Resume workflow
+  // Get pending transition
+  const pendingTransition = instance.pendingTransition
+
+  if (!pendingTransition) {
+    console.warn('[WORKFLOW] No pending transition found during resume')
+    // Continue with normal execution
+    instance.status = 'RUNNING'
+    await em.flush()
+
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      eventType: 'WORKFLOW_RESUMED',
+      eventData: {
+        reason: 'All async activities completed',
+        completedActivities: completedActivities,
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    await executeWorkflow(em, container, instanceId)
+    return
+  }
+
+  console.log('[WORKFLOW] Completing pending transition:', {
+    toStepId: pendingTransition.toStepId,
+    from: instance.currentStepId,
+  })
+
+  // Fetch workflow definition to get step details
+  const definition = await em.findOneOrFail(WorkflowDefinition, {
+    id: instance.definitionId,
+  })
+
+  const step = definition.definition.steps.find(s => s.stepId === pendingTransition.toStepId)
+
+  // Now complete the transition by moving to the new step
+  instance.currentStepId = pendingTransition.toStepId
   instance.status = 'RUNNING'
+  instance.pendingTransition = null
+  instance.updatedAt = new Date()
   await em.flush()
 
+  // Log step entry
   await logWorkflowEvent(em, {
-    workflowInstanceId: instanceId,
-    eventType: 'WORKFLOW_RESUMED',
+    workflowInstanceId: instance.id,
+    eventType: 'STEP_ENTERED',
     eventData: {
-      reason: 'All async activities completed',
-      completedActivities: completedActivities,
+      stepId: pendingTransition.toStepId,
+      stepName: step?.stepName,
+      stepType: step?.stepType,
     },
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
 
-  // Continue execution
+  // Log workflow resumed
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instanceId,
+    eventType: 'WORKFLOW_RESUMED',
+    eventData: {
+      reason: 'Async activities completed, resuming pending transition',
+      completedActivities: completedActivities,
+      completedTransitionTo: pendingTransition.toStepId,
+    },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  // Execute the step that was deferred
+  const { executeStep } = await import('./step-handler')
+  const stepResult = await executeStep(
+    em,
+    instance,
+    pendingTransition.toStepId,
+    {
+      workflowContext: instance.context || {},
+      userId: undefined,
+    },
+    container
+  )
+
+  console.log('[WORKFLOW] Step execution result after resume:', stepResult)
+
+  // Continue workflow execution from the new step
   await executeWorkflow(em, container, instanceId)
 }
 

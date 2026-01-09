@@ -173,7 +173,7 @@ export class WorkflowInstance {
   @Property({ name: 'version', type: 'integer' })
   version!: number
 
-  @Property({ name: 'status', type: 'varchar', length: 20 })
+  @Property({ name: 'status', type: 'varchar', length: 30 })
   status!: WorkflowInstanceStatus
 
   @Property({ name: 'current_step_id', type: 'varchar', length: 100 })
@@ -205,6 +205,13 @@ export class WorkflowInstance {
 
   @Property({ name: 'error_details', type: 'jsonb', nullable: true })
   errorDetails?: any | null
+
+  @Property({ name: 'pending_transition', type: 'jsonb', nullable: true })
+  pendingTransition?: {
+    toStepId: string
+    activityResults: any[]
+    timestamp: Date
+  } | null
 
   @Property({ name: 'retry_count', type: 'integer', default: 0 })
   retryCount: number = 0

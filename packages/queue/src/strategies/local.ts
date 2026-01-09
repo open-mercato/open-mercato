@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult } from '../types'
+import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, ProcessLoopOptions } from '../types'
 
 type LocalState = {
   lastProcessedId?: string
@@ -278,11 +278,52 @@ export function createLocalQueue<T = unknown>(
     }
   }
 
+  async function processLoop(
+    handler: JobHandler<T>,
+    options: ProcessLoopOptions = {}
+  ): Promise<void> {
+    const pollIntervalMs = options.pollIntervalMs ?? 5000
+    const signal = options.signal
+
+    console.log(`[LocalQueue:${name}] Starting polling loop (${pollIntervalMs}ms interval)`)
+
+    while (!signal?.aborted) {
+      try {
+        // Process batch
+        const result = await process(handler, options.processOptions)
+
+        if (result.processed > 0) {
+          console.log(
+            `[LocalQueue:${name}] Processed ${result.processed} jobs ` +
+            `(${result.failed} failed)`
+          )
+        }
+
+        // Wait before next poll
+        await sleep(pollIntervalMs)
+
+      } catch (error) {
+        console.error(`[LocalQueue:${name}] Error in polling loop:`, error)
+        options.onError?.(error as Error)
+
+        // Continue polling on error
+        await sleep(pollIntervalMs)
+      }
+    }
+
+    console.log(`[LocalQueue:${name}] Polling loop stopped`)
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
   return {
     name,
     strategy: 'local',
     enqueue,
     process,
+    processLoop,
     clear,
     close,
     getJobCounts,

@@ -59,7 +59,11 @@ export default function CheckoutDemoPage() {
       return json.data // API returns { data: instance }
     },
     enabled: !!result?.instanceId,
-    refetchInterval: (result?.status === 'RUNNING' || result?.status === 'PAUSED') ? 500 : false, // Poll while running or paused
+    refetchInterval: (data) => {
+      // Poll while workflow is active (not completed, failed, or cancelled)
+      const status = data?.status || result?.status
+      return (status === 'RUNNING' || status === 'PAUSED' || status === 'WAITING_FOR_ACTIVITIES') ? 500 : false
+    },
   })
 
   // Update result when instance data changes
@@ -91,7 +95,11 @@ export default function CheckoutDemoPage() {
       return data.items || []
     },
     enabled: !!result?.instanceId,
-    refetchInterval: (result?.status === 'RUNNING' || result?.status === 'PAUSED') ? 1000 : false,
+    refetchInterval: (data) => {
+      // Poll while workflow is active
+      const status = instanceData?.status || result?.status
+      return (status === 'RUNNING' || status === 'PAUSED' || status === 'WAITING_FOR_ACTIVITIES') ? 1000 : false
+    },
   })
 
   // Fetch pending user tasks for this workflow instance
@@ -310,6 +318,10 @@ export default function CheckoutDemoPage() {
     switch (status) {
       case 'RUNNING':
         return 'text-blue-600 bg-blue-50'
+      case 'WAITING_FOR_ACTIVITIES':
+        return 'text-purple-600 bg-purple-50'
+      case 'PAUSED':
+        return 'text-yellow-600 bg-yellow-50'
       case 'COMPLETED':
         return 'text-green-600 bg-green-50'
       case 'FAILED':
@@ -686,9 +698,16 @@ export default function CheckoutDemoPage() {
                   Validating Cart
                 </h2>
                 <div className="space-y-4">
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <p className="text-sm text-blue-800">Checking cart items and inventory availability...</p>
-                  </div>
+                  {result.status === 'WAITING_FOR_ACTIVITIES' ? (
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                      <p className="text-sm text-purple-800 font-medium">Processing background activities...</p>
+                      <p className="text-xs text-purple-700 mt-1">The workflow is waiting for async tasks to complete before proceeding.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800">Checking cart items and inventory availability...</p>
+                    </div>
+                  )}
                   {demoCart.map((item) => (
                     <div key={item.id} className="flex justify-between items-center border-b border-gray-200 pb-2">
                       <div className="flex-1">
@@ -1211,7 +1230,7 @@ export default function CheckoutDemoPage() {
                     ({events.length})
                   </span>
                 </h2>
-                {result.status === 'RUNNING' && (
+                {(result.status === 'RUNNING' || result.status === 'WAITING_FOR_ACTIVITIES') && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                     <span className="inline-block w-2 h-2 bg-red-600 rounded-full animate-pulse"></span>
                     Live

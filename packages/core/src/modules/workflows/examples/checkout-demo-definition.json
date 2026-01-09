@@ -168,6 +168,24 @@
               "initialIntervalMs": 2000,
               "backoffCoefficient": 2,
               "maxIntervalMs": 10000
+            },
+            "compensationActivity": {
+              "activityId": "release_reservation_compensation",
+              "activityName": "Release Inventory Reservation (Compensation)",
+              "activityType": "CALL_API",
+              "config": {
+                "url": "{{env.INVENTORY_SERVICE_URL}}/api/inventory/release",
+                "method": "POST",
+                "headers": {
+                  "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "reservationId": "{{activity.reserve_inventory.reservationId}}",
+                  "reason": "payment_failed"
+                }
+              },
+              "timeout": "PT10S"
             }
           },
           {
@@ -232,6 +250,29 @@
               "initialIntervalMs": 3000,
               "backoffCoefficient": 2,
               "maxIntervalMs": 15000
+            },
+            "compensationActivity": {
+              "activityId": "refund_payment",
+              "activityName": "Refund Payment (Compensation)",
+              "activityType": "CALL_API",
+              "config": {
+                "url": "{{env.PAYMENT_SERVICE_URL}}/api/payments/refund",
+                "method": "POST",
+                "headers": {
+                  "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
+                  "Content-Type": "application/json",
+                  "Idempotency-Key": "{{workflow.instanceId}}-refund"
+                },
+                "body": {
+                  "transactionId": "{{activity.charge_payment.transactionId}}",
+                  "amount": "{{context.cart.total}}",
+                  "reason": "order_failed",
+                  "metadata": {
+                    "workflowInstanceId": "{{workflow.instanceId}}"
+                  }
+                }
+              },
+              "timeout": "PT30S"
             }
           },
           {
@@ -296,6 +337,19 @@
               "initialIntervalMs": 2000,
               "backoffCoefficient": 2,
               "maxIntervalMs": 10000
+            },
+            "compensationActivity": {
+              "activityId": "cancel_order",
+              "activityName": "Cancel Order (Compensation)",
+              "activityType": "EXECUTE_FUNCTION",
+              "config": {
+                "function": "cancelOrder",
+                "params": {
+                  "orderId": "{{activity.create_order.orderId}}",
+                  "reason": "workflow_failed"
+                }
+              },
+              "timeout": "PT10S"
             }
           },
           {

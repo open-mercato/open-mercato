@@ -90,6 +90,8 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
         return 'bg-blue-100 text-blue-800'
       case 'PAUSED':
         return 'bg-yellow-100 text-yellow-800'
+      case 'WAITING_FOR_ACTIVITIES':
+        return 'bg-cyan-100 text-cyan-800'
       case 'COMPLETED':
         return 'bg-green-100 text-green-800'
       case 'FAILED':
@@ -106,7 +108,9 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   }
 
   const getEventTypeBadgeClass = (eventType: string) => {
-    if (eventType.includes('STARTED') || eventType.includes('ENTERED')) {
+    if (eventType.includes('COMPENSATION') || eventType.includes('Compensation')) {
+      return 'bg-orange-100 text-orange-800'
+    } else if (eventType.includes('STARTED') || eventType.includes('ENTERED')) {
       return 'bg-blue-100 text-blue-800'
     } else if (eventType.includes('COMPLETED') || eventType.includes('EXITED')) {
       return 'bg-green-100 text-green-800'
@@ -532,6 +536,58 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             </div>
           )}
 
+
+          {/* Compensation Status */}
+          {(instance.status === 'COMPENSATING' || instance.status === 'COMPENSATED') && (
+            <div className="rounded-lg border border-orange-300 bg-orange-50 p-6">
+              <h2 className="text-lg font-semibold mb-4 text-orange-800">
+                {t('workflows.instances.sections.compensation') || 'Compensation (Saga Pattern)'}
+              </h2>
+              <div className="space-y-4">
+                <p className="text-sm text-orange-700">
+                  {instance.status === 'COMPENSATING'
+                    ? (t('workflows.instances.compensation.inProgress') || 'Workflow is currently executing compensation activities to rollback changes.')
+                    : (t('workflows.instances.compensation.completed') || 'Compensation has been completed. All changes have been rolled back.')}
+                </p>
+
+                {/* Show compensation activities from events */}
+                {events.filter(e =>
+                  e.eventType.includes('COMPENSATION') ||
+                  e.eventType.includes('Compensation')
+                ).length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-medium text-orange-800 mb-2">
+                      {t('workflows.instances.compensation.activities') || 'Compensation Activities'}
+                    </h3>
+                    <div className="space-y-2">
+                      {events
+                        .filter(e => e.eventType.includes('COMPENSATION') || e.eventType.includes('Compensation'))
+                        .reverse()
+                        .map((event) => (
+                          <div key={event.id} className="flex items-start gap-2 p-2 bg-white rounded border border-orange-200">
+                            <span
+                              className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getEventTypeBadgeClass(
+                                event.eventType
+                              )}`}
+                            >
+                              {event.eventType}
+                            </span>
+                            <span className="text-xs text-orange-600">
+                              {new Date(event.occurredAt).toLocaleTimeString()}
+                            </span>
+                            {event.eventData?.activityName && (
+                              <span className="text-xs text-orange-700 font-medium">
+                                {event.eventData.activityName}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Error Message (if present) */}
           {instance.errorMessage && (
