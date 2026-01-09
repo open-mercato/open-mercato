@@ -13,6 +13,7 @@ export interface VirtualRowProps {
   leftOffsets: (number | undefined)[];
   rightOffsets: (number | undefined)[];
   actionsColumnWidth: number;
+  showActionsColumn?: boolean;
   storeRevision: number;
   onSaveNewRow: (rowIndex: number) => void;
   onCancelNewRow: (rowIndex: number) => void;
@@ -29,6 +30,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
     leftOffsets,
     rightOffsets,
     actionsColumnWidth,
+    showActionsColumn = true,
     storeRevision: _storeRevision, // Used to invalidate memo when column widths change
     onSaveNewRow,
     onCancelNewRow,
@@ -96,35 +98,37 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
         ))}
 
         {/* Actions column */}
-        <td
-          className="hot-cell hot-actions-cell"
-          style={{
-            width: actionsColumnWidth,
-            flexBasis: actionsColumnWidth,
-            flexShrink: 0,
-            flexGrow: 0,
-            position: 'sticky',
-            right: 0,
-            zIndex: 2,
-          }}
-          data-row={rowIndex}
-          data-col={columns.length}
-          data-actions-cell="true"
-          data-sticky-right={true}
-        >
-          {isNewRow && (
-            <button
-              className="hot-row-save-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSaveNewRow(rowIndex);
-              }}
-              title="Save"
-            >
-              Save
-            </button>
-          )}
-        </td>
+        {showActionsColumn && (
+          <td
+            className="hot-cell hot-actions-cell"
+            style={{
+              width: actionsColumnWidth,
+              flexBasis: actionsColumnWidth,
+              flexShrink: 0,
+              flexGrow: 0,
+              position: 'sticky',
+              right: 0,
+              zIndex: 2,
+            }}
+            data-row={rowIndex}
+            data-col={columns.length}
+            data-actions-cell="true"
+            data-sticky-right={true}
+          >
+            {isNewRow && (
+              <button
+                className="hot-row-save-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSaveNewRow(rowIndex);
+                }}
+                title="Save"
+              >
+                Save
+              </button>
+            )}
+          </td>
+        )}
       </tr>
     );
   }

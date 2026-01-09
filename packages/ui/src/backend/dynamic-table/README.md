@@ -8,6 +8,7 @@ A high-performance, feature-rich data table component for React with virtualizat
 - [Installation](#installation)
 - [Basic Usage](#basic-usage)
 - [Props](#props)
+- [UI Customization](#tableuiconfig)
 - [Column Configuration](#column-configuration)
 - [Perspectives](#perspectives)
 - [Events System](#events-system)
@@ -42,6 +43,8 @@ A high-performance, feature-rich data table component for React with virtualizat
 - **New row creation** - Add new rows with save/cancel actions
 - **Save state indicators** - Visual feedback for saving, success, and error states
 - **Debug mode** - Built-in event debugger panel with all events including perspectives
+- **Flexible UI customization** - Hide/show components, move toolbar position, add custom content slots
+- **Content slots** - Inject custom React components into top bar and bottom bar
 
 ## Installation
 
@@ -114,16 +117,94 @@ const MyTable = () => {
 
 ### TableUIConfig
 
-Control which UI elements are visible:
+Control which UI elements are visible and customize the layout:
 
 ```typescript
 interface TableUIConfig {
-  hideToolbar?: boolean;      // Hide entire toolbar (title, search, buttons)
-  hideSearch?: boolean;       // Hide just the search bar
-  hideFilterButton?: boolean; // Hide the perspective toolbar (Columns, Filter, Sort buttons)
-  hideAddRowButton?: boolean; // Hide the "Add Row" button
-  hideBottomBar?: boolean;    // Hide perspective tabs and pagination
+  // Visibility options
+  hideToolbar?: boolean;        // Hide entire toolbar (title, search, buttons)
+  hideSearch?: boolean;         // Hide just the search bar
+  hideFilterButton?: boolean;   // Hide the perspective toolbar (Columns, Filter, Sort buttons)
+  hideAddRowButton?: boolean;   // Hide the "Add Row" button
+  hideBottomBar?: boolean;      // Hide perspective tabs and pagination
+  hideActionsColumn?: boolean;  // Hide the Actions column
+
+  // Layout options
+  toolbarPosition?: 'top' | 'bottom';  // Position of Columns/Filter/Sort buttons (default: 'top')
+
+  // Custom content slots
+  topBarStart?: React.ReactNode;    // Content at the start of top bar (before title)
+  topBarEnd?: React.ReactNode;      // Content at the end of top bar (after search/add button)
+  bottomBarStart?: React.ReactNode; // Content at the start of bottom bar (before tabs)
+  bottomBarEnd?: React.ReactNode;   // Content at the end of bottom bar (after pagination)
 }
+```
+
+#### Hiding the Actions Column
+
+For read-only tables or when you don't need row actions:
+
+```tsx
+<DynamicTable
+  uiConfig={{ hideActionsColumn: true }}
+  /* ... */
+/>
+```
+
+#### Moving Toolbar to Bottom
+
+Place the Columns/Filter/Sort buttons in the bottom bar:
+
+```tsx
+<DynamicTable
+  uiConfig={{ toolbarPosition: 'bottom' }}
+  /* ... */
+/>
+```
+
+#### Adding Custom Content
+
+Add custom buttons or content to the top or bottom bars:
+
+```tsx
+<DynamicTable
+  uiConfig={{
+    // Add a button to the right side of the top bar
+    topBarEnd: (
+      <Button onClick={() => setDrawerOpen(true)}>
+        <Plus className="h-4 w-4 mr-1" />
+        New Item
+      </Button>
+    ),
+    // Add custom content to the bottom bar
+    bottomBarEnd: (
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm">Export</Button>
+        <Button variant="outline" size="sm">Import</Button>
+      </div>
+    ),
+  }}
+  /* ... */
+/>
+```
+
+#### Minimal Table for Detail Views
+
+For embedding tables in detail pages or drawers:
+
+```tsx
+<DynamicTable
+  uiConfig={{
+    hideToolbar: true,
+    hideSearch: true,
+    hideFilterButton: true,
+    hideAddRowButton: true,
+    hideBottomBar: true,
+    hideActionsColumn: true,
+  }}
+  height={100}
+  /* ... */
+/>
 ```
 
 ## Column Configuration

@@ -9,6 +9,12 @@ interface PerspectiveTabsProps {
   onPerspectiveRename: (id: string, newName: string) => void;
   onPerspectiveDelete: (id: string) => void;
   pagination?: PaginationProps;
+  /** Custom content rendered at the start of the bottom bar (before tabs) */
+  startContent?: React.ReactNode;
+  /** Custom content rendered at the end of the bottom bar (after pagination) */
+  endContent?: React.ReactNode;
+  /** Toolbar to render in the bottom bar (between tabs and pagination) */
+  toolbar?: React.ReactNode;
 }
 
 const PerspectiveTabs: React.FC<PerspectiveTabsProps> = ({
@@ -18,6 +24,9 @@ const PerspectiveTabs: React.FC<PerspectiveTabsProps> = ({
   onPerspectiveRename,
   onPerspectiveDelete,
   pagination,
+  startContent,
+  endContent,
+  toolbar,
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -54,6 +63,9 @@ const PerspectiveTabs: React.FC<PerspectiveTabsProps> = ({
 
   return (
     <div className="filter-tabs perspective-tabs">
+      {/* Custom slot: start content */}
+      {startContent}
+
       <div className="filter-tabs-scroll">
         <button
           className={`filter-tab ${activePerspectiveId === null ? 'active' : ''}`}
@@ -107,6 +119,9 @@ const PerspectiveTabs: React.FC<PerspectiveTabsProps> = ({
           );
         })}
       </div>
+
+      {/* Toolbar (positioned between tabs and pagination) */}
+      {toolbar}
 
       {pagination && (
         <div className="pagination-container">
@@ -167,6 +182,9 @@ const PerspectiveTabs: React.FC<PerspectiveTabsProps> = ({
           </div>
         </div>
       )}
+
+      {/* Custom slot: end content */}
+      {endContent}
     </div>
   );
 };

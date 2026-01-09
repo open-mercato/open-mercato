@@ -164,6 +164,12 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     hideFilterButton = false,
     hideAddRowButton = false,
     hideBottomBar = false,
+    hideActionsColumn = false,
+    toolbarPosition = 'top',
+    topBarStart,
+    topBarEnd,
+    bottomBarStart,
+    bottomBarEnd,
   } = uiConfig;
 
   // -------------------- REFS --------------------
@@ -254,13 +260,15 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   // -------------------- COMPUTED VALUES --------------------
   const { leftOffsets, rightOffsets } = useStickyOffsets(cols, store, rowHeaders);
 
+  const showActionsColumn = !hideActionsColumn;
+
   const totalWidth = useMemo(() => {
     return (
       cols.reduce((sum, _, idx) => sum + store.getColumnWidth(idx), 0) +
       (rowHeaders ? 50 : 0) +
-      actionsColumnWidth
+      (showActionsColumn ? actionsColumnWidth : 0)
     );
-  }, [cols, store, rowHeaders, actionsColumnWidth, storeRevision]);
+  }, [cols, store, rowHeaders, actionsColumnWidth, showActionsColumn, storeRevision]);
 
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
@@ -422,10 +430,13 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
         {/* Combined Toolbar - Title, Perspective controls, Search, Add button */}
         {!hideToolbar && (
           <div className="flex items-center px-4 py-2 border-b border-gray-200 bg-white gap-4">
+            {/* Custom slot: top bar start */}
+            {topBarStart}
+
             <h3 className="text-base font-semibold text-gray-900 whitespace-nowrap">{displayTableName}</h3>
 
-            {/* Perspective Toolbar */}
-            {!hideFilterButton && (
+            {/* Perspective Toolbar - only show in top when position is 'top' */}
+            {!hideFilterButton && toolbarPosition === 'top' && (
               <PerspectiveToolbar
                 columns={baseColumns}
                 visibleColumns={visibleColumns}
@@ -456,6 +467,9 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
                 </button>
               )}
             </div>
+
+            {/* Custom slot: top bar end */}
+            {topBarEnd}
           </div>
         )}
 
@@ -483,6 +497,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
               totalWidth={totalWidth}
               sortState={sortState}
               actionsColumnWidth={actionsColumnWidth}
+              showActionsColumn={showActionsColumn}
               onSort={handleColumnSort}
               onResizeStart={handleResizeStart}
               onDoubleClick={handleColumnHeaderDoubleClick}
@@ -510,6 +525,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
                   leftOffsets={leftOffsets}
                   rightOffsets={rightOffsets}
                   actionsColumnWidth={actionsColumnWidth}
+                  showActionsColumn={showActionsColumn}
                   storeRevision={storeRevision}
                   onSaveNewRow={handleSaveNewRow}
                   onCancelNewRow={handleCancelNewRow}
@@ -530,6 +546,22 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
             onPerspectiveRename={handlePerspectiveRename}
             onPerspectiveDelete={handlePerspectiveDelete}
             pagination={pagination}
+            startContent={bottomBarStart}
+            endContent={bottomBarEnd}
+            toolbar={!hideFilterButton && toolbarPosition === 'bottom' ? (
+              <PerspectiveToolbar
+                columns={baseColumns}
+                visibleColumns={visibleColumns}
+                hiddenColumns={hiddenColumns}
+                filters={filters}
+                sortRules={sortRules}
+                onColumnVisibilityChange={handleColumnVisibilityChange}
+                onColumnOrderChange={handleColumnOrderChange}
+                onFiltersChange={handleFiltersChange}
+                onSortRulesChange={handleSortRulesChange}
+                onSavePerspective={handleSavePerspective}
+              />
+            ) : undefined}
           />
         )}
 
