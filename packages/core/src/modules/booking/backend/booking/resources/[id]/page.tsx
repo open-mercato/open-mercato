@@ -18,8 +18,8 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '@open-mercato/core/modules/booking/lib/capacityUnits'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT, resolveBookingResourceFieldsetCode } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
-import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
-import { AvailabilitySchedule } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
+import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
+import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
 
 const DEFAULT_PAGE_SIZE = 100
 
@@ -47,6 +47,8 @@ type ResourceRecord = {
   appearance_color?: string | null
   is_active?: boolean
   is_available_by_default?: boolean
+  availabilityRuleSetId?: string | null
+  availability_rule_set_id?: string | null
 } & Record<string, unknown>
 
 type ResourceResponse = {
@@ -92,6 +94,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [isAvailableByDefault, setIsAvailableByDefault] = React.useState(true)
+  const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const [capacityUnitDictionaryId, setCapacityUnitDictionaryId] = React.useState<string | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
 
@@ -129,6 +132,13 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
           }
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setIsAvailableByDefault(resource.isAvailableByDefault ?? true)
+          setAvailabilityRuleSetId(
+            typeof resource.availabilityRuleSetId === 'string'
+              ? resource.availabilityRuleSetId
+              : typeof resource.availability_rule_set_id === 'string'
+                ? resource.availability_rule_set_id
+                : null,
+          )
           setInitialValues({
             id: resource.id,
             name: resource.name,
@@ -495,6 +505,15 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     router.push('/backend/booking/resources')
   }, [resourceId, router, t])
 
+  const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
+    if (!resourceId) return
+    await updateCrud('booking/resources', { id: resourceId, availabilityRuleSetId: nextId }, {
+      errorMessage: t('booking.resources.availability.ruleset.updateError', 'Failed to update schedule.'),
+    })
+    setAvailabilityRuleSetId(nextId)
+    flash(t('booking.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
+  }, [resourceId, t])
+
   return (
     <Page>
       <PageBody>
@@ -549,11 +568,13 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
               </div>
             </>
           ) : (
-            <AvailabilitySchedule
+            <AvailabilityRulesEditor
               subjectType="resource"
               subjectId={resourceId ?? ''}
               labelPrefix="booking.resources"
               mode={availabilityMode}
+              rulesetId={availabilityRuleSetId}
+              onRulesetChange={handleRulesetChange}
               buildScheduleItems={buildScheduleItems}
               loadBookedEvents={loadBookedEvents}
             />

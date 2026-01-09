@@ -12,7 +12,7 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { AvailabilitySchedule } from '@open-mercato/core/modules/booking/backend/components/AvailabilitySchedule'
+import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/booking/lib/memberSchedule'
 
 const DEFAULT_PAGE_SIZE = 200
@@ -25,6 +25,7 @@ type TeamMemberRecord = {
   roleIds?: string[]
   tags?: string[]
   isActive?: boolean
+  availabilityRuleSetId?: string | null
   user?: { id?: string; email?: string | null } | null
   customFields?: Record<string, unknown> | null
 } & Record<string, unknown>
@@ -83,6 +84,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
   const [roles, setRoles] = React.useState<TeamRoleRow[]>([])
   const [userOptions, setUserOptions] = React.useState<LookupSelectItem[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
+  const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!memberId) return
@@ -127,6 +129,13 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
             isActive: record.isActive ?? true,
             ...customFields,
           })
+          setAvailabilityRuleSetId(
+            typeof record.availabilityRuleSetId === 'string'
+              ? record.availabilityRuleSetId
+              : typeof record.availability_rule_set_id === 'string'
+                ? record.availability_rule_set_id
+                : null,
+          )
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : t('booking.teamMembers.form.errors.load', 'Failed to load team member.')
@@ -253,6 +262,15 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     router.push('/backend/booking/team-members')
   }, [memberId, router, t])
 
+  const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
+    if (!memberId) return
+    await updateCrud('booking/team-members', { id: memberId, availabilityRuleSetId: nextId }, {
+      errorMessage: t('booking.teamMembers.availability.ruleset.updateError', 'Failed to update schedule.'),
+    })
+    setAvailabilityRuleSetId(nextId)
+    flash(t('booking.teamMembers.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
+  }, [memberId, t])
+
   const tabs = React.useMemo(() => ([
     { id: 'details', label: t('booking.teamMembers.tabs.details', 'Details') },
     { id: 'availability', label: t('booking.teamMembers.tabs.availability', 'Availability') },
@@ -297,11 +315,13 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
               loadingMessage={t('booking.teamMembers.form.loading', 'Loading team member...')}
             />
           ) : (
-            <AvailabilitySchedule
+            <AvailabilityRulesEditor
               subjectType="member"
               subjectId={memberId ?? ''}
               labelPrefix="booking.teamMembers"
               mode="availability"
+              rulesetId={availabilityRuleSetId}
+              onRulesetChange={handleRulesetChange}
               buildScheduleItems={({ availabilityRules, bookedEvents, translate }) => (
                 buildMemberScheduleItems({ availabilityRules, bookedEvents, translate })
               )}

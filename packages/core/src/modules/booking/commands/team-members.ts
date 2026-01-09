@@ -134,6 +134,7 @@ const createTeamMemberCommand: CommandHandler<BookingTeamMemberCreateInput, { me
       userId: parsed.userId ?? null,
       roleIds,
       tags,
+      availabilityRuleSetId: parsed.availabilityRuleSetId ?? null,
       isActive: parsed.isActive ?? true,
       createdAt: now,
       updatedAt: now,
@@ -242,6 +243,7 @@ const updateTeamMemberCommand: CommandHandler<BookingTeamMemberUpdateInput, { me
       member.roleIds = roleIds
     }
     if (parsed.tags !== undefined) member.tags = normalizeStringList(parsed.tags)
+    if (parsed.availabilityRuleSetId !== undefined) member.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
     if (parsed.displayName !== undefined) member.displayName = parsed.displayName
     if (parsed.description !== undefined) member.description = parsed.description ?? null
     if (parsed.isActive !== undefined) member.isActive = parsed.isActive

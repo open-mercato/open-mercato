@@ -30,7 +30,7 @@ const capacityModelSchema = z.enum(['one_to_one', 'one_to_many', 'many_to_many']
 const eventStatusSchema = z.enum(['draft', 'negotiation', 'confirmed', 'cancelled'])
 const confirmationModeSchema = z.enum(['all_members', 'any_member', 'by_role'])
 const confirmationStatusSchema = z.enum(['pending', 'accepted', 'declined'])
-const availabilitySubjectSchema = z.enum(['member', 'resource'])
+const availabilitySubjectSchema = z.enum(['member', 'resource', 'ruleset'])
 
 const scopedCreateFields = {
   tenantId: z.string().uuid(),
@@ -116,6 +116,7 @@ export const bookingTeamMemberCreateSchema = z.object({
   userId: z.string().uuid().optional().nullable(),
   roleIds: z.array(z.string().uuid()).optional().default([]),
   tags: tagsSchema,
+  availabilityRuleSetId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().optional(),
 })
 
@@ -126,6 +127,7 @@ export const bookingTeamMemberUpdateSchema = z.object({
   userId: z.string().uuid().optional().nullable(),
   roleIds: z.array(z.string().uuid()).optional(),
   tags: z.array(z.string().min(1)).optional(),
+  availabilityRuleSetId: z.string().uuid().optional().nullable(),
   isActive: z.boolean().optional(),
 })
 
@@ -172,6 +174,7 @@ export const bookingResourceCreateSchema = z.object({
     .nullable(),
   isActive: z.boolean().optional(),
   isAvailableByDefault: z.boolean().optional(),
+  availabilityRuleSetId: z.string().uuid().optional().nullable(),
 })
 
 export const bookingResourceUpdateSchema = z.object({
@@ -191,6 +194,7 @@ export const bookingResourceUpdateSchema = z.object({
     .nullable(),
   isActive: z.boolean().optional(),
   isAvailableByDefault: z.boolean().optional(),
+  availabilityRuleSetId: z.string().uuid().optional().nullable(),
 })
 
 export const bookingAvailabilityRuleCreateSchema = z.object({
@@ -209,6 +213,20 @@ export const bookingAvailabilityRuleUpdateSchema = z.object({
   timezone: z.string().min(1).optional(),
   rrule: z.string().min(1).optional(),
   exdates: z.array(isoDateString).optional(),
+})
+
+export const bookingAvailabilityRuleSetCreateSchema = z.object({
+  ...scopedCreateFields,
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  timezone: z.string().min(1),
+})
+
+export const bookingAvailabilityRuleSetUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  name: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  timezone: z.string().min(1).optional(),
 })
 
 export const bookingEventCreateSchema = z
@@ -395,6 +413,8 @@ export type BookingResourceCreateInput = z.infer<typeof bookingResourceCreateSch
 export type BookingResourceUpdateInput = z.infer<typeof bookingResourceUpdateSchema>
 export type BookingAvailabilityRuleCreateInput = z.infer<typeof bookingAvailabilityRuleCreateSchema>
 export type BookingAvailabilityRuleUpdateInput = z.infer<typeof bookingAvailabilityRuleUpdateSchema>
+export type BookingAvailabilityRuleSetCreateInput = z.infer<typeof bookingAvailabilityRuleSetCreateSchema>
+export type BookingAvailabilityRuleSetUpdateInput = z.infer<typeof bookingAvailabilityRuleSetUpdateSchema>
 export type BookingEventCreateInput = z.infer<typeof bookingEventCreateSchema>
 export type BookingEventUpdateInput = z.infer<typeof bookingEventUpdateSchema>
 export type BookingEventAttendeeCreateInput = z.infer<typeof bookingEventAttendeeCreateSchema>

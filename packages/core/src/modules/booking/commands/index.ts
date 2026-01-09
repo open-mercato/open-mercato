@@ -1,6 +1,7 @@
 import './resources'
 import './resource-types'
 import './availability'
+import './availability-rule-sets'
 import './tags'
 import './team-roles'
 import './team-members'

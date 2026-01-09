@@ -144,6 +144,7 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       appearanceColor: parsed.appearanceColor ?? null,
       isActive: parsed.isActive ?? true,
       isAvailableByDefault: parsed.isAvailableByDefault ?? true,
+      availabilityRuleSetId: parsed.availabilityRuleSetId ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -197,6 +198,7 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (parsed.isAvailableByDefault !== undefined) record.isAvailableByDefault = parsed.isAvailableByDefault
     if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
+    if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
     await syncBookingResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,

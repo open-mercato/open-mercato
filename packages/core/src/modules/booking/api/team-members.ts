@@ -56,6 +56,7 @@ const crud = makeCrudRoute({
       F.user_id,
       F.role_ids,
       F.tags,
+      'availability_rule_set_id',
       F.is_active,
       F.created_at,
       F.updated_at,

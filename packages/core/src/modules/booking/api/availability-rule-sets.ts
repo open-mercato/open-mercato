@@ -2,10 +2,10 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
-import { BookingAvailabilityRule } from '../data/entities'
-import { bookingAvailabilityRuleCreateSchema, bookingAvailabilityRuleUpdateSchema } from '../data/validators'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { BookingAvailabilityRuleSet } from '../data/entities'
+import { bookingAvailabilityRuleSetCreateSchema, bookingAvailabilityRuleSetUpdateSchema } from '../data/validators'
 import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_availability_rule'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -22,84 +22,74 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
-    subjectType: z.enum(['member', 'resource', 'ruleset']).optional(),
-    subjectIds: z.string().optional(),
+    search: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
 
-const parseIds = (value?: string) => {
-  if (!value) return []
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-}
-
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
-    entity: BookingAvailabilityRule,
+    entity: BookingAvailabilityRuleSet,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: { entityType: E.booking.booking_availability_rule },
+  indexer: { entityType: E.booking.booking_availability_rule_set },
   list: {
     schema: listSchema,
-    entityId: E.booking.booking_availability_rule,
+    entityId: E.booking.booking_availability_rule_set,
     fields: [
-      F.id,
-      F.organization_id,
-      F.tenant_id,
-      F.subject_type,
-      F.subject_id,
-      F.timezone,
-      F.rrule,
-      F.exdates,
-      F.created_at,
-      F.updated_at,
+      'id',
+      'organization_id',
+      'tenant_id',
+      'name',
+      'description',
+      'timezone',
+      'created_at',
+      'updated_at',
     ],
     sortFieldMap: {
-      createdAt: F.created_at,
-      updatedAt: F.updated_at,
+      name: 'name',
+      createdAt: 'created_at',
+      updatedAt: 'updated_at',
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      if (query.subjectType) {
-        filters[F.subject_type] = query.subjectType
-      }
-      const subjectIds = parseIds(query.subjectIds)
-      if (subjectIds.length) {
-        filters[F.subject_id] = { $in: subjectIds }
+      if (query.search) {
+        const term = query.search.trim()
+        if (term.length) {
+          const like = `%${escapeLikePattern(term)}%`
+          filters.name = { $ilike: like }
+        }
       }
       return filters
     },
   },
   actions: {
     create: {
-      commandId: 'booking.availability.create',
+      commandId: 'booking.availability-rule-sets.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(bookingAvailabilityRuleCreateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(bookingAvailabilityRuleSetCreateSchema, raw ?? {}, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.ruleId ?? null }),
+      response: ({ result }) => ({ id: result?.ruleSetId ?? null }),
       status: 201,
     },
     update: {
-      commandId: 'booking.availability.update',
+      commandId: 'booking.availability-rule-sets.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(bookingAvailabilityRuleUpdateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(bookingAvailabilityRuleSetUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: () => ({ ok: true }),
     },
     delete: {
-      commandId: 'booking.availability.delete',
+      commandId: 'booking.availability-rule-sets.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

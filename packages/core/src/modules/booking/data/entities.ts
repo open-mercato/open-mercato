@@ -4,7 +4,7 @@ export type BookingCapacityModel = 'one_to_one' | 'one_to_many' | 'many_to_many'
 export type BookingEventStatus = 'draft' | 'negotiation' | 'confirmed' | 'cancelled'
 export type BookingConfirmationMode = 'all_members' | 'any_member' | 'by_role'
 export type BookingConfirmationStatus = 'pending' | 'accepted' | 'declined'
-export type BookingAvailabilitySubjectType = 'member' | 'resource'
+export type BookingAvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
 
 export type BookingRoleRequirement = { roleId: string; qty: number }
 export type BookingMemberRequirement = { memberId: string; qty?: number }
@@ -127,6 +127,9 @@ export class BookingTeamMember {
   @Property({ type: 'jsonb', default: [] })
   tags: string[] = []
 
+  @Property({ name: 'availability_rule_set_id', type: 'uuid', nullable: true })
+  availabilityRuleSetId?: string | null
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
@@ -219,6 +222,9 @@ export class BookingResource {
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
+  @Property({ name: 'availability_rule_set_id', type: 'uuid', nullable: true })
+  availabilityRuleSetId?: string | null
+
   @Property({ name: 'is_available_by_default', type: 'boolean', default: true })
   isAvailableByDefault: boolean = true
 
@@ -296,6 +302,37 @@ export class BookingResourceTagAssignment {
   updatedAt: Date = new Date()
 }
 
+@Entity({ tableName: 'booking_availability_rule_sets' })
+@Index({ name: 'booking_availability_rule_sets_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+export class BookingAvailabilityRuleSet {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ type: 'text' })
+  timezone!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'booking_availability_rules' })
 @Index({ name: 'booking_availability_rules_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'booking_availability_rules_subject_idx', properties: ['subjectType', 'subjectId', 'tenantId', 'organizationId'] })
@@ -309,7 +346,7 @@ export class BookingAvailabilityRule {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @Enum({ items: ['member', 'resource'], type: 'text', name: 'subject_type' })
+  @Enum({ items: ['member', 'resource', 'ruleset'], type: 'text', name: 'subject_type' })
   subjectType!: BookingAvailabilitySubjectType
 
   @Property({ name: 'subject_id', type: 'uuid' })
