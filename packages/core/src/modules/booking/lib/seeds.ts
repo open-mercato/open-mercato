@@ -71,6 +71,8 @@ type BookingResourceTypeSeed = {
   key: string
   name: string
   description?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
 }
 
 type BookingResourceTagSeed = {
@@ -101,11 +103,41 @@ type BookingServiceSeed = {
 }
 
 const RESOURCE_TYPE_SEEDS: BookingResourceTypeSeed[] = [
-  { key: 'room', name: 'Room', description: 'Private room for appointments.' },
-  { key: 'laptop', name: 'Laptop', description: 'Portable computer for sessions.' },
-  { key: 'client_seat', name: 'Client seat', description: 'Seat for client services.' },
-  { key: 'hair_kit', name: 'Hairdressing kit', description: 'Tools and supplies for hairdressing.' },
-  { key: 'dental_chair', name: 'Dental chair', description: 'Patient dental chair.' },
+  {
+    key: 'room',
+    name: 'Room',
+    description: 'Private room for appointments.',
+    appearanceIcon: 'lucide:building',
+    appearanceColor: '#2563eb',
+  },
+  {
+    key: 'laptop',
+    name: 'Laptop',
+    description: 'Portable computer for sessions.',
+    appearanceIcon: 'lucide:cpu',
+    appearanceColor: '#0ea5e9',
+  },
+  {
+    key: 'client_seat',
+    name: 'Client seat',
+    description: 'Seat for client services.',
+    appearanceIcon: 'lucide:users',
+    appearanceColor: '#16a34a',
+  },
+  {
+    key: 'hair_kit',
+    name: 'Hairdressing kit',
+    description: 'Tools and supplies for hairdressing.',
+    appearanceIcon: 'lucide:wand',
+    appearanceColor: '#ea580c',
+  },
+  {
+    key: 'dental_chair',
+    name: 'Dental chair',
+    description: 'Patient dental chair.',
+    appearanceIcon: 'lucide:heart',
+    appearanceColor: '#0f766e',
+  },
 ]
 
 const TAG_SEEDS: BookingResourceTagSeed[] = [
@@ -194,6 +226,16 @@ export async function seedBookingResourceExamples(
   for (const seed of RESOURCE_TYPE_SEEDS) {
     const existing = typeByName.get(seed.name.toLowerCase())
     if (existing) {
+      if (!existing.appearanceIcon && seed.appearanceIcon) {
+        existing.appearanceIcon = seed.appearanceIcon
+      }
+      if (!existing.appearanceColor && seed.appearanceColor) {
+        existing.appearanceColor = seed.appearanceColor
+      }
+      if (existing.appearanceIcon || existing.appearanceColor) {
+        existing.updatedAt = now
+        em.persist(existing)
+      }
       typeByKey.set(seed.key, existing)
       continue
     }
@@ -202,6 +244,8 @@ export async function seedBookingResourceExamples(
       organizationId: scope.organizationId,
       name: seed.name,
       description: seed.description ?? null,
+      appearanceIcon: seed.appearanceIcon ?? null,
+      appearanceColor: seed.appearanceColor ?? null,
       createdAt: now,
       updatedAt: now,
     })

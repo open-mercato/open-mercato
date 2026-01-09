@@ -117,12 +117,26 @@ export const bookingResourceTypeCreateSchema = z.object({
   ...scopedCreateFields,
   name: z.string().min(1),
   description: z.string().optional().nullable(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
 })
 
 export const bookingResourceTypeUpdateSchema = z.object({
   ...scopedUpdateFields,
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{6})$/)
+    .optional()
+    .nullable(),
 })
 
 export const bookingResourceCreateSchema = z.object({

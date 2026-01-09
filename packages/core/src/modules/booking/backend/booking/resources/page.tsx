@@ -14,6 +14,7 @@ import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FilterDef, FilterOption, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
 import type { TagOption } from '@open-mercato/ui/backend/detail'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -31,7 +32,21 @@ type ResourceRow = {
 type ResourceTypeRow = {
   id: string
   name: string
+  appearanceIcon: string | null
+  appearanceColor: string | null
 }
+
+type ResourceGroupRow = {
+  id: string
+  name: string
+  resourceTypeId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  rowKind: 'group'
+  depth: number
+}
+
+type ResourceTableRow = (ResourceRow & { rowKind: 'resource'; depth: number }) | ResourceGroupRow
 
 type ResourcesResponse = {
   items: ResourceRow[]
@@ -45,14 +60,14 @@ type ResourceTypesResponse = {
 }
 
 export default function BookingResourcesPage() {
-  const [rows, setRows] = React.useState<ResourceRow[]>([])
+  const [rows, setRows] = React.useState<ResourceTableRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
-  const [resourceTypes, setResourceTypes] = React.useState<Map<string, string>>(new Map())
+  const [resourceTypes, setResourceTypes] = React.useState<Map<string, ResourceTypeRow>>(new Map())
   const [canManage, setCanManage] = React.useState(false)
   const [tagOptions, setTagOptions] = React.useState<FilterOption[]>([])
   const scopeVersion = useOrganizationScopeVersion()
@@ -87,8 +102,25 @@ export default function BookingResourcesPage() {
         const params = new URLSearchParams({ page: '1', pageSize: '200' })
         const call = await apiCall<ResourceTypesResponse>(`/api/booking/resource-types?${params.toString()}`)
         const items = Array.isArray(call.result?.items) ? call.result.items : []
-        const map = new Map<string, string>()
-        for (const item of items) map.set(item.id, item.name)
+        const map = new Map<string, ResourceTypeRow>()
+        for (const item of items) {
+          const appearanceIcon = typeof item.appearanceIcon === 'string'
+            ? item.appearanceIcon
+            : typeof item.appearance_icon === 'string'
+              ? item.appearance_icon
+              : null
+          const appearanceColor = typeof item.appearanceColor === 'string'
+            ? item.appearanceColor
+            : typeof item.appearance_color === 'string'
+              ? item.appearance_color
+              : null
+          map.set(item.id, {
+            id: item.id,
+            name: item.name,
+            appearanceIcon,
+            appearanceColor,
+          })
+        }
         if (!cancelled) setResourceTypes(map)
       } catch {
         if (!cancelled) setResourceTypes(new Map())
@@ -142,6 +174,63 @@ export default function BookingResourcesPage() {
     },
   ], [loadTagOptions, tagOptions, t])
 
+  const groupedRows = React.useMemo(() => {
+    const grouped: ResourceTableRow[] = []
+    if (!rows.length) return grouped
+    const byType = new Map<string, ResourceRow[]>()
+    const unassigned: ResourceRow[] = []
+    rows.forEach((row) => {
+      if (!row.resourceTypeId) {
+        unassigned.push(row)
+        return
+      }
+      const list = byType.get(row.resourceTypeId) ?? []
+      list.push(row)
+      byType.set(row.resourceTypeId, list)
+    })
+    const typeEntries = Array.from(byType.entries())
+      .map(([typeId, list]) => ({
+        typeId,
+        list,
+        type: resourceTypes.get(typeId),
+      }))
+      .sort((a, b) => {
+        const nameA = a.type?.name ?? ''
+        const nameB = b.type?.name ?? ''
+        return nameA.localeCompare(nameB)
+      })
+    for (const entry of typeEntries) {
+      const label = entry.type?.name ?? t('booking.resources.list.group.unknown', 'Unknown type')
+      grouped.push({
+        id: `group:${entry.typeId}`,
+        name: label,
+        resourceTypeId: entry.typeId,
+        appearanceIcon: entry.type?.appearanceIcon ?? null,
+        appearanceColor: entry.type?.appearanceColor ?? null,
+        rowKind: 'group',
+        depth: 0,
+      })
+      entry.list.forEach((resource) => {
+        grouped.push({ ...resource, rowKind: 'resource', depth: 1 })
+      })
+    }
+    if (unassigned.length) {
+      grouped.push({
+        id: 'group:unassigned',
+        name: t('booking.resources.list.group.unassigned', 'Unassigned'),
+        resourceTypeId: null,
+        appearanceIcon: null,
+        appearanceColor: null,
+        rowKind: 'group',
+        depth: 0,
+      })
+      unassigned.forEach((resource) => {
+        grouped.push({ ...resource, rowKind: 'resource', depth: 1 })
+      })
+    }
+    return grouped
+  }, [resourceTypes, rows, t])
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
@@ -166,7 +255,9 @@ export default function BookingResourcesPage() {
         }
         const payload = call.result ?? fallback
         if (!cancelled) {
-          setRows(Array.isArray(payload.items) ? payload.items : [])
+          const items = Array.isArray(payload.items) ? payload.items : []
+          const mapped = items.map(mapApiResource)
+          setRows(mapped.map((item) => ({ ...item, rowKind: 'resource', depth: 1 })))
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
         }
@@ -183,7 +274,8 @@ export default function BookingResourcesPage() {
     return () => { cancelled = true }
   }, [filterValues, page, search, scopeVersion, t])
 
-  const handleDelete = React.useCallback(async (row: ResourceRow) => {
+  const handleDelete = React.useCallback(async (row: ResourceTableRow) => {
+    if (row.rowKind !== 'resource') return
     const confirmLabel = t('booking.resources.list.confirmDelete', 'Delete resource "{name}"?', { name: row.name })
     if (!window.confirm(confirmLabel)) return
     try {
@@ -199,32 +291,70 @@ export default function BookingResourcesPage() {
     }
   }, [router, t])
 
-  const columns = React.useMemo<ColumnDef<ResourceRow>[]>(() => [
+  const columns = React.useMemo<ColumnDef<ResourceTableRow>[]>(() => [
     {
       accessorKey: 'name',
       header: t('booking.resources.list.columns.name', 'Resource'),
       meta: { priority: 1 },
-      cell: ({ row }) => (
-        <span className="text-sm font-medium text-foreground">{row.original.name}</span>
-      ),
+      cell: ({ row }) => {
+        const depth = row.original.depth ?? 0
+        const indent = depth > 0 ? 18 : 0
+        const isGroup = row.original.rowKind === 'group'
+        return (
+          <div className="flex items-center gap-2">
+            <span style={{ marginLeft: indent }} className={isGroup ? 'text-sm font-semibold text-foreground' : 'text-sm font-medium text-foreground'}>
+              {row.original.name}
+            </span>
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: 'appearance',
+      header: t('booking.resources.list.columns.appearance', 'Appearance'),
+      meta: { priority: 2 },
+      cell: ({ row }) => {
+        const isGroup = row.original.rowKind === 'group'
+        const typeId = row.original.resourceTypeId ?? ''
+        const type = resourceTypes.get(typeId) ?? null
+        const icon = isGroup ? row.original.appearanceIcon : type?.appearanceIcon
+        const color = isGroup ? row.original.appearanceColor : type?.appearanceColor
+        if (!icon && !color) {
+          return <span className="text-xs text-muted-foreground">—</span>
+        }
+        return (
+          <div className="flex items-center gap-2">
+            {color ? renderDictionaryColor(color) : null}
+            {icon ? renderDictionaryIcon(icon) : null}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'resourceTypeId',
       header: t('booking.resources.list.columns.type', 'Type'),
-      meta: { priority: 2 },
-      cell: ({ row }) => resourceTypes.get(row.original.resourceTypeId ?? '') || t('booking.resources.list.columns.type.empty', 'Unassigned'),
+      meta: { priority: 3 },
+      cell: ({ row }) => {
+        if (row.original.rowKind === 'group') return null
+        return resourceTypes.get(row.original.resourceTypeId ?? '')?.name || t('booking.resources.list.columns.type.empty', 'Unassigned')
+      },
     },
     {
       accessorKey: 'capacity',
       header: t('booking.resources.list.columns.capacity', 'Capacity'),
-      meta: { priority: 3 },
-      cell: ({ row }) => row.original.capacity ?? t('booking.resources.list.columns.capacity.empty', '-'),
+      meta: { priority: 4 },
+      cell: ({ row }) => row.original.rowKind === 'group'
+        ? null
+        : row.original.capacity ?? t('booking.resources.list.columns.capacity.empty', '-'),
     },
     {
       accessorKey: 'tags',
       header: t('booking.resources.list.columns.tags', 'Tags'),
-      meta: { priority: 4 },
+      meta: { priority: 5 },
       cell: ({ row }) => {
+        if (row.original.rowKind === 'group') {
+          return null
+        }
         const tags = row.original.tags ?? []
         if (!tags.length) return <span className="text-xs text-muted-foreground">{t('booking.resources.list.columns.tags.empty', '-')}</span>
         return (
@@ -241,8 +371,8 @@ export default function BookingResourcesPage() {
     {
       accessorKey: 'isActive',
       header: t('booking.resources.list.columns.active', 'Active'),
-      meta: { priority: 5 },
-      cell: ({ row }) => <BooleanIcon value={row.original.isActive} />,
+      meta: { priority: 6 },
+      cell: ({ row }) => row.original.rowKind === 'group' ? null : <BooleanIcon value={row.original.isActive} />,
     },
   ], [resourceTypes, t])
 
@@ -257,7 +387,7 @@ export default function BookingResourcesPage() {
             </Button>
           ) : null}
           columns={columns}
-          data={rows}
+          data={groupedRows}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           filters={filters}
@@ -266,7 +396,7 @@ export default function BookingResourcesPage() {
           onFiltersClear={() => { setFilterValues({}); setPage(1) }}
           perspective={{ tableId: 'booking.resources.list' }}
           rowActions={(row) => {
-            if (!canManage) return null
+            if (!canManage || row.rowKind !== 'resource') return null
             return (
               <RowActions items={[
                 { label: t('common.edit', 'Edit'), href: `/backend/booking/resources/${encodeURIComponent(row.id)}` },
@@ -274,11 +404,30 @@ export default function BookingResourcesPage() {
               ]} />
             )
           }}
-          onRowClick={canManage ? (row) => router.push(`/backend/booking/resources/${encodeURIComponent(row.id)}`) : undefined}
+          onRowClick={canManage ? (row) => {
+            if (row.rowKind !== 'resource') return
+            router.push(`/backend/booking/resources/${encodeURIComponent(row.id)}`)
+          } : undefined}
           pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>
     </Page>
   )
+}
+
+function mapApiResource(item: ResourceRow): ResourceRow {
+  const resourceTypeId = item.resourceTypeId ?? (item as { resource_type_id?: string | null }).resource_type_id ?? null
+  const isActive = item.isActive ?? (item as { is_active?: boolean }).is_active ?? false
+  const tags = Array.isArray(item.tags) ? item.tags : (item as { tags?: TagOption[] | null }).tags ?? []
+  const capacity = typeof item.capacity === 'number'
+    ? item.capacity
+    : (item as { capacity?: number | null }).capacity ?? null
+  return {
+    ...item,
+    resourceTypeId,
+    isActive,
+    tags,
+    capacity,
+  }
 }

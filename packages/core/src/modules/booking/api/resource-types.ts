@@ -50,6 +50,8 @@ const crud = makeCrudRoute({
       F.tenant_id,
       F.name,
       F.description,
+      'appearance_icon',
+      'appearance_color',
       F.created_at,
       F.updated_at,
     ],

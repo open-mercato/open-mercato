@@ -11,6 +11,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -20,6 +21,8 @@ type ResourceTypeRow = {
   id: string
   name: string
   description: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
   updatedAt: string | null
 }
 
@@ -48,6 +51,7 @@ export default function BookingResourceTypesPage() {
     table: {
       name: translate('booking.resourceTypes.table.name', 'Name'),
       description: translate('booking.resourceTypes.table.description', 'Description'),
+      appearance: translate('booking.resourceTypes.table.appearance', 'Appearance'),
       updatedAt: translate('booking.resourceTypes.table.updatedAt', 'Updated'),
       empty: translate('booking.resourceTypes.table.empty', 'No resource types yet.'),
       search: translate('booking.resourceTypes.table.search', 'Search resource types…'),
@@ -93,9 +97,27 @@ export default function BookingResourceTypesPage() {
       ),
     },
     {
+      accessorKey: 'appearance',
+      header: translations.table.appearance,
+      meta: { priority: 2 },
+      cell: ({ row }) => {
+        const icon = row.original.appearanceIcon
+        const color = row.original.appearanceColor
+        if (!icon && !color) {
+          return <span className="text-xs text-muted-foreground">—</span>
+        }
+        return (
+          <div className="flex items-center gap-2">
+            {color ? renderDictionaryColor(color) : null}
+            {icon ? renderDictionaryIcon(icon) : null}
+          </div>
+        )
+      },
+    },
+    {
       accessorKey: 'description',
       header: translations.table.description,
-      meta: { priority: 3 },
+      meta: { priority: 4 },
       cell: ({ row }) => row.original.description ? (
         <span className="text-sm">{row.original.description}</span>
       ) : (
@@ -105,12 +127,12 @@ export default function BookingResourceTypesPage() {
     {
       accessorKey: 'updatedAt',
       header: translations.table.updatedAt,
-      meta: { priority: 2 },
+      meta: { priority: 3 },
       cell: ({ row }) => row.original.updatedAt
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [translations.table.description, translations.table.name, translations.table.updatedAt])
+  ], [translations.table.appearance, translations.table.description, translations.table.name, translations.table.updatedAt])
 
   const loadResourceTypes = React.useCallback(async () => {
     setIsLoading(true)
@@ -222,12 +244,22 @@ function mapApiResourceType(item: Record<string, unknown>): ResourceTypeRow {
     : typeof item.description === 'string'
       ? item.description
       : null
+  const appearanceIcon = typeof item.appearanceIcon === 'string'
+    ? item.appearanceIcon
+    : typeof item.appearance_icon === 'string'
+      ? item.appearance_icon
+      : null
+  const appearanceColor = typeof item.appearanceColor === 'string'
+    ? item.appearanceColor
+    : typeof item.appearance_color === 'string'
+      ? item.appearance_color
+      : null
   const updatedAt = typeof item.updatedAt === 'string'
     ? item.updatedAt
     : typeof item.updated_at === 'string'
       ? item.updated_at
       : null
-  return { id, name, description, updatedAt }
+  return { id, name, description, appearanceIcon, appearanceColor, updatedAt }
 }
 
 function formatDateTime(value: string): string {

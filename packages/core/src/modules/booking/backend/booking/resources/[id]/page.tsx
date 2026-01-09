@@ -24,6 +24,7 @@ import {
   parseAvailabilityRuleWindow,
 } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import type { BookingEventStatus } from '@open-mercato/core/modules/booking/data/entities'
+import { GanttChart } from 'lucide-react'
 
 const DEFAULT_PAGE_SIZE = 200
 
@@ -45,6 +46,13 @@ type ResourceRecord = {
   tags?: TagOption[] | null
   isActive: boolean
   isAvailableByDefault: boolean
+  resource_type_id?: string | null
+  capacity_unit_value?: string | null
+  capacity_unit_name?: string | null
+  capacity_unit_color?: string | null
+  capacity_unit_icon?: string | null
+  is_active?: boolean
+  is_available_by_default?: boolean
 } & Record<string, unknown>
 
 type ResourceResponse = {
@@ -152,6 +160,19 @@ function formatExdatesInput(exdates: string[]): string[] {
     .filter((value): value is string => value !== null)
 }
 
+function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
+  return {
+    ...record,
+    resourceTypeId: record.resourceTypeId ?? record.resource_type_id ?? null,
+    capacityUnitValue: record.capacityUnitValue ?? record.capacity_unit_value ?? null,
+    capacityUnitName: record.capacityUnitName ?? record.capacity_unit_name ?? null,
+    capacityUnitColor: record.capacityUnitColor ?? record.capacity_unit_color ?? null,
+    capacityUnitIcon: record.capacityUnitIcon ?? record.capacity_unit_icon ?? null,
+    isActive: record.isActive ?? record.is_active ?? true,
+    isAvailableByDefault: record.isAvailableByDefault ?? record.is_available_by_default ?? true,
+  }
+}
+
 export default function BookingResourceDetailPage({ params }: { params?: { id?: string } }) {
   const resourceId = params?.id
   const t = useT()
@@ -191,7 +212,8 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
         params.set('pageSize', '1')
         if (resourceId) params.set('ids', resourceId)
         const record = await readApiResultOrThrow<ResourceResponse>(`/api/booking/resources?${params.toString()}`)
-        const resource = Array.isArray(record?.items) ? record.items[0] : null
+        const resourceRaw = Array.isArray(record?.items) ? record.items[0] : null
+        const resource = resourceRaw ? normalizeResourceRecord(resourceRaw) : null
         if (!resource) throw new Error(t('booking.resources.form.errors.notFound', 'Resource not found.'))
         if (!cancelled) {
           const customValues: Record<string, unknown> = {}
@@ -358,6 +380,12 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const scheduleLoading = availabilityLoading || bookedLoading
   const scheduleError = availabilityError ?? bookedError
 
+  const defaultAvailabilityLabel = t('booking.resources.form.fields.defaultAvailability', 'Available by default')
+  const defaultAvailabilityDescription = t(
+    'booking.resources.form.fields.defaultAvailability.help',
+    'When unchecked, this resource is unavailable unless you add availability rules.',
+  )
+
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('booking.resources.form.fields.name', 'Name'), type: 'text', required: true },
     {
@@ -399,19 +427,32 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     },
     {
       id: 'isAvailableByDefault',
-      label: t('booking.resources.form.fields.defaultAvailability', 'Available by default'),
-      description: t(
-        'booking.resources.form.fields.defaultAvailability.help',
-        'When unchecked, this resource is unavailable unless you add availability rules.',
+      label: defaultAvailabilityLabel,
+      description: defaultAvailabilityDescription,
+      type: 'custom',
+      component: ({ value, setValue, disabled }) => (
+        <label className="inline-flex items-center gap-2">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={value === true}
+            onChange={(event) => {
+              const next = event.target.checked
+              setValue(next)
+              setIsAvailableByDefault(next)
+            }}
+            disabled={disabled}
+          />
+          <span className="text-sm">{defaultAvailabilityLabel}</span>
+        </label>
       ),
-      type: 'checkbox',
     },
     {
       id: 'isActive',
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [capacityUnitDictionaryId, resourceTypes, t])
+  ], [capacityUnitDictionaryId, defaultAvailabilityDescription, defaultAvailabilityLabel, resourceTypes, t])
 
   const availabilityFields = React.useMemo<CrudField[]>(() => [
     {
@@ -747,6 +788,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
               {t('booking.resources.availability.section.title', 'Availability')}
             </h2>
             <Button type="button" variant="outline" onClick={() => openCreateDialog()}>
+              <GanttChart className="mr-2 h-4 w-4" aria-hidden="true" />
               {availabilityLabels.addAction}
             </Button>
           </div>

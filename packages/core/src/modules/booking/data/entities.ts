@@ -84,6 +84,12 @@ export class BookingTeamRole {
   @Property({ type: 'text', nullable: true })
   description?: string | null
 
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
@@ -148,6 +154,12 @@ export class BookingResourceType {
 
   @Property({ type: 'text', nullable: true })
   description?: string | null
+
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

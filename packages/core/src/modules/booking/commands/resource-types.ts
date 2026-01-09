@@ -25,6 +25,8 @@ const createResourceTypeCommand: CommandHandler<BookingResourceTypeCreateInput, 
       organizationId: parsed.organizationId,
       name: parsed.name,
       description: parsed.description ?? null,
+      appearanceIcon: parsed.appearanceIcon ?? null,
+      appearanceColor: parsed.appearanceColor ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -46,6 +48,8 @@ const updateResourceTypeCommand: CommandHandler<BookingResourceTypeUpdateInput, 
 
     if (parsed.name !== undefined) record.name = parsed.name
     if (parsed.description !== undefined) record.description = parsed.description ?? null
+    if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
 
     await em.flush()
     return { resourceTypeId: record.id }
