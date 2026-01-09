@@ -4,6 +4,9 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { PluggableList } from 'unified'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -16,6 +19,11 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { useT } from '@/lib/i18n/context'
 
 const PAGE_SIZE = 50
+const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]
+const MARKDOWN_DESCRIPTION_CLASSNAME =
+  'text-sm text-foreground [&>p]:m-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5'
+const MARKDOWN_SUBTEXT_CLASSNAME =
+  'text-xs text-muted-foreground [&>p]:m-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5'
 
 type ResourceTypeRow = {
   id: string
@@ -91,7 +99,9 @@ export default function BookingResourceTypesPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <span className="text-xs text-muted-foreground">{row.original.description}</span>
+            <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_SUBTEXT_CLASSNAME}>
+              {row.original.description}
+            </ReactMarkdown>
           ) : null}
         </div>
       ),
@@ -119,7 +129,9 @@ export default function BookingResourceTypesPage() {
       header: translations.table.description,
       meta: { priority: 4 },
       cell: ({ row }) => row.original.description ? (
-        <span className="text-sm">{row.original.description}</span>
+        <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_DESCRIPTION_CLASSNAME}>
+          {row.original.description}
+        </ReactMarkdown>
       ) : (
         <span className="text-xs text-muted-foreground">—</span>
       ),

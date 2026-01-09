@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -367,6 +367,29 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     t,
   ])
 
+  const groups = React.useMemo<CrudFormGroup[]>(() => ([
+    {
+      id: 'details',
+      column: 1,
+      fields: [
+        'name',
+        'description',
+        'resourceTypeId',
+        'capacity',
+        'capacityUnitValue',
+        'appearance',
+        'isAvailableByDefault',
+        'isActive',
+      ],
+    },
+    {
+      id: 'custom',
+      title: t('entities.customFields.title', 'Custom Attributes'),
+      column: 2,
+      kind: 'customFields',
+    },
+  ]), [t])
+
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!resourceId) return
     const nextIsAvailableByDefault = values.isAvailableByDefault ?? true
@@ -546,6 +569,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
                 backHref="/backend/booking/resources"
                 cancelHref="/backend/booking/resources"
                 fields={fields}
+                groups={groups}
                 initialValues={initialValues ?? undefined}
                 entityId={E.booking.booking_resource}
                 customFieldsetBindings={{ [E.booking.booking_resource]: { valueKey: 'customFieldsetCode' } }}

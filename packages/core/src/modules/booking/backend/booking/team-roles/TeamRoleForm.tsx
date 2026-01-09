@@ -84,7 +84,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('booking.teamRoles.form.fields.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('booking.teamRoles.form.fields.description', 'Description'), type: 'textarea' },
+    { id: 'description', label: t('booking.teamRoles.form.fields.description', 'Description'), type: 'richtext' },
     {
       id: 'appearance',
       label: t('booking.teamRoles.form.appearance.label', 'Appearance'),
