@@ -71,6 +71,31 @@ When defining a custom field, check **Encrypted** to store its values with the t
 
 ![Encrypted custom field toggle](/screenshots/open-mercato-encrypted-custom-fields.png)
 
+## Key rotation and backfills
+
+Use the CLI to encrypt plaintext rows or rotate a previous fallback key to the current KMS/fallback.
+
+Auth users:
+```bash
+yarn mercato auth rotate-encryption-key
+yarn mercato auth rotate-encryption-key --old-key <previous_fallback_key>
+yarn mercato auth rotate-encryption-key --tenant <tenantId> --org <organizationId>
+```
+
+All entities with encryption maps:
+```bash
+yarn mercato entities rotate-encryption-key
+yarn mercato entities rotate-encryption-key --old-key <previous_fallback_key>
+yarn mercato entities rotate-encryption-key --tenant <tenantId> --org <organizationId>
+```
+
+Notes:
+- These commands are potentially destructive; run a backup first and prefer `--dry-run`.
+- Without `--old-key`, commands only encrypt plaintext values and skip already encrypted fields.
+- With `--old-key`, rotation only updates fields that can be decrypted with that key; mismatched rows are skipped and logged.
+- Always pass `--tenant` (and `--org` when possible) during rotation to avoid accidental cross-tenant use.
+- Rotation always re-encrypts with the current KMS/fallback key. Ensure the new key is already active (Vault configured or `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` set) before running these commands.
+
 ## Debugging
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
