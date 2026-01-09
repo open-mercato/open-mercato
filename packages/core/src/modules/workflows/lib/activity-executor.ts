@@ -13,6 +13,9 @@
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
+import { createQueue, Queue } from '@open-mercato/queue'
+import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
+import { logWorkflowEvent } from './event-logger'
 
 // ============================================================================
 // Types and Interfaces
@@ -26,9 +29,11 @@ export type ActivityType =
   | 'EXECUTE_FUNCTION'
 
 export interface ActivityDefinition {
+  activityId: string // Unique identifier for activity
   activityName?: string // Optional, for debugging/logging
   activityType: ActivityType
   config: any
+  async?: boolean // Flag to execute activity asynchronously via queue
   retryPolicy?: RetryPolicy
   timeoutMs?: number
   compensate?: boolean // Flag to execute compensation on failure
@@ -45,10 +50,13 @@ export interface ActivityContext {
   workflowInstance: WorkflowInstance
   workflowContext: Record<string, any>
   stepContext?: Record<string, any>
+  stepInstanceId?: string
+  transitionId?: string
   userId?: string
 }
 
 export interface ActivityExecutionResult {
+  activityId: string
   activityName?: string
   activityType: ActivityType
   success: boolean
@@ -56,6 +64,8 @@ export interface ActivityExecutionResult {
   error?: string
   retryCount: number
   executionTimeMs: number
+  async?: boolean // Marks activity as async (queued)
+  jobId?: string // Queue job ID for async activities
 }
 
 export class ActivityExecutionError extends Error {
@@ -68,6 +78,102 @@ export class ActivityExecutionError extends Error {
     super(message)
     this.name = 'ActivityExecutionError'
   }
+}
+
+// ============================================================================
+// Queue Integration for Async Activities
+// ============================================================================
+
+let activityQueue: Queue<WorkflowActivityJob> | null = null
+
+/**
+ * Get or create the activity queue (lazy initialization)
+ */
+function getActivityQueue(): Queue<WorkflowActivityJob> {
+  if (!activityQueue) {
+    if (process.env.QUEUE_STRATEGY === 'async') {
+      activityQueue = createQueue<WorkflowActivityJob>(
+        WORKFLOW_ACTIVITIES_QUEUE_NAME,
+        'async',
+        {
+          connection: {
+            url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL,
+          },
+          concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
+        }
+      )
+    } else {
+      activityQueue = createQueue<WorkflowActivityJob>(
+        WORKFLOW_ACTIVITIES_QUEUE_NAME,
+        'local',
+        {
+          baseDir: process.env.QUEUE_BASE_DIR || '.queue',
+        }
+      )
+    }
+  }
+
+  return activityQueue
+}
+
+/**
+ * Enqueue an activity for background execution
+ *
+ * @param em - Entity manager
+ * @param activity - Activity definition
+ * @param context - Execution context
+ * @returns Job ID
+ */
+export async function enqueueActivity(
+  em: EntityManager,
+  activity: ActivityDefinition,
+  context: ActivityContext
+): Promise<string> {
+  const { workflowInstance, workflowContext, stepContext, transitionId, stepInstanceId } =
+    context
+
+  // Interpolate config variables NOW (before queuing)
+  const interpolatedConfig = interpolateVariables(activity.config, workflowContext)
+
+  // Create job payload
+  const job: WorkflowActivityJob = {
+    workflowInstanceId: workflowInstance.id,
+    stepInstanceId,
+    transitionId,
+    activityId: activity.activityId,
+    activityName: activity.activityName || activity.activityType,
+    activityType: activity.activityType,
+    activityConfig: interpolatedConfig,
+    workflowContext,
+    stepContext,
+    retryPolicy: activity.retryPolicy,
+    timeoutMs: activity.timeoutMs,
+    tenantId: workflowInstance.tenantId,
+    organizationId: workflowInstance.organizationId,
+    userId: context.userId,
+  }
+
+  // Enqueue to queue
+  const queue = getActivityQueue()
+  const jobId = await queue.enqueue(job)
+
+  // Log event
+  await logWorkflowEvent(em, {
+    workflowInstanceId: workflowInstance.id,
+    stepInstanceId,
+    eventType: 'ACTIVITY_QUEUED',
+    eventData: {
+      activityId: activity.activityId,
+      activityName: activity.activityName,
+      activityType: activity.activityType,
+      async: true,
+      jobId,
+    },
+    tenantId: workflowInstance.tenantId,
+    organizationId: workflowInstance.organizationId,
+  })
+
+  return jobId
 }
 
 // ============================================================================
@@ -114,6 +220,7 @@ export async function executeActivity(
       const executionTimeMs = Date.now() - startTime
 
       return {
+        activityId: activity.activityId,
         activityName: activity.activityName,
         activityType: activity.activityType,
         success: true,
@@ -143,6 +250,7 @@ export async function executeActivity(
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
 
   return {
+    activityId: activity.activityId,
     activityName: activity.activityName,
     activityType: activity.activityType,
     success: false,
@@ -154,6 +262,7 @@ export async function executeActivity(
 
 /**
  * Execute multiple activities in sequence
+ * Supports both synchronous and asynchronous (queued) execution
  *
  * @param em - Entity manager
  * @param container - DI container
@@ -170,20 +279,38 @@ export async function executeActivities(
   const results: ActivityExecutionResult[] = []
 
   for (const activity of activities) {
-    const result = await executeActivity(em, container, activity, context)
-    results.push(result)
+    // Check if activity should run async
+    if (activity.async) {
+      // Enqueue for background execution
+      const jobId = await enqueueActivity(em, activity, context)
 
-    // Stop execution if activity fails (fail-fast)
-    if (!result.success) {
-      break
-    }
+      results.push({
+        activityId: activity.activityId,
+        activityName: activity.activityName,
+        activityType: activity.activityType,
+        success: true, // Queued successfully
+        async: true,
+        jobId,
+        retryCount: 0,
+        executionTimeMs: 0,
+      })
+    } else {
+      // Execute synchronously (existing logic)
+      const result = await executeActivity(em, container, activity, context)
+      results.push(result)
 
-    // Update workflow context with activity output
-    if (result.output && typeof result.output === 'object') {
-      const key = activity.activityName || activity.activityType
-      context.workflowContext = {
-        ...context.workflowContext,
-        [key]: result.output,
+      // Stop execution if activity fails (fail-fast)
+      if (!result.success) {
+        break
+      }
+
+      // Update workflow context with activity output
+      if (result.output && typeof result.output === 'object') {
+        const key = activity.activityName || activity.activityType
+        context.workflowContext = {
+          ...context.workflowContext,
+          [key]: result.output,
+        }
       }
     }
   }
@@ -237,7 +364,7 @@ async function executeActivityByType(
  *
  * For MVP, this logs the email (actual email sending can be added later)
  */
-async function executeSendEmail(
+export async function executeSendEmail(
   config: any,
   context: ActivityContext,
   container: AwilixContainer
@@ -276,7 +403,7 @@ async function executeSendEmail(
  *
  * Publishes a domain event to the event bus
  */
-async function executeEmitEvent(
+export async function executeEmitEvent(
   config: any,
   context: ActivityContext,
   container: AwilixContainer
@@ -315,7 +442,7 @@ async function executeEmitEvent(
  *
  * Updates an entity via query engine
  */
-async function executeUpdateEntity(
+export async function executeUpdateEntity(
   em: EntityManager,
   config: any,
   context: ActivityContext,
@@ -351,7 +478,7 @@ async function executeUpdateEntity(
  *
  * Makes HTTP request to external URL
  */
-async function executeCallWebhook(
+export async function executeCallWebhook(
   config: any,
   context: ActivityContext
 ): Promise<any> {
@@ -400,7 +527,7 @@ async function executeCallWebhook(
  *
  * Calls a registered function from DI container
  */
-async function executeFunction(
+export async function executeFunction(
   config: any,
   context: ActivityContext,
   container: AwilixContainer

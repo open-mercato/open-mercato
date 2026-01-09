@@ -396,6 +396,51 @@ export async function executeWorkflow(
           },
         })
 
+        // Check for async activities that were queued
+        const hasAsyncActivities = transitionResult.activitiesExecuted?.some(a => a.async)
+
+        if (hasAsyncActivities) {
+          // Collect job IDs from async activities
+          const pendingJobIds = transitionResult.activitiesExecuted!
+            .filter(a => a.async && a.jobId)
+            .map(a => ({ activityId: a.activityId, jobId: a.jobId }))
+
+          // Store in workflow context for tracking
+          currentInstance.context = {
+            ...currentInstance.context,
+            _pendingAsyncActivities: pendingJobIds,
+          }
+
+          // Update status to WAITING_FOR_ACTIVITIES
+          currentInstance.status = 'WAITING_FOR_ACTIVITIES'
+          await em.flush()
+
+          await logWorkflowEvent(em, {
+            workflowInstanceId: currentInstance.id,
+            eventType: 'WORKFLOW_WAITING_FOR_ACTIVITIES',
+            eventData: {
+              pendingActivities: pendingJobIds,
+            },
+            tenantId: currentInstance.tenantId,
+            organizationId: currentInstance.organizationId,
+          })
+
+          events.push({
+            eventType: 'WORKFLOW_WAITING_FOR_ACTIVITIES',
+            occurredAt: new Date(),
+            data: { pendingActivities: pendingJobIds },
+          })
+
+          // Exit execution loop (will resume when activities complete)
+          return {
+            status: 'WAITING_FOR_ACTIVITIES',
+            currentStep: currentInstance.currentStepId,
+            context: currentInstance.context,
+            events,
+            executionTime: Date.now() - startTime,
+          }
+        }
+
         // Continue loop with new step
         await em.flush()
       } catch (error) {
@@ -572,6 +617,123 @@ export async function completeWorkflow(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+}
+
+/**
+ * Resume workflow after async activities complete
+ *
+ * Called by the activity worker after all async activities finish execution.
+ * Checks if all activities are done, merges outputs into context, and resumes execution.
+ *
+ * @param em - Entity manager
+ * @param container - DI container
+ * @param instanceId - Workflow instance ID
+ */
+export async function resumeWorkflowAfterActivities(
+  em: EntityManager,
+  container: AwilixContainer,
+  instanceId: string
+): Promise<void> {
+  const instance = await em.findOne(WorkflowInstance, {
+    id: instanceId,
+    status: 'WAITING_FOR_ACTIVITIES',
+  })
+
+  if (!instance) {
+    throw new Error('Workflow instance not waiting for activities')
+  }
+
+  const pendingJobIds = (instance.context._pendingAsyncActivities as any[]) || []
+
+  // Check if all activities completed by looking at events
+  const completedActivities = await em.count(WorkflowEvent, {
+    workflowInstanceId: instanceId,
+    eventType: 'ACTIVITY_COMPLETED',
+    eventData: { async: true },
+  })
+
+  const failedActivities = await em.count(WorkflowEvent, {
+    workflowInstanceId: instanceId,
+    eventType: 'ACTIVITY_FAILED',
+    eventData: { async: true },
+  })
+
+  const totalProcessed = completedActivities + failedActivities
+
+  if (totalProcessed < pendingJobIds.length) {
+    throw new Error('Activities still pending')
+  }
+
+  // Check for failures
+  if (failedActivities > 0) {
+    // Get failed activity details
+    const failedEvents = await em.find(WorkflowEvent, {
+      workflowInstanceId: instanceId,
+      eventType: 'ACTIVITY_FAILED',
+      eventData: { async: true },
+    })
+
+    instance.status = 'FAILED'
+    instance.errorMessage = `${failedActivities} async activities failed`
+    instance.errorDetails = {
+      failedActivities: failedEvents.map(e => ({
+        activityId: e.eventData.activityId,
+        error: e.eventData.error,
+        jobId: e.eventData.jobId,
+      })),
+    }
+    await em.flush()
+
+    await logWorkflowEvent(em, {
+      workflowInstanceId: instanceId,
+      eventType: 'WORKFLOW_FAILED',
+      eventData: {
+        reason: 'Async activities failed',
+        failedActivities: instance.errorDetails.failedActivities,
+      },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+
+    return
+  }
+
+  // Merge activity outputs into workflow context
+  const completedEvents = await em.find(WorkflowEvent, {
+    workflowInstanceId: instanceId,
+    eventType: 'ACTIVITY_COMPLETED',
+    eventData: { async: true },
+  })
+
+  for (const event of completedEvents) {
+    if (event.eventData.output) {
+      instance.context = {
+        ...instance.context,
+        [`${event.eventData.activityId}_result`]: event.eventData.output,
+      }
+    }
+  }
+
+  // Clean up tracking
+  delete instance.context._pendingAsyncActivities
+
+  // Resume workflow
+  instance.status = 'RUNNING'
+  await em.flush()
+
+  await logWorkflowEvent(em, {
+    workflowInstanceId: instanceId,
+    eventType: 'WORKFLOW_RESUMED',
+    eventData: {
+      reason: 'All async activities completed',
+      completedActivities: completedActivities,
+    },
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
+  })
+
+  // Continue execution
+  await executeWorkflow(em, container, instanceId)
 }
 
 /**

@@ -55,6 +55,7 @@ export interface TransitionExecutionResult {
     preConditions: boolean
     postConditions: boolean
   }
+  activitiesExecuted?: activityExecutor.ActivityExecutionResult[]
   error?: string
 }
 
@@ -516,6 +517,7 @@ export async function executeTransition(
         preConditions: true,
         postConditions: postConditionsResult.allowed,
       },
+      activitiesExecuted: activityResults,
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)

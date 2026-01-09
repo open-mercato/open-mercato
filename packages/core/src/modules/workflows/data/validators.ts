@@ -33,6 +33,7 @@ export const workflowInstanceStatusSchema = z.enum([
   'CANCELLED',
   'COMPENSATING',
   'COMPENSATED',
+  'WAITING_FOR_ACTIVITIES',
 ])
 export type WorkflowInstanceStatus = z.infer<typeof workflowInstanceStatusSchema>
 

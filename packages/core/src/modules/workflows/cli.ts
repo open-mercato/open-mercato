@@ -207,6 +207,50 @@ const seedSimpleApproval: ModuleCli = {
 }
 
 /**
+ * Start workflow activity worker
+ */
+const startWorker: ModuleCli = {
+  command: 'start-worker',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const concurrency = parseInt(args.concurrency ?? args.c ?? '5')
+
+    console.log('[Workflow Worker] Starting worker...')
+
+    try {
+      const { resolve } = await createRequestContainer()
+      const em = resolve<EntityManager>('em')
+
+      // Get strategy from environment
+      const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
+      console.log(`[Workflow Worker] Using ${strategy} queue strategy`)
+
+      // Import queue and handler
+      const { runWorker } = await import('@open-mercato/queue/worker')
+      const { createActivityWorkerHandler } = await import('./lib/activity-worker-handler')
+      const { WORKFLOW_ACTIVITIES_QUEUE_NAME } = await import('./lib/activity-queue-types')
+
+      // Create handler
+      const handler = createActivityWorkerHandler(em, resolve as any)
+
+      // Run worker
+      await runWorker({
+        queueName: WORKFLOW_ACTIVITIES_QUEUE_NAME,
+        handler,
+        connection: strategy === 'async' ? {
+          url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL,
+        } : undefined,
+        concurrency,
+        gracefulShutdown: true,
+      })
+    } catch (error) {
+      console.error('[Workflow Worker] Failed to start worker:', error)
+      throw error
+    }
+  },
+}
+
+/**
  * Seed all example workflows
  */
 const seedAll: ModuleCli = {
@@ -244,6 +288,12 @@ const seedAll: ModuleCli = {
   },
 }
 
-const workflowsCliCommands = [seedDemo, seedSalesPipeline, seedSimpleApproval, seedAll]
+const workflowsCliCommands = [
+  startWorker,
+  seedDemo,
+  seedSalesPipeline,
+  seedSimpleApproval,
+  seedAll,
+]
 
 export default workflowsCliCommands

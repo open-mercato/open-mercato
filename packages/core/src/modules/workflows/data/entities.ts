@@ -29,6 +29,7 @@ export type WorkflowInstanceStatus =
   | 'CANCELLED'
   | 'COMPENSATING'
   | 'COMPENSATED'
+  | 'WAITING_FOR_ACTIVITIES'
 
 export type StepInstanceStatus =
   | 'PENDING'
