@@ -61,7 +61,11 @@ export const WorkflowEventTypes = {
   // Compensation events (Phase 8)
   COMPENSATION_STARTED: 'COMPENSATION_STARTED',
   COMPENSATION_COMPLETED: 'COMPENSATION_COMPLETED',
+  COMPENSATION_PARTIAL: 'COMPENSATION_PARTIAL',
   COMPENSATION_FAILED: 'COMPENSATION_FAILED',
+  COMPENSATION_ACTIVITY_STARTED: 'COMPENSATION_ACTIVITY_STARTED',
+  COMPENSATION_ACTIVITY_COMPLETED: 'COMPENSATION_ACTIVITY_COMPLETED',
+  COMPENSATION_ACTIVITY_FAILED: 'COMPENSATION_ACTIVITY_FAILED',
 
   // Signal events (Phase 9)
   SIGNAL_RECEIVED: 'SIGNAL_RECEIVED',
@@ -431,6 +435,29 @@ function generateEventSummary(event: WorkflowEvent): string {
 
     case WorkflowEventTypes.ACTIVITY_FAILED:
       return `Activity failed: ${data.activityName || data.activityId || 'unknown'}${
+        data.error ? ` - ${data.error}` : ''
+      }`
+
+    case WorkflowEventTypes.COMPENSATION_STARTED:
+      return `Compensation started${data.reason ? `: ${data.reason}` : ''}`
+
+    case WorkflowEventTypes.COMPENSATION_COMPLETED:
+      return `Compensation completed: ${data.compensatedActivities || 0}/${data.totalActivities || 0} activities`
+
+    case WorkflowEventTypes.COMPENSATION_PARTIAL:
+      return `Partial compensation: ${data.compensatedActivities || 0}/${data.totalActivities || 0} succeeded`
+
+    case WorkflowEventTypes.COMPENSATION_FAILED:
+      return `Compensation failed: ${data.failedCompensations?.length || 0} activities failed`
+
+    case WorkflowEventTypes.COMPENSATION_ACTIVITY_STARTED:
+      return `Compensating: ${data.compensationActivityName || data.compensationActivityId || 'unknown'}`
+
+    case WorkflowEventTypes.COMPENSATION_ACTIVITY_COMPLETED:
+      return `Compensated: ${data.compensationActivityName || data.compensationActivityId || 'unknown'}`
+
+    case WorkflowEventTypes.COMPENSATION_ACTIVITY_FAILED:
+      return `Compensation failed: ${data.compensationActivityName || data.compensationActivityId || 'unknown'}${
         data.error ? ` - ${data.error}` : ''
       }`
 

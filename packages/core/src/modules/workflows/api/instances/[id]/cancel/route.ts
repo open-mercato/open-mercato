@@ -96,7 +96,7 @@ export async function POST(
     }
 
     // Cancel the workflow
-    await workflowExecutor.completeWorkflow(em, params.id, 'CANCELLED')
+    await workflowExecutor.completeWorkflow(em, container, params.id, 'CANCELLED')
 
     // Reload instance to get updated state
     await em.refresh(instance)

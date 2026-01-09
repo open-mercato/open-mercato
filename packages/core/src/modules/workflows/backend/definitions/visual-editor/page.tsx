@@ -822,6 +822,20 @@ export default function VisualEditorPage() {
               <div className="text-xs text-gray-500 mt-0.5">System task</div>
             </button>
 
+            {/* SUB_WORKFLOW Step */}
+            <button
+              onClick={() => handleAddNode('subWorkflow')}
+              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+            >
+              <div className="absolute top-2 right-2 text-purple-500 opacity-60 group-hover:opacity-100 transition-opacity">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 16a1 1 0 011-1h4a1 1 0 011 1v3a1 1 0 01-1 1H5a1 1 0 01-1-1v-3z" />
+                </svg>
+              </div>
+              <div className="text-sm font-semibold text-gray-900">SUB-WORKFLOW</div>
+              <div className="text-xs text-gray-500 mt-0.5">Invoke workflow</div>
+            </button>
+
             {/* END Step */}
             <button
               onClick={() => handleAddNode('end')}

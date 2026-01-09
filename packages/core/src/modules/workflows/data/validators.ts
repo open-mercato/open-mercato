@@ -152,10 +152,13 @@ export const activityDefinitionSchema = z.object({
   activityName: z.string().min(1).max(255),
   activityType: activityTypeSchema,
   config: z.record(z.string(), z.any()),
-  async: z.boolean().default(false).optional(), // For Phase 8
+  async: z.boolean().default(false).optional(), // For Phase 8.3
   retryPolicy: activityRetryPolicySchema.optional(),
   timeout: z.string().optional(), // ISO 8601 duration
-  compensate: z.boolean().default(false).optional(), // Flag to execute compensation on failure
+  compensation: z.object({
+    activityId: z.string().min(1), // ID of compensation activity
+    automatic: z.boolean().default(true).optional() // Auto-trigger on failure
+  }).optional(), // Compensation configuration (Phase 8.2)
 })
 
 // Transition definition

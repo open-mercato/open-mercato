@@ -5,6 +5,7 @@
  * - Starting workflow instances from definitions
  * - Executing workflow steps and transitions
  * - Completing workflows with final status
+ * - Triggering compensation on failure
  *
  * Functional API (no classes) following Open Mercato conventions.
  */
@@ -17,6 +18,7 @@ import {
   WorkflowEvent,
   type WorkflowInstanceStatus,
 } from '../data/entities'
+import { compensateWorkflow } from './compensation-handler'
 
 // ============================================================================
 // Types and Interfaces
@@ -279,7 +281,7 @@ export async function executeWorkflow(
 
       if (currentStep?.stepType === 'END') {
         // Workflow is complete
-        await completeWorkflow(em, instanceId, 'COMPLETED')
+        await completeWorkflow(em, container, instanceId, 'COMPLETED')
         events.push({
           eventType: 'WORKFLOW_COMPLETED',
           occurredAt: new Date(),
@@ -467,12 +469,14 @@ export async function executeWorkflow(
  * Complete a workflow instance with final status
  *
  * @param em - Entity manager
+ * @param container
  * @param instanceId - Workflow instance ID
  * @param status - Final status (COMPLETED, FAILED, CANCELLED)
  * @param result - Optional result data
  */
 export async function completeWorkflow(
   em: EntityManager,
+  container: AwilixContainer,
   instanceId: string,
   status: 'COMPLETED' | 'FAILED' | 'CANCELLED',
   result?: any
@@ -486,6 +490,46 @@ export async function completeWorkflow(
     )
   }
 
+  // Trigger compensation if workflow failed and has compensatable activities (Phase 8.2)
+  if (status === 'FAILED') {
+    const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+
+    if (definition && checkIfCompensationNeeded(definition)) {
+      try {
+        console.log(`[Workflow] Starting compensation for failed workflow ${instanceId}`)
+
+        // Set error message before compensation
+        if (result?.error) {
+          instance.errorMessage = result.error
+          instance.errorDetails = result.details
+          await em.flush()
+        }
+
+        const compensationResult = await compensateWorkflow(
+          em,
+          container,
+          instance,
+          definition,
+          {
+            continueOnError: true // Best-effort compensation
+          }
+        )
+
+        console.log(
+          `[Workflow] Compensation ${compensationResult.status}: ${compensationResult.compensatedActivities}/${compensationResult.totalActivities} activities`
+        )
+
+        // Note: instance status already updated by compensateWorkflow
+        // It will be COMPENSATED or remain FAILED
+        return
+      } catch (error: any) {
+        console.error(`[Workflow] Compensation failed with exception:`, error)
+        // Continue to mark workflow as failed
+      }
+    }
+  }
+
+  // Original completion logic (no compensation needed or status is COMPLETED/CANCELLED)
   const now = new Date()
   instance.status = status
   instance.updatedAt = now
@@ -528,6 +572,33 @@ export async function completeWorkflow(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+}
+
+/**
+ * Check if workflow definition has any compensatable activities
+ */
+function checkIfCompensationNeeded(definition: WorkflowDefinition): boolean {
+  // Check if any activities have compensation defined
+  for (const transition of definition.definition.transitions) {
+    if (transition.activities) {
+      for (const activity of transition.activities) {
+        if (activity.compensation?.activityId) {
+          return true
+        }
+      }
+    }
+  }
+
+  // Check root-level activities (legacy)
+  if (definition.definition.activities) {
+    for (const activity of definition.definition.activities) {
+      if (activity.compensation?.activityId) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
 
 // ============================================================================
