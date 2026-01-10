@@ -282,6 +282,17 @@ export type KnownEntities = typeof E
     const generatedRoot = isApp ? path.resolve('generated') : path.join(pkgRootFor(g), 'generated')
     writeEntityFieldsRegistry(generatedRoot, combined)
   }
+
+  const combinedAll: EntityFieldMap = {}
+  for (const groupFields of Object.values(fieldsByGroup)) {
+    for (const mMap of Object.values(groupFields)) {
+      for (const [entity, fields] of Object.entries(mMap)) {
+        combinedAll[entity] = Array.from(new Set([...(combinedAll[entity] || []), ...fields]))
+      }
+    }
+  }
+  writePerEntityFieldFiles(path.resolve('generated/entities'), combinedAll)
+  writeEntityFieldsRegistry(path.resolve('generated'), combinedAll)
 }
 
 scan().then(() => {

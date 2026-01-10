@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import type { PluggableList } from 'unified'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -16,6 +18,30 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { useT } from '@/lib/i18n/context'
 
 const PAGE_SIZE = 50
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const MARKDOWN_CLASSNAME =
+  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+
+type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
+
+const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
 
 type TeamRow = {
   id: string
@@ -43,6 +69,11 @@ export default function BookingTeamsPage() {
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+
+  React.useEffect(() => {
+    void loadMarkdownPlugins().then((plugins) => setMarkdownPlugins(plugins))
+  }, [])
 
   const labels = React.useMemo(() => ({
     title: t('booking.teams.page.title', 'Teams'),
@@ -80,7 +111,12 @@ export default function BookingTeamsPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <span className="text-xs text-muted-foreground line-clamp-2">{row.original.description}</span>
+            <MarkdownPreview
+              remarkPlugins={markdownPlugins}
+              className={`${MARKDOWN_CLASSNAME} text-xs text-muted-foreground line-clamp-2`}
+            >
+              {row.original.description}
+            </MarkdownPreview>
           ) : null}
         </div>
       ),
@@ -90,7 +126,11 @@ export default function BookingTeamsPage() {
       header: labels.table.description,
       meta: { priority: 3 },
       cell: ({ row }) => row.original.description
-        ? <span className="text-sm">{row.original.description}</span>
+        ? (
+          <MarkdownPreview remarkPlugins={markdownPlugins} className={MARKDOWN_CLASSNAME}>
+            {row.original.description}
+          </MarkdownPreview>
+        )
         : <span className="text-xs text-muted-foreground">-</span>,
     },
     {
@@ -107,7 +147,7 @@ export default function BookingTeamsPage() {
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
-  ], [labels.table.active, labels.table.description, labels.table.name, labels.table.updatedAt])
+  ], [labels.table.active, labels.table.description, labels.table.name, labels.table.updatedAt, markdownPlugins])
 
   const loadTeams = React.useCallback(async () => {
     setIsLoading(true)
@@ -203,11 +243,12 @@ export default function BookingTeamsPage() {
           rowActions={(row) => (
             <RowActions
               items={[
-                { label: labels.actions.edit, onSelect: () => { router.push(`/backend/booking/teams/${row.original.id}/edit`) } },
-                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row.original) } },
+                { label: labels.actions.edit, href: `/backend/booking/teams/${row.id}/edit` },
+                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
           )}
+          onRowClick={(row) => router.push(`/backend/booking/teams/${row.id}/edit`)}
         />
       </PageBody>
     </Page>

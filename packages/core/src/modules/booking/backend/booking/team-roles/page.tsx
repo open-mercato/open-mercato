@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Pencil } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -63,6 +64,7 @@ export default function BookingTeamRolesPage() {
       delete: t('booking.teamRoles.actions.delete', 'Delete'),
       deleteConfirm: t('booking.teamRoles.actions.deleteConfirm', 'Delete team role "{{name}}"?'),
       refresh: t('booking.teamRoles.actions.refresh', 'Refresh'),
+      editTeam: t('booking.teams.actions.edit', 'Edit'),
     },
     messages: {
       deleted: t('booking.teamRoles.messages.deleted', 'Team role deleted.'),
@@ -78,14 +80,37 @@ export default function BookingTeamRolesPage() {
       accessorKey: 'name',
       header: labels.table.name,
       meta: { priority: 1, sticky: true },
-      cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span className={`${row.original.kind === 'team' ? 'font-semibold' : 'font-medium pl-6'}`}>{row.original.name}</span>
-          {row.original.kind === 'team' ? null : row.original.description ? (
-            <span className="text-xs text-muted-foreground pl-6">{row.original.description}</span>
-          ) : null}
-        </div>
-      ),
+      cell: ({ row }) => {
+        if (row.original.kind === 'team') {
+          return (
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-semibold">{row.original.name}</span>
+              {row.original.teamId ? (
+                <Button
+                  asChild
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title={labels.actions.editTeam}
+                  aria-label={labels.actions.editTeam}
+                >
+                  <Link href={`/backend/booking/teams/${encodeURIComponent(row.original.teamId)}/edit`}>
+                    <Pencil className="h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          )
+        }
+        return (
+          <div className="flex flex-col">
+            <span className="font-medium pl-6">{row.original.name}</span>
+            {row.original.description ? (
+              <span className="text-xs text-muted-foreground pl-6">{row.original.description}</span>
+            ) : null}
+          </div>
+        )
+      },
     },
     {
       accessorKey: 'description',

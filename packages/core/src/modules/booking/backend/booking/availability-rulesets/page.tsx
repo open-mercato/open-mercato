@@ -11,6 +11,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -121,7 +122,8 @@ export default function BookingAvailabilityRuleSetsPage() {
       handleRefresh()
     } catch (error) {
       console.error('booking.availability-rule-sets.delete', error)
-      flash(labels.errors.delete, 'error')
+      const normalized = normalizeCrudServerError(error)
+      flash(normalized.message ?? labels.errors.delete, 'error')
     }
   }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.messages.deleted])
 

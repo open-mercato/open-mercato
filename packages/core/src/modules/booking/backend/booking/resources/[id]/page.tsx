@@ -12,9 +12,9 @@ import { type TagOption } from '@open-mercato/ui/backend/detail'
 import { useT } from '@/lib/i18n/context'
 import { buildResourceScheduleItems } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
-import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
-import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
-import { BookingResourceForm, useBookingResourceFormConfig } from '@open-mercato/core/modules/booking/backend/booking/resources/ResourceCrudForm'
+import type { AvailabilityBookedEvent, AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
+import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
+import { BookingResourceForm, useBookingResourceFormConfig } from '@open-mercato/core/modules/booking/components/ResourceCrudForm'
 
 type ResourceRecord = {
   id: string

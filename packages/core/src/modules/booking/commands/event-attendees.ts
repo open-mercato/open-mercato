@@ -3,7 +3,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { BookingEvent, BookingEventAttendee } from '../data/entities'
@@ -132,7 +132,7 @@ async function ensureCustomerExists(
 const createAttendeeCommand: CommandHandler<BookingEventAttendeeCreateInput, { attendeeId: string }> = {
   id: 'booking.event-attendees.create',
   async execute(rawInput, ctx) {
-    const parsed = bookingEventAttendeeCreateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(bookingEventAttendeeCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -171,6 +171,14 @@ const createAttendeeCommand: CommandHandler<BookingEventAttendeeCreateInput, { a
     await em.flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: E.booking.booking_event_attendee,
+      recordId: attendee.id,
+      tenantId: attendee.tenantId,
+      organizationId: attendee.organizationId,
+      values: custom,
+    })
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -219,7 +227,7 @@ const createAttendeeCommand: CommandHandler<BookingEventAttendeeCreateInput, { a
 const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { attendeeId: string }> = {
   id: 'booking.event-attendees.update',
   async prepare(rawInput, ctx) {
-    const parsed = bookingEventAttendeeUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(bookingEventAttendeeUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadAttendeeSnapshot(em, parsed.id)
     if (!snapshot) return {}
@@ -239,6 +247,14 @@ const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { a
     ensureTenantScope(ctx, attendee.tenantId)
     ensureOrganizationScope(ctx, attendee.organizationId)
 
+    if (parsed.eventId !== undefined) {
+      await ensureEventExists(em, {
+        eventId: parsed.eventId,
+        tenantId: attendee.tenantId,
+        organizationId: attendee.organizationId,
+      })
+      attendee.eventId = parsed.eventId
+    }
     if (parsed.customerId !== undefined) {
       await ensureCustomerExists(em, {
         customerId: parsed.customerId,
@@ -265,6 +281,14 @@ const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { a
     await em.flush()
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await setCustomFieldsIfAny({
+      dataEngine: de,
+      entityId: E.booking.booking_event_attendee,
+      recordId: attendee.id,
+      tenantId: attendee.tenantId,
+      organizationId: attendee.organizationId,
+      values: custom,
+    })
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'updated',
@@ -278,7 +302,7 @@ const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { a
 
     return { attendeeId: attendee.id }
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as AttendeeSnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager)

@@ -8,7 +8,7 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@/lib/i18n/context'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
-import { BookingResourceForm, useBookingResourceFormConfig } from '@open-mercato/core/modules/booking/backend/booking/resources/ResourceCrudForm'
+import { BookingResourceForm, useBookingResourceFormConfig } from '@open-mercato/core/modules/booking/components/ResourceCrudForm'
 
 export default function BookingResourceCreatePage() {
   const t = useT()

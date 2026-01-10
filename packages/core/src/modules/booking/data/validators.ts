@@ -324,6 +324,7 @@ export const bookingEventAttendeeCreateSchema = z.object({
 
 export const bookingEventAttendeeUpdateSchema = z.object({
   ...scopedUpdateFields,
+  eventId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional().nullable(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),

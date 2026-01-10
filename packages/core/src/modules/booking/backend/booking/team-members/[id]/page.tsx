@@ -13,7 +13,7 @@ import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/in
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
+import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/booking/lib/memberSchedule'
 
 const DEFAULT_PAGE_SIZE = 100
@@ -40,10 +40,11 @@ type TeamMemberResponse = {
 type TeamRoleRow = {
   id: string
   name: string
+  teamId: string | null
 }
 
 type TeamRolesResponse = {
-  items?: TeamRoleRow[]
+  items?: Array<Record<string, unknown>>
 }
 
 type UsersResponse = {
@@ -62,6 +63,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
   const scopeVersion = useOrganizationScopeVersion()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [roles, setRoles] = React.useState<TeamRoleRow[]>([])
+  const [selectedTeamId, setSelectedTeamId] = React.useState<string | null>(null)
   const [userOptions, setUserOptions] = React.useState<LookupSelectItem[]>([])
   const [teamOptions, setTeamOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
@@ -86,6 +88,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
           const user = record.user && typeof record.user === 'object'
             ? record.user as { id?: string; email?: string | null }
             : null
+          const resolvedTeamId = record.teamId ?? record.team_id ?? null
           if (user?.id && user?.email) {
             setUserOptions([{ id: user.id, title: user.email, subtitle: null }])
           } else if (record.userId || record.user_id) {
@@ -103,7 +106,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
           }
           setInitialValues({
             id: record.id,
-            teamId: record.teamId ?? record.team_id ?? null,
+            teamId: resolvedTeamId,
             userId: record.userId ?? record.user_id ?? null,
             displayName: record.displayName ?? record.display_name ?? '',
             description: record.description ?? '',
@@ -112,6 +115,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
             isActive: record.isActive ?? true,
             ...customFields,
           })
+          setSelectedTeamId(resolvedTeamId)
           setAvailabilityRuleSetId(
             typeof record.availabilityRuleSetId === 'string'
               ? record.availabilityRuleSetId
@@ -156,7 +160,10 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
         const params = new URLSearchParams({ page: '1', pageSize: String(DEFAULT_PAGE_SIZE) })
         const call = await apiCall<TeamRolesResponse>(`/api/booking/team-roles?${params.toString()}`)
         const items = Array.isArray(call.result?.items) ? call.result.items : []
-        if (!cancelled) setRoles(items)
+        const nextRoles = items
+          .map(mapTeamRole)
+          .filter((role): role is TeamRoleRow => role !== null)
+        if (!cancelled) setRoles(nextRoles)
       } catch {
         if (!cancelled) setRoles([])
       }
@@ -188,6 +195,11 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     loadTeams()
     return () => { cancelled = true }
   }, [scopeVersion])
+
+  const filteredRoles = React.useMemo(
+    () => filterRolesByTeam(roles, selectedTeamId),
+    [roles, selectedTeamId],
+  )
 
   const fetchUserOptions = React.useCallback(async (query?: string): Promise<LookupSelectItem[]> => {
     const params = new URLSearchParams({ page: '1', pageSize: '50' })
@@ -231,12 +243,40 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     {
       id: 'teamId',
       label: t('booking.teamMembers.form.fields.team', 'Team'),
-      type: 'select',
-      listbox: true,
-      options: [
-        { value: '', label: t('booking.teamMembers.form.fields.team.unassigned', 'Unassigned') },
-        ...teamOptions,
-      ],
+      type: 'custom',
+      component: ({ value, setValue, setFormValue, values, disabled }) => {
+        const currentValue = typeof value === 'string' ? value : ''
+        return (
+          <select
+            className="w-full h-9 rounded border px-2 text-sm"
+            value={currentValue}
+            onChange={(event) => {
+              const nextValue = event.target.value || undefined
+              const nextTeamId = event.target.value || null
+              setValue(nextValue)
+              setSelectedTeamId(nextTeamId)
+              if (!setFormValue) return
+              const roleIds = Array.isArray(values?.roleIds)
+                ? values?.roleIds.filter((item): item is string => typeof item === 'string')
+                : []
+              const allowedRoleIds = buildAllowedRoleIdSet(roles, nextTeamId)
+              const nextRoleIds = roleIds.filter((roleId) => allowedRoleIds.has(roleId))
+              if (nextRoleIds.length !== roleIds.length) {
+                setFormValue('roleIds', nextRoleIds)
+              }
+            }}
+            data-crud-focus-target=""
+            disabled={disabled}
+          >
+            <option value="">{t('ui.forms.select.emptyOption', '—')}</option>
+            {teamOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )
+      },
     },
     {
       id: 'displayName',
@@ -256,7 +296,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       type: 'select',
       multiple: true,
       listbox: true,
-      options: roles.map((role) => ({ value: role.id, label: role.name })),
+      options: filteredRoles.map((role) => ({ value: role.id, label: role.name })),
     },
     {
       id: 'tags',
@@ -269,7 +309,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       label: t('booking.teamMembers.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [fetchUserOptions, roles, t, teamOptions, userOptions])
+  ], [fetchUserOptions, filteredRoles, roles, t, teamOptions, userOptions])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!memberId) return

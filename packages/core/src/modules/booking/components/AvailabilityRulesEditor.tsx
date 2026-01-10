@@ -95,6 +95,14 @@ function formatDateInput(value: Date): string {
   return `${year}-${month}-${day}`
 }
 
+function parseDateInput(value: string): Date | null {
+  const [year, month, day] = value.split('-').map((part) => Number(part))
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+  const date = new Date(year, month - 1, day)
+  if (Number.isNaN(date.getTime())) return null
+  return date
+}
+
 function parseTimeInput(value: string): { hours: number; minutes: number } | null {
   const [hours, minutes] = value.split(':').map((part) => Number(part))
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
@@ -244,10 +252,11 @@ export function AvailabilityRulesEditor({
   const [editorNote, setEditorNote] = React.useState('')
   const [createRuleSetOpen, setCreateRuleSetOpen] = React.useState(false)
   const [isWeeklyAutoSaving, setIsWeeklyAutoSaving] = React.useState(false)
+  const [customOverridesEnabled, setCustomOverridesEnabled] = React.useState(false)
   const autoSaveTimerRef = React.useRef<number | null>(null)
   const lastSavedWeeklyKeyRef = React.useRef<string | null>(null)
 
-  const usingRuleSet = Boolean(rulesetId) && availabilityRules.length === 0
+  const usingRuleSet = Boolean(rulesetId) && availabilityRules.length === 0 && !customOverridesEnabled
   const activeRules = usingRuleSet ? rulesetRules : availabilityRules
   const scheduleItems = React.useMemo(
     () => buildScheduleItems({ availabilityRules: activeRules, bookedEvents, translate: t }),
@@ -390,6 +399,18 @@ export function AvailabilityRulesEditor({
     const ruleTimezone = activeRules.find((rule) => rule.timezone)?.timezone
     if (ruleTimezone) setTimezone(ruleTimezone)
   }, [activeRules])
+
+  React.useEffect(() => {
+    if (availabilityRules.length > 0) {
+      setCustomOverridesEnabled(true)
+    }
+  }, [availabilityRules.length])
+
+  React.useEffect(() => {
+    if (!rulesetId) {
+      setCustomOverridesEnabled(false)
+    }
+  }, [rulesetId])
 
   const refreshBookedEvents = React.useCallback(async () => {
     if (!loadBookedEvents) return
@@ -598,6 +619,7 @@ export function AvailabilityRulesEditor({
         note: rule.note ?? null,
       }))
       await Promise.all(creations)
+      setCustomOverridesEnabled(true)
       await refreshAvailability()
     } catch (error) {
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
@@ -611,6 +633,7 @@ export function AvailabilityRulesEditor({
       await Promise.all(
         availabilityRules.map((rule) => deleteCrud('booking/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
       )
+      setCustomOverridesEnabled(false)
       await refreshAvailability()
     } catch (error) {
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
@@ -627,6 +650,7 @@ export function AvailabilityRulesEditor({
         availabilityRules.map((rule) => deleteCrud('booking/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
       )
     }
+    setCustomOverridesEnabled(false)
     await onRulesetChange(nextId)
     await refreshAvailability()
   }, [
@@ -743,7 +767,13 @@ export function AvailabilityRulesEditor({
   }, [])
 
   const handleEditorDateAdd = React.useCallback(() => {
-    setEditorDates((prev) => [...prev, formatDateInput(new Date())])
+    setEditorDates((prev) => {
+      const lastValue = [...prev].reverse().find((value) => value && value.length) ?? ''
+      const base = lastValue ? parseDateInput(lastValue) : null
+      const nextBase = base ?? new Date()
+      const nextDate = new Date(nextBase.getFullYear(), nextBase.getMonth(), nextBase.getDate() + 1)
+      return [...prev, formatDateInput(nextDate)]
+    })
   }, [])
 
   const handleEditorDateChange = React.useCallback((index: number, value: string) => {
@@ -1263,8 +1293,12 @@ export function AvailabilityRulesEditor({
                             <Plus className="size-4 mr-2" aria-hidden />
                             {listLabels.addDateLabel}
                           </Button>
-                          <div className="flex items-start gap-2 pt-2 text-sm">
+                          <label
+                            htmlFor="availability-unavailable-toggle"
+                            className="flex cursor-pointer items-start gap-2 pt-2 text-sm"
+                          >
                             <input
+                              id="availability-unavailable-toggle"
                               type="checkbox"
                               className="mt-0.5 size-4"
                               checked={editorUnavailable}
@@ -1274,7 +1308,7 @@ export function AvailabilityRulesEditor({
                               <div className="font-medium text-foreground">{listLabels.unavailableLabel}</div>
                               <div className="text-xs text-muted-foreground">{listLabels.unavailableHelp}</div>
                             </div>
-                          </div>
+                          </label>
                           {editorUnavailable ? (
                             <div className="space-y-2">
                               <label className="text-xs font-medium text-muted-foreground">{listLabels.unavailableNoteLabel}</label>

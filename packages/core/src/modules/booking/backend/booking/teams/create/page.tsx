@@ -6,7 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
-import { TeamForm, type TeamFormValues, buildTeamPayload } from '../TeamForm'
+import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/core/modules/booking/components/TeamForm'
 
 export default function BookingTeamCreatePage() {
   const t = useT()

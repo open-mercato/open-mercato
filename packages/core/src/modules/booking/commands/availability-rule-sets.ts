@@ -2,7 +2,8 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { BookingAvailabilityRuleSet } from '../data/entities'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { BookingAvailabilityRuleSet, BookingResource, BookingTeamMember } from '../data/entities'
 import {
   bookingAvailabilityRuleSetCreateSchema,
   bookingAvailabilityRuleSetUpdateSchema,
@@ -65,6 +66,29 @@ const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSe
     if (!record) throw new CrudHttpError(404, { error: 'Booking availability rule set not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+
+    const assignedResourceCount = await em.count(BookingResource, {
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+      availabilityRuleSetId: record.id,
+      deletedAt: null,
+    })
+    const assignedMemberCount = await em.count(BookingTeamMember, {
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+      availabilityRuleSetId: record.id,
+      deletedAt: null,
+    })
+    if (assignedResourceCount > 0 || assignedMemberCount > 0) {
+      const { t } = await resolveTranslations()
+      throw new CrudHttpError(409, {
+        error: t(
+          'booking.availabilityRuleSets.errors.assigned',
+          'Schedule is assigned to a resource or team member and cannot be deleted.',
+        ),
+      })
+    }
+
     record.deletedAt = new Date()
     await em.flush()
     return { ruleSetId: record.id }

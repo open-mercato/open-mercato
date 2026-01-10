@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { buildResourceTypePayload, ResourceTypeCrudForm, type ResourceTypeFormValues } from '../ResourceTypeCrudForm'
+import { buildResourceTypePayload, ResourceTypeCrudForm, type ResourceTypeFormValues } from '@open-mercato/core/modules/booking/components/ResourceTypeCrudForm'
 import { useT } from '@/lib/i18n/context'
 
 export default function BookingResourceTypeCreatePage() {

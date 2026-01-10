@@ -27,6 +27,7 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
+    ids: z.string().optional(),
     eventId: z.string().uuid().optional(),
     customerId: z.string().uuid().optional(),
     sortField: z.string().optional(),
@@ -78,6 +79,15 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
+      if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
+        const ids = query.ids
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+        if (ids.length > 0) {
+          filters.id = { $in: ids }
+        }
+      }
       const term = sanitizeSearchTerm(query.search)
       if (term) {
         const like = `%${escapeLikePattern(term)}%`
@@ -120,15 +130,24 @@ const crud = makeCrudRoute({
       })
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const tenantId = ctx.organizationScope?.tenantId ?? ctx.auth?.tenantId ?? null
-      const organizationId = ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null
-      const scope = { tenantId, organizationId }
+      const orgIds = ctx.organizationIds ?? ctx.organizationScope?.filterIds ?? null
+      const orgFilter =
+        Array.isArray(orgIds) && orgIds.length > 0
+          ? { $in: orgIds }
+          : ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null
+      const scope = { tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null }
 
       const [events, customers] = await Promise.all([
         eventIds.size
           ? findWithDecryption(
             em,
             BookingEvent,
-            { id: { $in: Array.from(eventIds) } },
+            {
+              id: { $in: Array.from(eventIds) },
+              deletedAt: null,
+              ...(tenantId ? { tenantId } : {}),
+              ...(orgFilter ? { organizationId: orgFilter } : {}),
+            },
             undefined,
             scope,
           )
@@ -137,7 +156,12 @@ const crud = makeCrudRoute({
           ? findWithDecryption(
             em,
             CustomerEntity,
-            { id: { $in: Array.from(customerIds) } },
+            {
+              id: { $in: Array.from(customerIds) },
+              deletedAt: null,
+              ...(tenantId ? { tenantId } : {}),
+              ...(orgFilter ? { organizationId: orgFilter } : {}),
+            },
             undefined,
             scope,
           )

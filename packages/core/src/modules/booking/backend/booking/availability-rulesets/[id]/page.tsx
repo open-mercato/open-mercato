@@ -7,7 +7,8 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { useT } from '@/lib/i18n/context'
 
@@ -106,11 +107,19 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
 
   const handleDelete = React.useCallback(async () => {
     if (!rulesetId) return
-    await deleteCrud('booking/availability-rule-sets', rulesetId, {
-      errorMessage: t('booking.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
-    })
-    flash(t('booking.availabilityRuleSets.form.flash.deleted', 'Schedule deleted.'), 'success')
-    router.push('/backend/booking/availability-rulesets')
+    try {
+      await deleteCrud('booking/availability-rule-sets', rulesetId, {
+        errorMessage: t('booking.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
+      })
+      flash(t('booking.availabilityRuleSets.form.flash.deleted', 'Schedule deleted.'), 'success')
+      router.push('/backend/booking/availability-rulesets')
+    } catch (error) {
+      const normalized = normalizeCrudServerError(error)
+      flash(
+        normalized.message ?? t('booking.availabilityRuleSets.form.errors.delete', 'Failed to delete schedule.'),
+        'error',
+      )
+    }
   }, [router, rulesetId, t])
 
   const buildScheduleItems = React.useCallback(({ availabilityRules, bookedEvents, translate }) => {

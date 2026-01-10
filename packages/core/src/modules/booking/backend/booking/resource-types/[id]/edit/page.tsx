@@ -8,7 +8,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { extractCustomFieldValues } from '@open-mercato/core/modules/sales/components/documents/customFieldHelpers'
-import { buildResourceTypePayload, ResourceTypeCrudForm, type ResourceTypeFormValues } from '../../ResourceTypeCrudForm'
+import { buildResourceTypePayload, ResourceTypeCrudForm, type ResourceTypeFormValues } from '@open-mercato/core/modules/booking/components/ResourceTypeCrudForm'
 import { useT } from '@/lib/i18n/context'
 
 type ResourceTypesResponse = {
