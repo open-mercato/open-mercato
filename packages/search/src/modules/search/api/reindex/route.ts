@@ -8,6 +8,9 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Queue } from '@open-mercato/queue'
 import type { MeilisearchIndexJobPayload } from '../../../../queue/meilisearch-indexing'
 import { handleMeilisearchIndexJob } from '../../workers/meilisearch-index.worker'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerError } from '@/lib/indexers/error-log'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 /** Strategy with optional stats support */
 type StrategyWithStats = SearchStrategy & {
@@ -73,6 +76,8 @@ export async function POST(req: Request) {
   const useQueue = queueStrategy === 'async' && payload.useQueue === true
 
   const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+
   try {
     // Get all search strategies
     const searchStrategies = (container.resolve('searchStrategies') as StrategyWithStats[] | undefined) ?? []
@@ -122,6 +127,22 @@ export async function POST(req: Request) {
         useQueue,
       })
 
+      // Log reindex started
+      await recordIndexerLog(
+        { em },
+        {
+          source: 'meilisearch',
+          handler: 'api:search.reindex',
+          message: entityId
+            ? `Starting Meilisearch reindex for ${entityId}`
+            : `Starting Meilisearch reindex for all entities (${enabledEntities.join(', ')})`,
+          entityType: entityId ?? null,
+          tenantId: auth.tenantId,
+          organizationId: orgId,
+          details: { enabledEntities, useQueue },
+        },
+      )
+
       if (entityId) {
         // Reindex specific entity
         result = await searchIndexer.reindexEntityToMeilisearch({
@@ -141,6 +162,43 @@ export async function POST(req: Request) {
           jobsEnqueued: result.jobsEnqueued,
           errors: result.errors,
         })
+
+        // Log to indexer status logs
+        await recordIndexerLog(
+          { em },
+          {
+            source: 'meilisearch',
+            handler: 'api:search.reindex',
+            message: useQueue
+              ? `Enqueued ${result.jobsEnqueued ?? 0} jobs for Meilisearch reindex of ${entityId}`
+              : `Reindexed ${result.recordsIndexed} records to Meilisearch for ${entityId}`,
+            entityType: entityId,
+            tenantId: auth.tenantId,
+            organizationId: orgId,
+            details: {
+              recordsIndexed: result.recordsIndexed,
+              jobsEnqueued: result.jobsEnqueued,
+              useQueue,
+              errors: result.errors.length > 0 ? result.errors : undefined,
+            },
+          },
+        )
+
+        // Log any batch errors to error logs
+        for (const err of result.errors) {
+          await recordIndexerError(
+            { em },
+            {
+              source: 'meilisearch',
+              handler: 'api:search.reindex',
+              error: new Error(err.error),
+              entityType: err.entityId,
+              tenantId: auth.tenantId,
+              organizationId: orgId,
+              payload: { action, useQueue },
+            },
+          )
+        }
       } else {
         // Reindex all entities
         result = await searchIndexer.reindexAllToMeilisearch({
@@ -159,6 +217,43 @@ export async function POST(req: Request) {
           jobsEnqueued: result.jobsEnqueued,
           errors: result.errors,
         })
+
+        // Log to indexer status logs
+        await recordIndexerLog(
+          { em },
+          {
+            source: 'meilisearch',
+            handler: 'api:search.reindex',
+            message: useQueue
+              ? `Enqueued ${result.jobsEnqueued ?? 0} jobs for Meilisearch reindex of all entities`
+              : `Reindexed ${result.recordsIndexed} records to Meilisearch for ${result.entitiesProcessed} entities`,
+            tenantId: auth.tenantId,
+            organizationId: orgId,
+            details: {
+              entitiesProcessed: result.entitiesProcessed,
+              recordsIndexed: result.recordsIndexed,
+              jobsEnqueued: result.jobsEnqueued,
+              useQueue,
+              errors: result.errors.length > 0 ? result.errors : undefined,
+            },
+          },
+        )
+
+        // Log any batch errors to error logs
+        for (const err of result.errors) {
+          await recordIndexerError(
+            { em },
+            {
+              source: 'meilisearch',
+              handler: 'api:search.reindex',
+              error: new Error(err.error),
+              entityType: err.entityId,
+              tenantId: auth.tenantId,
+              organizationId: orgId,
+              payload: { action, useQueue },
+            },
+          )
+        }
       }
 
       // TODO: Remove this block when @open-mercato/queue supports auto-processing for local strategy
@@ -207,17 +302,51 @@ export async function POST(req: Request) {
       // Purge specific entity
       await indexableStrategy.purge?.(entityId as EntityId, auth.tenantId)
       console.log('[search.reindex] Purged entity', { strategyId: indexableStrategy.id, entityId, tenantId: auth.tenantId })
+
+      await recordIndexerLog(
+        { em },
+        {
+          source: 'meilisearch',
+          handler: 'api:search.reindex',
+          message: `Purged entity ${entityId} from Meilisearch`,
+          entityType: entityId,
+          tenantId: auth.tenantId,
+          organizationId: auth.orgId ?? null,
+        },
+      )
     } else if (action === 'clear') {
       // Clear all documents but keep index
       if (indexableStrategy.clearIndex) {
         await indexableStrategy.clearIndex(auth.tenantId)
         console.log('[search.reindex] Cleared index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+
+        await recordIndexerLog(
+          { em },
+          {
+            source: 'meilisearch',
+            handler: 'api:search.reindex',
+            message: 'Cleared all documents from Meilisearch index',
+            tenantId: auth.tenantId,
+            organizationId: auth.orgId ?? null,
+          },
+        )
       }
     } else {
       // Recreate the entire index
       if (indexableStrategy.recreateIndex) {
         await indexableStrategy.recreateIndex(auth.tenantId)
         console.log('[search.reindex] Recreated index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+
+        await recordIndexerLog(
+          { em },
+          {
+            source: 'meilisearch',
+            handler: 'api:search.reindex',
+            message: 'Recreated Meilisearch index',
+            tenantId: auth.tenantId,
+            organizationId: auth.orgId ?? null,
+          },
+        )
       }
     }
 
@@ -237,6 +366,21 @@ export async function POST(req: Request) {
       stack: error instanceof Error ? error.stack : undefined,
       tenantId: auth.tenantId,
     })
+
+    // Record error to indexer error logs
+    await recordIndexerError(
+      { em },
+      {
+        source: 'meilisearch',
+        handler: 'api:search.reindex',
+        error,
+        entityType: entityId ?? null,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId ?? null,
+        payload: { action, entityId, useQueue },
+      },
+    )
+
     // Return generic message to client - don't expose internal error details
     return toJson(
       { error: t('search.api.errors.reindexFailed', 'Reindex operation failed. Please try again or contact support.') },

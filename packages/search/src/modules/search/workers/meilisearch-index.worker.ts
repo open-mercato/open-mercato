@@ -1,6 +1,8 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { MeilisearchIndexJobPayload } from '../../../queue/meilisearch-indexing'
 import type { MeilisearchStrategy } from '../../../strategies/meilisearch.strategy'
+import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerError } from '@/lib/indexers/error-log'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -27,6 +29,15 @@ export async function handleMeilisearchIndexJob(
       jobType,
     })
     return
+  }
+
+  // Resolve EntityManager for logging
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let em: any | null = null
+  try {
+    em = ctx.resolve('em')
+  } catch {
+    em = null
   }
 
   // Resolve Meilisearch strategy
@@ -71,6 +82,17 @@ export async function handleMeilisearchIndexJob(
         recordCount: records.length,
         attemptNumber: jobCtx.attemptNumber,
       })
+
+      await recordIndexerLog(
+        { em: em ?? undefined },
+        {
+          source: 'meilisearch',
+          handler: 'worker:meilisearch:batch-index',
+          message: `Indexed ${records.length} records to Meilisearch`,
+          tenantId,
+          details: { jobId: jobCtx.jobId, recordCount: records.length },
+        },
+      )
     } else if (jobType === 'delete') {
       const { entityId, recordId } = job.payload
       if (!entityId || !recordId) {
@@ -90,6 +112,19 @@ export async function handleMeilisearchIndexJob(
         entityId,
         recordId,
       })
+
+      await recordIndexerLog(
+        { em: em ?? undefined },
+        {
+          source: 'meilisearch',
+          handler: 'worker:meilisearch:delete',
+          message: `Deleted record from Meilisearch`,
+          entityType: entityId,
+          recordId,
+          tenantId,
+          details: { jobId: jobCtx.jobId },
+        },
+      )
     } else if (jobType === 'purge') {
       const { entityId } = job.payload
       if (!entityId) {
@@ -106,6 +141,18 @@ export async function handleMeilisearchIndexJob(
         tenantId,
         entityId,
       })
+
+      await recordIndexerLog(
+        { em: em ?? undefined },
+        {
+          source: 'meilisearch',
+          handler: 'worker:meilisearch:purge',
+          message: `Purged entity from Meilisearch`,
+          entityType: entityId,
+          tenantId,
+          details: { jobId: jobCtx.jobId },
+        },
+      )
     }
   } catch (error) {
     console.error(`[meilisearch-index.worker] Failed to ${jobType}`, {
@@ -114,6 +161,23 @@ export async function handleMeilisearchIndexJob(
       error: error instanceof Error ? error.message : error,
       attemptNumber: jobCtx.attemptNumber,
     })
+
+    const entityId = 'entityId' in job.payload ? job.payload.entityId : undefined
+    const recordId = 'recordId' in job.payload ? job.payload.recordId : undefined
+
+    await recordIndexerError(
+      { em: em ?? undefined },
+      {
+        source: 'meilisearch',
+        handler: `worker:meilisearch:${jobType}`,
+        error,
+        entityType: entityId,
+        recordId,
+        tenantId,
+        payload: job.payload,
+      },
+    )
+
     // Re-throw to let the queue handle retry logic
     throw error
   }

@@ -674,21 +674,9 @@ export function SearchSettingsPageClient() {
             <div className="space-y-4">
               {/* Stats - only show if index exists */}
               {settings?.meilisearchStats ? (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-md border border-border p-4">
-                    <p className="text-sm text-muted-foreground">{t('search.settings.documentsLabel', 'Documents')}</p>
-                    <p className="text-2xl font-bold">{settings.meilisearchStats.numberOfDocuments.toLocaleString()}</p>
-                  </div>
-                  <div className="rounded-md border border-border p-4">
-                    <p className="text-sm text-muted-foreground">{t('search.settings.indexingLabel', 'Indexing')}</p>
-                    <p className={`text-lg font-medium ${
-                      settings.meilisearchStats.isIndexing
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-emerald-600 dark:text-emerald-400'
-                    }`}>
-                      {settings.meilisearchStats.isIndexing ? t('search.settings.indexingInProgressLabel', 'In Progress') : t('search.settings.indexingIdleLabel', 'Idle')}
-                    </p>
-                  </div>
+                <div className="rounded-md border border-border p-4 max-w-xs">
+                  <p className="text-sm text-muted-foreground">{t('search.settings.documentsLabel', 'Documents')}</p>
+                  <p className="text-2xl font-bold">{settings.meilisearchStats.numberOfDocuments.toLocaleString()}</p>
                 </div>
               ) : (
                 <div className="p-3 rounded-md bg-muted/50">

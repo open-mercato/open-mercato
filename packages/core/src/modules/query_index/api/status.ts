@@ -5,6 +5,7 @@ import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { VectorIndexService } from '@open-mercato/search/vector'
+import type { MeilisearchStrategy } from '@open-mercato/search/strategies/meilisearch.strategy'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -81,6 +82,27 @@ export async function GET(req: Request) {
     try {
       vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
     } catch {}
+  }
+
+  // Resolve Meilisearch strategy for entity counts
+  let meilisearchStrategy: MeilisearchStrategy | null = null
+  try {
+    const searchStrategies = container.resolve('searchStrategies') as unknown[]
+    meilisearchStrategy = (searchStrategies?.find(
+      (s: unknown) => (s as { id?: string })?.id === 'meilisearch',
+    ) as MeilisearchStrategy) ?? null
+  } catch {
+    meilisearchStrategy = null
+  }
+
+  // Fetch Meilisearch entity counts
+  let meilisearchEntityCounts: Record<string, number> | null = null
+  if (meilisearchStrategy) {
+    try {
+      meilisearchEntityCounts = await meilisearchStrategy.getEntityCounts(tenantId)
+    } catch {
+      meilisearchEntityCounts = null
+    }
   }
 
   // Limit to entities that have active custom field definitions in current scope
@@ -301,6 +323,8 @@ export async function GET(req: Request) {
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
     const vectorEnabled = vectorEnabledEntities.has(eid)
     const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
+    const meilisearchEnabled = meilisearchEntityCounts !== null
+    const meilisearchCountNumber = meilisearchEnabled ? (meilisearchEntityCounts?.[eid] ?? 0) : null
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false
       if (baseCountNumber !== indexCountNumber) return false
@@ -314,6 +338,8 @@ export async function GET(req: Request) {
       indexCount: indexCountNumber,
       vectorCount: vectorEnabled ? vectorCountNumber : null,
       vectorEnabled,
+      meilisearchCount: meilisearchCountNumber,
+      meilisearchEnabled,
       ok,
       job,
       refreshedAt: refreshedAt ?? null,

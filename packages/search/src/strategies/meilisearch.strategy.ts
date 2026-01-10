@@ -339,6 +339,34 @@ export class MeilisearchStrategy implements SearchStrategy {
   }
 
   /**
+   * Get document counts per entity type for the tenant's index.
+   */
+  async getEntityCounts(tenantId: string): Promise<Record<string, number> | null> {
+    const client = this.getClient()
+    const indexName = this.buildIndexName(tenantId)
+
+    try {
+      const index = client.index(indexName)
+      // Use search with facets to get counts per entity type
+      const result = await index.search('', {
+        limit: 0,
+        facets: ['_entityId'],
+      })
+      const facetDistribution = result.facetDistribution?._entityId
+      if (!facetDistribution) {
+        return {}
+      }
+      return facetDistribution
+    } catch (error: unknown) {
+      const meilisearchError = error as { code?: string }
+      if (meilisearchError.code === 'index_not_found') {
+        return null
+      }
+      throw error
+    }
+  }
+
+  /**
    * Get or create the Meilisearch client.
    */
   private getClient(): MeiliSearch {
