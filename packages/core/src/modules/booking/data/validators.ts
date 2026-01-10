@@ -31,6 +31,7 @@ const eventStatusSchema = z.enum(['draft', 'negotiation', 'confirmed', 'cancelle
 const confirmationModeSchema = z.enum(['all_members', 'any_member', 'by_role'])
 const confirmationStatusSchema = z.enum(['pending', 'accepted', 'declined'])
 const availabilitySubjectSchema = z.enum(['member', 'resource', 'ruleset'])
+const availabilityKindSchema = z.enum(['availability', 'unavailability'])
 
 const scopedCreateFields = {
   tenantId: z.string().uuid(),
@@ -202,6 +203,8 @@ export const bookingAvailabilityRuleCreateSchema = z.object({
   timezone: z.string().min(1),
   rrule: z.string().min(1),
   exdates: z.array(isoDateString).optional().default([]),
+  kind: availabilityKindSchema.optional().default('availability'),
+  note: z.string().trim().max(200).optional().nullable(),
 })
 
 export const bookingAvailabilityRuleUpdateSchema = z.object({
@@ -211,6 +214,8 @@ export const bookingAvailabilityRuleUpdateSchema = z.object({
   timezone: z.string().min(1).optional(),
   rrule: z.string().min(1).optional(),
   exdates: z.array(isoDateString).optional(),
+  kind: availabilityKindSchema.optional(),
+  note: z.string().trim().max(200).optional().nullable(),
 })
 
 export const bookingAvailabilityRuleSetCreateSchema = z.object({

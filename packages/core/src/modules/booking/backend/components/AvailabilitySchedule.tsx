@@ -25,6 +25,8 @@ export type AvailabilityRule = {
   timezone: string
   rrule: string
   exdates: string[]
+  kind?: 'availability' | 'unavailability'
+  note?: string | null
   createdAt?: string | null
 }
 

@@ -14,7 +14,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
-import { Calendar, Clock, List, Plus, Trash2 } from 'lucide-react'
+import { Calendar, Clock, List, PencilLine, Plus, Trash2 } from 'lucide-react'
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -26,6 +26,8 @@ type AvailabilityRule = {
   timezone: string
   rrule: string
   exdates: string[]
+  kind?: 'availability' | 'unavailability'
+  note?: string | null
   createdAt?: string | null
 }
 
@@ -122,6 +124,21 @@ function toDateForDay(value: string, time: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+function getWeekdayIndex(value: string): number | null {
+  const date = toDateForDay(value, '00:00')
+  return date ? date.getDay() : null
+}
+
+function getWindowError(window: TimeWindow, labels: { windowErrorRequired: string; windowErrorRange: string }): string | null {
+  const start = parseTimeInput(window.start)
+  const end = parseTimeInput(window.end)
+  if (!start || !end) return labels.windowErrorRequired
+  if (start.hours > end.hours || (start.hours === end.hours && start.minutes >= end.minutes)) {
+    return labels.windowErrorRange
+  }
+  return null
+}
+
 function formatDuration(minutes: number): string {
   const clamped = Math.max(1, minutes)
   const hours = Math.floor(clamped / 60)
@@ -145,6 +162,13 @@ function buildAvailabilityRrule(start: Date, end: Date, repeat: AvailabilityRepe
     rule = 'FREQ=DAILY'
   }
   return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:${rule}`
+}
+
+function buildFullDayRrule(date: string): string | null {
+  const start = toDateForDay(date, '00:00')
+  if (!start) return null
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  return buildAvailabilityRrule(start, end, 'once')
 }
 
 function groupRulesByDate(rules: AvailabilityRule[]): Map<string, AvailabilityRule[]> {
@@ -183,7 +207,7 @@ export function AvailabilityRulesEditor({
   subjectType,
   subjectId,
   labelPrefix,
-  mode = 'availability',
+  mode: _mode = 'availability',
   rulesetId,
   onRulesetChange,
   buildScheduleItems,
@@ -216,6 +240,8 @@ export function AvailabilityRulesEditor({
   const [editorWeekday, setEditorWeekday] = React.useState<number>(new Date().getDay())
   const [editorWindows, setEditorWindows] = React.useState<TimeWindow[]>([createDefaultWindow()])
   const [editorRules, setEditorRules] = React.useState<AvailabilityRule[]>([])
+  const [editorUnavailable, setEditorUnavailable] = React.useState(false)
+  const [editorNote, setEditorNote] = React.useState('')
   const [createRuleSetOpen, setCreateRuleSetOpen] = React.useState(false)
   const [isWeeklyAutoSaving, setIsWeeklyAutoSaving] = React.useState(false)
   const autoSaveTimerRef = React.useRef<number | null>(null)
@@ -229,7 +255,7 @@ export function AvailabilityRulesEditor({
   )
 
   const listLabels = React.useMemo(() => {
-    const modeBase = `${labelPrefix}.${mode}`
+    const modeBase = `${labelPrefix}.availability`
     return {
       title: t(`${labelPrefix}.availability.section.title`, 'Availability'),
       weeklyTitle: t(`${labelPrefix}.availability.weekly.title`, 'Weekly hours'),
@@ -262,12 +288,19 @@ export function AvailabilityRulesEditor({
       windowsLabel: t(`${labelPrefix}.availability.windows.label`, 'What hours are you available?'),
       addWindow: t(`${labelPrefix}.availability.windows.add`, 'Add window'),
       removeWindow: t(`${labelPrefix}.availability.windows.remove`, 'Remove'),
+      windowErrorRequired: t(`${labelPrefix}.availability.windows.errors.required`, 'Start and end times are required.'),
+      windowErrorRange: t(`${labelPrefix}.availability.windows.errors.range`, 'End time must be after start.'),
       noHours: t(`${labelPrefix}.availability.weekly.empty`, 'Unavailable'),
       saveWeekly: t(`${labelPrefix}.availability.weekly.save`, 'Save weekly hours'),
       saveWeeklySuccess: t(`${labelPrefix}.availability.weekly.saved`, 'Weekly hours saved.'),
       saveWeeklyError: t(`${labelPrefix}.availability.weekly.error`, 'Failed to save weekly hours.'),
       saveDateSuccess: t(`${labelPrefix}.availability.dateSpecific.saved`, 'Date-specific hours saved.'),
       saveDateError: t(`${labelPrefix}.availability.dateSpecific.error`, 'Failed to save date-specific hours.'),
+      unavailableLabel: t(`${labelPrefix}.availability.unavailable.label`, 'Unavailable on this day'),
+      unavailableHelp: t(`${labelPrefix}.availability.unavailable.help`, 'Blocks availability for the entire day.'),
+      unavailableTitle: t(`${labelPrefix}.availability.unavailable.title`, 'Unavailable'),
+      unavailableNoteLabel: t(`${labelPrefix}.availability.unavailable.note`, 'Note'),
+      unavailableNotePlaceholder: t(`${labelPrefix}.availability.unavailable.notePlaceholder`, 'Holiday'),
       scheduleError: t(`${labelPrefix}.schedule.error.load`, 'Failed to load schedule.'),
       scheduleLoading: t(`${labelPrefix}.schedule.loading`, 'Loading schedule...'),
       customizePrompt: t(`${labelPrefix}.availability.ruleset.customizePrompt`, 'This schedule is based on a shared ruleset. Customize it to make changes.'),
@@ -276,7 +309,7 @@ export function AvailabilityRulesEditor({
       editAllLabel: t(`${labelPrefix}.availability.scope.weekdayShort`, 'All {{weekday}}s', { weekday: DAY_LABELS[editorWeekday].fallback }),
       addDateLabel: t(`${labelPrefix}.availability.dateSpecific.addDate`, 'Add date'),
     }
-  }, [editorWeekday, labelPrefix, mode, t])
+  }, [editorWeekday, labelPrefix, t])
 
   const refreshAvailability = React.useCallback(async () => {
     if (!subjectId) return
@@ -344,6 +377,12 @@ export function AvailabilityRulesEditor({
   }, [refreshRuleSetRules])
 
   React.useEffect(() => {
+    if (viewMode !== 'calendar') return
+    void refreshAvailability()
+    void refreshRuleSetRules()
+  }, [refreshAvailability, refreshRuleSetRules, viewMode])
+
+  React.useEffect(() => {
     void refreshRuleSets()
   }, [refreshRuleSets])
 
@@ -403,6 +442,17 @@ export function AvailabilityRulesEditor({
   const [weeklyWindows, setWeeklyWindows] = React.useState<Map<number, TimeWindow[]>>(weeklyDraft)
   const weeklyDraftKey = React.useMemo(() => serializeWeeklyWindows(weeklyDraft), [weeklyDraft])
   const weeklyKey = React.useMemo(() => serializeWeeklyWindows(weeklyWindows), [weeklyWindows])
+  const weeklyWindowErrors = React.useMemo(() => {
+    const map = new Map<number, Array<string | null>>()
+    weeklyWindows.forEach((windows, day) => {
+      map.set(day, windows.map((window) => getWindowError(window, listLabels)))
+    })
+    return map
+  }, [listLabels, weeklyWindows])
+  const weeklyHasErrors = React.useMemo(
+    () => Array.from(weeklyWindowErrors.values()).some((errors) => errors.some(Boolean)),
+    [weeklyWindowErrors],
+  )
 
   React.useEffect(() => {
     setWeeklyWindows(weeklyDraft)
@@ -455,6 +505,7 @@ export function AvailabilityRulesEditor({
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
+    if (weeklyHasErrors) return
 
     const weeklyRules = activeRules.filter((rule) => {
       const repeat = parseAvailabilityRuleWindow(rule).repeat
@@ -481,6 +532,8 @@ export function AvailabilityRulesEditor({
             timezone,
             rrule,
             exdates: [],
+            kind: 'availability',
+            note: null,
           }, { errorMessage: listLabels.saveWeeklyError }))
         })
       })
@@ -510,12 +563,14 @@ export function AvailabilityRulesEditor({
     subjectType,
     timezone,
     usingRuleSet,
+    weeklyHasErrors,
     weeklyWindows,
     weeklyKey,
   ])
 
   React.useEffect(() => {
     if (usingRuleSet) return
+    if (weeklyHasErrors) return
     if (weeklyKey === lastSavedWeeklyKeyRef.current) return
     if (autoSaveTimerRef.current !== null) {
       window.clearTimeout(autoSaveTimerRef.current)
@@ -528,7 +583,7 @@ export function AvailabilityRulesEditor({
         window.clearTimeout(autoSaveTimerRef.current)
       }
     }
-  }, [saveWeeklyHours, usingRuleSet, viewMode, weeklyKey])
+  }, [saveWeeklyHours, usingRuleSet, viewMode, weeklyHasErrors, weeklyKey])
 
   const handleCustomize = React.useCallback(async () => {
     if (!rulesetId) return
@@ -539,6 +594,8 @@ export function AvailabilityRulesEditor({
         timezone: rule.timezone,
         rrule: rule.rrule,
         exdates: rule.exdates ?? [],
+        kind: rule.kind ?? 'availability',
+        note: rule.note ?? null,
       }))
       await Promise.all(creations)
       await refreshAvailability()
@@ -620,6 +677,8 @@ export function AvailabilityRulesEditor({
           timezone: rule.timezone || timezoneValue,
           rrule: rule.rrule,
           exdates: rule.exdates ?? [],
+          kind: rule.kind ?? 'availability',
+          note: rule.note ?? null,
         }, { errorMessage: listLabels.ruleSetCreateError })),
       )
     }
@@ -644,19 +703,25 @@ export function AvailabilityRulesEditor({
 
   const openEditor = React.useCallback((scope: 'date' | 'weekday', options?: { date?: Date; weekday?: number; rules?: AvailabilityRule[] }) => {
     setEditorScope(scope)
-    setEditorRules(options?.rules ?? [])
+    const rules = options?.rules ?? []
+    const unavailableRule = rules.find((rule) => rule.kind === 'unavailability')
+    setEditorRules(rules)
+    setEditorUnavailable(scope === 'date' && Boolean(unavailableRule))
+    setEditorNote(unavailableRule?.note ?? '')
     if (scope === 'date') {
       const date = options?.date ?? new Date()
-      const windows = buildWindowsFromRules(options?.rules ?? [])
+      const windows = buildWindowsFromRules(rules)
       setEditorDates([formatDateInput(date)])
       setEditorWeekday(date.getDay())
       setEditorWindows(windows.length ? windows : [createDefaultWindow()])
     } else {
       const weekday = options?.weekday ?? new Date().getDay()
-      const windows = buildWindowsFromRules(options?.rules ?? [])
+      const windows = buildWindowsFromRules(rules)
       setEditorWeekday(weekday)
       setEditorDates([])
       setEditorWindows(windows.length ? windows : [createDefaultWindow()])
+      setEditorUnavailable(false)
+      setEditorNote('')
     }
     setEditorOpen(true)
   }, [])
@@ -693,16 +758,17 @@ export function AvailabilityRulesEditor({
     setEditorDates((prev) => prev.filter((_, idx) => idx !== index))
   }, [])
 
+  const editorWindowErrors = React.useMemo(
+    () => (editorUnavailable ? [] : editorWindows.map((window) => getWindowError(window, listLabels))),
+    [editorUnavailable, editorWindows, listLabels],
+  )
+
   const handleEditorSubmit = React.useCallback(async () => {
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
-
-    const validWindows = editorWindows.filter((window) => {
-      const start = parseTimeInput(window.start)
-      const end = parseTimeInput(window.end)
-      return start && end && (start.hours < end.hours || (start.hours === end.hours && start.minutes < end.minutes))
-    })
+    if (!editorUnavailable && editorWindowErrors.some(Boolean)) return
+    const validWindows = editorWindows
 
     try {
       await Promise.all(editorRules.map((rule) => deleteCrud('booking/availability', rule.id, { errorMessage: listLabels.saveDateError })))
@@ -720,25 +786,46 @@ export function AvailabilityRulesEditor({
             timezone,
             rrule,
             exdates: [],
+            kind: 'availability',
+            note: null,
           }, { errorMessage: listLabels.saveDateError }))
         })
       } else {
         const dates = editorDates.filter((value) => value && value.length)
-        dates.forEach((date) => {
-          validWindows.forEach((window) => {
-            const start = toDateForDay(date, window.start)
-            const end = toDateForDay(date, window.end)
-            if (!start || !end) return
-            const rrule = buildAvailabilityRrule(start, end, 'once')
+        if (editorUnavailable) {
+          const trimmedNote = editorNote.trim()
+          dates.forEach((date) => {
+            const rrule = buildFullDayRrule(date)
+            if (!rrule) return
             creations.push(createCrud('booking/availability', {
               subjectType: subjectForRules,
               subjectId: subjectIdForRules,
               timezone,
               rrule,
               exdates: [],
+              kind: 'unavailability',
+              note: trimmedNote.length ? trimmedNote : null,
             }, { errorMessage: listLabels.saveDateError }))
           })
-        })
+        } else {
+          dates.forEach((date) => {
+            validWindows.forEach((window) => {
+              const start = toDateForDay(date, window.start)
+              const end = toDateForDay(date, window.end)
+              if (!start || !end) return
+              const rrule = buildAvailabilityRrule(start, end, 'once')
+              creations.push(createCrud('booking/availability', {
+                subjectType: subjectForRules,
+                subjectId: subjectIdForRules,
+                timezone,
+                rrule,
+                exdates: [],
+                kind: 'availability',
+                note: null,
+              }, { errorMessage: listLabels.saveDateError }))
+            })
+          })
+        }
       }
       await Promise.all(creations)
       flash(listLabels.saveDateSuccess, 'success')
@@ -754,7 +841,10 @@ export function AvailabilityRulesEditor({
     editorDates,
     editorRules,
     editorScope,
+    editorUnavailable,
+    editorNote,
     editorWeekday,
+    editorWindowErrors,
     editorWindows,
     listLabels.saveDateError,
     listLabels.saveDateSuccess,
@@ -938,35 +1028,44 @@ export function AvailabilityRulesEditor({
                           {windows.length === 0 ? (
                             <p className="text-sm text-muted-foreground">{listLabels.noHours}</p>
                           ) : (
-                            windows.map((window, windowIndex) => (
-                              <div key={`${day.code}-${windowIndex}`} className="flex flex-wrap items-center gap-2">
-                                <Input
-                                  type="time"
-                                  value={window.start}
-                                  onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, start: event.target.value })}
-                                  className="h-9 w-[120px]"
-                                  disabled={usingRuleSet}
-                                />
-                                <span className="text-sm text-muted-foreground">-</span>
-                                <Input
-                                  type="time"
-                                  value={window.end}
-                                  onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, end: event.target.value })}
-                                  className="h-9 w-[120px]"
-                                  disabled={usingRuleSet}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => handleWeeklyWindowRemove(index, windowIndex)}
-                                  disabled={usingRuleSet}
-                                  aria-label={listLabels.removeWindow}
-                                >
-                                  <Trash2 className="size-4" aria-hidden />
-                                </Button>
-                              </div>
-                            ))
+                            windows.map((window, windowIndex) => {
+                              const windowError = weeklyWindowErrors.get(index)?.[windowIndex] ?? null
+                              const errorClass = windowError ? 'border-red-500 focus-visible:ring-red-400' : ''
+                              return (
+                                <div key={`${day.code}-${windowIndex}`} className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Input
+                                      type="time"
+                                      value={window.start}
+                                      onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, start: event.target.value })}
+                                      className={`h-9 w-[120px] ${errorClass}`}
+                                      disabled={usingRuleSet}
+                                    />
+                                    <span className="text-sm text-muted-foreground">-</span>
+                                    <Input
+                                      type="time"
+                                      value={window.end}
+                                      onChange={(event) => handleWeeklyWindowChange(index, windowIndex, { ...window, end: event.target.value })}
+                                      className={`h-9 w-[120px] ${errorClass}`}
+                                      disabled={usingRuleSet}
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => handleWeeklyWindowRemove(index, windowIndex)}
+                                      disabled={usingRuleSet}
+                                      aria-label={listLabels.removeWindow}
+                                    >
+                                      <Trash2 className="size-4" aria-hidden />
+                                    </Button>
+                                  </div>
+                                  {windowError ? (
+                                    <div className="text-xs text-red-600">{windowError}</div>
+                                  ) : null}
+                                </div>
+                              )
+                            })
                           )}
                           <Button type="button" variant="outline" size="sm" onClick={() => handleWeeklyWindowAdd(index)} disabled={usingRuleSet}>
                             <Plus className="size-4 mr-2" aria-hidden />
@@ -990,45 +1089,79 @@ export function AvailabilityRulesEditor({
                   </Button>
                 </div>
                 <div className="mt-4 space-y-3">
-                  {Array.from(dateGroups.entries()).map(([date, rules]) => (
-                    <div key={date} className="rounded-lg border bg-background p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold">{date}</div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => openEditor('date', { date: new Date(`${date}T00:00:00`), rules })}
-                            disabled={usingRuleSet}
+                  {Array.from(dateGroups.entries()).map(([date, rules]) => {
+                    const weekdayIndex = getWeekdayIndex(date)
+                    const weekdayLabel = weekdayIndex === null ? null : DAY_LABELS[weekdayIndex]
+                    const weekdayText = weekdayLabel ? t(weekdayLabel.nameKey, weekdayLabel.fallback) : date
+                    const weekdayShort = weekdayLabel ? weekdayLabel.short : '?'
+                    const unavailableRule = rules.find((rule) => rule.kind === 'unavailability')
+                    return (
+                      <div key={date} className="flex flex-wrap items-start gap-3 rounded-lg border bg-background p-3">
+                        <div className="flex w-10 justify-center pt-1">
+                          <span
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold"
+                            aria-label={weekdayText}
+                            title={weekdayText}
                           >
-                            {listLabels.editTitle}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={async () => {
-                              await Promise.all(rules.map((rule) => deleteCrud('booking/availability', rule.id)))
-                              await refreshAvailability()
-                              await refreshRuleSetRules()
-                            }}
-                            disabled={usingRuleSet}
-                            aria-label={listLabels.removeWindow}
-                          >
-                            <Trash2 className="size-4" aria-hidden />
-                          </Button>
+                            {weekdayShort}
+                          </span>
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2 text-sm font-semibold">
+                                <Calendar className="size-4 text-muted-foreground" aria-hidden />
+                                <span>{date}</span>
+                              </div>
+                              <div className="text-xs text-muted-foreground">{weekdayText}</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditor('date', { date: new Date(`${date}T00:00:00`), rules })}
+                                disabled={usingRuleSet}
+                              >
+                                <PencilLine className="size-4 mr-2" aria-hidden />
+                                {listLabels.editTitle}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={async () => {
+                                  await Promise.all(rules.map((rule) => deleteCrud('booking/availability', rule.id)))
+                                  await refreshAvailability()
+                                  await refreshRuleSetRules()
+                                }}
+                                disabled={usingRuleSet}
+                                aria-label={listLabels.removeWindow}
+                              >
+                                <Trash2 className="size-4" aria-hidden />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="space-y-1 text-sm text-muted-foreground">
+                            {unavailableRule ? (
+                              <div className="space-y-1">
+                                <div className="font-medium text-foreground">{listLabels.unavailableTitle}</div>
+                                {unavailableRule.note ? (
+                                  <div className="text-xs text-muted-foreground">{unavailableRule.note}</div>
+                                ) : null}
+                              </div>
+                            ) : (
+                              buildWindowsFromRules(rules).map((window, index) => (
+                                <div key={`${date}-${index}`}>
+                                  {window.start} - {window.end}
+                                </div>
+                              ))
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                        {buildWindowsFromRules(rules).map((window, index) => (
-                          <div key={`${date}-${index}`}>
-                            {window.start} - {window.end}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </section>
             </div>
@@ -1042,6 +1175,8 @@ export function AvailabilityRulesEditor({
           if (!open) {
             setEditorOpen(false)
             setEditorRules([])
+            setEditorUnavailable(false)
+            setEditorNote('')
           }
         }}
       >
@@ -1067,112 +1202,148 @@ export function AvailabilityRulesEditor({
                 label: listLabels.applyScopeLabel,
                 type: 'custom',
                 component: () => (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={editorScope === 'date'}
-                          onClick={() => setEditorScope('date')}
-                          className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                            editorScope === 'date'
-                              ? 'bg-background text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {listLabels.applyScopeDate}
-                        </button>
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={editorScope === 'weekday'}
-                          onClick={() => setEditorScope('weekday')}
-                          className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                            editorScope === 'weekday'
-                              ? 'bg-background text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground'
-                          }`}
-                        >
-                          {listLabels.editAllLabel}
-                        </button>
-                      </div>
-                    </div>
-
-                    {editorScope === 'date' ? (
+                  <div className="rounded-lg border bg-muted/30 p-4">
+                    <div className="space-y-4">
                       <div className="space-y-2">
-                        {editorDates.map((value, index) => (
-                          <div key={`${value}-${index}`} className="flex items-center gap-2">
-                            <Input
-                              type="date"
-                              value={value}
-                              onChange={(event) => handleEditorDateChange(index, event.target.value)}
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              onClick={() => handleEditorDateRemove(index)}
-                              aria-label={listLabels.removeWindow}
-                            >
-                              <Trash2 className="size-4" aria-hidden />
-                            </Button>
-                          </div>
-                        ))}
-                        <Button type="button" variant="outline" size="sm" onClick={handleEditorDateAdd}>
-                          <Plus className="size-4 mr-2" aria-hidden />
-                          {listLabels.addDateLabel}
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <label className="text-xs text-muted-foreground">{listLabels.applyScopeWeekday}</label>
-                        <select
-                          className="h-9 rounded border bg-background px-2 text-sm"
-                          value={String(editorWeekday)}
-                          onChange={(event) => setEditorWeekday(Number(event.target.value))}
-                        >
-                          {DAY_LABELS.map((day, index) => (
-                            <option key={day.code} value={index}>
-                              {t(day.nameKey, day.fallback)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-muted-foreground">{listLabels.windowsLabel}</label>
-                      {editorWindows.map((window, index) => (
-                        <div key={`${index}-${window.start}`} className="flex flex-wrap items-center gap-2">
-                          <Input
-                            type="time"
-                            value={window.start}
-                            onChange={(event) => handleEditorWindowChange(index, { ...window, start: event.target.value })}
-                            className="h-9 w-[120px]"
-                          />
-                          <span className="text-sm text-muted-foreground">-</span>
-                          <Input
-                            type="time"
-                            value={window.end}
-                            onChange={(event) => handleEditorWindowChange(index, { ...window, end: event.target.value })}
-                            className="h-9 w-[120px]"
-                          />
-                          <Button
+                        <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
+                          <button
                             type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handleEditorWindowRemove(index)}
-                            aria-label={listLabels.removeWindow}
+                            role="tab"
+                            aria-selected={editorScope === 'date'}
+                            onClick={() => setEditorScope('date')}
+                            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                              editorScope === 'date'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
                           >
-                            <Trash2 className="size-4" aria-hidden />
+                            {listLabels.applyScopeDate}
+                          </button>
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={editorScope === 'weekday'}
+                            onClick={() => setEditorScope('weekday')}
+                            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                              editorScope === 'weekday'
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            {listLabels.editAllLabel}
+                          </button>
+                        </div>
+                      </div>
+
+                      {editorScope === 'date' ? (
+                        <div className="space-y-2">
+                          {editorDates.map((value, index) => (
+                            <div key={`${value}-${index}`} className="flex items-center gap-2">
+                              <Input
+                                type="date"
+                                value={value}
+                                onChange={(event) => handleEditorDateChange(index, event.target.value)}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => handleEditorDateRemove(index)}
+                                aria-label={listLabels.removeWindow}
+                              >
+                                <Trash2 className="size-4" aria-hidden />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button type="button" variant="outline" size="sm" onClick={handleEditorDateAdd}>
+                            <Plus className="size-4 mr-2" aria-hidden />
+                            {listLabels.addDateLabel}
+                          </Button>
+                          <div className="flex items-start gap-2 pt-2 text-sm">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 size-4"
+                              checked={editorUnavailable}
+                              onChange={(event) => setEditorUnavailable(event.target.checked)}
+                            />
+                            <div>
+                              <div className="font-medium text-foreground">{listLabels.unavailableLabel}</div>
+                              <div className="text-xs text-muted-foreground">{listLabels.unavailableHelp}</div>
+                            </div>
+                          </div>
+                          {editorUnavailable ? (
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-muted-foreground">{listLabels.unavailableNoteLabel}</label>
+                              <Input
+                                type="text"
+                                value={editorNote}
+                                placeholder={listLabels.unavailableNotePlaceholder}
+                                onChange={(event) => setEditorNote(event.target.value)}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <label className="text-xs text-muted-foreground">{listLabels.applyScopeWeekday}</label>
+                          <select
+                            className="h-9 rounded border bg-background px-2 text-sm"
+                            value={String(editorWeekday)}
+                            onChange={(event) => setEditorWeekday(Number(event.target.value))}
+                          >
+                            {DAY_LABELS.map((day, index) => (
+                              <option key={day.code} value={index}>
+                                {t(day.nameKey, day.fallback)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {editorUnavailable && editorScope === 'date' ? null : (
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground">{listLabels.windowsLabel}</label>
+                          {editorWindows.map((window, index) => {
+                            const windowError = editorWindowErrors[index] ?? null
+                            const errorClass = windowError ? 'border-red-500 focus-visible:ring-red-400' : ''
+                            return (
+                              <div key={`${index}-${window.start}`} className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Input
+                                    type="time"
+                                    value={window.start}
+                                    onChange={(event) => handleEditorWindowChange(index, { ...window, start: event.target.value })}
+                                    className={`h-9 w-[120px] ${errorClass}`}
+                                  />
+                                  <span className="text-sm text-muted-foreground">-</span>
+                                  <Input
+                                    type="time"
+                                    value={window.end}
+                                    onChange={(event) => handleEditorWindowChange(index, { ...window, end: event.target.value })}
+                                    className={`h-9 w-[120px] ${errorClass}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => handleEditorWindowRemove(index)}
+                                    aria-label={listLabels.removeWindow}
+                                  >
+                                    <Trash2 className="size-4" aria-hidden />
+                                  </Button>
+                                </div>
+                                {windowError ? (
+                                  <div className="text-xs text-red-600">{windowError}</div>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                          <Button type="button" variant="outline" size="sm" onClick={handleEditorWindowAdd}>
+                            <Plus className="size-4 mr-2" aria-hidden />
+                            {listLabels.addWindow}
                           </Button>
                         </div>
-                      ))}
-                      <Button type="button" variant="outline" size="sm" onClick={handleEditorWindowAdd}>
-                        <Plus className="size-4 mr-2" aria-hidden />
-                        {listLabels.addWindow}
-                      </Button>
+                      )}
                     </div>
                   </div>
                 ),

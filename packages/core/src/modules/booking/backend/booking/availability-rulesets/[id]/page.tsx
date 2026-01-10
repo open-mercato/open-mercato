@@ -108,16 +108,23 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
   const buildScheduleItems = React.useCallback(({ availabilityRules, bookedEvents, translate }) => {
     const availabilityItems = availabilityRules.map((rule) => {
       const window = parseAvailabilityRuleWindow(rule)
-      const titleKey = `booking.availabilityRuleSets.availability.title.${window.repeat}`
-      const fallback = window.repeat === 'weekly'
-        ? 'Weekly availability'
-        : window.repeat === 'daily'
-          ? 'Daily availability'
-          : 'Availability'
+      const isUnavailable = rule.kind === 'unavailability'
+      const titleKey = isUnavailable
+        ? 'booking.availabilityRuleSets.availability.title.unavailable'
+        : `booking.availabilityRuleSets.availability.title.${window.repeat}`
+      const fallback = isUnavailable
+        ? 'Unavailable'
+        : window.repeat === 'weekly'
+          ? 'Weekly availability'
+          : window.repeat === 'daily'
+            ? 'Daily availability'
+            : 'Availability'
+      const baseTitle = translate(titleKey, fallback)
+      const title = rule.note ? `${baseTitle}: ${rule.note}` : baseTitle
       return {
         id: rule.id,
-        kind: 'availability' as const,
-        title: translate(titleKey, fallback),
+        kind: isUnavailable ? 'exception' as const : 'availability' as const,
+        title,
         startsAt: window.startAt,
         endsAt: window.endAt,
         metadata: { rule },

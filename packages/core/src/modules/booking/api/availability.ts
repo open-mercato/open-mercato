@@ -59,6 +59,8 @@ const crud = makeCrudRoute({
       F.timezone,
       F.rrule,
       F.exdates,
+      F.kind,
+      F.note,
       F.created_at,
       F.updated_at,
     ],

@@ -13,6 +13,8 @@ export type ResourceAvailabilityRule = {
   id: string
   rrule: string
   createdAt?: string | null
+  kind?: 'availability' | 'unavailability'
+  note?: string | null
 }
 
 export type ResourceBookedEvent = {
@@ -83,10 +85,9 @@ export function parseAvailabilityRuleWindow(rule: ResourceAvailabilityRule): Ava
 
 export function buildAvailabilityTitle(
   repeat: AvailabilityRepeat,
-  isAvailableByDefault: boolean,
+  mode: 'availability' | 'unavailability',
   translate: (key: string, fallback?: string) => string,
 ): string {
-  const mode = isAvailableByDefault ? 'unavailability' : 'availability'
   if (repeat === 'weekly') {
     return translate(
       `booking.resources.${mode}.title.weekly`,
@@ -111,14 +112,18 @@ export function buildResourceScheduleItems(params: {
   isAvailableByDefault: boolean
   translate: (key: string, fallback?: string) => string
 }): ScheduleItem[] {
-  const availabilityKind: ScheduleItem['kind'] = params.isAvailableByDefault ? 'exception' : 'availability'
   const availabilityLinkLabel = params.translate('booking.resources.schedule.actions.details', 'Details')
   const availabilityItems = params.availabilityRules.map((rule) => {
     const window = parseAvailabilityRuleWindow(rule)
+    const isUnavailable = rule.kind === 'unavailability'
+    const mode = isUnavailable ? 'unavailability' : (params.isAvailableByDefault ? 'unavailability' : 'availability')
+    const availabilityKind: ScheduleItem['kind'] = isUnavailable ? 'exception' : (params.isAvailableByDefault ? 'exception' : 'availability')
+    const baseTitle = buildAvailabilityTitle(window.repeat, mode, params.translate)
+    const title = rule.note ? `${baseTitle}: ${rule.note}` : baseTitle
     return {
       id: rule.id,
       kind: availabilityKind,
-      title: buildAvailabilityTitle(window.repeat, params.isAvailableByDefault, params.translate),
+      title,
       linkLabel: availabilityLinkLabel,
       startsAt: window.startAt,
       endsAt: window.endAt,

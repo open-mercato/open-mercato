@@ -76,7 +76,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const flashShownRef = React.useRef(false)
 
-  const availabilityMode = 'unavailability'
+  const availabilityMode = 'availability'
 
   React.useEffect(() => {
     if (!searchParams) return
@@ -116,7 +116,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     ({ availabilityRules, bookedEvents, translate }) => buildResourceScheduleItems({
       availabilityRules,
       bookedEvents,
-      isAvailableByDefault: true,
+      isAvailableByDefault: false,
       translate,
     }),
     [],

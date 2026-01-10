@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '../../primitives/badge'
 import { Button } from '../../primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { expandRecurringItems } from './recurrence'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -73,11 +74,12 @@ export type ScheduleAgendaProps = {
 export function ScheduleAgenda({ items, range, timezone, onItemClick, onSlotClick, className }: ScheduleAgendaProps) {
   const t = useT()
   const days = React.useMemo(() => eachDay(range.start, range.end), [range])
+  const expandedItems = React.useMemo(() => expandRecurringItems(items, range), [items, range])
 
   return (
     <div className={cn('space-y-4', className)}>
       {days.map((day) => {
-        const dayItems = items.filter((item) => overlapsDay(item, day))
+        const dayItems = expandedItems.filter((item) => overlapsDay(item, day))
         const slotStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0)
         const slotEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 10, 0, 0)
         return (

@@ -202,6 +202,7 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     fields: [
       { field: 'rrule' },
       { field: 'exdates' },
+      { field: 'note' },
     ],
   },
   {

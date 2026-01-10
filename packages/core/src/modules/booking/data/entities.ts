@@ -5,6 +5,7 @@ export type BookingEventStatus = 'draft' | 'negotiation' | 'confirmed' | 'cancel
 export type BookingConfirmationMode = 'all_members' | 'any_member' | 'by_role'
 export type BookingConfirmationStatus = 'pending' | 'accepted' | 'declined'
 export type BookingAvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
+export type BookingAvailabilityKind = 'availability' | 'unavailability'
 
 export type BookingRoleRequirement = { roleId: string; qty: number }
 export type BookingMemberRequirement = { memberId: string; qty?: number }
@@ -357,6 +358,12 @@ export class BookingAvailabilityRule {
 
   @Property({ type: 'jsonb', default: [] })
   exdates: string[] = []
+
+  @Enum({ items: ['availability', 'unavailability'], type: 'text', name: 'kind' })
+  kind: BookingAvailabilityKind = 'availability'
+
+  @Property({ type: 'text', nullable: true })
+  note?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

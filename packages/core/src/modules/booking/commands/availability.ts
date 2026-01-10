@@ -28,6 +28,8 @@ const createAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleCreat
       timezone: parsed.timezone,
       rrule: parsed.rrule,
       exdates: parsed.exdates ?? [],
+      kind: parsed.kind ?? 'availability',
+      note: parsed.note ?? null,
       createdAt: now,
       updatedAt: now,
     })
@@ -52,6 +54,8 @@ const updateAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleUpdat
     if (parsed.timezone !== undefined) record.timezone = parsed.timezone
     if (parsed.rrule !== undefined) record.rrule = parsed.rrule
     if (parsed.exdates !== undefined) record.exdates = parsed.exdates
+    if (parsed.kind !== undefined) record.kind = parsed.kind
+    if (parsed.note !== undefined) record.note = parsed.note ?? null
 
     await em.flush()
     return { ruleId: record.id }

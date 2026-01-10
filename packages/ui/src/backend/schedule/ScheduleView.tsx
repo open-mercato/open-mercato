@@ -6,6 +6,7 @@ import { addDays, differenceInCalendarDays, endOfDay, endOfMonth, endOfWeek, for
 import enUS from 'date-fns/locale/en-US'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from './types'
 import { ScheduleToolbar } from './ScheduleToolbar'
+import { expandRecurringItems } from './recurrence'
 
 type CalendarEvent = {
   id: string
@@ -101,15 +102,16 @@ export function ScheduleView({
     [range.end, range.start],
   )
   const currentView = VIEW_MAP[view]
+  const expandedItems = React.useMemo(() => expandRecurringItems(items, range), [items, range])
   const events = React.useMemo<CalendarEvent[]>(
-    () => items.map((item) => ({
+    () => expandedItems.map((item) => ({
       id: item.id,
       title: item.title,
       start: item.startsAt,
       end: item.endsAt,
       resource: item,
     })),
-    [items],
+    [expandedItems],
   )
 
   const handleNavigate = React.useCallback((date: Date, nextView?: View) => {

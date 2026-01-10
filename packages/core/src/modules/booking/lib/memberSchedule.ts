@@ -20,6 +20,8 @@ export function buildMemberScheduleItems(params: {
     id: string
     rrule: string
     createdAt?: string | null
+    kind?: 'availability' | 'unavailability'
+    note?: string | null
   }>
   bookedEvents: Array<{
     id: string
@@ -32,12 +34,17 @@ export function buildMemberScheduleItems(params: {
 }): ScheduleItem[] {
   const availabilityItems = params.availabilityRules.map((rule) => {
     const window = parseAvailabilityRuleWindow(rule)
-    const titleKey = `booking.teamMembers.availability.title.${window.repeat}`
-    const fallback = DEFAULT_TITLE_MAP[window.repeat]
+    const isUnavailable = rule.kind === 'unavailability'
+    const titleKey = isUnavailable
+      ? 'booking.teamMembers.availability.unavailable.title'
+      : `booking.teamMembers.availability.title.${window.repeat}`
+    const fallback = isUnavailable ? 'Unavailable' : DEFAULT_TITLE_MAP[window.repeat]
+    const baseTitle = params.translate(titleKey, fallback)
+    const title = rule.note ? `${baseTitle}: ${rule.note}` : baseTitle
     return {
       id: rule.id,
-      kind: 'availability' as const,
-      title: params.translate(titleKey, fallback),
+      kind: isUnavailable ? 'exception' as const : 'availability' as const,
+      title,
       startsAt: window.startAt,
       endsAt: window.endAt,
       metadata: { rule },
