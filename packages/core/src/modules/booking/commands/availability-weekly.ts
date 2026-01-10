@@ -7,6 +7,7 @@ import {
   bookingAvailabilityWeeklyReplaceSchema,
   type BookingAvailabilityWeeklyReplaceInput,
 } from '../data/validators'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 
 const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
@@ -102,6 +103,14 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<BookingAvailabilityWeekly
 
       await trx.flush()
     })
+
+    await invalidateCrudCache(
+      ctx.container,
+      'booking.availability',
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      parsed.tenantId,
+      'weekly_replace',
+    )
 
     return { ok: true }
   },

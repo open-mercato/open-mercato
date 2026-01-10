@@ -396,7 +396,7 @@ export function AvailabilityRulesEditor({
       cancelLabel: t('ui.forms.actions.cancel', 'Cancel'),
       applyScopeLabel: t(`${labelPrefix}.availability.scope.label`, 'Apply to'),
       applyScopeDate: t(`${labelPrefix}.availability.scope.date`, 'This date'),
-      applyScopeWeekday: t(`${labelPrefix}.availability.scope.weekday`, 'All {{weekday}}s', { weekday: DAY_LABELS[editorWeekday].fallback }),
+      applyScopeWeekday: t(`${labelPrefix}.availability.scope.weekday`, 'Weekday:'),
       windowsLabel: t(`${labelPrefix}.availability.windows.label`, 'What hours are you available?'),
       addWindow: t(`${labelPrefix}.availability.windows.add`, 'Add window'),
       removeWindow: t(`${labelPrefix}.availability.windows.remove`, 'Remove'),
@@ -1513,7 +1513,7 @@ export function AvailabilityRulesEditor({
                         <div className="space-y-2">
                           <label className="text-xs text-muted-foreground">{listLabels.applyScopeWeekday}</label>
                           <select
-                            className="h-9 rounded border bg-background px-2 text-sm"
+                            className="h-9 rounded border bg-background pl-2 pr-8 text-sm"
                             value={String(editorWeekday)}
                             onChange={(event) => setEditorWeekday(Number(event.target.value))}
                           >
