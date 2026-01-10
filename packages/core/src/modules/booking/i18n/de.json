@@ -463,5 +463,8 @@
   "booking.availabilityRuleSets.availability.ruleset.customizePrompt": "Dieser Zeitplan basiert auf einem gemeinsamen Regelwerk. Passe ihn an, um Änderungen vorzunehmen.",
   "booking.availabilityRuleSets.availability.view.calendar": "Kalender",
   "booking.availabilityRuleSets.availability.view.list": "Liste",
-  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Datum hinzufügen"
+  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Datum hinzufügen",
+  "booking.availability.errors.unauthorized": "Nicht autorisiert",
+  "booking.availability.errors.organizationRequired": "Organisationskontext ist erforderlich.",
+  "booking.availability.errors.updateWeekly": "Wöchentliche Verfügbarkeit konnte nicht gespeichert werden."
 }

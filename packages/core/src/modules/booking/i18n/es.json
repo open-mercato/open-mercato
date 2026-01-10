@@ -474,5 +474,8 @@
   "booking.availabilityRuleSets.availability.ruleset.customizePrompt": "Este horario se basa en un conjunto de reglas compartido. Personalízalo para hacer cambios.",
   "booking.availabilityRuleSets.availability.view.calendar": "Calendario",
   "booking.availabilityRuleSets.availability.view.list": "Lista",
-  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Agregar fecha"
+  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Agregar fecha",
+  "booking.availability.errors.unauthorized": "No autorizado",
+  "booking.availability.errors.organizationRequired": "Se requiere el contexto de la organización.",
+  "booking.availability.errors.updateWeekly": "No se pudo guardar la disponibilidad semanal."
 }

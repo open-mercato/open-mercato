@@ -51,6 +51,7 @@ const crud = makeCrudRoute({
       'created_at',
       'updated_at',
     ],
+    decorateCustomFields: { entityIds: [E.booking.booking_availability_rule_set] },
     sortFieldMap: {
       name: 'name',
       createdAt: 'created_at',

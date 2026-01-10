@@ -474,5 +474,8 @@
   "booking.availabilityRuleSets.availability.ruleset.customizePrompt": "This schedule is based on a shared ruleset. Customize it to make changes.",
   "booking.availabilityRuleSets.availability.view.calendar": "Calendar",
   "booking.availabilityRuleSets.availability.view.list": "List",
-  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Add date"
+  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Add date",
+  "booking.availability.errors.unauthorized": "Unauthorized",
+  "booking.availability.errors.organizationRequired": "Organization context is required.",
+  "booking.availability.errors.updateWeekly": "Failed to save weekly availability."
 }

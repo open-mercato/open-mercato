@@ -236,6 +236,22 @@ export const bookingAvailabilityRuleUpdateSchema = z.object({
   note: z.string().trim().max(200).optional().nullable(),
 })
 
+const weeklyWindowSchema = z.object({
+  weekday: z.number().int().min(0).max(6),
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end: z.string().regex(/^\d{2}:\d{2}$/),
+})
+
+export const bookingAvailabilityWeeklyReplaceSchema = z.object({
+  ...scopedCreateFields,
+  subjectType: availabilitySubjectSchema,
+  subjectId: z.string().uuid(),
+  timezone: z.string().min(1),
+  windows: z.array(weeklyWindowSchema).default([]),
+})
+
+export type BookingAvailabilityWeeklyReplaceInput = z.infer<typeof bookingAvailabilityWeeklyReplaceSchema>
+
 export const bookingAvailabilityRuleSetCreateSchema = z.object({
   ...scopedCreateFields,
   name: z.string().min(1),

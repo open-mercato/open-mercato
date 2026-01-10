@@ -7,7 +7,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -259,7 +259,7 @@ export function AvailabilityRulesEditor({
     return { start, end }
   })
   const [timezone, setTimezone] = React.useState<string>(
-    () => initialTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    () => initialTimezone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
   )
   const [timezoneDirty, setTimezoneDirty] = React.useState(false)
   const [editorOpen, setEditorOpen] = React.useState(false)
@@ -574,37 +574,28 @@ export function AvailabilityRulesEditor({
     if (!subjectIdForRules) return
     if (weeklyHasErrors) return
 
-    const weeklyRules = activeRules.filter((rule) => {
-      const repeat = parseAvailabilityRuleWindow(rule).repeat
-      return repeat === 'weekly' || repeat === 'daily'
-    })
-
     const shouldSkipRefresh = Boolean(options?.skipRefresh)
     setIsWeeklyAutoSaving(options?.silentSuccess === true)
     try {
-      await Promise.all(
-        weeklyRules.map((rule) => deleteCrud('booking/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
-      )
-
-      const creations: Array<Promise<unknown>> = []
+      const windows: Array<{ weekday: number; start: string; end: string }> = []
       weeklyWindows.forEach((windows, day) => {
         windows.forEach((window) => {
           const start = toDateForWeekday(day, window.start)
           const end = toDateForWeekday(day, window.end)
           if (!start || !end || start >= end) return
-          const rrule = buildAvailabilityRrule(start, end, 'weekly')
-          creations.push(createCrud('booking/availability', {
-            subjectType: subjectForRules,
-            subjectId: subjectIdForRules,
-            timezone,
-            rrule,
-            exdates: [],
-            kind: 'availability',
-            note: null,
-          }, { errorMessage: listLabels.saveWeeklyError }))
+          windows.push({ weekday: day, start: window.start, end: window.end })
         })
       })
-      await Promise.all(creations)
+      await apiCallOrThrow('/api/booking/availability-weekly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subjectType: subjectForRules,
+          subjectId: subjectIdForRules,
+          timezone,
+          windows,
+        }),
+      }, { errorMessage: listLabels.saveWeeklyError })
       lastSavedWeeklyKeyRef.current = weeklyKey
       if (!options?.silentSuccess) {
         flash(listLabels.saveWeeklySuccess, 'success')

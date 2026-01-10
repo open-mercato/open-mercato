@@ -463,5 +463,8 @@
   "booking.availabilityRuleSets.availability.ruleset.customizePrompt": "Ten harmonogram jest oparty na wspólnym zestawie reguł. Dostosuj go, aby wprowadzić zmiany.",
   "booking.availabilityRuleSets.availability.view.calendar": "Kalendarz",
   "booking.availabilityRuleSets.availability.view.list": "Lista",
-  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Dodaj datę"
+  "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Dodaj datę",
+  "booking.availability.errors.unauthorized": "Brak autoryzacji",
+  "booking.availability.errors.organizationRequired": "Wymagany jest kontekst organizacji.",
+  "booking.availability.errors.updateWeekly": "Nie udało się zapisać tygodniowej dostępności."
 }

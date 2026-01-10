@@ -3,6 +3,8 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { BookingAvailabilityRuleSet, BookingResource, BookingTeamMember } from '../data/entities'
 import {
   bookingAvailabilityRuleSetCreateSchema,
@@ -11,11 +13,12 @@ import {
   type BookingAvailabilityRuleSetUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
+import { E } from '@/generated/entities.ids.generated'
 
 const createAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSetCreateInput, { ruleSetId: string }> = {
   id: 'booking.availability-rule-sets.create',
   async execute(input, ctx) {
-    const parsed = bookingAvailabilityRuleSetCreateSchema.parse(input)
+    const { parsed, custom } = parseWithCustomFields(bookingAvailabilityRuleSetCreateSchema, input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -33,6 +36,15 @@ const createAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
     })
     em.persist(record)
     await em.flush()
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.booking.booking_availability_rule_set,
+      recordId: record.id,
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+      values: custom,
+    })
     return { ruleSetId: record.id }
   },
 }
@@ -40,7 +52,7 @@ const createAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
 const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSetUpdateInput, { ruleSetId: string }> = {
   id: 'booking.availability-rule-sets.update',
   async execute(input, ctx) {
-    const parsed = bookingAvailabilityRuleSetUpdateSchema.parse(input)
+    const { parsed, custom } = parseWithCustomFields(bookingAvailabilityRuleSetUpdateSchema, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(BookingAvailabilityRuleSet, { id: parsed.id, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Booking availability rule set not found.' })
@@ -52,6 +64,15 @@ const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
     if (parsed.timezone !== undefined) record.timezone = parsed.timezone
     record.updatedAt = new Date()
     await em.flush()
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.booking.booking_availability_rule_set,
+      recordId: record.id,
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+      values: custom,
+    })
     return { ruleSetId: record.id }
   },
 }
