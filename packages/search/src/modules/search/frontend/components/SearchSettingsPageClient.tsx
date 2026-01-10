@@ -670,66 +670,81 @@ export function SearchSettingsPageClient() {
               <Spinner size="sm" />
               <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
             </div>
-          ) : settings?.meilisearchStats ? (
+          ) : (
             <div className="space-y-4">
-              {/* Stats */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-md border border-border p-4">
-                  <p className="text-sm text-muted-foreground">{t('search.settings.documentsLabel', 'Documents')}</p>
-                  <p className="text-2xl font-bold">{settings.meilisearchStats.numberOfDocuments.toLocaleString()}</p>
+              {/* Stats - only show if index exists */}
+              {settings?.meilisearchStats ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-md border border-border p-4">
+                    <p className="text-sm text-muted-foreground">{t('search.settings.documentsLabel', 'Documents')}</p>
+                    <p className="text-2xl font-bold">{settings.meilisearchStats.numberOfDocuments.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-md border border-border p-4">
+                    <p className="text-sm text-muted-foreground">{t('search.settings.indexingLabel', 'Indexing')}</p>
+                    <p className={`text-lg font-medium ${
+                      settings.meilisearchStats.isIndexing
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}>
+                      {settings.meilisearchStats.isIndexing ? t('search.settings.indexingInProgressLabel', 'In Progress') : t('search.settings.indexingIdleLabel', 'Idle')}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-md border border-border p-4">
-                  <p className="text-sm text-muted-foreground">{t('search.settings.indexingLabel', 'Indexing')}</p>
-                  <p className={`text-lg font-medium ${
-                    settings.meilisearchStats.isIndexing
-                      ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-emerald-600 dark:text-emerald-400'
-                  }`}>
-                    {settings.meilisearchStats.isIndexing ? t('search.settings.indexingInProgressLabel', 'In Progress') : t('search.settings.indexingIdleLabel', 'Idle')}
+              ) : (
+                <div className="p-3 rounded-md bg-muted/50">
+                  <p className="text-sm text-muted-foreground">
+                    {t('search.settings.noIndexMessage', "No index found for this tenant. Click 'Full Reindex' to create one.")}
                   </p>
                 </div>
-              </div>
+              )}
 
-              {/* Actions */}
+              {/* Actions - Full Reindex always visible, others only when index exists */}
               <div className="flex flex-wrap gap-3 pt-2">
-                <div className="flex flex-col">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleReindexClick('clear')}
-                    disabled={reindexing !== null}
-                  >
-                    {reindexing === 'clear' ? (
-                      <>
-                        <Spinner size="sm" className="mr-2" />
-                        {t('search.settings.processingLabel', 'Processing...')}
-                      </>
-                    ) : (
-                      t('search.settings.clearIndexLabel', 'Clear Index')
-                    )}
-                  </Button>
-                  <span className="text-xs text-muted-foreground mt-1">{t('search.settings.clearIndexDescription', 'Remove all documents but keep index settings')}</span>
-                </div>
-                <div className="flex flex-col">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleReindexClick('recreate')}
-                    disabled={reindexing !== null}
-                  >
-                    {reindexing === 'recreate' ? (
-                      <>
-                        <Spinner size="sm" className="mr-2" />
-                        {t('search.settings.processingLabel', 'Processing...')}
-                      </>
-                    ) : (
-                      t('search.settings.recreateIndexLabel', 'Recreate Index')
-                    )}
-                  </Button>
-                  <span className="text-xs text-muted-foreground mt-1">{t('search.settings.recreateIndexDescription', 'Delete and recreate the index with fresh settings')}</span>
-                </div>
+                {/* Clear Index - only when index exists */}
+                {settings?.meilisearchStats && (
+                  <div className="flex flex-col">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleReindexClick('clear')}
+                      disabled={reindexing !== null}
+                    >
+                      {reindexing === 'clear' ? (
+                        <>
+                          <Spinner size="sm" className="mr-2" />
+                          {t('search.settings.processingLabel', 'Processing...')}
+                        </>
+                      ) : (
+                        t('search.settings.clearIndexLabel', 'Clear Index')
+                      )}
+                    </Button>
+                    <span className="text-xs text-muted-foreground mt-1">{t('search.settings.clearIndexDescription', 'Remove all documents but keep index settings')}</span>
+                  </div>
+                )}
+                {/* Recreate Index - only when index exists */}
+                {settings?.meilisearchStats && (
+                  <div className="flex flex-col">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleReindexClick('recreate')}
+                      disabled={reindexing !== null}
+                    >
+                      {reindexing === 'recreate' ? (
+                        <>
+                          <Spinner size="sm" className="mr-2" />
+                          {t('search.settings.processingLabel', 'Processing...')}
+                        </>
+                      ) : (
+                        t('search.settings.recreateIndexLabel', 'Recreate Index')
+                      )}
+                    </Button>
+                    <span className="text-xs text-muted-foreground mt-1">{t('search.settings.recreateIndexDescription', 'Delete and recreate the index with fresh settings')}</span>
+                  </div>
+                )}
+                {/* Full Reindex - always visible (allows creating initial index) */}
                 <div className="flex flex-col">
                   <Button
                     type="button"
@@ -751,8 +766,6 @@ export function SearchSettingsPageClient() {
                 </div>
               </div>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('search.settings.noIndexLabel', 'No index found for this tenant')}</p>
           )}
         </div>
       )}
