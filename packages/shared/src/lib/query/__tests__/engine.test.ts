@@ -1,12 +1,14 @@
 import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
+import { registerModules } from '../../i18n/server'
 
 // Mock modules with one entity extension
-jest.mock('@/generated/modules.generated', () => ({
-  modules: [
-    { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
-  ],
-}))
+const mockModules = [
+  { id: 'auth', entityExtensions: [ { base: 'auth:user', extension: 'my_module:user_profile', join: { baseKey: 'id', extensionKey: 'user_id' } } ] },
+]
+
+// Register modules for the registration-based pattern
+registerModules(mockModules as any)
 
 type FakeData = Record<string, any[]>
 

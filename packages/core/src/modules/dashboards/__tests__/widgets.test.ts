@@ -22,14 +22,15 @@ describe('dashboard widget discovery', () => {
         Widget: () => null,
       } satisfies DashboardWidgetModule<any>,
     }))
-    jest.doMock('@/generated/modules.generated', () => ({
-      modules: [
-        { id: 'example', dashboardWidgets: [{ key: 'example:notes:widget', moduleId: 'example', loader: loaderA }] },
-        { id: 'custom', dashboardWidgets: [{ key: 'custom:notes:widget', moduleId: 'custom', loader: loaderB }] },
-      ],
-    }))
+    // Must import registerModules fresh after jest.resetModules()
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([
+      { id: 'example', dashboardWidgets: [{ key: 'example:notes:widget', moduleId: 'example', loader: loaderA }] },
+      { id: 'custom', dashboardWidgets: [{ key: 'custom:notes:widget', moduleId: 'custom', loader: loaderB }] },
+    ] as any)
 
-    const { loadAllWidgets, loadWidgetById } = await import('../lib/widgets')
+    const { loadAllWidgets, loadWidgetById, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
     const all = await loadAllWidgets()
 
     expect(all).toHaveLength(1)
@@ -48,22 +49,22 @@ describe('dashboard widget discovery', () => {
   })
 
   it('returns null for unknown widget id', async () => {
-    jest.doMock('@/generated/modules.generated', () => ({
-      modules: [],
-    }))
-    const { loadWidgetById } = await import('../lib/widgets')
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([] as any)
+    const { loadWidgetById, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
     await expect(loadWidgetById('missing.widget')).resolves.toBeNull()
   })
 
   it('throws when widget metadata is invalid', async () => {
     const badLoader = jest.fn(async () => ({ default: { Widget: () => null } }))
-    jest.doMock('@/generated/modules.generated', () => ({
-      modules: [
-        { id: 'broken', dashboardWidgets: [{ key: 'broken:widget', moduleId: 'broken', loader: badLoader }] },
-      ],
-    }))
+    const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+    registerModules([
+      { id: 'broken', dashboardWidgets: [{ key: 'broken:widget', moduleId: 'broken', loader: badLoader }] },
+    ] as any)
 
-    const { loadAllWidgets } = await import('../lib/widgets')
+    const { loadAllWidgets, invalidateWidgetCache } = await import('../lib/widgets')
+    invalidateWidgetCache()
     await expect(loadAllWidgets()).rejects.toThrow('missing metadata')
   })
 })

@@ -1,14 +1,41 @@
 import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
-import { injectionWidgetEntries } from '@/generated/injection-widgets.generated'
 
 type Entry = ModuleInjectionWidgetEntry
+
+// Registration pattern for publishable packages
+let _injectionWidgetEntries: Entry[] | null = null
+
+export function registerInjectionWidgets(entries: Entry[]) {
+  if (_injectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Injection widgets re-registered (this may occur during HMR)')
+  }
+  _injectionWidgetEntries = entries
+}
+
+export function getInjectionWidgets(): Entry[] {
+  if (!_injectionWidgetEntries) {
+    // On client-side, bootstrap doesn't run - return empty array gracefully
+    if (typeof window !== 'undefined') {
+      return []
+    }
+    throw new Error('[Bootstrap] Injection widgets not registered. Call registerInjectionWidgets() at bootstrap.')
+  }
+  return _injectionWidgetEntries
+}
 
 let entriesPromise: Promise<Entry[]> | null = null
 
 async function getEntries(): Promise<Entry[]> {
   if (!entriesPromise) {
-    entriesPromise = Promise.resolve(injectionWidgetEntries)
+    const promise = Promise.resolve().then(() => getInjectionWidgets())
+    entriesPromise = promise.catch((err) => {
+      // Clear cache on error so next call can retry after registration
+      if (entriesPromise === promise) {
+        entriesPromise = null
+      }
+      throw err
+    })
   }
   return entriesPromise
 }

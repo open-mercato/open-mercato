@@ -46,8 +46,8 @@ export async function bootstrap(container: AwilixContainer) {
   try {
     let loadedModules: any[] = []
     try {
-      const mod = await import('@/generated/modules.generated') as any
-      loadedModules = Array.isArray(mod?.modules) ? mod.modules : []
+      const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
+      loadedModules = getModules()
     } catch {}
     const subs = loadedModules.flatMap((m) => m.subscribers || [])
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)

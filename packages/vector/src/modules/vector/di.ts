@@ -1,7 +1,24 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@/lib/di/container'
 import { EmbeddingService, VectorIndexService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '@open-mercato/vector'
-import { vectorModuleConfigs } from '@/generated/vector.generated'
+import type { VectorModuleConfig } from '@open-mercato/vector'
+
+// Registration pattern for publishable packages
+let _vectorModuleConfigs: VectorModuleConfig[] | null = null
+
+export function registerVectorConfigs(configs: VectorModuleConfig[]) {
+  if (_vectorModuleConfigs !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Vector configs re-registered (this may occur during HMR)')
+  }
+  _vectorModuleConfigs = configs
+}
+
+export function getVectorConfigs(): VectorModuleConfig[] {
+  if (!_vectorModuleConfigs) {
+    throw new Error('[Bootstrap] Vector configs not registered. Call registerVectorConfigs() at bootstrap.')
+  }
+  return _vectorModuleConfigs
+}
 
 function resolveEventBus(container: AppContainer): { emitEvent: (...args: any[]) => Promise<any> } | undefined {
   const getBus = () => {
@@ -48,7 +65,7 @@ export function register(container: AppContainer) {
     drivers,
     embeddingService,
     queryEngine,
-    moduleConfigs: vectorModuleConfigs,
+    moduleConfigs: getVectorConfigs(),
     containerResolver: () => container,
     eventBus,
   })
