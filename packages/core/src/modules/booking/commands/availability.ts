@@ -69,7 +69,7 @@ const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: s
     if (!id) throw new CrudHttpError(400, { error: 'Availability rule id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(BookingAvailabilityRule, { id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Booking availability rule not found.' })
+    if (!record) return { ruleId: id }
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()

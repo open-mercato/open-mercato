@@ -83,12 +83,6 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
       type: 'richtext',
       editor: 'markdown',
     },
-    {
-      id: 'timezone',
-      label: t('booking.availabilityRuleSets.form.fields.timezone', 'Timezone'),
-      type: 'text',
-      required: true,
-    },
   ], [t])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
@@ -97,13 +91,16 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
       id: rulesetId,
       name: typeof values.name === 'string' ? values.name : '',
       description: typeof values.description === 'string' && values.description.trim().length ? values.description : null,
-      timezone: typeof values.timezone === 'string' && values.timezone.trim().length ? values.timezone.trim() : 'UTC',
+      timezone: typeof initialValues?.timezone === 'string' && initialValues.timezone.trim().length
+        ? initialValues.timezone.trim()
+        : 'UTC',
     }
     await updateCrud('booking/availability-rule-sets', payload, {
       errorMessage: t('booking.availabilityRuleSets.form.errors.update', 'Failed to update schedule.'),
     })
     flash(t('booking.availabilityRuleSets.form.flash.updated', 'Schedule updated.'), 'success')
-  }, [rulesetId, t])
+    router.push('/backend/booking/availability-rulesets')
+  }, [initialValues?.timezone, router, rulesetId, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!rulesetId) return
@@ -206,6 +203,7 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
             <AvailabilityRulesEditor
               subjectType="ruleset"
               subjectId={rulesetId ?? ''}
+              initialTimezone={typeof initialValues?.timezone === 'string' ? initialValues.timezone : undefined}
               labelPrefix="booking.availabilityRuleSets"
               mode="availability"
               buildScheduleItems={buildScheduleItems}

@@ -25,19 +25,14 @@ export default function BookingAvailabilityRuleSetCreatePage() {
       type: 'richtext',
       editor: 'markdown',
     },
-    {
-      id: 'timezone',
-      label: t('booking.availabilityRuleSets.form.fields.timezone', 'Timezone'),
-      type: 'text',
-      required: true,
-    },
   ], [t])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
+    const defaultTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
     const payload = {
       name: typeof values.name === 'string' ? values.name : '',
       description: typeof values.description === 'string' && values.description.trim().length ? values.description : null,
-      timezone: typeof values.timezone === 'string' && values.timezone.trim().length ? values.timezone.trim() : 'UTC',
+      timezone: defaultTimezone,
     }
     const response = await createCrud('booking/availability-rule-sets', payload, {
       errorMessage: t('booking.availabilityRuleSets.form.errors.create', 'Failed to create schedule.'),

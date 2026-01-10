@@ -2,8 +2,10 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import type { PluggableList } from 'unified'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -16,6 +18,30 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { useT } from '@/lib/i18n/context'
 
 const PAGE_SIZE = 50
+const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
+const MARKDOWN_CLASSNAME =
+  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
+
+type MarkdownPreviewProps = { children: string; className?: string; remarkPlugins?: PluggableList }
+
+const MarkdownPreview: React.ComponentType<MarkdownPreviewProps> = isTestEnv
+  ? ({ children, className }) => <div className={className}>{children}</div>
+  : (dynamic(() => import('react-markdown').then((mod) => mod.default as React.ComponentType<MarkdownPreviewProps>), {
+      ssr: false,
+      loading: () => null,
+    }) as unknown as React.ComponentType<MarkdownPreviewProps>)
+
+let markdownPluginsPromise: Promise<PluggableList> | null = null
+
+async function loadMarkdownPlugins(): Promise<PluggableList> {
+  if (isTestEnv) return []
+  if (!markdownPluginsPromise) {
+    markdownPluginsPromise = import('remark-gfm')
+      .then((mod) => [mod.default ?? mod] as PluggableList)
+      .catch(() => [])
+  }
+  return markdownPluginsPromise
+}
 
 type TeamRoleRow = {
   kind: 'team' | 'role'
@@ -40,10 +66,14 @@ export default function BookingTeamRolesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+
+  React.useEffect(() => {
+    void loadMarkdownPlugins().then((plugins) => setMarkdownPlugins(plugins))
+  }, [])
 
   const labels = React.useMemo(() => ({
     title: t('booking.teamRoles.page.title', 'Team roles'),
@@ -84,7 +114,10 @@ export default function BookingTeamRolesPage() {
         if (row.original.kind === 'team') {
           return (
             <div className="flex items-center justify-between gap-3">
-              <span className="font-semibold">{row.original.name}</span>
+              <div className="flex items-center gap-2">
+                {row.original.teamId ? <TeamsIcon className="h-4 w-4 text-muted-foreground" /> : null}
+                <span className="font-semibold">{row.original.name}</span>
+              </div>
               {row.original.teamId ? (
                 <Button
                   asChild
@@ -106,7 +139,12 @@ export default function BookingTeamRolesPage() {
           <div className="flex flex-col">
             <span className="font-medium pl-6">{row.original.name}</span>
             {row.original.description ? (
-              <span className="text-xs text-muted-foreground pl-6">{row.original.description}</span>
+              <MarkdownPreview
+                remarkPlugins={markdownPlugins}
+                className={`${MARKDOWN_CLASSNAME} pl-6 text-xs text-muted-foreground line-clamp-2`}
+              >
+                {row.original.description}
+              </MarkdownPreview>
             ) : null}
           </div>
         )
@@ -119,7 +157,11 @@ export default function BookingTeamRolesPage() {
       cell: ({ row }) => row.original.kind === 'team'
         ? <span className="text-xs text-muted-foreground">-</span>
         : row.original.description
-          ? <span className="text-sm">{row.original.description}</span>
+          ? (
+            <MarkdownPreview remarkPlugins={markdownPlugins} className={MARKDOWN_CLASSNAME}>
+              {row.original.description}
+            </MarkdownPreview>
+          )
           : <span className="text-xs text-muted-foreground">-</span>,
     },
     {
@@ -132,7 +174,7 @@ export default function BookingTeamRolesPage() {
           ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
           : <span className="text-xs text-muted-foreground">-</span>,
     },
-  ], [labels.table.description, labels.table.name, labels.table.updatedAt])
+  ], [labels.table.description, labels.table.name, labels.table.updatedAt, markdownPlugins])
 
   const loadTeamRoles = React.useCallback(async () => {
     setIsLoading(true)
@@ -141,11 +183,6 @@ export default function BookingTeamRolesPage() {
         page: String(page),
         pageSize: String(PAGE_SIZE),
       })
-      const sort = sorting[0]
-      if (sort?.id) {
-        params.set('sortField', sort.id)
-        params.set('sortDir', sort.desc ? 'desc' : 'asc')
-      }
       if (search.trim()) params.set('search', search.trim())
       const payload = await readApiResultOrThrow<TeamRolesResponse>(
         `/api/booking/team-roles?${params.toString()}`,
@@ -162,7 +199,7 @@ export default function BookingTeamRolesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [labels.errors.load, labels.groups, page, search, sorting])
+  }, [labels.errors.load, labels.groups, page, search])
 
   React.useEffect(() => {
     void loadTeamRoles()
@@ -216,9 +253,6 @@ export default function BookingTeamRolesPage() {
             onRefresh: handleRefresh,
             isRefreshing: isLoading,
           }}
-          sortable
-          sorting={sorting}
-          onSortingChange={setSorting}
           pagination={{
             page,
             pageSize: PAGE_SIZE,
@@ -309,4 +343,24 @@ function formatDateTime(value: string): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleString()
+}
+
+function TeamsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="3" />
+      <circle cx="16" cy="8" r="3" />
+      <path d="M3 20c0-3 3-5 5-5" />
+      <path d="M21 20c0-3-3-5-5-5" />
+    </svg>
+  )
 }

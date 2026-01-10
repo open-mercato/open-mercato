@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
@@ -11,6 +11,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
+import { TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -72,6 +73,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const flashShownRef = React.useRef(false)
   const [roleSearch, setRoleSearch] = React.useState('')
+  const [tags, setTags] = React.useState<TagOption[]>([])
 
   React.useEffect(() => {
     if (!memberId) return
@@ -113,11 +115,18 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
             userId: record.userId ?? record.user_id ?? null,
             displayName: record.displayName ?? record.display_name ?? '',
             description: record.description ?? '',
-            roleIds: Array.isArray(record.roleIds) ? record.roleIds : [],
-            tags: Array.isArray(record.tags) ? record.tags : [],
+            roleIds: Array.isArray(record.roleIds)
+              ? record.roleIds
+              : Array.isArray(record.role_ids)
+                ? record.role_ids
+                : [],
             isActive: record.isActive ?? true,
             ...customFields,
           })
+          const tagLabels = Array.isArray(record.tags)
+            ? record.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0)
+            : []
+          setTags(tagLabels.map((tag) => ({ id: tag, label: tag })))
           setSelectedTeamId(resolvedTeamId)
           setAvailabilityRuleSetId(
             typeof record.availabilityRuleSetId === 'string'
@@ -198,6 +207,85 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     loadTeams()
     return () => { cancelled = true }
   }, [scopeVersion])
+
+  const tagLabels = React.useMemo(
+    () => ({
+      loading: t('booking.teamMembers.tags.loading', 'Loading tags...'),
+      placeholder: t('booking.teamMembers.tags.placeholder', 'Type to add tags'),
+      empty: t('booking.teamMembers.tags.empty', 'No tags yet. Add labels to organize team members.'),
+      loadError: t('booking.teamMembers.tags.loadError', 'Failed to load tags.'),
+      createError: t('booking.teamMembers.tags.createError', 'Failed to create tag.'),
+      updateError: t('booking.teamMembers.tags.updateError', 'Failed to update tags.'),
+      labelRequired: t('booking.teamMembers.tags.labelRequired', 'Tag name is required.'),
+      saveShortcut: t('booking.teamMembers.tags.saveShortcut', 'Save Cmd+Enter / Ctrl+Enter'),
+      cancelShortcut: t('booking.teamMembers.tags.cancelShortcut', 'Cancel (Esc)'),
+      edit: t('ui.forms.actions.edit', 'Edit'),
+      cancel: t('ui.forms.actions.cancel', 'Cancel'),
+      success: t('booking.teamMembers.tags.success', 'Tags updated.'),
+    }),
+    [t],
+  )
+
+  const loadTagOptions = React.useCallback(async (query?: string): Promise<TagOption[]> => {
+    const params = new URLSearchParams({ page: '1', pageSize: '100' })
+    const call = await apiCall<TeamMemberResponse>(`/api/booking/team-members?${params.toString()}`)
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
+    const seen = new Set<string>()
+    const options: TagOption[] = []
+    items.forEach((item) => {
+      const itemTags = Array.isArray(item.tags) ? item.tags : []
+      itemTags.forEach((tag) => {
+        if (typeof tag !== 'string') return
+        const normalized = tag.trim()
+        if (!normalized.length) return
+        const key = normalized.toLowerCase()
+        if (seen.has(key)) return
+        seen.add(key)
+        options.push({ id: normalized, label: normalized })
+      })
+    })
+    if (query && query.trim().length) {
+      const needle = query.trim().toLowerCase()
+      return options.filter((option) => option.label.toLowerCase().includes(needle))
+    }
+    return options
+  }, [])
+
+  const createTag = React.useCallback(async (label: string): Promise<TagOption> => {
+    const normalized = label.trim()
+    if (!normalized.length) {
+      throw new Error(t('booking.teamMembers.tags.labelRequired', 'Tag name is required.'))
+    }
+    return { id: normalized, label: normalized }
+  }, [t])
+
+  const handleTagsSave = React.useCallback(
+    async ({ next }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
+      if (!memberId) return
+      const nextLabels = Array.from(
+        new Set(next.map((tag) => tag.label.trim()).filter((tag) => tag.length > 0)),
+      )
+      await updateCrud('booking/team-members', { id: memberId, tags: nextLabels }, {
+        errorMessage: t('booking.teamMembers.tags.updateError', 'Failed to update tags.'),
+      })
+      setTags(nextLabels.map((tag) => ({ id: tag, label: tag })))
+      flash(t('booking.teamMembers.tags.success', 'Tags updated.'), 'success')
+    },
+    [memberId, t],
+  )
+
+  const tagsSection = React.useMemo(
+    () => ({
+      title: t('booking.teamMembers.tags.title', 'Tags'),
+      tags,
+      onChange: setTags,
+      loadOptions: loadTagOptions,
+      createTag,
+      onSave: handleTagsSave,
+      labels: tagLabels,
+    }),
+    [createTag, handleTagsSave, loadTagOptions, t, tagLabels, tags],
+  )
 
   const filteredRoles = React.useMemo(
     () => filterRolesByTeam(roles, selectedTeamId),
@@ -381,17 +469,41 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       },
     },
     {
-      id: 'tags',
-      label: t('booking.teamMembers.form.fields.tags', 'Tags'),
-      type: 'tags',
-      placeholder: t('booking.teamMembers.form.fields.tags.placeholder', 'Add tags'),
-    },
-    {
       id: 'isActive',
       label: t('booking.teamMembers.form.fields.active', 'Active'),
       type: 'checkbox',
     },
   ], [createRoleHref, fetchUserOptions, filteredRoleOptions, roleSearch, roles, router, t, teamOptions, userOptions])
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => ([
+    {
+      id: 'details',
+      column: 1,
+      fields: ['userId', 'teamId', 'displayName', 'description', 'roleIds', 'isActive'],
+    },
+    {
+      id: 'custom',
+      title: t('entities.customFields.title', 'Custom Attributes'),
+      column: 2,
+      kind: 'customFields',
+    },
+    {
+      id: 'tags',
+      column: 2,
+      bare: true,
+      component: () => (
+        <TagsSection
+          title={tagsSection.title}
+          tags={tagsSection.tags}
+          onChange={tagsSection.onChange}
+          loadOptions={tagsSection.loadOptions}
+          createTag={tagsSection.createTag}
+          onSave={tagsSection.onSave}
+          labels={tagsSection.labels}
+        />
+      ),
+    },
+  ]), [t, tagsSection])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!memberId) return
@@ -403,7 +515,6 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       displayName: values.displayName ? String(values.displayName) : '',
       description: typeof values.description === 'string' && values.description.trim().length ? values.description : null,
       roleIds: Array.isArray(values.roleIds) ? values.roleIds : [],
-      tags: Array.isArray(values.tags) ? values.tags : [],
       isActive: values.isActive ?? true,
       ...(Object.keys(customFields).length ? { customFields } : {}),
     }
@@ -411,7 +522,8 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       errorMessage: t('booking.teamMembers.form.errors.update', 'Failed to update team member.'),
     })
     flash(t('booking.teamMembers.form.flash.updated', 'Team member updated.'), 'success')
-  }, [memberId, t])
+    router.push('/backend/booking/team-members')
+  }, [memberId, router, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!memberId) return
@@ -467,6 +579,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
               backHref="/backend/booking/team-members"
               cancelHref="/backend/booking/team-members"
               fields={fields}
+              groups={groups}
               initialValues={initialValues ?? undefined}
               entityId={E.booking.booking_team_member}
               onSubmit={handleSubmit}

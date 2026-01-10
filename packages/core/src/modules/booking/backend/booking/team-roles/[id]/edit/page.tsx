@@ -117,7 +117,8 @@ export default function BookingTeamRoleEditPage({ params }: { params?: { id?: st
       errorMessage: t('booking.teamRoles.errors.save', 'Failed to save team role.'),
     })
     flash(t('booking.teamRoles.messages.saved', 'Team role saved.'), 'success')
-  }, [roleId, t])
+    router.push('/backend/booking/team-roles')
+  }, [roleId, router, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!roleId) return

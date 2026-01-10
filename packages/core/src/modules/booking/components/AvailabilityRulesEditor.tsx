@@ -8,9 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Input } from '@open-mercato/ui/primitives/input'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { useT } from '@/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -55,6 +56,7 @@ export type AvailabilityRulesEditorProps = {
   subjectId: string
   labelPrefix: string
   mode?: 'availability' | 'unavailability'
+  initialTimezone?: string
   rulesetId?: string | null
   onRulesetChange?: (rulesetId: string | null) => Promise<void>
   buildScheduleItems: AvailabilityScheduleItemBuilder
@@ -80,6 +82,20 @@ const DEFAULT_WINDOW: TimeWindow = { start: '09:00', end: '17:00' }
 
 function createDefaultWindow(): TimeWindow {
   return { ...DEFAULT_WINDOW }
+}
+
+function getTimezoneOptions(): string[] {
+  const options = new Set<string>()
+  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone
+  if (resolved) options.add(resolved)
+  options.add('UTC')
+  const intlWithSupportedValues = Intl as typeof Intl & { supportedValuesOf?: (input: 'timeZone') => string[] }
+  if (typeof intlWithSupportedValues.supportedValuesOf === 'function') {
+    intlWithSupportedValues.supportedValuesOf('timeZone').forEach((timezone) => {
+      if (timezone) options.add(timezone)
+    })
+  }
+  return Array.from(options).sort((a, b) => a.localeCompare(b))
 }
 
 function formatTimeInput(value: Date): string {
@@ -216,6 +232,7 @@ export function AvailabilityRulesEditor({
   subjectId,
   labelPrefix,
   mode: _mode = 'availability',
+  initialTimezone,
   rulesetId,
   onRulesetChange,
   buildScheduleItems,
@@ -241,7 +258,10 @@ export function AvailabilityRulesEditor({
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
     return { start, end }
   })
-  const [timezone, setTimezone] = React.useState<string>(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+  const [timezone, setTimezone] = React.useState<string>(
+    () => initialTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  )
+  const [timezoneDirty, setTimezoneDirty] = React.useState(false)
   const [editorOpen, setEditorOpen] = React.useState(false)
   const [editorScope, setEditorScope] = React.useState<'date' | 'weekday'>('date')
   const [editorDates, setEditorDates] = React.useState<string[]>([])
@@ -255,6 +275,14 @@ export function AvailabilityRulesEditor({
   const [customOverridesEnabled, setCustomOverridesEnabled] = React.useState(false)
   const autoSaveTimerRef = React.useRef<number | null>(null)
   const lastSavedWeeklyKeyRef = React.useRef<string | null>(null)
+  const weeklySaveStateRef = React.useRef({ inFlight: false, queued: false })
+  const timezoneSaveTimerRef = React.useRef<number | null>(null)
+  const timezoneSaveInFlightRef = React.useRef(false)
+  const viewModeRef = React.useRef(viewMode)
+  const saveWeeklyRef = React.useRef<
+    (options?: { silentSuccess?: boolean; skipRefresh?: boolean }) => Promise<void>
+  >()
+  const timezoneOptions = React.useMemo(() => getTimezoneOptions(), [])
 
   const usingRuleSet = Boolean(rulesetId) && availabilityRules.length === 0 && !customOverridesEnabled
   const activeRules = usingRuleSet ? rulesetRules : availabilityRules
@@ -273,6 +301,8 @@ export function AvailabilityRulesEditor({
       dateSpecificSubtitle: t(`${labelPrefix}.availability.dateSpecific.subtitle`, 'Adjust hours for specific days.'),
       addHours: t(`${labelPrefix}.availability.dateSpecific.add`, 'Add hours'),
       timezoneLabel: t(`${labelPrefix}.availability.timezone`, 'Timezone'),
+      timezonePlaceholder: t(`${labelPrefix}.availability.timezone.placeholder`, 'Search timezones...'),
+      timezoneSaveError: t(`${labelPrefix}.availability.timezone.saveError`, 'Failed to save timezone.'),
       ruleSetLabel: t(`${labelPrefix}.availability.ruleset.label`, 'Schedule'),
       ruleSetPlaceholder: t(`${labelPrefix}.availability.ruleset.placeholder`, 'Custom schedule'),
       ruleSetCustomize: t(`${labelPrefix}.availability.ruleset.customize`, 'Customize schedule'),
@@ -396,9 +426,25 @@ export function AvailabilityRulesEditor({
   }, [refreshRuleSets])
 
   React.useEffect(() => {
+    viewModeRef.current = viewMode
+  }, [viewMode])
+
+  React.useEffect(() => {
+    if (timezoneDirty) return
+    if (initialTimezone) {
+      setTimezone(initialTimezone)
+      return
+    }
     const ruleTimezone = activeRules.find((rule) => rule.timezone)?.timezone
     if (ruleTimezone) setTimezone(ruleTimezone)
-  }, [activeRules])
+  }, [activeRules, initialTimezone, timezoneDirty])
+
+  React.useEffect(() => {
+    if (timezoneDirty) return
+    if (!usingRuleSet || !rulesetId) return
+    const ruleset = ruleSets.find((entry) => entry.id === rulesetId)
+    if (ruleset?.timezone) setTimezone(ruleset.timezone)
+  }, [rulesetId, ruleSets, timezoneDirty, usingRuleSet])
 
   React.useEffect(() => {
     if (availabilityRules.length > 0) {
@@ -590,6 +636,29 @@ export function AvailabilityRulesEditor({
   ])
 
   React.useEffect(() => {
+    saveWeeklyRef.current = saveWeeklyHours
+  }, [saveWeeklyHours])
+
+  const queueWeeklySave = React.useCallback((options?: { silentSuccess?: boolean; skipRefresh?: boolean }) => {
+    if (weeklySaveStateRef.current.inFlight) {
+      weeklySaveStateRef.current.queued = true
+      return
+    }
+    weeklySaveStateRef.current.inFlight = true
+    void (async () => {
+      try {
+        await saveWeeklyRef.current?.(options)
+      } finally {
+        weeklySaveStateRef.current.inFlight = false
+        if (weeklySaveStateRef.current.queued) {
+          weeklySaveStateRef.current.queued = false
+          queueWeeklySave({ silentSuccess: true, skipRefresh: viewModeRef.current === 'list' })
+        }
+      }
+    })()
+  }, [])
+
+  React.useEffect(() => {
     if (usingRuleSet) return
     if (weeklyHasErrors) return
     if (weeklyKey === lastSavedWeeklyKeyRef.current) return
@@ -597,14 +666,84 @@ export function AvailabilityRulesEditor({
       window.clearTimeout(autoSaveTimerRef.current)
     }
     autoSaveTimerRef.current = window.setTimeout(() => {
-      void saveWeeklyHours({ silentSuccess: true, skipRefresh: viewMode === 'list' })
+      queueWeeklySave({ silentSuccess: true, skipRefresh: viewMode === 'list' })
     }, 600)
     return () => {
       if (autoSaveTimerRef.current !== null) {
         window.clearTimeout(autoSaveTimerRef.current)
       }
     }
-  }, [saveWeeklyHours, usingRuleSet, viewMode, weeklyHasErrors, weeklyKey])
+  }, [queueWeeklySave, usingRuleSet, viewMode, weeklyHasErrors, weeklyKey])
+
+  const persistTimezone = React.useCallback(async (nextTimezone: string) => {
+    if (timezoneSaveInFlightRef.current) return
+    const trimmedTimezone = nextTimezone.trim() || 'UTC'
+    const rulesetTimezoneId = subjectType === 'ruleset' ? subjectId : rulesetId
+    const rulesToUpdate = activeRules.filter((rule) => rule.timezone !== trimmedTimezone)
+    if (!rulesToUpdate.length && !rulesetTimezoneId) {
+      setTimezoneDirty(false)
+      return
+    }
+    timezoneSaveInFlightRef.current = true
+    try {
+      const updates: Array<Promise<unknown>> = []
+      rulesToUpdate.forEach((rule) => {
+        updates.push(updateCrud('booking/availability', {
+          id: rule.id,
+          timezone: trimmedTimezone,
+        }))
+      })
+      if (rulesetTimezoneId) {
+        updates.push(updateCrud('booking/availability-rule-sets', {
+          id: rulesetTimezoneId,
+          timezone: trimmedTimezone,
+        }))
+      }
+      if (updates.length) {
+        await Promise.all(updates)
+        await refreshAvailability()
+        await refreshRuleSetRules()
+      }
+      setTimezoneDirty(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : listLabels.timezoneSaveError
+      flash(message, 'error')
+      setTimezoneDirty(false)
+    } finally {
+      timezoneSaveInFlightRef.current = false
+    }
+  }, [
+    activeRules,
+    listLabels.timezoneSaveError,
+    refreshAvailability,
+    refreshRuleSetRules,
+    rulesetId,
+    subjectId,
+    subjectType,
+  ])
+
+  React.useEffect(() => {
+    if (!timezoneDirty) return
+    const nextTimezone = timezone.trim()
+    if (!nextTimezone) return
+    if (timezoneSaveTimerRef.current !== null) {
+      window.clearTimeout(timezoneSaveTimerRef.current)
+    }
+    timezoneSaveTimerRef.current = window.setTimeout(() => {
+      void persistTimezone(nextTimezone)
+    }, 400)
+    return () => {
+      if (timezoneSaveTimerRef.current !== null) {
+        window.clearTimeout(timezoneSaveTimerRef.current)
+      }
+    }
+  }, [persistTimezone, timezone, timezoneDirty])
+
+  const handleTimezoneChange = React.useCallback((nextTimezone: string) => {
+    const trimmed = nextTimezone.trim()
+    setTimezone(trimmed || 'UTC')
+    setTimezoneDirty(true)
+  }, [])
 
   const handleCustomize = React.useCallback(async () => {
     if (!rulesetId) return
@@ -996,12 +1135,15 @@ export function AvailabilityRulesEditor({
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span>{listLabels.timezoneLabel}</span>
-            <Input
-              type="text"
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-              className="h-8 w-[200px]"
-            />
+            <div className="w-[220px]">
+              <ComboboxInput
+                value={timezone}
+                onChange={handleTimezoneChange}
+                suggestions={timezoneOptions}
+                placeholder={listLabels.timezonePlaceholder}
+                allowCustomValues
+              />
+            </div>
           </div>
         </div>
 
@@ -1018,7 +1160,7 @@ export function AvailabilityRulesEditor({
               timezone={timezone}
               onRangeChange={setRange}
               onViewChange={setScheduleView}
-              onTimezoneChange={setTimezone}
+              onTimezoneChange={handleTimezoneChange}
               onItemClick={handleItemClick}
               onSlotClick={handleSlotClick}
             />

@@ -155,18 +155,7 @@ export default function BookingAvailabilityRuleSetsPage() {
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
-    {
-      id: 'actions',
-      header: '',
-      cell: ({ row }) => (
-        <RowActions
-          onEdit={() => router.push(`/backend/booking/availability-rulesets/${row.original.id}`)}
-          onDelete={() => handleDelete(row.original)}
-          labels={{ edit: labels.actions.edit, delete: labels.actions.delete }}
-        />
-      ),
-    },
-  ], [handleDelete, labels.actions.delete, labels.actions.edit, labels.table.name, labels.table.timezone, labels.table.updatedAt, router])
+  ], [labels.table.name, labels.table.timezone, labels.table.updatedAt])
 
   return (
     <Page>
@@ -203,6 +192,15 @@ export default function BookingAvailabilityRuleSetsPage() {
             totalPages,
             onPageChange: setPage,
           }}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                { label: labels.actions.edit, href: `/backend/booking/availability-rulesets/${row.id}` },
+                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
+              ]}
+            />
+          )}
+          onRowClick={(row) => router.push(`/backend/booking/availability-rulesets/${row.id}`)}
         />
       </PageBody>
     </Page>

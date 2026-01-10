@@ -15,11 +15,12 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { Pencil } from 'lucide-react'
 
 const PAGE_SIZE = 50
 
 type TeamMemberRow = {
-  kind: 'team' | 'role' | 'member'
+  kind: 'team' | 'member'
   id: string
   teamId: string | null
   teamName: string | null
@@ -91,6 +92,7 @@ export default function BookingTeamMembersPage() {
       delete: t('booking.teamMembers.actions.delete', 'Delete'),
       deleteConfirm: t('booking.teamMembers.actions.deleteConfirm', 'Delete team member "{{name}}"?'),
       refresh: t('booking.teamMembers.actions.refresh', 'Refresh'),
+      editTeam: t('booking.teams.actions.edit', 'Edit'),
     },
     messages: {
       deleted: t('booking.teamMembers.messages.deleted', 'Team member deleted.'),
@@ -107,22 +109,37 @@ export default function BookingTeamMembersPage() {
       header: labels.table.name,
       meta: { priority: 1, sticky: true },
       cell: ({ row }) => (
-        <div className="flex flex-col">
-          <span
-            className={
-              row.original.kind === 'team'
-                ? 'font-semibold'
-                : row.original.kind === 'role'
-                  ? 'font-medium pl-4'
-                  : 'font-medium pl-8'
-            }
-          >
-            {row.original.displayName}
-          </span>
-          {row.original.kind === 'member' && row.original.description ? (
-            <span className="text-xs text-muted-foreground line-clamp-2 pl-8">{row.original.description}</span>
-          ) : null}
-        </div>
+        row.original.kind === 'team'
+          ? (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {row.original.teamId ? <TeamsIcon className="h-4 w-4 text-muted-foreground" /> : null}
+                <span className="font-semibold">{row.original.displayName}</span>
+              </div>
+              {row.original.teamId ? (
+                <Button
+                  asChild
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  title={labels.actions.editTeam}
+                  aria-label={labels.actions.editTeam}
+                >
+                  <Link href={`/backend/booking/teams/${encodeURIComponent(row.original.teamId)}/edit`}>
+                    <Pencil className="h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+          )
+          : (
+            <div className="flex flex-col">
+              <span className="font-medium pl-6">{row.original.displayName}</span>
+              {row.original.description ? (
+                <span className="text-xs text-muted-foreground line-clamp-2 pl-6">{row.original.description}</span>
+              ) : null}
+            </div>
+          )
       ),
     },
     {
@@ -137,16 +154,16 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'roleNames',
       header: labels.table.roles,
       meta: { priority: 3 },
-      cell: ({ row }) => row.original.kind === 'member' && row.original.roleNames.length
-        ? <span className="text-sm">{row.original.roleNames.join(', ')}</span>
+      cell: ({ row }) => row.original.kind === 'member'
+        ? renderLabelPills(row.original.roleNames)
         : <span className="text-xs text-muted-foreground">-</span>,
     },
     {
       accessorKey: 'tags',
       header: labels.table.tags,
       meta: { priority: 4 },
-      cell: ({ row }) => row.original.kind === 'member' && row.original.tags.length
-        ? <span className="text-xs text-muted-foreground">{row.original.tags.join(', ')}</span>
+      cell: ({ row }) => row.original.kind === 'member'
+        ? renderLabelPills(row.original.tags)
         : <span className="text-xs text-muted-foreground">-</span>,
     },
     {
@@ -188,9 +205,24 @@ export default function BookingTeamMembersPage() {
         { errorMessage: labels.errors.load, fallback: { items: [], total: 0, totalPages: 1 } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
-      setRows(buildTeamMemberRows(items.map(mapApiTeamMember), labels.groups))
-      setTotal(typeof payload.total === 'number' ? payload.total : items.length)
-      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      const mappedItems = items.map(mapApiTeamMember)
+      const roleFilterId = typeof filterValues.roleId === 'string' ? filterValues.roleId : null
+      const filteredItems = roleFilterId
+        ? mappedItems.filter((member) => member.roleIds.includes(roleFilterId))
+        : mappedItems
+      const roleFilterApplied = roleFilterId != null && filteredItems.length !== mappedItems.length
+      setRows(buildTeamMemberRows(filteredItems, labels.groups))
+      const resolvedTotal = roleFilterApplied
+        ? filteredItems.length
+        : typeof payload.total === 'number'
+          ? payload.total
+          : items.length
+      setTotal(resolvedTotal)
+      setTotalPages(roleFilterApplied
+        ? 1
+        : typeof payload.totalPages === 'number'
+          ? payload.totalPages
+          : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
       console.error('booking.team-members.list', error)
       flash(labels.errors.load, 'error')
@@ -355,6 +387,7 @@ type TeamMemberApiRow = {
   description: string | null
   userEmail: string | null
   roleNames: string[]
+  roleIds: string[]
   tags: string[]
   isActive: boolean
   updatedAt: string | null
@@ -375,6 +408,11 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
   const user = item.user && typeof item.user === 'object' ? item.user as { email?: unknown } : null
   const userEmail = user && typeof user.email === 'string' && user.email.length ? user.email : null
   const roleNames = Array.isArray(item.roleNames) ? item.roleNames.filter((value): value is string => typeof value === 'string') : []
+  const roleIds = Array.isArray(item.roleIds)
+    ? item.roleIds.filter((value): value is string => typeof value === 'string')
+    : Array.isArray(item.role_ids)
+      ? item.role_ids.filter((value): value is string => typeof value === 'string')
+      : []
   const tags = Array.isArray(item.tags) ? item.tags.filter((value): value is string => typeof value === 'string') : []
   const updatedAt = typeof item.updatedAt === 'string'
     ? item.updatedAt
@@ -399,6 +437,7 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
     description,
     userEmail,
     roleNames,
+    roleIds,
     tags,
     isActive,
     updatedAt,
@@ -436,50 +475,24 @@ function buildTeamMemberRows(
       isActive: true,
       updatedAt: null,
     })
-    const roleGroups = new Map<string, { roleLabel: string; members: TeamMemberApiRow[] }>()
-    for (const member of team.members) {
-      const roleLabel = member.roleNames.length === 1
-        ? member.roleNames[0]
-        : member.roleNames.length > 1
-          ? labels.multipleRoles
-          : labels.unassignedRole
-      const roleGroup = roleGroups.get(roleLabel) ?? { roleLabel, members: [] }
-      roleGroup.members.push(member)
-      roleGroups.set(roleLabel, roleGroup)
-    }
-    const sortedRoles = Array.from(roleGroups.values()).sort((a, b) => a.roleLabel.localeCompare(b.roleLabel))
-    for (const role of sortedRoles) {
+    const sortedMembers = [...team.members].sort((a, b) => a.displayName.localeCompare(b.displayName))
+    for (const member of sortedMembers) {
       rows.push({
-        kind: 'role',
-        id: `role:${team.teamId ?? 'unassigned'}:${role.roleLabel}`,
-        teamId: team.teamId,
-        teamName: team.name,
-        roleLabel: role.roleLabel,
-        displayName: role.roleLabel,
-        description: null,
-        userEmail: null,
-        roleNames: [],
-        tags: [],
-        isActive: true,
-        updatedAt: null,
+        kind: 'member',
+        id: member.id,
+        teamId: member.teamId,
+        teamName: member.teamName,
+        roleLabel: member.roleNames.length
+          ? member.roleNames.join(', ')
+          : labels.unassignedRole,
+        displayName: member.displayName,
+        description: member.description,
+        userEmail: member.userEmail,
+        roleNames: member.roleNames,
+        tags: member.tags,
+        isActive: member.isActive,
+        updatedAt: member.updatedAt,
       })
-      const sortedMembers = [...role.members].sort((a, b) => a.displayName.localeCompare(b.displayName))
-      for (const member of sortedMembers) {
-        rows.push({
-          kind: 'member',
-          id: member.id,
-          teamId: member.teamId,
-          teamName: member.teamName,
-          roleLabel: role.roleLabel,
-          displayName: member.displayName,
-          description: member.description,
-          userEmail: member.userEmail,
-          roleNames: member.roleNames,
-          tags: member.tags,
-          isActive: member.isActive,
-          updatedAt: member.updatedAt,
-        })
-      }
     }
   }
   return rows
@@ -489,4 +502,37 @@ function formatDateTime(value: string): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return value
   return parsed.toLocaleString()
+}
+
+function renderLabelPills(values: string[]): React.ReactNode {
+  if (!values.length) return <span className="text-xs text-muted-foreground">-</span>
+  return (
+    <div className="flex flex-wrap gap-2">
+      {values.map((value) => (
+        <span key={value} className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium">
+          {value}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function TeamsIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      className={className}
+      aria-hidden="true"
+    >
+      <circle cx="8" cy="8" r="3" />
+      <circle cx="16" cy="8" r="3" />
+      <path d="M3 20c0-3 3-5 5-5" />
+      <path d="M21 20c0-3-3-5-5-5" />
+    </svg>
+  )
 }
