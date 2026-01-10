@@ -4,6 +4,7 @@ import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/ent
 import type { WhereValue } from '@open-mercato/shared/lib/query/types'
 import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 import { decryptCustomFieldValue, resolveTenantEncryptionService } from '../encryption/customFieldValues'
+import { parseBooleanToken } from '../boolean'
 
 export type CustomFieldSelectors = {
   keys: string[]
@@ -197,7 +198,7 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
     switch (kind) {
       case 'integer': return Number.parseInt(String(v), 10)
       case 'float': return Number.parseFloat(String(v))
-      case 'boolean': return String(v).toLowerCase() === 'true'
+      case 'boolean': return parseBooleanToken(String(v)) === true
       default: return String(v)
     }
   }

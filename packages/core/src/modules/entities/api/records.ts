@@ -6,6 +6,7 @@ import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/share
 import { normalizeExportFormat, serializeExport, defaultExportFilename, ensureColumns } from '@open-mercato/shared/lib/crud/exporters'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -18,9 +19,7 @@ export const metadata = {
 }
 
 function parseBool(v: string | null, d = false) {
-  if (v == null) return d
-  const s = String(v).toLowerCase()
-  return s === '1' || s === 'true' || s === 'yes'
+  return parseBooleanWithDefault(v ?? undefined, d)
 }
 
 const DEFAULT_EXPORT_PAGE_SIZE = 1000
@@ -118,20 +117,18 @@ export async function GET(req: Request) {
           if (val.includes(',')) {
             const values = val.split(',').map((s) => s.trim()).filter(Boolean)
             ;(filtersObj as any)[key] = { $in: values }
-          } else if (val === 'true' || val === 'false') {
-            ;(filtersObj as any)[key] = (val === 'true')
           } else {
-            ;(filtersObj as any)[key] = val
+            const parsed = parseBooleanToken(val)
+            ;(filtersObj as any)[key] = parsed === null ? val : parsed
           }
         }
       } else if (allowAnyKey) {
         if (val.includes(',')) {
           const values = val.split(',').map((s) => s.trim()).filter(Boolean)
           ;(filtersObj as any)[key] = { $in: values }
-        } else if (val === 'true' || val === 'false') {
-          ;(filtersObj as any)[key] = (val === 'true')
         } else {
-          ;(filtersObj as any)[key] = val
+          const parsed = parseBooleanToken(val)
+          ;(filtersObj as any)[key] = parsed === null ? val : parsed
         }
       } else {
         if (['id', 'created_at', 'updated_at', 'deleted_at', 'name', 'title', 'email'].includes(key)) {

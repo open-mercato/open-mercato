@@ -18,6 +18,7 @@ import { CustomerTodoLink, CustomerEntity } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPagedListResponseSchema } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -573,8 +574,9 @@ export async function GET(req: Request) {
     }
 
     const normalizedSearch = search ? normalizeString(search) : ''
-    const filterByDone = typeof isDone === 'string'
-    const wantDone = isDone === 'true'
+    const parsedDone = parseBooleanToken(isDone)
+    const filterByDone = parsedDone !== null
+    const wantDone = parsedDone === true
 
     const filtered = linkEntities.filter((link) => {
       const source = typeof link.todoSource === 'string' && link.todoSource.length ? link.todoSource : ExampleEntities.example.todo

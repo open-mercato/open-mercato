@@ -134,6 +134,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Avoid in-line comments; prefer self-documenting code.
 - Keep exports minimal and typed.
 - Avoid casting to `any`; prefer precise types and union narrowing with runtime checks. When in doubt, extract and reuse shared types instead of `any`.
+- When parsing boolean-like strings (env/query/CLI), use `@open-mercato/shared/lib/boolean` (`parseBooleanToken`, `parseBooleanWithDefault`, `TRUE_VALUES`, `FALSE_VALUES`) instead of ad-hoc lists.
  - Prefer small, reusable libraries and utilities with minimal or no external dependencies where it makes sense.
  - Favor functional programming (pure functions, data-first utilities) over classes.
  - Write any necessary code comments in English.
@@ -165,6 +166,7 @@ This repository is designed for extensibility. Agents should leverage the module
 ## UI Interaction
 - Every new dialog must support `Cmd/Ctrl + Enter` as a primary action shortcut and `Escape` to cancel, mirroring the shared UX patterns used across modules.
 - Default to `CrudForm` for new forms and `DataTable` for tables displaying information unless a different component is explicitly required.
+- New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
 
 ### Type Safety Addendum

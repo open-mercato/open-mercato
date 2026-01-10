@@ -9,6 +9,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '../utils'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -117,22 +118,22 @@ const crud = makeCrudRoute({
         .split(',')
         .map((value: string) => value.trim())
         .filter((value: string) => value.length > 0)
-      const tagIdsEmpty = query.tagIdsEmpty === 'true'
+      const tagIdsEmpty = parseBooleanToken(query.tagIdsEmpty) === true
       if (tagIdsEmpty) {
         filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
       } else if (tagIds.length > 0) {
         filters['tag_assignments.tag_id'] = { $in: tagIds }
       }
-      const hasEmail = query.hasEmail === 'true' ? true : query.hasEmail === 'false' ? false : undefined
-      if (!email && !emailStartsWith && !emailContains && hasEmail !== undefined) {
+      const hasEmail = parseBooleanToken(query.hasEmail)
+      if (!email && !emailStartsWith && !emailContains && hasEmail !== null) {
         filters.primary_email = { $exists: hasEmail }
       }
-      const hasPhone = query.hasPhone === 'true' ? true : query.hasPhone === 'false' ? false : undefined
-      if (hasPhone !== undefined) {
+      const hasPhone = parseBooleanToken(query.hasPhone)
+      if (hasPhone !== null) {
         filters.primary_phone = { $exists: hasPhone }
       }
-      const hasNextInteraction = query.hasNextInteraction === 'true' ? true : query.hasNextInteraction === 'false' ? false : undefined
-      if (hasNextInteraction !== undefined) {
+      const hasNextInteraction = parseBooleanToken(query.hasNextInteraction)
+      if (hasNextInteraction !== null) {
         filters.next_interaction_at = { $exists: hasNextInteraction }
       }
       const createdRange: Record<string, Date> = {}

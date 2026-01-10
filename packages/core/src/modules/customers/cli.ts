@@ -13,6 +13,7 @@ import { E as CoreEntities } from '@open-mercato/core/generated/entities.ids.gen
 import { E as ExampleEntities } from '@open-mercato/example/generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -2882,9 +2883,16 @@ const seedStressTest: ModuleCli = {
       args.count ?? args.total ?? args.number ?? args.customers ?? String(defaultCount)
     const parsedCount = Number.parseInt(countRaw, 10)
     const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : defaultCount
+    const liteFlag = (() => {
+      if (args.lite === true) return true
+      if (typeof args.lite === 'string') {
+        if (!args.lite.trim()) return true
+        return parseBooleanToken(args.lite) === true
+      }
+      return false
+    })()
     const liteMode =
-      args.lite === 'true' ||
-      args.lite === '' ||
+      liteFlag ||
       args.mode === 'lite' ||
       args.payload === 'lite' ||
       args.variant === 'lite'

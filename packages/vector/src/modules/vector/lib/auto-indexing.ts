@@ -1,14 +1,12 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-
-const truthy = new Set(['1', 'true', 'yes', 'on'])
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export const VECTOR_AUTO_INDEX_CONFIG_KEY = 'auto_index_enabled'
 
 export function envDisablesVectorAutoIndexing(): boolean {
   const raw = process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
   if (!raw) return false
-  const normalized = raw.trim().toLowerCase()
-  return truthy.has(normalized)
+  return parseBooleanToken(raw) === true
 }
 
 type Resolver = {
@@ -34,4 +32,3 @@ export async function resolveVectorAutoIndexingEnabled(
     return fallback
   }
 }
-

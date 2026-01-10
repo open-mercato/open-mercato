@@ -5,6 +5,7 @@ import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type ProgressBarHandle = {
   update(completed: number): void
@@ -69,10 +70,10 @@ function flagEnabled(args: ParsedArgs, ...keys: string[]): boolean {
     if (raw === true) return true
     if (raw === false) continue
     if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase()
-      if (normalized === 'true' || normalized === '1' || normalized === '') return true
-      if (normalized === 'false' || normalized === '0') return false
-      return true
+      const trimmed = raw.trim()
+      if (!trimmed) return true
+      const parsed = parseBooleanToken(trimmed)
+      return parsed === null ? true : parsed
     }
   }
   return false

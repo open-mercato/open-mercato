@@ -11,6 +11,7 @@ import {
   dictionaryListResponseSchema,
   upsertDictionarySchema,
 } from './openapi'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['dictionaries.view'] },
@@ -21,7 +22,7 @@ export async function GET(req: Request) {
   try {
     const context = await resolveDictionariesRouteContext(req)
     const url = new URL(req.url)
-    const includeInactive = (url.searchParams.get('includeInactive') ?? '').toLowerCase() === 'true'
+    const includeInactive = parseBooleanToken(url.searchParams.get('includeInactive')) === true
 
     const organizationFilter = context.readableOrganizationIds.length
       ? { organizationId: { $in: context.readableOrganizationIds } }

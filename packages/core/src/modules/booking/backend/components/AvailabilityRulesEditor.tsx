@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { z } from 'zod'
 import { ScheduleView, type ScheduleItem, type ScheduleRange, type ScheduleSlot, type ScheduleViewMode } from '@open-mercato/ui/backend/schedule'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -11,7 +12,8 @@ import { createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
-import { Calendar, List, Trash2 } from 'lucide-react'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { Calendar, Clock, List, Plus, Trash2 } from 'lucide-react'
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -57,6 +59,9 @@ export type AvailabilityRulesEditorProps = {
 }
 
 type TimeWindow = { start: string; end: string }
+type RuleSetFormValues = {
+  name: string
+}
 
 const DAY_LABELS = [
   { code: 'SU', short: 'S', nameKey: 'schedule.weekday.sunday', fallback: 'Sunday' },
@@ -185,6 +190,7 @@ export function AvailabilityRulesEditor({
 }: AvailabilityRulesEditorProps) {
   const t = useT()
   const dialogRef = React.useRef<HTMLDivElement | null>(null)
+  const createRuleSetDialogRef = React.useRef<HTMLDivElement | null>(null)
   const [availabilityRules, setAvailabilityRules] = React.useState<AvailabilityRule[]>([])
   const [rulesetRules, setRulesetRules] = React.useState<AvailabilityRule[]>([])
   const [availabilityLoading, setAvailabilityLoading] = React.useState(true)
@@ -209,6 +215,7 @@ export function AvailabilityRulesEditor({
   const [editorWeekday, setEditorWeekday] = React.useState<number>(new Date().getDay())
   const [editorWindows, setEditorWindows] = React.useState<TimeWindow[]>([createDefaultWindow()])
   const [editorRules, setEditorRules] = React.useState<AvailabilityRule[]>([])
+  const [createRuleSetOpen, setCreateRuleSetOpen] = React.useState(false)
   const autoSaveTimerRef = React.useRef<number | null>(null)
   const lastSavedWeeklyKeyRef = React.useRef<string | null>(null)
 
@@ -236,6 +243,13 @@ export function AvailabilityRulesEditor({
       ruleSetConfirm: t(`${labelPrefix}.availability.ruleset.confirm`, 'Changing the schedule will reset custom hours. Continue?'),
       ruleSetLoading: t(`${labelPrefix}.availability.ruleset.loading`, 'Loading schedules...'),
       ruleSetError: t(`${labelPrefix}.availability.ruleset.error`, 'Failed to load schedules.'),
+      ruleSetCreateLabel: t(`${labelPrefix}.availability.ruleset.create`, 'New schedule'),
+      ruleSetCreateTitle: t(`${labelPrefix}.availability.ruleset.createTitle`, 'Save as schedule'),
+      ruleSetCreateSubmit: t(`${labelPrefix}.availability.ruleset.createSubmit`, 'Save schedule'),
+      ruleSetCreateNameLabel: t(`${labelPrefix}.availability.ruleset.createName`, 'Schedule name'),
+      ruleSetCreateTimezoneLabel: t(`${labelPrefix}.availability.ruleset.createTimezone`, 'Timezone'),
+      ruleSetCreateSuccess: t(`${labelPrefix}.availability.ruleset.createSuccess`, 'Schedule saved.'),
+      ruleSetCreateError: t(`${labelPrefix}.availability.ruleset.createError`, 'Failed to save schedule.'),
       editTitle: t(`${modeBase}.form.title.edit`, 'Edit availability'),
       addTitle: t(`${modeBase}.form.title.create`, 'Add availability'),
       applyLabel: t(`${labelPrefix}.availability.actions.apply`, 'Apply'),
@@ -269,7 +283,7 @@ export function AvailabilityRulesEditor({
     try {
       const params = new URLSearchParams({
         page: '1',
-        pageSize: '200',
+        pageSize: '100',
         subjectType,
         subjectIds: subjectId,
       })
@@ -292,7 +306,7 @@ export function AvailabilityRulesEditor({
     try {
       const params = new URLSearchParams({
         page: '1',
-        pageSize: '200',
+        pageSize: '100',
         subjectType: 'ruleset',
         subjectIds: rulesetId,
       })
@@ -308,7 +322,7 @@ export function AvailabilityRulesEditor({
     if (!onRulesetChange) return
     setRuleSetsLoading(true)
     try {
-      const params = new URLSearchParams({ page: '1', pageSize: '200' })
+      const params = new URLSearchParams({ page: '1', pageSize: '100' })
       const call = await apiCall<{ items?: AvailabilityRuleSet[] }>(`/api/booking/availability-rule-sets?${params.toString()}`)
       const items = Array.isArray(call.result?.items) ? call.result.items : []
       setRuleSets(items)
@@ -559,6 +573,67 @@ export function AvailabilityRulesEditor({
     rulesetId,
   ])
 
+  const ruleSetFormSchema = React.useMemo(
+    () => z.object({
+      name: z.string().min(1, t('ui.forms.errors.required', 'Required')),
+    }),
+    [t],
+  )
+
+  const ruleSetFormFields = React.useMemo<CrudField[]>(() => [
+    {
+      id: 'name',
+      label: listLabels.ruleSetCreateNameLabel,
+      type: 'text',
+      required: true,
+      placeholder: listLabels.ruleSetCreateNameLabel,
+    },
+  ], [listLabels.ruleSetCreateNameLabel])
+
+  const ruleSetInitialValues = React.useMemo<Partial<RuleSetFormValues>>(() => ({
+    name: '',
+  }), [])
+
+  const handleCreateRuleSet = React.useCallback(async (values: RuleSetFormValues) => {
+    const name = values.name.trim()
+    const timezoneValue = timezone
+    const response = await createCrud('booking/availability-rule-sets', {
+      name,
+      timezone: timezoneValue,
+      description: null,
+    }, { errorMessage: listLabels.ruleSetCreateError })
+    const id = response.result?.id
+    if (!id) throw new Error(listLabels.ruleSetCreateError)
+    if (activeRules.length) {
+      await Promise.all(
+        activeRules.map((rule) => createCrud('booking/availability', {
+          subjectType: 'ruleset',
+          subjectId: id,
+          timezone: rule.timezone || timezoneValue,
+          rrule: rule.rrule,
+          exdates: rule.exdates ?? [],
+        }, { errorMessage: listLabels.ruleSetCreateError })),
+      )
+    }
+    await refreshRuleSets()
+    if (onRulesetChange) {
+      await onRulesetChange(id)
+      await refreshAvailability()
+    }
+    await refreshRuleSetRules()
+    flash(listLabels.ruleSetCreateSuccess, 'success')
+    setCreateRuleSetOpen(false)
+  }, [
+    activeRules,
+    listLabels.ruleSetCreateError,
+    listLabels.ruleSetCreateSuccess,
+    onRulesetChange,
+    refreshAvailability,
+    refreshRuleSetRules,
+    refreshRuleSets,
+    timezone,
+  ])
+
   const openEditor = React.useCallback((scope: 'date' | 'weekday', options?: { date?: Date; weekday?: number; rules?: AvailabilityRule[] }) => {
     setEditorScope(scope)
     setEditorRules(options?.rules ?? [])
@@ -713,7 +788,7 @@ export function AvailabilityRulesEditor({
 
   return (
     <>
-      <div className="rounded-xl border bg-card p-4">
+      <div className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -749,51 +824,57 @@ export function AvailabilityRulesEditor({
           </div>
         </div>
 
-        {onRulesetChange ? (
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <label className="text-xs font-medium text-muted-foreground">
-              {listLabels.ruleSetLabel}
-            </label>
-            {ruleSetsLoading ? (
-              <span className="text-xs text-muted-foreground">{listLabels.ruleSetLoading}</span>
-            ) : (
-              <select
-                className="h-9 rounded border px-2 text-sm"
-                value={rulesetId ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value
-                  void handleRuleSetChange(value ? value : null)
-                }}
-              >
-                <option value="">{listLabels.ruleSetPlaceholder}</option>
-                {ruleSets.map((ruleSet) => (
-                  <option key={ruleSet.id} value={ruleSet.id}>
-                    {ruleSet.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {rulesetId && usingRuleSet ? (
-              <Button type="button" variant="outline" size="sm" onClick={handleCustomize}>
-                {listLabels.ruleSetCustomize}
+        <div className="mt-4 space-y-3 rounded-lg border bg-muted/30 p-3">
+          {onRulesetChange ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-xs font-medium text-muted-foreground">
+                {listLabels.ruleSetLabel}
+              </label>
+              {ruleSetsLoading ? (
+                <span className="text-xs text-muted-foreground">{listLabels.ruleSetLoading}</span>
+              ) : (
+                <select
+                  className="h-9 rounded border bg-background px-2 text-sm"
+                  value={rulesetId ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    void handleRuleSetChange(value ? value : null)
+                  }}
+                >
+                  <option value="">{listLabels.ruleSetPlaceholder}</option>
+                  {ruleSets.map((ruleSet) => (
+                    <option key={ruleSet.id} value={ruleSet.id}>
+                      {ruleSet.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <Button type="button" variant="outline" size="sm" onClick={() => setCreateRuleSetOpen(true)}>
+                <Plus className="size-4 mr-2" aria-hidden />
+                {listLabels.ruleSetCreateLabel}
               </Button>
-            ) : null}
-            {rulesetId && !usingRuleSet ? (
-              <Button type="button" variant="ghost" size="sm" onClick={handleResetToRuleSet}>
-                {listLabels.ruleSetReset}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
+              {rulesetId && usingRuleSet ? (
+                <Button type="button" variant="outline" size="sm" onClick={handleCustomize}>
+                  {listLabels.ruleSetCustomize}
+                </Button>
+              ) : null}
+              {rulesetId && !usingRuleSet ? (
+                <Button type="button" variant="ghost" size="sm" onClick={handleResetToRuleSet}>
+                  {listLabels.ruleSetReset}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
 
-        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{listLabels.timezoneLabel}</span>
-          <Input
-            type="text"
-            value={timezone}
-            onChange={(event) => setTimezone(event.target.value)}
-            className="h-8 w-[200px]"
-          />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{listLabels.timezoneLabel}</span>
+            <Input
+              type="text"
+              value={timezone}
+              onChange={(event) => setTimezone(event.target.value)}
+              className="h-8 w-[200px]"
+            />
+          </div>
         </div>
 
         <div className="mt-6">
@@ -831,7 +912,7 @@ export function AvailabilityRulesEditor({
                   {DAY_LABELS.map((day, index) => {
                     const windows = weeklyWindows.get(index) ?? []
                     return (
-                      <div key={day.code} className="flex flex-wrap items-start gap-3 rounded-lg border p-3">
+                      <div key={day.code} className="flex flex-wrap items-start gap-3 rounded-lg border bg-background p-3">
                         <div className="flex w-10 justify-center">
                           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-semibold">
                             {day.short}
@@ -872,6 +953,7 @@ export function AvailabilityRulesEditor({
                             ))
                           )}
                           <Button type="button" variant="outline" size="sm" onClick={() => handleWeeklyWindowAdd(index)} disabled={usingRuleSet}>
+                            <Plus className="size-4 mr-2" aria-hidden />
                             {listLabels.addWindow}
                           </Button>
                         </div>
@@ -887,12 +969,13 @@ export function AvailabilityRulesEditor({
                     <p className="text-sm text-muted-foreground">{listLabels.dateSpecificSubtitle}</p>
                   </div>
                   <Button type="button" variant="outline" size="sm" onClick={() => openEditor('date')} disabled={usingRuleSet}>
+                    <Clock className="size-4 mr-2" aria-hidden />
                     {listLabels.addHours}
                   </Button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {Array.from(dateGroups.entries()).map(([date, rules]) => (
-                    <div key={date} className="rounded-lg border p-3">
+                    <div key={date} className="rounded-lg border bg-background p-3">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold">{date}</div>
                         <div className="flex items-center gap-2">
@@ -960,114 +1043,166 @@ export function AvailabilityRulesEditor({
               {editorRules.length ? listLabels.editTitle : listLabels.addTitle}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">
-                {listLabels.applyScopeLabel}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant={editorScope === 'date' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setEditorScope('date')}
-                >
-                  {listLabels.applyScopeDate}
-                </Button>
-                <Button
-                  type="button"
-                  variant={editorScope === 'weekday' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setEditorScope('weekday')}
-                >
-                  {listLabels.editAllLabel}
-                </Button>
-              </div>
-            </div>
+          <CrudForm
+            embedded
+            fields={[
+              {
+                id: 'availabilityEditor',
+                label: listLabels.applyScopeLabel,
+                type: 'custom',
+                component: () => (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <div role="tablist" aria-label={listLabels.applyScopeLabel} className="inline-flex rounded-lg border bg-muted p-1 text-xs">
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={editorScope === 'date'}
+                          onClick={() => setEditorScope('date')}
+                          className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                            editorScope === 'date'
+                              ? 'bg-background text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {listLabels.applyScopeDate}
+                        </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={editorScope === 'weekday'}
+                          onClick={() => setEditorScope('weekday')}
+                          className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                            editorScope === 'weekday'
+                              ? 'bg-background text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {listLabels.editAllLabel}
+                        </button>
+                      </div>
+                    </div>
 
-            {editorScope === 'date' ? (
-              <div className="space-y-2">
-                {editorDates.map((value, index) => (
-                  <div key={`${value}-${index}`} className="flex items-center gap-2">
-                    <Input
-                      type="date"
-                      value={value}
-                      onChange={(event) => handleEditorDateChange(index, event.target.value)}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => handleEditorDateRemove(index)}
-                      aria-label={listLabels.removeWindow}
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                    </Button>
+                    {editorScope === 'date' ? (
+                      <div className="space-y-2">
+                        {editorDates.map((value, index) => (
+                          <div key={`${value}-${index}`} className="flex items-center gap-2">
+                            <Input
+                              type="date"
+                              value={value}
+                              onChange={(event) => handleEditorDateChange(index, event.target.value)}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleEditorDateRemove(index)}
+                              aria-label={listLabels.removeWindow}
+                            >
+                              <Trash2 className="size-4" aria-hidden />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button type="button" variant="outline" size="sm" onClick={handleEditorDateAdd}>
+                          <Plus className="size-4 mr-2" aria-hidden />
+                          {listLabels.addDateLabel}
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <label className="text-xs text-muted-foreground">{listLabels.applyScopeWeekday}</label>
+                        <select
+                          className="h-9 rounded border bg-background px-2 text-sm"
+                          value={String(editorWeekday)}
+                          onChange={(event) => setEditorWeekday(Number(event.target.value))}
+                        >
+                          {DAY_LABELS.map((day, index) => (
+                            <option key={day.code} value={index}>
+                              {t(day.nameKey, day.fallback)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-muted-foreground">{listLabels.windowsLabel}</label>
+                      {editorWindows.map((window, index) => (
+                        <div key={`${index}-${window.start}`} className="flex flex-wrap items-center gap-2">
+                          <Input
+                            type="time"
+                            value={window.start}
+                            onChange={(event) => handleEditorWindowChange(index, { ...window, start: event.target.value })}
+                            className="h-9 w-[120px]"
+                          />
+                          <span className="text-sm text-muted-foreground">-</span>
+                          <Input
+                            type="time"
+                            value={window.end}
+                            onChange={(event) => handleEditorWindowChange(index, { ...window, end: event.target.value })}
+                            className="h-9 w-[120px]"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleEditorWindowRemove(index)}
+                            aria-label={listLabels.removeWindow}
+                          >
+                            <Trash2 className="size-4" aria-hidden />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button type="button" variant="outline" size="sm" onClick={handleEditorWindowAdd}>
+                        <Plus className="size-4 mr-2" aria-hidden />
+                        {listLabels.addWindow}
+                      </Button>
+                    </div>
                   </div>
-                ))}
-                <Button type="button" variant="outline" size="sm" onClick={handleEditorDateAdd}>
-                  {listLabels.addDateLabel}
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">{listLabels.applyScopeWeekday}</label>
-                <select
-                  className="h-9 rounded border px-2 text-sm"
-                  value={String(editorWeekday)}
-                  onChange={(event) => setEditorWeekday(Number(event.target.value))}
-                >
-                  {DAY_LABELS.map((day, index) => (
-                    <option key={day.code} value={index}>
-                      {t(day.nameKey, day.fallback)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">{listLabels.windowsLabel}</label>
-              {editorWindows.map((window, index) => (
-                <div key={`${index}-${window.start}`} className="flex flex-wrap items-center gap-2">
-                  <Input
-                    type="time"
-                    value={window.start}
-                    onChange={(event) => handleEditorWindowChange(index, { ...window, start: event.target.value })}
-                    className="h-9 w-[120px]"
-                  />
-                  <span className="text-sm text-muted-foreground">-</span>
-                  <Input
-                    type="time"
-                    value={window.end}
-                    onChange={(event) => handleEditorWindowChange(index, { ...window, end: event.target.value })}
-                    className="h-9 w-[120px]"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleEditorWindowRemove(index)}
-                    aria-label={listLabels.removeWindow}
-                  >
-                    <Trash2 className="size-4" aria-hidden />
-                  </Button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={handleEditorWindowAdd}>
-                {listLabels.addWindow}
-              </Button>
-            </div>
-
-            <div className="flex justify-end gap-2">
+                ),
+              },
+            ]}
+            onSubmit={handleEditorSubmit}
+            submitLabel={listLabels.applyLabel}
+            extraActions={(
               <Button type="button" variant="ghost" onClick={() => setEditorOpen(false)}>
                 {listLabels.cancelLabel}
               </Button>
-              <Button type="button" onClick={handleEditorSubmit}>
-                {listLabels.applyLabel}
+            )}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={createRuleSetOpen}
+        onOpenChange={(open) => setCreateRuleSetOpen(open)}
+      >
+        <DialogContent
+          ref={createRuleSetDialogRef}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              const form = createRuleSetDialogRef.current?.querySelector('form')
+              form?.requestSubmit()
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{listLabels.ruleSetCreateTitle}</DialogTitle>
+          </DialogHeader>
+          <CrudForm<RuleSetFormValues>
+            embedded
+            schema={ruleSetFormSchema}
+            fields={ruleSetFormFields}
+            initialValues={ruleSetInitialValues}
+            onSubmit={handleCreateRuleSet}
+            submitLabel={listLabels.ruleSetCreateSubmit}
+            extraActions={(
+              <Button type="button" variant="ghost" onClick={() => setCreateRuleSetOpen(false)}>
+                {listLabels.cancelLabel}
               </Button>
-            </div>
-          </div>
+            )}
+          />
         </DialogContent>
       </Dialog>
     </>

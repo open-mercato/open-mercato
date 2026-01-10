@@ -152,7 +152,7 @@ export function AvailabilitySchedule({
     try {
       const params = new URLSearchParams({
         page: '1',
-        pageSize: '200',
+        pageSize: '100',
         subjectType,
         subjectIds: subjectId,
       })

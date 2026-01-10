@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { parseBooleanToken } from '../boolean'
 
 export type CrudCacheIdentifiers = {
   id?: string | null
@@ -10,16 +11,14 @@ export type CrudCacheIdentifiers = {
 let crudCacheEnabledFlag: boolean | null = null
 export function isCrudCacheEnabled(): boolean {
   if (crudCacheEnabledFlag !== null) return crudCacheEnabledFlag
-  const raw = (process.env.ENABLE_CRUD_API_CACHE ?? '').toLowerCase()
-  crudCacheEnabledFlag = raw === '1' || raw === 'true' || raw === 'yes'
+  crudCacheEnabledFlag = parseBooleanToken(process.env.ENABLE_CRUD_API_CACHE ?? '') === true
   return crudCacheEnabledFlag
 }
 
 let crudCacheDebugFlag: boolean | null = null
 export function isCrudCacheDebugEnabled(): boolean {
   if (crudCacheDebugFlag !== null) return crudCacheDebugFlag
-  const raw = (process.env.QUERY_ENGINE_DEBUG_SQL ?? '').toLowerCase()
-  crudCacheDebugFlag = raw === '1' || raw === 'true' || raw === 'yes'
+  crudCacheDebugFlag = parseBooleanToken(process.env.QUERY_ENGINE_DEBUG_SQL ?? '') === true
   return crudCacheDebugFlag
 }
 

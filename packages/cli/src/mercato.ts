@@ -5,6 +5,7 @@
 import { createRequestContainer } from '@/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
 import generatedModules from '@/generated/modules.generated'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 let envLoaded = false
 
@@ -236,8 +237,8 @@ export async function run(argv = process.argv) {
         runCommand(`yarn mercato booking seed-capacity-units --tenant ${tenantId} --org ${orgId}`)
         console.log('📐 ✅ Booking capacity units seeded\n')
 
-        const encryptionEnv = String(process.env.TENANT_DATA_ENCRYPTION ?? 'yes').toLowerCase()
-        const encryptionEnabled = encryptionEnv === 'yes' || encryptionEnv === 'true' || encryptionEnv === '1' || encryptionEnv === ''
+        const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
+        const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {
           console.log('🔒 Seeding encryption defaults...')
           runCommand(`yarn mercato entities seed-encryption --tenant ${tenantId} --org ${orgId}`)

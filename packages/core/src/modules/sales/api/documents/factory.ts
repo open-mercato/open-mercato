@@ -17,6 +17,7 @@ import {
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -129,7 +130,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
-  if (query.tagIdsEmpty === 'true') {
+  if (parseBooleanToken(query.tagIdsEmpty) === true) {
     filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
   } else if (tagIds.length) {
     filters['tag_assignments.tag_id'] = { $in: tagIds }

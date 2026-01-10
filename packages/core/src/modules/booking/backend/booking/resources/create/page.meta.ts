@@ -5,7 +5,7 @@ export const metadata = {
   pageTitleKey: 'booking.resources.form.createTitle',
   pageGroup: 'Booking',
   pageGroupKey: 'booking.nav.group',
-  navHidden: true,
+  pageOrder: 91,
   breadcrumb: [
     { label: 'Resources', labelKey: 'booking.resources.page.title', href: '/backend/booking/resources' },
     { label: 'Create', labelKey: 'common.create' },
