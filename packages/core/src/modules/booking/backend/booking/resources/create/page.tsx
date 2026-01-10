@@ -6,7 +6,6 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { BOOKING_RESOURCE_FIELDSET_DEFAULT } from '@open-mercato/core/modules/booking/lib/resourceCustomFields'
 import { BookingResourceForm, useBookingResourceFormConfig } from '@open-mercato/core/modules/booking/backend/booking/resources/ResourceCrudForm'
@@ -40,7 +39,11 @@ export default function BookingResourceCreatePage() {
     const { result } = await createCrud<{ id?: string }>('booking/resources', payload, {
       errorMessage: t('booking.resources.form.errors.create', 'Failed to create resource.'),
     })
-    flash(t('booking.resources.form.flash.created', 'Resource created.'), 'success')
+    const resourceId = typeof result?.id === 'string' ? result.id : null
+    if (resourceId) {
+      router.push(`/backend/booking/resources/${encodeURIComponent(resourceId)}?tab=availability&created=1`)
+      return
+    }
     router.push('/backend/booking/resources')
   }, [router, t])
 

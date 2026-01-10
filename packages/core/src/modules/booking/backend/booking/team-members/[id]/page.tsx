@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -79,12 +79,14 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
   const memberId = params?.id
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [roles, setRoles] = React.useState<TeamRoleRow[]>([])
   const [userOptions, setUserOptions] = React.useState<LookupSelectItem[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const flashShownRef = React.useRef(false)
 
   React.useEffect(() => {
     if (!memberId) return
@@ -145,6 +147,26 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     loadMember()
     return () => { cancelled = true }
   }, [memberId, t])
+
+  React.useEffect(() => {
+    if (!searchParams) return
+    const tabParam = searchParams.get('tab')
+    if (tabParam === 'availability') {
+      setActiveTab('availability')
+    }
+    const created = searchParams.get('created') === '1'
+    if (created && !flashShownRef.current) {
+      flashShownRef.current = true
+      flash(t('booking.teamMembers.flash.createdAvailability', 'Saved. You can now set availability.'), 'success')
+      const nextParams = new URLSearchParams(searchParams.toString())
+      nextParams.delete('created')
+      const nextQuery = nextParams.toString()
+      const nextPath = memberId
+        ? `/backend/booking/team-members/${encodeURIComponent(memberId)}${nextQuery ? `?${nextQuery}` : ''}`
+        : `/backend/booking/team-members${nextQuery ? `?${nextQuery}` : ''}`
+      router.replace(nextPath)
+    }
+  }, [memberId, router, searchParams, t])
 
   React.useEffect(() => {
     let cancelled = false

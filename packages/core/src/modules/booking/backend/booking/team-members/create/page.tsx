@@ -7,7 +7,6 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
@@ -142,8 +141,11 @@ export default function BookingTeamMemberCreatePage() {
       errorMessage: t('booking.teamMembers.form.errors.create', 'Failed to create team member.'),
     })
     const memberId = typeof result?.id === 'string' ? result.id : null
-    flash(t('booking.teamMembers.form.flash.created', 'Team member created.'), 'success')
-    router.push(memberId ? `/backend/booking/team-members/${encodeURIComponent(memberId)}` : '/backend/booking/team-members')
+    if (memberId) {
+      router.push(`/backend/booking/team-members/${encodeURIComponent(memberId)}?tab=availability&created=1`)
+      return
+    }
+    router.push('/backend/booking/team-members')
   }, [router, t])
 
   return (

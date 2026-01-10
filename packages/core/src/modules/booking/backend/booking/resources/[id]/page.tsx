@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -69,12 +69,34 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const resourceId = params?.id
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const flashShownRef = React.useRef(false)
 
   const availabilityMode = 'unavailability'
+
+  React.useEffect(() => {
+    if (!searchParams) return
+    const tabParam = searchParams.get('tab')
+    if (tabParam === 'availability') {
+      setActiveTab('availability')
+    }
+    const created = searchParams.get('created') === '1'
+    if (created && !flashShownRef.current) {
+      flashShownRef.current = true
+      flash(t('booking.resources.flash.createdAvailability', 'Saved. You can now set availability.'), 'success')
+      const nextParams = new URLSearchParams(searchParams.toString())
+      nextParams.delete('created')
+      const nextQuery = nextParams.toString()
+      const nextPath = resourceId
+        ? `/backend/booking/resources/${encodeURIComponent(resourceId)}${nextQuery ? `?${nextQuery}` : ''}`
+        : `/backend/booking/resources${nextQuery ? `?${nextQuery}` : ''}`
+      router.replace(nextPath)
+    }
+  }, [resourceId, router, searchParams, t])
 
   const loadBookedEvents = React.useCallback(async (nextRange: { start: Date; end: Date }): Promise<AvailabilityBookedEvent[]> => {
     if (!resourceId) return []

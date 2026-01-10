@@ -47,6 +47,7 @@ export function parseAvailabilityRuleWindow(rule: ResourceAvailabilityRule): Ava
   const dtStartMatch = rule.rrule.match(/DTSTART[:=](\d{8}T\d{6}Z?)/)
   const durationMatch = rule.rrule.match(/DURATION:PT(?:(\d+)H)?(?:(\d+)M)?/)
   const freqMatch = rule.rrule.match(/FREQ=([A-Z]+)/)
+  const countMatch = rule.rrule.match(/COUNT=(\d+)/)
   let start = new Date()
   if (dtStartMatch?.[1]) {
     const raw = dtStartMatch[1].replace(/Z$/, '')
@@ -69,7 +70,14 @@ export function parseAvailabilityRuleWindow(rule: ResourceAvailabilityRule): Ava
   }
   const end = new Date(start.getTime() + durationMinutes * 60000)
   const freq = freqMatch?.[1]
-  const repeat: AvailabilityRepeat = freq === 'WEEKLY' ? 'weekly' : freq === 'DAILY' ? 'daily' : 'once'
+  const repeat: AvailabilityRepeat =
+    freq === 'WEEKLY'
+      ? 'weekly'
+      : freq === 'DAILY' && countMatch?.[1] === '1'
+        ? 'once'
+        : freq === 'DAILY'
+          ? 'daily'
+          : 'once'
   return { startAt: start, endAt: end, repeat }
 }
 

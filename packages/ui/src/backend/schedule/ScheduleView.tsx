@@ -125,8 +125,11 @@ export function ScheduleView({
 
   const handleViewChange = React.useCallback((nextView: View) => {
     const resolved = nextView as ScheduleViewMode
-    if (resolved !== view) onViewChange(resolved)
-  }, [onViewChange, view])
+    if (resolved !== view) {
+      onViewChange(resolved)
+      onRangeChange(deriveRange(new Date(), resolved, agendaLength))
+    }
+  }, [agendaLength, onRangeChange, onViewChange, view])
 
   const rootClassName = ['schedule-view', className].filter(Boolean).join(' ')
 

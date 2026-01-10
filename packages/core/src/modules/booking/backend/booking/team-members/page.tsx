@@ -223,8 +223,7 @@ export default function BookingTeamMembersPage() {
           }}
           rowActions={(row) => (
             <RowActions
-              row={row}
-              actions={[
+              items={[
                 { label: labels.actions.edit, onSelect: () => { router.push(`/backend/booking/team-members/${row.original.id}`) } },
                 { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row.original) } },
               ]}
