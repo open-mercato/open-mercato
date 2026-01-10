@@ -574,6 +574,15 @@
           "nullable": false,
           "mappedType": "uuid"
         },
+        "customer_id": {
+          "name": "customer_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "first_name": {
           "name": "first_name",
           "type": "text",

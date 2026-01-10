@@ -489,6 +489,9 @@ export class BookingEventAttendee {
   @Property({ name: 'event_id', type: 'uuid' })
   eventId!: string
 
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
   @Property({ name: 'first_name', type: 'text' })
   firstName!: string
 
