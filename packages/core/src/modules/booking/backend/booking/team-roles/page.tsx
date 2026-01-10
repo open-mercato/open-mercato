@@ -137,7 +137,7 @@ export default function BookingTeamRolesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [labels.errors.load, page, search, sorting])
+  }, [labels.errors.load, labels.groups, page, search, sorting])
 
   React.useEffect(() => {
     void loadTeamRoles()

@@ -1,7 +1,12 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { seedBookingCapacityUnits, seedBookingResourceExamples, type BookingSeedScope } from './lib/seeds'
+import {
+  seedBookingAvailabilityRuleSetDefaults,
+  seedBookingCapacityUnits,
+  seedBookingResourceExamples,
+  type BookingSeedScope,
+} from './lib/seeds'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -74,4 +79,31 @@ const seedExamplesCommand: ModuleCli = {
   },
 }
 
-export default [seedCapacityUnitsCommand, seedExamplesCommand]
+const seedAvailabilityRuleSetsCommand: ModuleCli = {
+  command: 'seed-availability-rulesets',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato booking seed-availability-rulesets --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    const container = await createRequestContainer()
+    const scope: BookingSeedScope = { tenantId, organizationId }
+    try {
+      const em = container.resolve<EntityManager>('em')
+      await em.transactional(async (tem) => {
+        await seedBookingAvailabilityRuleSetDefaults(tem, scope)
+      })
+      console.log('🗓️  Booking availability rule sets seeded for organization', organizationId)
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [seedCapacityUnitsCommand, seedAvailabilityRuleSetsCommand, seedExamplesCommand]

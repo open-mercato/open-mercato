@@ -243,6 +243,10 @@ export async function run(argv = process.argv) {
         runCommand(`yarn mercato booking seed-capacity-units --tenant ${tenantId} --org ${orgId}`)
         console.log('📐 ✅ Booking capacity units seeded\n')
 
+        console.log('🗓️  Seeding booking availability schedules...')
+        runCommand(`yarn mercato booking seed-availability-rulesets --tenant ${tenantId} --org ${orgId}`)
+        console.log('🗓️  ✅ Booking availability schedules seeded\n')
+
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
         const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {

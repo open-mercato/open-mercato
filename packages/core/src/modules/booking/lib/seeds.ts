@@ -11,8 +11,11 @@ import {
   BookingResourceTagAssignment,
   BookingResourceType,
   BookingService,
+  BookingTeam,
   BookingTeamMember,
   BookingTeamRole,
+  BookingAvailabilityRule,
+  BookingAvailabilityRuleSet,
   type BookingResourceRequirement,
   type BookingResourceTypeRequirement,
 } from '../data/entities'
@@ -30,6 +33,12 @@ import {
 } from './resourceCustomFields'
 
 export type BookingSeedScope = { tenantId: string; organizationId: string }
+
+const DEFAULT_AVAILABILITY_RULESET_NAME = 'Default working hours'
+const DEFAULT_AVAILABILITY_RULESET_DESCRIPTION = 'Standard working hours: Monday-Friday, 09:00-17:00.'
+const DEFAULT_AVAILABILITY_RULESET_TIMEZONE = 'UTC'
+const DEFAULT_AVAILABILITY_RULESET_WEEKDAYS = [1, 2, 3, 4, 5]
+const DEFAULT_WORKING_HOURS = { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 }
 
 async function ensureResourceFieldsetConfig(em: EntityManager, scope: BookingSeedScope) {
   const now = new Date()
@@ -119,6 +128,104 @@ export async function seedBookingCapacityUnits(
   await em.flush()
 }
 
+function formatDuration(minutes: number): string {
+  const clamped = Math.max(1, minutes)
+  const hours = Math.floor(clamped / 60)
+  const mins = clamped % 60
+  if (hours > 0 && mins > 0) return `PT${hours}H${mins}M`
+  if (hours > 0) return `PT${hours}H`
+  return `PT${mins}M`
+}
+
+function buildAvailabilityRrule(start: Date, end: Date, weekdayCode: string): string {
+  const dtStart = start.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+  const durationMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
+  const duration = formatDuration(durationMinutes)
+  const rule = `FREQ=WEEKLY;BYDAY=${weekdayCode}`
+  return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:${rule}`
+}
+
+function weekdayCodeForIndex(index: number): string {
+  const codes = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+  return codes[index] ?? 'MO'
+}
+
+function buildWeeklyRuleForWeekday(weekdayIndex: number): string {
+  const baseMonday = Date.UTC(2025, 0, 6, 0, 0, 0)
+  const offsetDays = (weekdayIndex - 1 + 7) % 7
+  const start = new Date(baseMonday + offsetDays * 24 * 60 * 60 * 1000)
+  start.setUTCHours(DEFAULT_WORKING_HOURS.startHour, DEFAULT_WORKING_HOURS.startMinute, 0, 0)
+  const end = new Date(baseMonday + offsetDays * 24 * 60 * 60 * 1000)
+  end.setUTCHours(DEFAULT_WORKING_HOURS.endHour, DEFAULT_WORKING_HOURS.endMinute, 0, 0)
+  return buildAvailabilityRrule(start, end, weekdayCodeForIndex(weekdayIndex))
+}
+
+export async function seedBookingAvailabilityRuleSetDefaults(
+  em: EntityManager,
+  scope: BookingSeedScope,
+) {
+  const now = new Date()
+  const existing = await findWithDecryption(
+    em,
+    BookingAvailabilityRuleSet,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: DEFAULT_AVAILABILITY_RULESET_NAME,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const ruleSet = existing[0] ?? em.create(BookingAvailabilityRuleSet, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    name: DEFAULT_AVAILABILITY_RULESET_NAME,
+    description: DEFAULT_AVAILABILITY_RULESET_DESCRIPTION,
+    timezone: DEFAULT_AVAILABILITY_RULESET_TIMEZONE,
+    createdAt: now,
+    updatedAt: now,
+  })
+  if (!existing[0]) {
+    em.persist(ruleSet)
+    await em.flush()
+  }
+
+  const rules = await findWithDecryption(
+    em,
+    BookingAvailabilityRule,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      subjectType: 'ruleset',
+      subjectId: ruleSet.id,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const existingByRrule = new Set(rules.map((rule) => rule.rrule))
+  for (const weekday of DEFAULT_AVAILABILITY_RULESET_WEEKDAYS) {
+    const rrule = buildWeeklyRuleForWeekday(weekday)
+    if (existingByRrule.has(rrule)) continue
+    const rule = em.create(BookingAvailabilityRule, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      subjectType: 'ruleset',
+      subjectId: ruleSet.id,
+      timezone: DEFAULT_AVAILABILITY_RULESET_TIMEZONE,
+      rrule,
+      exdates: [],
+      kind: 'availability',
+      note: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(rule)
+  }
+  await em.flush()
+}
+
 type BookingResourceTypeSeed = {
   key: string
   name: string
@@ -157,6 +264,7 @@ type BookingServiceSeed = {
 type BookingTeamRoleSeed = {
   key: string
   name: string
+  teamKey?: string | null
   description?: string | null
   appearanceIcon?: string | null
   appearanceColor?: string | null
@@ -165,10 +273,17 @@ type BookingTeamRoleSeed = {
 type BookingTeamMemberSeed = {
   key: string
   displayName: string
+  teamKey?: string | null
   description?: string | null
   roleKeys: string[]
   tags?: string[]
   userIndex?: number
+}
+
+type BookingTeamSeed = {
+  key: string
+  name: string
+  description?: string | null
 }
 
 function normalizeAssetTag(value: string): string {
@@ -372,6 +487,7 @@ const TEAM_ROLE_SEEDS: BookingTeamRoleSeed[] = [
   {
     key: 'lead_provider',
     name: 'Lead provider',
+    teamKey: 'providers',
     description: 'Primary service provider for client appointments.',
     appearanceIcon: 'lucide:badge-check',
     appearanceColor: '#16a34a',
@@ -379,6 +495,7 @@ const TEAM_ROLE_SEEDS: BookingTeamRoleSeed[] = [
   {
     key: 'assistant',
     name: 'Assistant',
+    teamKey: 'providers',
     description: 'Supports service delivery and preparation.',
     appearanceIcon: 'lucide:user-round',
     appearanceColor: '#2563eb',
@@ -386,9 +503,23 @@ const TEAM_ROLE_SEEDS: BookingTeamRoleSeed[] = [
   {
     key: 'coordinator',
     name: 'Coordinator',
+    teamKey: 'operations',
     description: 'Handles scheduling and client check-ins.',
     appearanceIcon: 'lucide:clipboard-list',
     appearanceColor: '#ea580c',
+  },
+]
+
+const TEAM_SEEDS: BookingTeamSeed[] = [
+  {
+    key: 'providers',
+    name: 'Service providers',
+    description: 'Core delivery team for booked services.',
+  },
+  {
+    key: 'operations',
+    name: 'Operations',
+    description: 'Scheduling and front desk support.',
   },
 ]
 
@@ -396,6 +527,7 @@ const TEAM_MEMBER_SEEDS: BookingTeamMemberSeed[] = [
   {
     key: 'alex_morgan',
     displayName: 'Alex Morgan',
+    teamKey: 'providers',
     description: 'Lead provider focused on quality sessions.',
     roleKeys: ['lead_provider'],
     tags: ['lead', 'experience'],
@@ -404,6 +536,7 @@ const TEAM_MEMBER_SEEDS: BookingTeamMemberSeed[] = [
   {
     key: 'riley_park',
     displayName: 'Riley Park',
+    teamKey: 'providers',
     description: 'Assistant supporting daily appointments.',
     roleKeys: ['assistant'],
     tags: ['support'],
@@ -412,6 +545,7 @@ const TEAM_MEMBER_SEEDS: BookingTeamMemberSeed[] = [
   {
     key: 'jordan_lee',
     displayName: 'Jordan Lee',
+    teamKey: 'operations',
     description: 'Coordinates client prep and follow-ups.',
     roleKeys: ['coordinator'],
     tags: ['operations'],
@@ -424,6 +558,50 @@ async function seedBookingTeamExamples(
   scope: BookingSeedScope,
 ) {
   const now = new Date()
+  const teamNames = TEAM_SEEDS.map((seed) => seed.name)
+  const existingTeams = await findWithDecryption(
+    em,
+    BookingTeam,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: { $in: teamNames },
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const teamByName = new Map(existingTeams.map((team) => [team.name.toLowerCase(), team]))
+  const teamByKey = new Map<string, BookingTeam>()
+  for (const seed of TEAM_SEEDS) {
+    const existing = teamByName.get(seed.name.toLowerCase())
+    if (existing) {
+      let updated = false
+      if (!existing.description && seed.description) {
+        existing.description = seed.description
+        updated = true
+      }
+      if (updated) {
+        existing.updatedAt = now
+        em.persist(existing)
+      }
+      teamByKey.set(seed.key, existing)
+      continue
+    }
+    const record = em.create(BookingTeam, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: seed.name,
+      description: seed.description ?? null,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(record)
+    teamByKey.set(seed.key, record)
+  }
+  await em.flush()
+
   const roleNames = TEAM_ROLE_SEEDS.map((seed) => seed.name)
   const existingRoles = await findWithDecryption(
     em,
@@ -441,8 +619,13 @@ async function seedBookingTeamExamples(
   const roleByKey = new Map<string, BookingTeamRole>()
   for (const seed of TEAM_ROLE_SEEDS) {
     const existing = roleByName.get(seed.name.toLowerCase())
+    const teamId = seed.teamKey ? teamByKey.get(seed.teamKey)?.id ?? null : null
     if (existing) {
       let updated = false
+      if (!existing.teamId && teamId) {
+        existing.teamId = teamId
+        updated = true
+      }
       if (!existing.appearanceIcon && seed.appearanceIcon) {
         existing.appearanceIcon = seed.appearanceIcon
         updated = true
@@ -465,6 +648,7 @@ async function seedBookingTeamExamples(
     const record = em.create(BookingTeamRole, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
+      teamId,
       name: seed.name,
       description: seed.description ?? null,
       appearanceIcon: seed.appearanceIcon ?? null,
@@ -516,9 +700,14 @@ async function seedBookingTeamExamples(
     const userId = typeof seed.userIndex === 'number'
       ? sortedUsers[seed.userIndex]?.id ?? null
       : null
+    const teamId = seed.teamKey ? teamByKey.get(seed.teamKey)?.id ?? null : null
     const existing = memberByName.get(seed.displayName.toLowerCase())
     if (existing) {
       let updated = false
+      if (!existing.teamId && teamId) {
+        existing.teamId = teamId
+        updated = true
+      }
       if (!existing.description && seed.description) {
         existing.description = seed.description
         updated = true
@@ -545,6 +734,7 @@ async function seedBookingTeamExamples(
     const record = em.create(BookingTeamMember, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
+      teamId,
       displayName: seed.displayName,
       description: seed.description ?? null,
       userId,
