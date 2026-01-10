@@ -67,6 +67,7 @@ type TimeWindow = { start: string; end: string }
 type RuleSetFormValues = {
   name: string
 }
+type WeeklyWindows = TimeWindow[][]
 
 const DAY_LABELS = [
   { code: 'SU', short: 'S', nameKey: 'schedule.weekday.sunday', fallback: 'Sunday' },
@@ -219,12 +220,68 @@ function buildWindowsFromRules(rules: AvailabilityRule[]): TimeWindow[] {
     .sort((a, b) => a.start.localeCompare(b.start))
 }
 
-function serializeWeeklyWindows(map: Map<number, TimeWindow[]>): string {
-  const payload = Array.from({ length: 7 }, (_, day) => {
-    const windows = map.get(day) ?? []
-    return windows.map((window) => ({ start: window.start, end: window.end }))
+function createEmptyWeeklyWindows(): WeeklyWindows {
+  return Array.from({ length: 7 }, () => [])
+}
+
+function cloneWeeklyWindows(windows: WeeklyWindows): WeeklyWindows {
+  return windows.map((dayWindows) => dayWindows.map((window) => ({ ...window })))
+}
+
+function normalizeWeeklyWindows(windows: WeeklyWindows): WeeklyWindows {
+  return windows.map((dayWindows) => {
+    const unique = new Map<string, TimeWindow>()
+    dayWindows.forEach((window) => {
+      if (!window.start || !window.end) return
+      const key = `${window.start}-${window.end}`
+      if (!unique.has(key)) unique.set(key, { start: window.start, end: window.end })
+    })
+    return Array.from(unique.values()).sort((left, right) => left.start.localeCompare(right.start))
   })
+}
+
+function buildWeeklyDraft(rules: AvailabilityRule[]): WeeklyWindows {
+  const draft = createEmptyWeeklyWindows()
+  rules.forEach((rule) => {
+    const window = parseAvailabilityRuleWindow(rule)
+    const repeat = window.repeat
+    if (repeat === 'once') return
+    const windowValue = {
+      start: formatTimeInput(window.startAt),
+      end: formatTimeInput(window.endAt),
+    }
+    if (repeat === 'daily') {
+      for (let day = 0; day < 7; day += 1) {
+        draft[day].push(windowValue)
+      }
+      return
+    }
+    const day = window.startAt.getDay()
+    draft[day].push(windowValue)
+  })
+  return normalizeWeeklyWindows(draft)
+}
+
+function serializeWeeklyWindows(windows: WeeklyWindows): string {
+  const payload = windows.map((dayWindows) => dayWindows.map((window) => ({ start: window.start, end: window.end })))
   return JSON.stringify(payload)
+}
+
+function buildWeeklyPayload(windows: WeeklyWindows): Array<{ weekday: number; start: string; end: string }> {
+  const payload: Array<{ weekday: number; start: string; end: string }> = []
+  const seen = new Set<string>()
+  windows.forEach((dayWindows, day) => {
+    dayWindows.forEach((window) => {
+      const start = toDateForWeekday(day, window.start)
+      const end = toDateForWeekday(day, window.end)
+      if (!start || !end || start >= end) return
+      const key = `${day}:${window.start}:${window.end}`
+      if (seen.has(key)) return
+      seen.add(key)
+      payload.push({ weekday: day, start: window.start, end: window.end })
+    })
+  })
+  return payload
 }
 
 export function AvailabilityRulesEditor({
@@ -493,52 +550,26 @@ export function AvailabilityRulesEditor({
     void refreshBookedEvents()
   }, [refreshBookedEvents])
 
-  const weeklyDraft = React.useMemo(() => {
-    const draft = new Map<number, TimeWindow[]>()
-    for (let day = 0; day < 7; day += 1) {
-      draft.set(day, [])
-    }
-    activeRules.forEach((rule) => {
-      const window = parseAvailabilityRuleWindow(rule)
-      const repeat = window.repeat
-      if (repeat === 'once') return
-      const windowValue = {
-        start: formatTimeInput(window.startAt),
-        end: formatTimeInput(window.endAt),
-      }
-      if (repeat === 'daily') {
-        for (let day = 0; day < 7; day += 1) {
-          const list = draft.get(day) ?? []
-          list.push(windowValue)
-          draft.set(day, list)
-        }
-      } else {
-        const day = window.startAt.getDay()
-        const list = draft.get(day) ?? []
-        list.push(windowValue)
-        draft.set(day, list)
-      }
-    })
-    return draft
-  }, [activeRules])
-
-  const [weeklyWindows, setWeeklyWindows] = React.useState<Map<number, TimeWindow[]>>(weeklyDraft)
+  const weeklyDraft = React.useMemo(() => buildWeeklyDraft(activeRules), [activeRules])
+  const [weeklyWindows, setWeeklyWindows] = React.useState<WeeklyWindows>(() => cloneWeeklyWindows(weeklyDraft))
+  const weeklyWindowsRef = React.useRef<WeeklyWindows>(cloneWeeklyWindows(weeklyDraft))
+  const weeklyDirtyRef = React.useRef(false)
   const weeklyDraftKey = React.useMemo(() => serializeWeeklyWindows(weeklyDraft), [weeklyDraft])
   const weeklyKey = React.useMemo(() => serializeWeeklyWindows(weeklyWindows), [weeklyWindows])
-  const weeklyWindowErrors = React.useMemo(() => {
-    const map = new Map<number, Array<string | null>>()
-    weeklyWindows.forEach((windows, day) => {
-      map.set(day, windows.map((window) => getWindowError(window, listLabels)))
-    })
-    return map
-  }, [listLabels, weeklyWindows])
+  const weeklyWindowErrors = React.useMemo(
+    () => weeklyWindows.map((dayWindows) => dayWindows.map((window) => getWindowError(window, listLabels))),
+    [listLabels, weeklyWindows],
+  )
   const weeklyHasErrors = React.useMemo(
-    () => Array.from(weeklyWindowErrors.values()).some((errors) => errors.some(Boolean)),
+    () => weeklyWindowErrors.some((errors) => errors.some(Boolean)),
     [weeklyWindowErrors],
   )
 
   React.useEffect(() => {
-    setWeeklyWindows(weeklyDraft)
+    if (weeklyDirtyRef.current) return
+    const nextWindows = cloneWeeklyWindows(weeklyDraft)
+    setWeeklyWindows(nextWindows)
+    weeklyWindowsRef.current = nextWindows
   }, [weeklyDraft])
 
   React.useEffect(() => {
@@ -554,33 +585,40 @@ export function AvailabilityRulesEditor({
   const isLoading = availabilityLoading || bookedLoading
   const error = availabilityError ?? bookedError
 
+  React.useEffect(() => {
+    weeklyWindowsRef.current = weeklyWindows
+  }, [weeklyWindows])
+
   const handleWeeklyWindowChange = React.useCallback((day: number, index: number, next: TimeWindow) => {
+    weeklyDirtyRef.current = true
     setWeeklyWindows((prev) => {
-      const nextMap = new Map(prev)
-      const list = [...(nextMap.get(day) ?? [])]
+      const nextWindows = prev.map((dayWindows) => [...dayWindows])
+      const list = nextWindows[day] ?? []
       list[index] = next
-      nextMap.set(day, list)
-      return nextMap
+      nextWindows[day] = list
+      return nextWindows
     })
   }, [])
 
   const handleWeeklyWindowAdd = React.useCallback((day: number) => {
+    weeklyDirtyRef.current = true
     setWeeklyWindows((prev) => {
-      const nextMap = new Map(prev)
-      const list = [...(nextMap.get(day) ?? [])]
+      const nextWindows = prev.map((dayWindows) => [...dayWindows])
+      const list = nextWindows[day] ?? []
       list.push(createDefaultWindow())
-      nextMap.set(day, list)
-      return nextMap
+      nextWindows[day] = list
+      return nextWindows
     })
   }, [])
 
   const handleWeeklyWindowRemove = React.useCallback((day: number, index: number) => {
+    weeklyDirtyRef.current = true
     setWeeklyWindows((prev) => {
-      const nextMap = new Map(prev)
-      const list = [...(nextMap.get(day) ?? [])]
+      const nextWindows = prev.map((dayWindows) => [...dayWindows])
+      const list = nextWindows[day] ?? []
       list.splice(index, 1)
-      nextMap.set(day, list)
-      return nextMap
+      nextWindows[day] = list
+      return nextWindows
     })
   }, [])
 
@@ -593,15 +631,7 @@ export function AvailabilityRulesEditor({
     const shouldSkipRefresh = Boolean(options?.skipRefresh)
     setIsWeeklyAutoSaving(options?.silentSuccess === true)
     try {
-      const windows: Array<{ weekday: number; start: string; end: string }> = []
-      weeklyWindows.forEach((dayWindows, day) => {
-        dayWindows.forEach((window) => {
-          const start = toDateForWeekday(day, window.start)
-          const end = toDateForWeekday(day, window.end)
-          if (!start || !end || start >= end) return
-          windows.push({ weekday: day, start: window.start, end: window.end })
-        })
-      })
+      const windows = buildWeeklyPayload(normalizeWeeklyWindows(weeklyWindowsRef.current))
       await apiCallOrThrow('/api/booking/availability-weekly', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -613,6 +643,7 @@ export function AvailabilityRulesEditor({
         }),
       }, { errorMessage: listLabels.saveWeeklyError })
       lastSavedWeeklyKeyRef.current = weeklyKey
+      weeklyDirtyRef.current = false
       if (!options?.silentSuccess) {
         flash(listLabels.saveWeeklySuccess, 'success')
       }
@@ -627,7 +658,6 @@ export function AvailabilityRulesEditor({
       setIsWeeklyAutoSaving(false)
     }
   }, [
-    activeRules,
     listLabels.saveWeeklyError,
     listLabels.saveWeeklySuccess,
     refreshAvailability,
@@ -638,7 +668,6 @@ export function AvailabilityRulesEditor({
     timezone,
     usingRuleSet,
     weeklyHasErrors,
-    weeklyWindows,
     weeklyKey,
   ])
 
@@ -1205,7 +1234,7 @@ export function AvailabilityRulesEditor({
                 </div>
                 <div className="mt-4 space-y-3">
                   {DAY_LABELS.map((day, index) => {
-                    const windows = weeklyWindows.get(index) ?? []
+    const windows = weeklyWindows[index] ?? []
                     return (
                       <div key={day.code} className="flex flex-wrap items-start gap-3 rounded-lg border bg-background p-3">
                         <div className="flex w-10 justify-center">
@@ -1218,7 +1247,7 @@ export function AvailabilityRulesEditor({
                             <p className="text-sm text-muted-foreground">{listLabels.noHours}</p>
                           ) : (
                             windows.map((window, windowIndex) => {
-                              const windowError = weeklyWindowErrors.get(index)?.[windowIndex] ?? null
+                              const windowError = weeklyWindowErrors[index]?.[windowIndex] ?? null
                               const errorClass = windowError ? 'border-red-500 focus-visible:ring-red-400' : ''
                               return (
                                 <div key={`${day.code}-${windowIndex}`} className="space-y-1">

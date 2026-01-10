@@ -18,12 +18,17 @@ type TeamMemberRecord = {
   teamId?: string | null
   team_id?: string | null
   displayName: string
+  display_name?: string
   description?: string | null
   userId?: string | null
+  user_id?: string | null
   roleIds?: string[]
+  role_ids?: string[]
   tags?: string[]
   isActive?: boolean
+  is_active?: boolean
   availabilityRuleSetId?: string | null
+  availability_rule_set_id?: string | null
   user?: { id?: string; email?: string | null } | null
   customFields?: Record<string, unknown> | null
 } & Record<string, unknown>
@@ -59,7 +64,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
         const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           const resolvedTeamId = record.teamId ?? record.team_id ?? null
-          const normalizedRoleIds = normalizeStringList(record.roleIds ?? record.role_ids)
+          const normalizedRoleIds = normalizeStringList(resolvePreferredArray(record.roleIds, record.role_ids))
           const normalizedTags = normalizeStringList(record.tags)
           setTags(normalizedTags.map((tag) => ({ id: tag, label: tag })))
           setInitialValues({
@@ -69,7 +74,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
             displayName: record.displayName ?? record.display_name ?? '',
             description: record.description ?? '',
             roleIds: normalizedRoleIds,
-            isActive: record.isActive ?? true,
+            isActive: record.isActive ?? record.is_active ?? true,
             ...customFields,
           })
           setAvailabilityRuleSetId(
@@ -300,4 +305,10 @@ function normalizeStringList(value: unknown): string[] {
   return value
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter((entry) => entry.length > 0)
+}
+
+function resolvePreferredArray<T>(primary?: T[] | null, fallback?: T[] | null): T[] | undefined {
+  if (Array.isArray(primary) && primary.length) return primary
+  if (Array.isArray(fallback) && fallback.length) return fallback
+  return Array.isArray(primary) ? primary : Array.isArray(fallback) ? fallback : undefined
 }

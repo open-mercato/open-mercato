@@ -105,6 +105,7 @@
   "booking.teamMembers.form.editTitle": "Teammitglied bearbeiten",
   "booking.teamMembers.form.actions.create": "Erstellen",
   "booking.teamMembers.form.actions.defineRole": "Neue Rolle definieren",
+  "booking.teamMembers.form.actions.createTeam": "Neues Team erstellen",
   "booking.teamMembers.form.loading": "Teammitglied wird geladen...",
   "booking.attendees.page.title": "Teilnehmer",
   "booking.attendees.page.description": "Verfolge, wer für jedes Ereignis gebucht ist.",

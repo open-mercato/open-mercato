@@ -217,6 +217,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     const query = params.toString()
     return `/backend/booking/team-roles/create${query ? `?${query}` : ''}`
   }, [selectedTeamId])
+  const createTeamHref = '/backend/booking/teams/create'
 
   React.useEffect(() => {
     setRoleSearch('')
@@ -264,39 +265,56 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
       },
       {
         id: 'teamId',
-        label: translate('booking.teamMembers.form.fields.team', 'Team'),
+        label: '',
         type: 'custom',
         component: ({ value, setValue, setFormValue, values, disabled }) => {
           const currentValue = typeof value === 'string' ? value : ''
           return (
-            <select
-              className="w-full h-9 rounded border px-2 text-sm"
-              value={currentValue}
-              onChange={(event) => {
-                const nextValue = event.target.value || undefined
-                const nextTeamId = event.target.value || null
-                setValue(nextValue)
-                setSelectedTeamId(nextTeamId)
-                if (!setFormValue) return
-                const roleIds = Array.isArray(values?.roleIds)
-                  ? values?.roleIds.filter((item): item is string => typeof item === 'string')
-                  : []
-                const allowedRoleIds = buildAllowedRoleIdSet(roles, nextTeamId)
-                const nextRoleIds = roleIds.filter((roleId) => allowedRoleIds.has(roleId))
-                if (nextRoleIds.length !== roleIds.length) {
-                  setFormValue('roleIds', nextRoleIds)
-                }
-              }}
-              data-crud-focus-target=""
-              disabled={disabled}
-            >
-              <option value="">{translate('ui.forms.select.emptyOption', '—')}</option>
-              {teamOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">
+                  {translate('booking.teamMembers.form.fields.team', 'Team')}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push(createTeamHref)}
+                  disabled={disabled}
+                >
+                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  {translate('booking.teamMembers.form.actions.createTeam', 'Create new team')}
+                </Button>
+              </div>
+              <select
+                className="w-full h-9 rounded border px-2 text-sm"
+                value={currentValue}
+                onChange={(event) => {
+                  const nextValue = event.target.value || undefined
+                  const nextTeamId = event.target.value || null
+                  setValue(nextValue)
+                  setSelectedTeamId(nextTeamId)
+                  if (!setFormValue) return
+                  const roleIds = Array.isArray(values?.roleIds)
+                    ? values?.roleIds.filter((item): item is string => typeof item === 'string')
+                    : []
+                  const allowedRoleIds = buildAllowedRoleIdSet(roles, nextTeamId)
+                  const nextRoleIds = roleIds.filter((roleId) => allowedRoleIds.has(roleId))
+                  if (nextRoleIds.length !== roleIds.length) {
+                    setFormValue('roleIds', nextRoleIds)
+                  }
+                }}
+                data-crud-focus-target=""
+                disabled={disabled}
+              >
+                <option value="">{translate('ui.forms.select.emptyOption', '—')}</option>
+                {teamOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           )
         },
       },
@@ -314,7 +332,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
       },
       {
         id: 'roleIds',
-        label: translate('booking.teamMembers.form.fields.roles', 'Roles'),
+        label: '',
         type: 'custom',
         component: ({ value, setValue, disabled }) => {
           const selectedValues = Array.isArray(value)
@@ -322,7 +340,10 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
             : []
           return (
             <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">
+                  {translate('booking.teamMembers.form.fields.roles', 'Roles')}
+                </span>
                 <Button
                   type="button"
                   size="sm"

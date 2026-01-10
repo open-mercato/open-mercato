@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { ColumnDef, SortingFn, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -103,11 +103,16 @@ export default function BookingTeamMembersPage() {
     },
   }), [t])
 
+  const groupedSortingFn = React.useCallback((field: GroupedSortField): SortingFn<TeamMemberRow> => {
+    return (rowA, rowB) => compareGroupedRows(field, labels.groups, rowA.original, rowB.original)
+  }, [labels.groups])
+
   const columns = React.useMemo<ColumnDef<TeamMemberRow>[]>(() => [
     {
       accessorKey: 'displayName',
       header: labels.table.name,
       meta: { priority: 1, sticky: true },
+      sortingFn: groupedSortingFn('displayName'),
       cell: ({ row }) => (
         row.original.kind === 'team'
           ? (
@@ -146,6 +151,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'userEmail',
       header: labels.table.user,
       meta: { priority: 2 },
+      sortingFn: groupedSortingFn('userEmail'),
       cell: ({ row }) => row.original.kind === 'member' && row.original.userEmail
         ? <span className="text-sm">{row.original.userEmail}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
@@ -154,6 +160,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'roleNames',
       header: labels.table.roles,
       meta: { priority: 3 },
+      sortingFn: groupedSortingFn('roleNames'),
       cell: ({ row }) => row.original.kind === 'member'
         ? renderLabelPills(row.original.roleNames)
         : <span className="text-xs text-muted-foreground">-</span>,
@@ -162,6 +169,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'tags',
       header: labels.table.tags,
       meta: { priority: 4 },
+      sortingFn: groupedSortingFn('tags'),
       cell: ({ row }) => row.original.kind === 'member'
         ? renderLabelPills(row.original.tags)
         : <span className="text-xs text-muted-foreground">-</span>,
@@ -170,6 +178,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'isActive',
       header: labels.table.active,
       meta: { priority: 5 },
+      sortingFn: groupedSortingFn('isActive'),
       cell: ({ row }) => row.original.kind === 'member'
         ? <BooleanIcon value={row.original.isActive} />
         : <span className="text-xs text-muted-foreground">-</span>,
@@ -178,11 +187,12 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'updatedAt',
       header: labels.table.updatedAt,
       meta: { priority: 6 },
+      sortingFn: groupedSortingFn('updatedAt'),
       cell: ({ row }) => row.original.kind === 'member' && row.original.updatedAt
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
-  ], [labels.table.active, labels.table.name, labels.table.roles, labels.table.tags, labels.table.updatedAt, labels.table.user])
+  ], [groupedSortingFn, labels.table.active, labels.table.name, labels.table.roles, labels.table.tags, labels.table.updatedAt, labels.table.user])
 
   const loadTeamMembers = React.useCallback(async () => {
     setIsLoading(true)
@@ -395,6 +405,8 @@ type TeamMemberApiRow = {
   teamName: string | null
 }
 
+type GroupedSortField = 'displayName' | 'userEmail' | 'roleNames' | 'tags' | 'isActive' | 'updatedAt'
+
 function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
   const id = typeof item.id === 'string' ? item.id : ''
   const displayName = typeof item.displayName === 'string'
@@ -444,6 +456,46 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
     teamId,
     teamName,
   }
+}
+
+function compareGroupedRows(
+  field: GroupedSortField,
+  labels: { unassignedTeam: string },
+  left: TeamMemberRow,
+  right: TeamMemberRow,
+): number {
+  const leftTeam = (left.teamName ?? labels.unassignedTeam).toLocaleLowerCase()
+  const rightTeam = (right.teamName ?? labels.unassignedTeam).toLocaleLowerCase()
+  const teamComparison = leftTeam.localeCompare(rightTeam)
+  if (teamComparison !== 0) return teamComparison
+  if (left.kind !== right.kind) return left.kind === 'team' ? -1 : 1
+  if (left.kind === 'team' && right.kind === 'team') return 0
+  switch (field) {
+    case 'displayName':
+      return left.displayName.localeCompare(right.displayName)
+    case 'userEmail':
+      return (left.userEmail ?? '').localeCompare(right.userEmail ?? '')
+    case 'roleNames':
+      return left.roleNames.join(', ').localeCompare(right.roleNames.join(', '))
+    case 'tags':
+      return left.tags.join(', ').localeCompare(right.tags.join(', '))
+    case 'isActive':
+      return Number(left.isActive) - Number(right.isActive)
+    case 'updatedAt':
+      return compareDateStrings(left.updatedAt, right.updatedAt)
+  }
+}
+
+function compareDateStrings(left: string | null, right: string | null): number {
+  if (!left && !right) return 0
+  if (!left) return -1
+  if (!right) return 1
+  const leftTime = Date.parse(left)
+  const rightTime = Date.parse(right)
+  if (Number.isNaN(leftTime) || Number.isNaN(rightTime)) {
+    return left.localeCompare(right)
+  }
+  return leftTime - rightTime
 }
 
 function buildTeamMemberRows(
