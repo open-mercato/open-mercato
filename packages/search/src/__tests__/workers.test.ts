@@ -53,14 +53,14 @@ function createMockJob<T>(payload: T): QueuedJob<T> {
 }
 
 describe('Vector Index Worker', () => {
-  const mockVectorIndexService = {
-    indexRecord: jest.fn().mockResolvedValue({ action: 'indexed', created: true }),
+  const mockSearchIndexer = {
+    indexRecordById: jest.fn().mockResolvedValue({ action: 'indexed', created: true }),
     deleteRecord: jest.fn().mockResolvedValue({ action: 'deleted', existed: true }),
   }
 
   const mockContainer: HandlerContext = {
     resolve: jest.fn((name: string) => {
-      if (name === 'vectorIndexService') return mockVectorIndexService
+      if (name === 'searchIndexer') return mockSearchIndexer
       if (name === 'em') return null
       if (name === 'eventBus') return null
       if (name === 'vectorEmbeddingService') return { updateConfig: jest.fn() }
@@ -84,7 +84,7 @@ describe('Vector Index Worker', () => {
 
     await handleVectorIndexJob(job, ctx, mockContainer)
 
-    expect(mockVectorIndexService.indexRecord).not.toHaveBeenCalled()
+    expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
   })
 
   it('should index record when jobType is index', async () => {
@@ -99,7 +99,7 @@ describe('Vector Index Worker', () => {
 
     await handleVectorIndexJob(job, ctx, mockContainer)
 
-    expect(mockVectorIndexService.indexRecord).toHaveBeenCalledWith({
+    expect(mockSearchIndexer.indexRecordById).toHaveBeenCalledWith({
       entityId: 'customers:customer_person_profile',
       recordId: 'rec-123',
       tenantId: 'tenant-123',
@@ -119,11 +119,10 @@ describe('Vector Index Worker', () => {
 
     await handleVectorIndexJob(job, ctx, mockContainer)
 
-    expect(mockVectorIndexService.deleteRecord).toHaveBeenCalledWith({
+    expect(mockSearchIndexer.deleteRecord).toHaveBeenCalledWith({
       entityId: 'customers:customer_person_profile',
       recordId: 'rec-123',
       tenantId: 'tenant-123',
-      organizationId: null,
     })
   })
 
