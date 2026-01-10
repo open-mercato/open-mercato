@@ -897,7 +897,7 @@ export function AvailabilityRulesEditor({
       timezone: timezoneValue,
       description: null,
     }, { errorMessage: listLabels.ruleSetCreateError })
-    const id = response.result?.id
+    const id = typeof response.result?.id === 'string' ? response.result.id : null
     if (!id) throw new Error(listLabels.ruleSetCreateError)
     if (activeRules.length) {
       await Promise.all(

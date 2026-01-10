@@ -8,7 +8,7 @@ import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fiel
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
+import { TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -65,7 +65,7 @@ type TeamMemberTagsSectionConfig = {
   loadOptions: (query?: string) => Promise<TagOption[]>
   createTag: (label: string) => Promise<TagOption>
   onSave: (payload: { next: TagOption[] }) => Promise<void>
-  labels: Record<string, string>
+  labels: TagsSectionLabels
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -175,17 +175,20 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
 
   React.useEffect(() => {
     if (!resolvedUserId) return
+    const userId = resolvedUserId
     if (userOptions.some((option) => option.id === resolvedUserId)) return
     let cancelled = false
     async function loadSelectedUser() {
       try {
-        const call = await apiCall<UsersResponse>(`/api/auth/users?id=${encodeURIComponent(resolvedUserId)}`)
+        const call = await apiCall<UsersResponse>(`/api/auth/users?id=${encodeURIComponent(userId)}`)
         const entry = Array.isArray(call.result?.items) ? call.result.items[0] : null
-        if (!entry?.id || !entry?.email) return
+        const entryId = typeof entry?.id === 'string' ? entry.id : null
+        const entryEmail = typeof entry?.email === 'string' ? entry.email : null
+        if (!entryId || !entryEmail) return
         if (!cancelled) {
           setUserOptions((prev) => {
-            if (prev.some((option) => option.id === entry.id)) return prev
-            return [{ id: entry.id, title: entry.email, subtitle: entry.organizationName ?? null }, ...prev]
+            if (prev.some((option) => option.id === entryId)) return prev
+            return [{ id: entryId, title: entryEmail, subtitle: entry?.organizationName ?? null }, ...prev]
           })
         }
       } catch {
@@ -229,7 +232,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     const call = await apiCall<UsersResponse>(`/api/auth/users?${params.toString()}`)
     const items = Array.isArray(call.result?.items) ? call.result.items : []
     const options = items
-      .map((user) => {
+      .map((user): LookupSelectItem | null => {
         const id = typeof user?.id === 'string' ? user.id : null
         const email = typeof user?.email === 'string' ? user.email : null
         if (!id || !email) return null

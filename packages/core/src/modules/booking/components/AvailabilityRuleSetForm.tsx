@@ -73,7 +73,7 @@ export function AvailabilityRuleSetForm(props: AvailabilityRuleSetFormProps) {
       id: 'description',
       label: translate('booking.availabilityRuleSets.form.fields.description', 'Description'),
       type: 'richtext',
-      editor: 'markdown',
+      editor: 'simple',
     },
   ], [translate])
 

@@ -5,7 +5,7 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { DictionarySelectControl } from '@open-mercato/core/modules/dictionaries/components/DictionarySelectControl'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
-import { TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
+import { TagsSection, type TagOption, type TagsSectionLabels } from '@open-mercato/ui/backend/detail'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -30,7 +30,7 @@ type ResourceTagsSectionConfig = {
   loadOptions: (query?: string) => Promise<TagOption[]>
   createTag: (label: string) => Promise<TagOption>
   onSave: (payload: { next: TagOption[] }) => Promise<void>
-  labels: Record<string, string>
+  labels: TagsSectionLabels
 }
 
 export type BookingResourceFormConfig = {
@@ -121,7 +121,7 @@ export function useBookingResourceFormConfig(options: {
         id: 'description',
         label: t('booking.resources.form.fields.description', 'Description'),
         type: 'richtext',
-        editor: 'markdown',
+        editor: 'simple',
       },
       {
         id: 'resourceTypeId',
@@ -134,7 +134,9 @@ export function useBookingResourceFormConfig(options: {
             onChange={(event) => {
               const next = event.target.value || ''
               setValue(next)
-              setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
+              if (setFormValue) {
+                setFormValue('customFieldsetCode', resolveFieldsetCode(next || null))
+              }
             }}
             data-crud-focus-target=""
           >
