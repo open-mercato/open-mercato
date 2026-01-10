@@ -9,7 +9,13 @@ import { ensureRoles, setupInitialTenant } from './lib/setup-app'
 import { normalizeTenantId } from './lib/tenantAccess'
 import { computeEmailHash } from './lib/emailHash'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
+import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
+import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
+import crypto from 'node:crypto'
 
 const addUser: ModuleCli = {
   command: 'add-user',
@@ -72,6 +78,84 @@ const addUser: ModuleCli = {
   },
 }
 
+function parseArgs(rest: string[]) {
+  const args: Record<string, string | boolean> = {}
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i]
+    if (!a) continue
+    if (a.startsWith('--')) {
+      const [k, v] = a.replace(/^--/, '').split('=')
+      if (v !== undefined) args[k] = v
+      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
+      else args[k] = true
+    }
+  }
+  return args
+}
+
+function normalizeKeyInput(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, '')
+}
+
+function hashSecret(value: string | null | undefined): string | null {
+  if (!value) return null
+  return crypto.createHash('sha256').update(normalizeKeyInput(value)).digest('hex').slice(0, 12)
+}
+
+async function withEncryptionDebugDisabled<T>(fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.TENANT_DATA_ENCRYPTION_DEBUG
+  process.env.TENANT_DATA_ENCRYPTION_DEBUG = 'no'
+  try {
+    return await fn()
+  } finally {
+    if (previous === undefined) {
+      delete process.env.TENANT_DATA_ENCRYPTION_DEBUG
+    } else {
+      process.env.TENANT_DATA_ENCRYPTION_DEBUG = previous
+    }
+  }
+}
+
+class DerivedKeyKmsService implements KmsService {
+  private root: Buffer
+  constructor(secret: string) {
+    this.root = crypto.createHash('sha256').update(normalizeKeyInput(secret)).digest()
+  }
+
+  isHealthy(): boolean {
+    return true
+  }
+
+  private deriveKey(tenantId: string): string {
+    const iterations = 310_000
+    const keyLength = 32
+    const derived = crypto.pbkdf2Sync(this.root, tenantId, iterations, keyLength, 'sha512')
+    return derived.toString('base64')
+  }
+
+  async getTenantDek(tenantId: string): Promise<TenantDek | null> {
+    if (!tenantId) return null
+    return { tenantId, key: this.deriveKey(tenantId), fetchedAt: Date.now() }
+  }
+
+  async createTenantDek(tenantId: string): Promise<TenantDek | null> {
+    return this.getTenantDek(tenantId)
+  }
+}
+
+function fingerprintDek(dek: TenantDek | null): string | null {
+  if (!dek?.key) return null
+  return crypto.createHash('sha256').update(dek.key).digest('hex').slice(0, 12)
+}
+
+function decryptWithOldKey(
+  payload: string,
+  dek: TenantDek | null,
+): string | null {
+  if (!dek?.key) return null
+  return decryptWithAesGcm(payload, dek.key)
+}
+
 const seedRoles: ModuleCli = {
   command: 'seed-roles',
   async run(rest) {
@@ -100,6 +184,179 @@ const seedRoles: ModuleCli = {
       if (!id) continue
       await ensureRoles(em, { tenantId: id })
       console.log('🛡️ Roles ensured for tenant', id)
+    }
+  },
+}
+
+const rotateEncryptionKey: ModuleCli = {
+  command: 'rotate-encryption-key',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = (args.tenantId as string) ?? (args.tenant as string) ?? (args.tenant_id as string) ?? null
+    const organizationId = (args.organizationId as string) ?? (args.orgId as string) ?? (args.org as string) ?? null
+    const oldKey = (args['old-key'] as string) ?? (args.oldKey as string) ?? null
+    const dryRun = Boolean(args['dry-run'] || args.dry)
+    const debug = Boolean(args.debug)
+    const rotate = Boolean(oldKey)
+    if (rotate && !tenantId) {
+      console.warn(
+        '⚠️  Rotating with --old-key across all tenants. A single old key should normally target one tenant; consider --tenant.',
+      )
+    }
+    if (!isTenantDataEncryptionEnabled()) {
+      console.error('TENANT_DATA_ENCRYPTION is disabled; aborting.')
+      return
+    }
+    const { resolve } = await createRequestContainer()
+    const em = resolve<EntityManager>('em')
+    const encryptionService = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+    const oldKms = rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
+    if (debug) {
+      console.log('[rotate-encryption-key]', {
+        hasOldKey: Boolean(oldKey),
+        rotate,
+        tenantId: tenantId ?? null,
+        organizationId: organizationId ?? null,
+      })
+      console.log('[rotate-encryption-key] key fingerprints', {
+        oldKey: hashSecret(oldKey),
+        currentKey: hashSecret(process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY),
+      })
+    }
+    if (!encryptionService.isEnabled()) {
+      console.error('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
+      return
+    }
+    const conn: any = (em as any).getConnection?.()
+    if (!conn || typeof conn.execute !== 'function') {
+      console.error('Unable to access raw connection; aborting.')
+      return
+    }
+    const meta = (em as any)?.getMetadata?.()?.get?.(User)
+    const tableName = meta?.tableName || 'users'
+    const schema = meta?.schema
+    const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
+    const isEncryptedPayload = (value: unknown): boolean => {
+      if (typeof value !== 'string') return false
+      const parts = value.split(':')
+      return parts.length === 4 && parts[3] === 'v1'
+    }
+    const printedDek = new Set<string>()
+    const oldDekCache = new Map<string, TenantDek | null>()
+    const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {
+      if (debug && !printedDek.has(scopeTenantId)) {
+        printedDek.add(scopeTenantId)
+        const [oldDek, newDek] = await Promise.all([
+          oldKms?.getTenantDek(scopeTenantId) ?? Promise.resolve(null),
+          encryptionService.getDek(scopeTenantId),
+        ])
+        console.log('[rotate-encryption-key] dek fingerprints', {
+          tenantId: scopeTenantId,
+          oldKey: fingerprintDek(oldDek),
+          currentKey: fingerprintDek(newDek),
+        })
+      }
+      const rawRows = await conn.execute(
+        `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
+        [scopeTenantId, scopeOrganizationId],
+      )
+      const rows = Array.isArray(rawRows) ? rawRows : []
+      const pending = rotate
+        ? rows
+        : rows.filter((row: any) => !isEncryptedPayload(row?.email))
+      if (!pending.length) return 0
+      console.log(
+        `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
+      )
+      if (dryRun) return 0
+      const ids = pending.map((row: any) => String(row.id))
+      const users = rotate
+        ? await em.find(
+            User,
+            { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
+          )
+        : await findWithDecryption(
+            em,
+            User,
+            { id: { $in: ids }, tenantId: scopeTenantId, organizationId: scopeOrganizationId },
+            {},
+            { tenantId: scopeTenantId, organizationId: scopeOrganizationId, encryptionService },
+          )
+      const usersById = new Map(users.map((user) => [String(user.id), user]))
+      let updated = 0
+      for (const row of pending) {
+        const user = usersById.get(String(row.id))
+        if (!user) continue
+        const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
+        if (!rawEmail) continue
+        if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
+          continue
+        }
+        let plainEmail = rawEmail
+        if (rotate && isEncryptedPayload(rawEmail) && oldKms) {
+          if (debug) {
+            console.log('[rotate-encryption-key] decrypting', {
+              userId: row.id,
+              tenantId: scopeTenantId,
+              organizationId: scopeOrganizationId,
+            })
+          }
+          let oldDek = oldDekCache.get(scopeTenantId) ?? null
+          if (!oldDekCache.has(scopeTenantId)) {
+            oldDek = await oldKms.getTenantDek(scopeTenantId)
+            oldDekCache.set(scopeTenantId, oldDek)
+          }
+          const maybeEmail = decryptWithOldKey(rawEmail, oldDek)
+          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) continue
+          plainEmail = maybeEmail
+        }
+        if (!plainEmail) continue
+        const encrypted = await encryptionService.encryptEntityPayload(
+          'auth:user',
+          { email: plainEmail },
+          scopeTenantId,
+          scopeOrganizationId,
+        )
+        const nextEmail = encrypted.email as string | undefined
+        if (nextEmail && nextEmail !== user.email) {
+          user.email = nextEmail as any
+          user.emailHash = (encrypted as any).emailHash ?? computeEmailHash(plainEmail)
+          em.persist(user)
+          updated += 1
+        }
+      }
+      if (updated > 0) {
+        await em.flush()
+      }
+      return updated
+    }
+
+    if (tenantId && organizationId) {
+      const updated = await processScope(String(tenantId), String(organizationId))
+      if (!updated) {
+        console.log('All auth user emails already encrypted for the selected scope.')
+      } else {
+        console.log(`Encrypted ${updated} auth user email(s).`)
+      }
+      return
+    }
+
+    const organizations = await em.find(Organization, {})
+    if (!organizations.length) {
+      console.log('No organizations found; nothing to encrypt.')
+      return
+    }
+    let total = 0
+    for (const org of organizations) {
+      const scopeTenantId = org.tenant?.id ? String(org.tenant.id) : org.tenant.id ? String(org.tenant.id) : null
+      const scopeOrganizationId = org.id ? String(org.id) : null
+      if (!scopeTenantId || !scopeOrganizationId) continue
+      total += await processScope(scopeTenantId, scopeOrganizationId)
+    }
+    if (total > 0) {
+      console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
+    } else {
+      console.log('All auth user emails already encrypted across all organizations.')
     }
   },
 }
@@ -357,4 +614,4 @@ const setPassword: ModuleCli = {
 }
 
 // Export the full CLI list
-export default [addUser, seedRoles, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
+export default [addUser, seedRoles, rotateEncryptionKey, addOrganization, setupApp, listOrganizations, listTenants, listUsers, setPassword]
