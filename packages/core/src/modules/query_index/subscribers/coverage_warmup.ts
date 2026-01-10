@@ -1,4 +1,4 @@
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EventBus } from '@open-mercato/events/types'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 
@@ -15,9 +15,12 @@ function scopeKey(entityType: string, tenantId: string | null): string {
   return `${entityType}|${tenantId ?? '__null__'}`
 }
 
-const entityIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
+function getEntityIdList(): string[] {
+  return flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
+}
 
 export default async function handle(payload: Payload, ctx: { resolve: <T = any>(name: string) => T }) {
+  const entityIds = getEntityIdList()
   if (!entityIds.length) return
   const tenantId = payload?.tenantId ?? null
   let eventBus: EventBus | null = null
