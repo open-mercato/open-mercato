@@ -410,3 +410,24 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     </Page>
   )
 }
+
+function mapTeamRole(item: Record<string, unknown>): TeamRoleRow | null {
+  const id = typeof item.id === 'string' ? item.id : ''
+  if (!id) return null
+  const name = typeof item.name === 'string' && item.name.trim().length ? item.name.trim() : id
+  const teamId = typeof item.teamId === 'string'
+    ? item.teamId
+    : typeof item.team_id === 'string'
+      ? item.team_id
+      : null
+  return { id, name, teamId }
+}
+
+function filterRolesByTeam(roles: TeamRoleRow[], teamId: string | null): TeamRoleRow[] {
+  if (!teamId) return roles.filter((role) => role.teamId == null)
+  return roles.filter((role) => role.teamId == null || role.teamId === teamId)
+}
+
+function buildAllowedRoleIdSet(roles: TeamRoleRow[], teamId: string | null): Set<string> {
+  return new Set(filterRolesByTeam(roles, teamId).map((role) => role.id))
+}
