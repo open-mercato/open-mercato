@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -17,8 +17,10 @@ type TeamsResponse = {
 export default function BookingTeamRoleCreatePage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [teams, setTeams] = React.useState<TeamRoleOption[]>([])
+  const initialTeamId = searchParams?.get('teamId')?.trim() || null
 
   React.useEffect(() => {
     let cancelled = false
@@ -61,7 +63,7 @@ export default function BookingTeamRoleCreatePage() {
           backHref="/backend/booking/team-roles"
           cancelHref="/backend/booking/team-roles"
           submitLabel={t('booking.teamRoles.form.actions.create', 'Create')}
-          initialValues={{ name: '', description: '', appearance: { icon: null, color: null }, teamId: null }}
+          initialValues={{ name: '', description: '', appearance: { icon: null, color: null }, teamId: initialTeamId }}
           teamOptions={teams}
           onSubmit={handleSubmit}
         />

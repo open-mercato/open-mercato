@@ -104,6 +104,7 @@
   "booking.teamMembers.form.createTitle": "Agregar miembro",
   "booking.teamMembers.form.editTitle": "Editar miembro",
   "booking.teamMembers.form.actions.create": "Crear",
+  "booking.teamMembers.form.actions.defineRole": "Definir nuevo rol",
   "booking.teamMembers.form.loading": "Cargando miembro...",
   "booking.attendees.page.title": "Asistentes",
   "booking.attendees.page.description": "Controla quién está reservado para cada evento.",

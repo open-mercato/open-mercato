@@ -8,9 +8,11 @@ import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { Plus } from 'lucide-react'
 
 const DEFAULT_PAGE_SIZE = 100
 
@@ -48,6 +50,7 @@ export default function BookingTeamMemberCreatePage() {
   const [userOptions, setUserOptions] = React.useState<LookupSelectItem[]>([])
   const [teamOptions, setTeamOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const scopeVersion = useOrganizationScopeVersion()
+  const [roleSearch, setRoleSearch] = React.useState('')
 
   React.useEffect(() => {
     let cancelled = false
@@ -96,6 +99,27 @@ export default function BookingTeamMemberCreatePage() {
     () => filterRolesByTeam(roles, selectedTeamId),
     [roles, selectedTeamId],
   )
+  const roleOptions = React.useMemo(
+    () => filteredRoles.map((role) => ({ value: role.id, label: role.name })),
+    [filteredRoles],
+  )
+  const filteredRoleOptions = React.useMemo(() => {
+    const query = roleSearch.trim().toLowerCase()
+    if (!query) return roleOptions
+    return roleOptions.filter((option) => (
+      option.label.toLowerCase().includes(query) || option.value.toLowerCase().includes(query)
+    ))
+  }, [roleOptions, roleSearch])
+  const createRoleHref = React.useMemo(() => {
+    const params = new URLSearchParams()
+    if (selectedTeamId) params.set('teamId', selectedTeamId)
+    const query = params.toString()
+    return `/backend/booking/team-roles/create${query ? `?${query}` : ''}`
+  }, [selectedTeamId])
+
+  React.useEffect(() => {
+    setRoleSearch('')
+  }, [selectedTeamId])
 
   const fetchUserOptions = React.useCallback(async (query?: string): Promise<LookupSelectItem[]> => {
     const params = new URLSearchParams({ page: '1', pageSize: '50' })
@@ -187,10 +211,68 @@ export default function BookingTeamMemberCreatePage() {
     {
       id: 'roleIds',
       label: t('booking.teamMembers.form.fields.roles', 'Roles'),
-      type: 'select',
-      multiple: true,
-      listbox: true,
-      options: filteredRoles.map((role) => ({ value: role.id, label: role.name })),
+      type: 'custom',
+      component: ({ value, setValue, disabled }) => {
+        const selectedValues = Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === 'string')
+          : []
+        return (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => router.push(createRoleHref)}
+                disabled={disabled}
+              >
+                <Plus className="mr-2 h-4 w-4" aria-hidden />
+                {t('booking.teamMembers.form.actions.defineRole', 'Define new role')}
+              </Button>
+            </div>
+            <input
+              className="w-full h-8 rounded border px-2 text-sm"
+              placeholder={t('ui.forms.listbox.searchPlaceholder', 'Search...')}
+              value={roleSearch}
+              onChange={(event) => setRoleSearch(event.target.value)}
+              data-crud-focus-target=""
+              disabled={disabled}
+            />
+            <div className="rounded border max-h-48 overflow-auto divide-y">
+              {filteredRoleOptions.map((option) => {
+                const isSelected = selectedValues.includes(option.value)
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      const next = new Set(selectedValues)
+                      if (isSelected) {
+                        next.delete(option.value)
+                      } else {
+                        next.add(option.value)
+                      }
+                      setValue(Array.from(next))
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSelected ? 'bg-muted' : ''}`}
+                    disabled={disabled}
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <input type="checkbox" className="size-4" readOnly checked={isSelected} />
+                      <span>{option.label}</span>
+                    </span>
+                  </button>
+                )
+              })}
+              {!filteredRoleOptions.length ? (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  {t('ui.forms.listbox.noMatches', 'No matches')}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )
+      },
     },
     {
       id: 'tags',
@@ -203,7 +285,7 @@ export default function BookingTeamMemberCreatePage() {
       label: t('booking.teamMembers.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [fetchUserOptions, filteredRoles, roles, t, teamOptions, userOptions])
+  ], [createRoleHref, fetchUserOptions, filteredRoleOptions, roleSearch, roles, router, t, teamOptions, userOptions])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     const customFields = collectCustomFieldValues(values)

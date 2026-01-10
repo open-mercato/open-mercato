@@ -104,6 +104,7 @@
   "booking.teamMembers.form.createTitle": "Add team member",
   "booking.teamMembers.form.editTitle": "Edit team member",
   "booking.teamMembers.form.actions.create": "Create",
+  "booking.teamMembers.form.actions.defineRole": "Define new role",
   "booking.teamMembers.form.loading": "Loading team member...",
   "booking.attendees.page.title": "Attendees",
   "booking.attendees.page.description": "Track who is booked for each event.",
