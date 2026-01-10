@@ -5,9 +5,6 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchStrategy } from '@open-mercato/shared/modules/search'
 import type { SearchIndexer } from '@open-mercato/search/indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
-import type { Queue } from '@open-mercato/queue'
-import type { MeilisearchIndexJobPayload } from '../../../../queue/meilisearch-indexing'
-import { handleMeilisearchIndexJob } from '../../workers/meilisearch-index.worker'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -257,31 +254,6 @@ export async function POST(req: Request) {
         }
       }
 
-      // TODO: Remove this block when @open-mercato/queue supports auto-processing for local strategy
-      // Currently, local queue (file-based) has no background worker, so we process jobs synchronously.
-      // Once the queue package implements auto-pulling for local strategy, this workaround can be removed.
-      let processedSync = false
-
-      if (useQueue && queueStrategy === 'local') {
-        let queue: Queue<MeilisearchIndexJobPayload> | null = null
-        try {
-          queue = container.resolve<Queue<MeilisearchIndexJobPayload>>('meilisearchIndexQueue')
-        } catch {
-          queue = null
-        }
-        if (queue) {
-          searchDebug('search.reindex', 'Processing queue jobs synchronously (local strategy)...')
-          const queueResult = await queue.process(async (job, ctx) => {
-            await handleMeilisearchIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
-          })
-          processedSync = true
-          searchDebug('search.reindex', 'Synchronous queue processing complete', {
-            processed: queueResult.processed,
-            failed: queueResult.failed,
-          })
-        }
-      }
-
       // Get updated stats from all strategies
       const stats = await collectStrategyStats(searchStrategies, auth.tenantId)
 
@@ -290,7 +262,6 @@ export async function POST(req: Request) {
         action,
         entityId: entityId ?? null,
         useQueue,
-        processedSync,
         result: {
           entitiesProcessed: result.entitiesProcessed,
           recordsIndexed: result.recordsIndexed,
