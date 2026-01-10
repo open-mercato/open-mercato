@@ -237,7 +237,7 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
     const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadTeamRoleSnapshot(em, before.id)
     if (!after) return null
-    const customBefore = snapshots.customBefore as CustomFieldSnapshot | undefined
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const customAfter = await loadTeamRoleCustomSnapshot(em, after)
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'teamId',
@@ -358,7 +358,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as TeamRoleSnapshot | undefined
     if (!before) return null
-    const customBefore = snapshots.customBefore as CustomFieldSnapshot | undefined
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.teamRoles.delete', 'Delete team role'),

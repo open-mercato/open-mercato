@@ -368,8 +368,8 @@ export function AvailabilityRulesEditor({
   const timezoneSaveInFlightRef = React.useRef(false)
   const viewModeRef = React.useRef(viewMode)
   const saveWeeklyRef = React.useRef<
-    (options?: { silentSuccess?: boolean; skipRefresh?: boolean }) => Promise<void>
-  >()
+    ((options?: { silentSuccess?: boolean; skipRefresh?: boolean }) => Promise<void>) | null
+  >(null)
   const timezoneOptions = React.useMemo(() => getTimezoneOptions(), [])
 
   const usingRuleSet = Boolean(rulesetId) && availabilityRules.length === 0 && !customOverridesEnabled

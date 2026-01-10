@@ -302,7 +302,7 @@ const updateTeamMemberCommand: CommandHandler<BookingTeamMemberUpdateInput, { me
     const em = (ctx.container.resolve('em') as EntityManager)
     const after = await loadTeamMemberSnapshot(em, before.id)
     if (!after) return null
-    const customBefore = snapshots.customBefore as CustomFieldSnapshot | undefined
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const customAfter = await loadTeamMemberCustomSnapshot(em, after)
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'teamId',
@@ -428,7 +428,7 @@ const deleteTeamMemberCommand: CommandHandler<{ id?: string }, { memberId: strin
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as TeamMemberSnapshot | undefined
     if (!before) return null
-    const customBefore = snapshots.customBefore as CustomFieldSnapshot | undefined
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.teamMembers.delete', 'Delete team member'),

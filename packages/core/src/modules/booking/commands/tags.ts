@@ -31,6 +31,8 @@ const createTagCommand: CommandHandler<BookingResourceTagCreateInput, { tagId: s
       label: parsed.label,
       color: parsed.color ?? null,
       description: parsed.description ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     await em.persistAndFlush(tag)
     return { tagId: tag.id }

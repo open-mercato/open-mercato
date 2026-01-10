@@ -127,7 +127,7 @@ export function AttendeeCrudForm({
     const call = await apiCall<EventOptionsResponse>(`/api/booking/event-options?${params.toString()}`)
     const items = Array.isArray(call.result?.items) ? call.result.items : []
     const options = items
-      .map((event) => {
+      .map((event): LookupSelectItem | null => {
         const id = typeof event.id === 'string' ? event.id : null
         const title = typeof event.title === 'string' ? event.title : null
         if (!id || !title) return null
@@ -144,7 +144,7 @@ export function AttendeeCrudForm({
 
   const mapCustomerRows = React.useCallback((items: CustomerOptionRow[], kindLabel: string) => (
     items
-      .map((entry) => {
+      .map((entry): LookupSelectItem | null => {
         const id = typeof entry.id === 'string' ? entry.id : null
         const displayName = typeof entry.displayName === 'string'
           ? entry.displayName
