@@ -24,12 +24,19 @@ function parseStrategies(value: string | null): SearchStrategyId[] | undefined {
   return strategies.length > 0 ? strategies : undefined
 }
 
+function parseEntityTypes(value: string | null): string[] | undefined {
+  if (!value) return undefined
+  const entityTypes = value.split(',').map((s) => s.trim()).filter(Boolean)
+  return entityTypes.length > 0 ? entityTypes : undefined
+}
+
 export async function GET(req: Request) {
   const { t } = await resolveTranslations()
   const url = new URL(req.url)
   const query = (url.searchParams.get('q') || '').trim()
   const limit = parseLimit(url.searchParams.get('limit'))
   const strategies = parseStrategies(url.searchParams.get('strategies'))
+  const entityTypes = parseEntityTypes(url.searchParams.get('entityTypes'))
 
   if (!query) {
     return NextResponse.json(
@@ -76,6 +83,7 @@ export async function GET(req: Request) {
       organizationId: null,
       limit,
       strategies,
+      entityTypes,
     }
 
     const results = await searchService.search(query, searchOptions)

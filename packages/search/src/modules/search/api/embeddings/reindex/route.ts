@@ -78,8 +78,9 @@ export async function POST(req: Request) {
       await service.reindexAll({ tenantId: auth.tenantId, organizationId: auth.orgId ?? null, purgeFirst })
     }
 
-    // For local queue strategy, process jobs immediately in this request
-    // For async strategy (Redis), jobs are processed by separate workers
+    // TODO: Remove this block when @open-mercato/queue supports auto-processing for local strategy
+    // Currently, local queue (file-based) has no background worker, so we process jobs synchronously.
+    // Once the queue package implements auto-pulling for local strategy, this workaround can be removed.
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
     let processedSync = false
 
