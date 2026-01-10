@@ -6,6 +6,7 @@ import type { SearchService } from '@open-mercato/search'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
 import type { EmbeddingService } from '../../../../vector'
 import { resolveEmbeddingConfig } from '../../lib/embedding-config'
+import { searchError } from '../../../../lib/debug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -102,7 +103,7 @@ export async function GET(req: Request) {
     })
   } catch (error: unknown) {
     // Log full error details server-side only
-    console.error('[search.api.search] failed', {
+    searchError('search.api.search', 'failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
     })

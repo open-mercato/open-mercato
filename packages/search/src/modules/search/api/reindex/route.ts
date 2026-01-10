@@ -11,6 +11,7 @@ import { handleMeilisearchIndexJob } from '../../workers/meilisearch-index.worke
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { searchDebug, searchError } from '../../../../lib/debug'
 
 /** Strategy with optional stats support */
 type StrategyWithStats = SearchStrategy & {
@@ -119,7 +120,7 @@ export async function POST(req: Request) {
 
       // Debug: List enabled entities
       const enabledEntities = searchIndexer.listEnabledEntities()
-      console.log('[search.reindex] Starting reindex', {
+      searchDebug('search.reindex', 'Starting reindex', {
         tenantId: auth.tenantId,
         orgId,
         enabledEntities,
@@ -152,10 +153,10 @@ export async function POST(req: Request) {
           recreateIndex: true,
           useQueue,
           onProgress: (progress) => {
-            console.log('[search.reindex] Progress', progress)
+            searchDebug('search.reindex', 'Progress', progress)
           },
         })
-        console.log('[search.reindex] Reindexed entity to Meilisearch', {
+        searchDebug('search.reindex', 'Reindexed entity to Meilisearch', {
           entityId,
           tenantId: auth.tenantId,
           recordsIndexed: result.recordsIndexed,
@@ -207,10 +208,10 @@ export async function POST(req: Request) {
           recreateIndex: true,
           useQueue,
           onProgress: (progress) => {
-            console.log('[search.reindex] Progress', progress)
+            searchDebug('search.reindex', 'Progress', progress)
           },
         })
-        console.log('[search.reindex] Reindexed all entities to Meilisearch', {
+        searchDebug('search.reindex', 'Reindexed all entities to Meilisearch', {
           tenantId: auth.tenantId,
           entitiesProcessed: result.entitiesProcessed,
           recordsIndexed: result.recordsIndexed,
@@ -269,12 +270,12 @@ export async function POST(req: Request) {
           queue = null
         }
         if (queue) {
-          console.log('[search.reindex] Processing queue jobs synchronously (local strategy)...')
+          searchDebug('search.reindex', 'Processing queue jobs synchronously (local strategy)...')
           const queueResult = await queue.process(async (job, ctx) => {
             await handleMeilisearchIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
           })
           processedSync = true
-          console.log('[search.reindex] Synchronous queue processing complete', {
+          searchDebug('search.reindex', 'Synchronous queue processing complete', {
             processed: queueResult.processed,
             failed: queueResult.failed,
           })
@@ -301,7 +302,7 @@ export async function POST(req: Request) {
     } else if (entityId) {
       // Purge specific entity
       await indexableStrategy.purge?.(entityId as EntityId, auth.tenantId)
-      console.log('[search.reindex] Purged entity', { strategyId: indexableStrategy.id, entityId, tenantId: auth.tenantId })
+      searchDebug('search.reindex', 'Purged entity', { strategyId: indexableStrategy.id, entityId, tenantId: auth.tenantId })
 
       await recordIndexerLog(
         { em },
@@ -318,7 +319,7 @@ export async function POST(req: Request) {
       // Clear all documents but keep index
       if (indexableStrategy.clearIndex) {
         await indexableStrategy.clearIndex(auth.tenantId)
-        console.log('[search.reindex] Cleared index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+        searchDebug('search.reindex', 'Cleared index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
 
         await recordIndexerLog(
           { em },
@@ -335,7 +336,7 @@ export async function POST(req: Request) {
       // Recreate the entire index
       if (indexableStrategy.recreateIndex) {
         await indexableStrategy.recreateIndex(auth.tenantId)
-        console.log('[search.reindex] Recreated index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+        searchDebug('search.reindex', 'Recreated index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
 
         await recordIndexerLog(
           { em },
@@ -361,7 +362,7 @@ export async function POST(req: Request) {
     })
   } catch (error: unknown) {
     // Log full error details server-side only
-    console.error('[search.reindex] Failed', {
+    searchError('search.reindex', 'Failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       tenantId: auth.tenantId,

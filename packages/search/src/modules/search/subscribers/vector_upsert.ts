@@ -2,6 +2,7 @@ import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import type { Queue } from '@open-mercato/queue'
 import type { VectorIndexJobPayload } from '../../../queue/vector-indexing'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
+import { searchDebugWarn, searchError } from '../../../lib/debug'
 
 export const metadata = { event: 'query_index.vectorize_one', persistent: false }
 
@@ -51,7 +52,7 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   try {
     queue = ctx.resolve<Queue<VectorIndexJobPayload>>('vectorIndexQueue')
   } catch {
-    console.warn('[search.vector] vectorIndexQueue not available, skipping vector indexing')
+    searchDebugWarn('search.vector', 'vectorIndexQueue not available, skipping vector indexing')
     return
   }
 
@@ -64,7 +65,7 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
       organizationId: organizationId ? String(organizationId) : null,
     })
   } catch (error) {
-    console.error('[search.vector] Failed to enqueue vector index job', {
+    searchError('search.vector', 'Failed to enqueue vector index job', {
       entityType,
       recordId,
       error: error instanceof Error ? error.message : error,

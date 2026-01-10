@@ -8,6 +8,7 @@ import type {
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { VectorDriver, VectorDriverDocument } from '../vector/types'
+import { searchDebugWarn } from '../lib/debug'
 
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
@@ -223,7 +224,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     }
 
     // Fallback: return empty array if driver doesn't support listing
-    console.warn('[VectorSearchStrategy] Vector driver does not support listing entries')
+    searchDebugWarn('VectorSearchStrategy', 'Vector driver does not support listing entries')
     return []
   }
 }

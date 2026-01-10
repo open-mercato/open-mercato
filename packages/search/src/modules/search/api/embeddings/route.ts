@@ -14,6 +14,7 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EmbeddingProviderConfig, EmbeddingProviderId, VectorDriver } from '../../../../vector'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG, EmbeddingService } from '../../../../vector'
+import { searchDebug, searchDebugWarn, searchError } from '../../../../lib/debug'
 
 const embeddingConfigSchema = z.object({
   providerId: z.enum(['openai', 'google', 'mistral', 'cohere', 'bedrock', 'ollama']),
@@ -192,7 +193,7 @@ export async function POST(req: Request) {
 
       if (change.requiresReindex) {
         const newDimension = getEffectiveDimension(change.newConfig)
-        console.log('[search.embeddings.update] config change detected, recreating table', {
+        searchDebug('search.embeddings.update', 'config change detected, recreating table', {
           requiresReindex: change.requiresReindex,
           reason: change.reason,
           oldDimension: indexedDimension,
@@ -209,12 +210,14 @@ export async function POST(req: Request) {
             } else {
               indexedDimension = newDimension
             }
-            console.log('[search.embeddings.update] table recreated successfully', { indexedDimension })
+            searchDebug('search.embeddings.update', 'table recreated successfully', { indexedDimension })
           } else {
-            console.warn('[search.embeddings.update] pgvector driver does not have recreateWithDimension method')
+            searchDebugWarn('search.embeddings.update', 'pgvector driver does not have recreateWithDimension method')
           }
         } catch (error) {
-          console.error('[search.embeddings.update] failed to recreate table', error)
+          searchError('search.embeddings.update', 'failed to recreate table', {
+            error: error instanceof Error ? error.message : error,
+          })
           return NextResponse.json(
             { error: t('search.api.errors.recreateFailed', 'Failed to recreate vector table with new dimension.') },
             { status: 500 },
@@ -258,7 +261,9 @@ export async function POST(req: Request) {
       },
     })
   } catch (error) {
-    console.error('[search.embeddings.update] failed', error)
+    searchError('search.embeddings.update', 'failed', {
+      error: error instanceof Error ? error.message : error,
+    })
     return NextResponse.json({ error: t('search.api.errors.updateFailed', 'Failed to update embedding settings.') }, { status: 500 })
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }

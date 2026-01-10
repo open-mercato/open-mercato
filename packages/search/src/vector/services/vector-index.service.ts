@@ -17,6 +17,7 @@ import type { VectorDriver } from '../types'
 import { computeChecksum } from './checksum'
 import { EmbeddingService } from './embedding'
 import { logVectorOperation } from '../lib/vector-logs'
+import { searchDebug, searchDebugWarn } from '../../lib/debug'
 
 type ContainerResolver = () => unknown
 const VECTOR_ENTRY_ENCRYPTION_ENTITY_ID = 'vector:vector_search'
@@ -300,7 +301,7 @@ export class VectorIndexService {
         const driver = this.getDriver(driverId)
         await driver.ensureReady()
       } catch (err) {
-        console.warn('[vector] Failed to ensure driver readiness', { driverId, error: err instanceof Error ? err.message : err })
+        searchDebugWarn('vector', 'Failed to ensure driver readiness', { driverId, error: err instanceof Error ? err.message : err })
       }
     }))
   }
@@ -364,7 +365,7 @@ export class VectorIndexService {
     }
 
     if (record.entity_id == null && record.entityId == null && entityId.endsWith('_company_profile')) {
-      console.warn('[vector.index] company profile missing entity id in payload', {
+      searchDebugWarn('vector.index', 'company profile missing entity id in payload', {
         id: record.id,
         keys: Object.keys(record),
       })
@@ -432,20 +433,18 @@ export class VectorIndexService {
       organizationId: resolvedOrgId,
     }, source.presenter ?? null)
     if (!presenter?.title) {
-      if (process.env.VECTOR_DEBUG === '1') {
-        console.warn('[vector.index] missing presenter title', {
-          entityId: args.entityId,
-          recordId: args.recordId,
-          recordSample: {
-            display_name: record.display_name,
-            displayName: record.displayName,
-            name: record.name,
-            title: record.title,
-            subject: record.subject,
-            kind: record.kind,
-          },
-        })
-      }
+      searchDebugWarn('vector.index', 'missing presenter title', {
+        entityId: args.entityId,
+        recordId: args.recordId,
+        recordSample: {
+          display_name: record.display_name,
+          displayName: record.displayName,
+          name: record.name,
+          title: record.title,
+          subject: record.subject,
+          kind: record.kind,
+        },
+      })
     }
     const links = await this.resolveLinks(entry.config, {
       record,
@@ -489,7 +488,7 @@ export class VectorIndexService {
       badge: resultBadge ?? undefined,
     }
 
-    console.log('[VectorIndexService] Storing vector index entry', {
+    searchDebug('VectorIndexService', 'Storing vector index entry', {
       entityId: args.entityId,
       recordId: args.recordId,
       tenantId: args.tenantId,
@@ -870,7 +869,7 @@ export class VectorIndexService {
       if (shouldPurge && driver.purge && args.tenantId) {
         await driver.purge(args.entityId, args.tenantId)
       } else if (shouldPurge && !args.tenantId) {
-        console.warn('[vector] Skipping purge for multi-tenant reindex (tenant not provided)')
+        searchDebugWarn('vector', 'Skipping purge for multi-tenant reindex (tenant not provided)')
       }
       const payload: Record<string, unknown> = {
         entityType: args.entityId,
@@ -1016,7 +1015,7 @@ export class VectorIndexService {
       return typeof deleted === 'number' ? deleted : 0
     }
 
-    console.warn('[vector] Driver does not support orphan cleanup', { driverId: entry.driverId })
+    searchDebugWarn('vector', 'Driver does not support orphan cleanup', { driverId: entry.driverId })
     return 0
   }
 
@@ -1045,7 +1044,7 @@ export class VectorIndexService {
       try {
         return await driver.count(countParams)
       } catch (err) {
-        console.warn('[vector] Driver count failed, falling back to list', {
+        searchDebugWarn('vector', 'Driver count failed, falling back to list', {
           driverId,
           error: err instanceof Error ? err.message : err,
         })
@@ -1071,7 +1070,7 @@ export class VectorIndexService {
       }
       return total
     }
-    console.warn('[vector] Driver does not support counting or listing index entries', { driverId })
+    searchDebugWarn('vector', 'Driver does not support counting or listing index entries', { driverId })
     return 0
   }
 

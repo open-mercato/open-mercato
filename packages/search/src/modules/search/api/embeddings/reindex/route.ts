@@ -7,6 +7,7 @@ import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { searchDebug, searchDebugWarn, searchError } from '../../../../../lib/debug'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
@@ -55,14 +56,16 @@ export async function POST(req: Request) {
       if (embeddingConfig) {
         const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
         embeddingService.updateConfig(embeddingConfig)
-        console.log('[search.embeddings.reindex] using embedding config', {
+        searchDebug('search.embeddings.reindex', 'using embedding config', {
           providerId: embeddingConfig.providerId,
           model: embeddingConfig.model,
           dimension: embeddingConfig.dimension,
         })
       }
     } catch (err) {
-      console.warn('[search.embeddings.reindex] failed to load embedding config, using defaults', err)
+      searchDebugWarn('search.embeddings.reindex', 'failed to load embedding config, using defaults', {
+        error: err instanceof Error ? err.message : err,
+      })
     }
 
     await recordIndexerLog(
@@ -127,7 +130,7 @@ export async function POST(req: Request) {
     const status = typeof err?.status === 'number'
       ? err.status
       : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
-    console.error('[search.embeddings.reindex] failed', {
+    searchError('search.embeddings.reindex', 'failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       status,

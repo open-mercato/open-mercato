@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { searchDebugWarn } from '../../../lib/debug'
 
 type PgPoolQueryResult<T> = { rows: T[]; rowCount?: number }
 type PgPoolClient = {
@@ -112,9 +113,7 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
             const pgError = error as { code?: string; message?: string }
             if (pgError?.code === '42501') {
               const details = pgError.message ? ` (${pgError.message})` : ''
-              console.warn(
-                `[vector.pgvector] skipping ${extension} extension creation; requires superuser${details}`,
-              )
+              searchDebugWarn('vector.pgvector', `skipping ${extension} extension creation; requires superuser${details}`)
               return
             }
             throw error
@@ -194,13 +193,13 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
             // Handle case where dimension exceeds ivfflat limit
             const errorMessage = indexErr instanceof Error ? indexErr.message : String(indexErr)
             if (errorMessage.includes('2000 dimensions')) {
-              console.warn(`[pgvector] Skipping ivfflat index - dimension exceeds 2000 limit. Searches will use sequential scan.`)
+              searchDebugWarn('pgvector', 'Skipping ivfflat index - dimension exceeds 2000 limit. Searches will use sequential scan.')
             } else {
               throw indexErr
             }
           }
         } else {
-          console.warn(`[pgvector] Skipping ivfflat index - dimension ${actualDimension} exceeds 2000 limit. Searches will use sequential scan.`)
+          searchDebugWarn('pgvector', `Skipping ivfflat index - dimension ${actualDimension} exceeds 2000 limit. Searches will use sequential scan.`)
         }
 
         const columnAlters = [

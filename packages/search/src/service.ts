@@ -8,6 +8,7 @@ import type {
   IndexableRecord,
 } from './types'
 import { mergeAndRankResults } from './lib/merger'
+import { searchError } from './lib/debug'
 
 /**
  * Default merge configuration.
@@ -101,7 +102,7 @@ export class SearchService {
         allResults.push(...result.value)
       } else {
         const strategy = activeStrategies[i]
-        console.error('[SearchService] Strategy search failed', {
+        searchError('SearchService', 'Strategy search failed', {
           strategyId: strategy?.id,
           error: result.reason instanceof Error ? result.reason.message : result.reason,
         })
@@ -185,7 +186,7 @@ export class SearchService {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
-        console.error('[SearchService] Strategy index failed', {
+        searchError('SearchService', 'Strategy index failed', {
           strategyId: strategy?.id,
           entityId: record.entityId,
           recordId: record.recordId,
@@ -214,7 +215,7 @@ export class SearchService {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
-        console.error('[SearchService] Strategy delete failed', {
+        searchError('SearchService', 'Strategy delete failed', {
           strategyId: strategy?.id,
           entityId,
           recordId,
@@ -249,7 +250,7 @@ export class SearchService {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
-        console.error('[SearchService] Strategy bulkIndex failed', {
+        searchError('SearchService', 'Strategy bulkIndex failed', {
           strategyId: strategy?.id,
           recordCount: records.length,
           error: result.reason instanceof Error ? result.reason.message : result.reason,
@@ -281,7 +282,7 @@ export class SearchService {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
-        console.error('[SearchService] Strategy purge failed', {
+        searchError('SearchService', 'Strategy purge failed', {
           strategyId: strategy?.id,
           entityId,
           error: result.reason instanceof Error ? result.reason.message : result.reason,

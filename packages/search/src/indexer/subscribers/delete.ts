@@ -1,6 +1,7 @@
 import type { SearchIndexer } from '../search-indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { SearchDeletePayload } from '@open-mercato/shared/modules/search'
+import { searchDebugWarn, searchError } from '../../lib/debug'
 
 /**
  * Event subscriber metadata.
@@ -20,7 +21,7 @@ export function createSearchDeleteSubscriber(indexer: SearchIndexer) {
     const tenantId = String(payload?.tenantId || '')
 
     if (!entityId || !recordId || !tenantId) {
-      console.warn('[search.delete_record] Missing required fields', {
+      searchDebugWarn('search.delete_record', 'Missing required fields', {
         entityId,
         recordId,
         tenantId,
@@ -35,7 +36,7 @@ export function createSearchDeleteSubscriber(indexer: SearchIndexer) {
         tenantId,
       })
     } catch (error) {
-      console.error('[search.delete_record] Failed to delete record', {
+      searchError('search.delete_record', 'Failed to delete record', {
         entityId,
         recordId,
         error: error instanceof Error ? error.message : error,

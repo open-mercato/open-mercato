@@ -7,6 +7,7 @@ import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-merca
 import { logVectorOperation } from '../../../vector/lib/vector-logs'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
+import { searchDebugWarn } from '../../../lib/debug'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -28,7 +29,7 @@ export async function handleVectorIndexJob(
   const { jobType, entityType, recordId, tenantId, organizationId } = job.payload
 
   if (!entityType || !recordId || !tenantId) {
-    console.warn('[vector-index.worker] Skipping job with missing required fields', {
+    searchDebugWarn('vector-index.worker', 'Skipping job with missing required fields', {
       jobId: jobCtx.jobId,
       entityType,
       recordId,
@@ -46,7 +47,7 @@ export async function handleVectorIndexJob(
   try {
     searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
   } catch {
-    console.warn('[vector-index.worker] searchIndexer not available')
+    searchDebugWarn('vector-index.worker', 'searchIndexer not available')
     return
   }
 
@@ -60,7 +61,9 @@ export async function handleVectorIndexJob(
   } catch (configErr) {
     // Delete operations don't require embedding, only warn for index operations
     if (jobType === 'index') {
-      console.warn('[vector-index.worker] Failed to load embedding config, using defaults', configErr)
+      searchDebugWarn('vector-index.worker', 'Failed to load embedding config, using defaults', {
+        error: configErr instanceof Error ? configErr.message : configErr,
+      })
     }
   }
 
@@ -125,7 +128,9 @@ export async function handleVectorIndexJob(
             adjustmentsApplied = true
           }
         } catch (coverageError) {
-          console.warn('[vector-index.worker] Failed to adjust vector coverage', coverageError)
+          searchDebugWarn('vector-index.worker', 'Failed to adjust vector coverage', {
+            error: coverageError instanceof Error ? coverageError.message : coverageError,
+          })
         }
       }
 
@@ -139,7 +144,9 @@ export async function handleVectorIndexJob(
             delayMs: 1000,
           })
         } catch (emitError) {
-          console.warn('[vector-index.worker] Failed to enqueue coverage refresh', emitError)
+          searchDebugWarn('vector-index.worker', 'Failed to enqueue coverage refresh', {
+            error: emitError instanceof Error ? emitError.message : emitError,
+          })
         }
       }
     }
@@ -158,7 +165,7 @@ export async function handleVectorIndexJob(
       },
     })
   } catch (error) {
-    console.warn(`[vector-index.worker] Failed to ${jobType} vector index`, {
+    searchDebugWarn('vector-index.worker', `Failed to ${jobType} vector index`, {
       entityType,
       recordId,
       error: error instanceof Error ? error.message : error,

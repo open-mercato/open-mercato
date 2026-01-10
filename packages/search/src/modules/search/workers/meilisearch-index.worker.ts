@@ -3,6 +3,7 @@ import type { MeilisearchIndexJobPayload } from '../../../queue/meilisearch-inde
 import type { MeilisearchStrategy } from '../../../strategies/meilisearch.strategy'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
+import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -24,7 +25,7 @@ export async function handleMeilisearchIndexJob(
   const { jobType, tenantId } = job.payload
 
   if (!tenantId) {
-    console.warn('[meilisearch-index.worker] Skipping job with missing tenantId', {
+    searchDebugWarn('meilisearch-index.worker', 'Skipping job with missing tenantId', {
       jobId: jobCtx.jobId,
       jobType,
     })
@@ -48,19 +49,19 @@ export async function handleMeilisearchIndexJob(
       (s: unknown) => (s as { id?: string })?.id === 'meilisearch',
     ) as MeilisearchStrategy | undefined
   } catch {
-    console.warn('[meilisearch-index.worker] searchStrategies not available')
+    searchDebugWarn('meilisearch-index.worker', 'searchStrategies not available')
     return
   }
 
   if (!meilisearchStrategy) {
-    console.warn('[meilisearch-index.worker] Meilisearch strategy not configured')
+    searchDebugWarn('meilisearch-index.worker', 'Meilisearch strategy not configured')
     return
   }
 
   // Check if Meilisearch is available
   const isAvailable = await meilisearchStrategy.isAvailable()
   if (!isAvailable) {
-    console.warn('[meilisearch-index.worker] Meilisearch is not available')
+    searchDebugWarn('meilisearch-index.worker', 'Meilisearch is not available')
     throw new Error('Meilisearch is not available') // Will trigger retry
   }
 
@@ -68,7 +69,7 @@ export async function handleMeilisearchIndexJob(
     if (jobType === 'batch-index') {
       const { records } = job.payload
       if (!records || records.length === 0) {
-        console.warn('[meilisearch-index.worker] Skipping batch-index with no records', {
+        searchDebugWarn('meilisearch-index.worker', 'Skipping batch-index with no records', {
           jobId: jobCtx.jobId,
         })
         return
@@ -76,7 +77,7 @@ export async function handleMeilisearchIndexJob(
 
       await meilisearchStrategy.bulkIndex(records)
 
-      console.log('[meilisearch-index.worker] Batch indexed to Meilisearch', {
+      searchDebug('meilisearch-index.worker', 'Batch indexed to Meilisearch', {
         jobId: jobCtx.jobId,
         tenantId,
         recordCount: records.length,
@@ -96,7 +97,7 @@ export async function handleMeilisearchIndexJob(
     } else if (jobType === 'delete') {
       const { entityId, recordId } = job.payload
       if (!entityId || !recordId) {
-        console.warn('[meilisearch-index.worker] Skipping delete with missing fields', {
+        searchDebugWarn('meilisearch-index.worker', 'Skipping delete with missing fields', {
           jobId: jobCtx.jobId,
           entityId,
           recordId,
@@ -106,7 +107,7 @@ export async function handleMeilisearchIndexJob(
 
       await meilisearchStrategy.delete(entityId, recordId, tenantId)
 
-      console.log('[meilisearch-index.worker] Deleted from Meilisearch', {
+      searchDebug('meilisearch-index.worker', 'Deleted from Meilisearch', {
         jobId: jobCtx.jobId,
         tenantId,
         entityId,
@@ -128,7 +129,7 @@ export async function handleMeilisearchIndexJob(
     } else if (jobType === 'purge') {
       const { entityId } = job.payload
       if (!entityId) {
-        console.warn('[meilisearch-index.worker] Skipping purge with missing entityId', {
+        searchDebugWarn('meilisearch-index.worker', 'Skipping purge with missing entityId', {
           jobId: jobCtx.jobId,
         })
         return
@@ -136,7 +137,7 @@ export async function handleMeilisearchIndexJob(
 
       await meilisearchStrategy.purge(entityId, tenantId)
 
-      console.log('[meilisearch-index.worker] Purged entity from Meilisearch', {
+      searchDebug('meilisearch-index.worker', 'Purged entity from Meilisearch', {
         jobId: jobCtx.jobId,
         tenantId,
         entityId,
@@ -155,7 +156,7 @@ export async function handleMeilisearchIndexJob(
       )
     }
   } catch (error) {
-    console.error(`[meilisearch-index.worker] Failed to ${jobType}`, {
+    searchError('meilisearch-index.worker', `Failed to ${jobType}`, {
       jobId: jobCtx.jobId,
       tenantId,
       error: error instanceof Error ? error.message : error,

@@ -12,6 +12,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
 import type { MeilisearchIndexJobPayload } from '../queue/meilisearch-indexing'
+import { searchDebug, searchDebugWarn, searchError } from '../lib/debug'
 
 /**
  * Maximum number of pages to process during reindex to prevent infinite loops.
@@ -185,7 +186,7 @@ export class SearchIndexer {
           if (source.checksumSource !== undefined) checksumSource = source.checksumSource
         }
       } catch (error) {
-        console.warn('[SearchIndexer] buildSource failed', {
+        searchDebugWarn('SearchIndexer', 'buildSource failed', {
           entityId: params.entityId,
           recordId: params.recordId,
           error: error instanceof Error ? error.message : error,
@@ -199,7 +200,7 @@ export class SearchIndexer {
         const result = await config.formatResult(buildContext)
         if (result) presenter = result
       } catch (error) {
-        console.warn('[SearchIndexer] formatResult failed', {
+        searchDebugWarn('SearchIndexer', 'formatResult failed', {
           entityId: params.entityId,
           recordId: params.recordId,
           error: error instanceof Error ? error.message : error,
@@ -213,7 +214,7 @@ export class SearchIndexer {
         const result = await config.resolveUrl(buildContext)
         if (result) url = result
       } catch (error) {
-        console.warn('[SearchIndexer] resolveUrl failed', {
+        searchDebugWarn('SearchIndexer', 'resolveUrl failed', {
           entityId: params.entityId,
           recordId: params.recordId,
           error: error instanceof Error ? error.message : error,
@@ -227,7 +228,7 @@ export class SearchIndexer {
         const result = await config.resolveLinks(buildContext)
         if (result) links = result
       } catch (error) {
-        console.warn('[SearchIndexer] resolveLinks failed', {
+        searchDebugWarn('SearchIndexer', 'resolveLinks failed', {
           entityId: params.entityId,
           recordId: params.recordId,
           error: error instanceof Error ? error.message : error,
@@ -305,7 +306,7 @@ export class SearchIndexer {
 
       return { action: 'indexed' }
     } catch (error) {
-      console.error('[SearchIndexer] Failed to load record for indexing', {
+      searchError('SearchIndexer', 'Failed to load record for indexing', {
         entityId: params.entityId,
         recordId: params.recordId,
         error: error instanceof Error ? error.message : error,
@@ -369,7 +370,7 @@ export class SearchIndexer {
       try {
         await this.searchService.purge(params.entityId, params.tenantId)
       } catch (error) {
-        console.warn('[SearchIndexer] Failed to purge entity before reindex', {
+        searchDebugWarn('SearchIndexer', 'Failed to purge entity before reindex', {
           entityId: params.entityId,
           error: error instanceof Error ? error.message : error,
         })
@@ -411,7 +412,7 @@ export class SearchIndexer {
             await this.searchService.index(record)
             result.recordsIndexed++
           } catch (error) {
-            console.warn('[SearchIndexer] Failed to index record', {
+            searchDebugWarn('SearchIndexer', 'Failed to index record', {
               entityId: params.entityId,
               recordId: record.recordId,
               error: error instanceof Error ? error.message : error,
@@ -561,7 +562,7 @@ export class SearchIndexer {
    * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
   async reindexEntityToMeilisearch(params: ReindexEntityParams): Promise<ReindexResult> {
-    console.log('[SearchIndexer] reindexEntityToMeilisearch called', {
+    searchDebug('SearchIndexer', 'reindexEntityToMeilisearch called', {
       entityId: params.entityId,
       tenantId: params.tenantId,
       organizationId: params.organizationId,
@@ -666,7 +667,7 @@ export class SearchIndexer {
             })
             jobsEnqueued += 1
             totalProcessed += indexableRecords.length
-            console.log('[SearchIndexer] Enqueued batch for Meilisearch indexing', {
+            searchDebug('SearchIndexer', 'Enqueued batch for Meilisearch indexing', {
               entityId: params.entityId,
               batchSize: indexableRecords.length,
               jobsEnqueued,
@@ -674,7 +675,7 @@ export class SearchIndexer {
             })
           } else {
             // Direct indexing (blocking)
-            console.log('[SearchIndexer] Direct indexing batch', {
+            searchDebug('SearchIndexer', 'Direct indexing batch', {
               entityId: params.entityId,
               recordCount: indexableRecords.length,
               useQueue: params.useQueue,
@@ -682,7 +683,7 @@ export class SearchIndexer {
             try {
               await meilisearch.bulkIndex(indexableRecords)
               totalProcessed += indexableRecords.length
-              console.log('[SearchIndexer] Indexed batch to Meilisearch', {
+              searchDebug('SearchIndexer', 'Indexed batch to Meilisearch', {
                 entityId: params.entityId,
                 batchSize: indexableRecords.length,
                 totalProcessed,
@@ -690,7 +691,7 @@ export class SearchIndexer {
             } catch (indexError) {
               // Log error but continue with remaining batches
               const errorMsg = indexError instanceof Error ? indexError.message : String(indexError)
-              console.error('[SearchIndexer] Failed to index batch to Meilisearch, continuing', {
+              searchError('SearchIndexer', 'Failed to index batch to Meilisearch, continuing', {
                 entityId: params.entityId,
                 page,
                 batchSize: indexableRecords.length,
@@ -709,7 +710,7 @@ export class SearchIndexer {
 
         // Safety check to prevent infinite loops
         if (page > MAX_PAGES) {
-          console.warn('[SearchIndexer] Reached MAX_PAGES limit, stopping pagination', {
+          searchDebugWarn('SearchIndexer', 'Reached MAX_PAGES limit, stopping pagination', {
             entityId: params.entityId,
             maxPages: MAX_PAGES,
             totalProcessed,
@@ -808,7 +809,7 @@ export class SearchIndexer {
 
     // Debug: log first item to see structure
     if (items.length > 0) {
-      console.log('[SearchIndexer] Sample item structure', {
+      searchDebug('SearchIndexer', 'Sample item structure', {
         entityId,
         sampleKeys: Object.keys(items[0]),
         sampleId: items[0].id,
@@ -823,7 +824,7 @@ export class SearchIndexer {
     for (const item of items) {
       const recordId = String(item.id ?? '')
       if (!recordId) {
-        console.warn('[SearchIndexer] Skipping item without id', { entityId, itemKeys: Object.keys(item) })
+        searchDebugWarn('SearchIndexer', 'Skipping item without id', { entityId, itemKeys: Object.keys(item) })
         dropped++
         continue
       }
@@ -862,7 +863,7 @@ export class SearchIndexer {
             if (source.checksumSource !== undefined) checksumSource = source.checksumSource
           }
         } catch (err) {
-          console.warn('[SearchIndexer] buildSource failed', {
+          searchDebugWarn('SearchIndexer', 'buildSource failed', {
             entityId,
             recordId,
             error: err instanceof Error ? err.message : err,
@@ -914,7 +915,7 @@ export class SearchIndexer {
       })
     }
 
-    console.log('[SearchIndexer] Finished building records', {
+    searchDebug('SearchIndexer', 'Finished building records', {
       entityId,
       inputCount: items.length,
       outputCount: records.length,

@@ -5,6 +5,7 @@ import type { EmbeddingService } from '../../../vector'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { searchDebugWarn } from '../../../lib/debug'
 
 export const metadata = { event: 'query_index.vectorize_purge', persistent: false }
 
@@ -22,7 +23,7 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   if (!entityType) return
   const tenantIdRaw = payload?.tenantId
   if (tenantIdRaw == null || tenantIdRaw === '') {
-    console.warn('[search.vector] Skipping vector purge for reindex without tenant scope', { entityType })
+    searchDebugWarn('search.vector', 'Skipping vector purge for reindex without tenant scope', { entityType })
     return
   }
   const tenantId = String(tenantIdRaw)
@@ -89,7 +90,9 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
           )
         }
       } catch (coverageError) {
-        console.warn('[search.vector] Failed to reset vector coverage after purge', coverageError)
+        searchDebugWarn('search.vector', 'Failed to reset vector coverage after purge', {
+          error: coverageError instanceof Error ? coverageError.message : coverageError,
+        })
       }
     }
     if (eventBus) {
@@ -123,7 +126,7 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
       },
     ).catch(() => undefined)
   } catch (error) {
-    console.warn('[search.vector] Failed to purge vector index scope', {
+    searchDebugWarn('search.vector', 'Failed to purge vector index scope', {
       entityType,
       tenantId,
       organizationId,

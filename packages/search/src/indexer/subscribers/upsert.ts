@@ -1,6 +1,7 @@
 import type { SearchIndexer } from '../search-indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { SearchIndexPayload } from '@open-mercato/shared/modules/search'
+import { searchDebugWarn, searchError } from '../../lib/debug'
 
 /**
  * Event subscriber metadata.
@@ -23,7 +24,7 @@ export function createSearchIndexSubscriber(indexer: SearchIndexer) {
     const tenantId = String(payload?.tenantId || '')
 
     if (!entityId || !recordId || !tenantId) {
-      console.warn('[search.index_record] Missing required fields', {
+      searchDebugWarn('search.index_record', 'Missing required fields', {
         entityId,
         recordId,
         tenantId,
@@ -70,7 +71,7 @@ export function createSearchIndexSubscriber(indexer: SearchIndexer) {
           }
         }
       } catch (error) {
-        console.warn('[search.index_record] Failed to load record', {
+        searchDebugWarn('search.index_record', 'Failed to load record', {
           entityId,
           recordId,
           error: error instanceof Error ? error.message : error,
@@ -79,7 +80,7 @@ export function createSearchIndexSubscriber(indexer: SearchIndexer) {
     }
 
     if (!record) {
-      console.warn('[search.index_record] Record not found', { entityId, recordId })
+      searchDebugWarn('search.index_record', 'Record not found', { entityId, recordId })
       return
     }
 
@@ -93,7 +94,7 @@ export function createSearchIndexSubscriber(indexer: SearchIndexer) {
         customFields,
       })
     } catch (error) {
-      console.error('[search.index_record] Failed to index record', {
+      searchError('search.index_record', 'Failed to index record', {
         entityId,
         recordId,
         error: error instanceof Error ? error.message : error,

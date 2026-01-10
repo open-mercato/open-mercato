@@ -8,6 +8,7 @@ import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { searchDebugWarn, searchError } from '../../../../lib/debug'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -87,7 +88,7 @@ export async function GET(req: Request) {
     const status = typeof err?.status === 'number'
       ? err.status
       : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
-    console.error('[search.index.list] failed', {
+    searchError('search.index.list', 'failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
     })
@@ -204,7 +205,9 @@ export async function DELETE(req: Request) {
           }
         }
       } catch (coverageError) {
-        console.warn('[search.index.purge] Failed to reset coverage after purge', coverageError)
+        searchDebugWarn('search.index.purge', 'Failed to reset coverage after purge', {
+          error: coverageError instanceof Error ? coverageError.message : coverageError,
+        })
       }
     }
 
@@ -252,7 +255,7 @@ export async function DELETE(req: Request) {
       ? err.status
       : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
     const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error('[search.index.purge] failed', {
+    searchError('search.index.purge', 'failed', {
       error: errorMessage,
       stack: error instanceof Error ? error.stack : undefined,
     })
