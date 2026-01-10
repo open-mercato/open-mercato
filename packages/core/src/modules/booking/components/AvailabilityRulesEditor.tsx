@@ -85,6 +85,37 @@ function createDefaultWindow(): TimeWindow {
   return { ...DEFAULT_WINDOW }
 }
 
+function getDefaultWindowDurationMinutes(): number {
+  const start = parseTimeInput(DEFAULT_WINDOW.start)
+  const end = parseTimeInput(DEFAULT_WINDOW.end)
+  if (!start || !end) return 60
+  const minutes = end.hours * 60 + end.minutes - (start.hours * 60 + start.minutes)
+  return Math.max(1, minutes)
+}
+
+function formatTimeFromMinutes(totalMinutes: number): string {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, totalMinutes))
+  const hours = String(Math.floor(clamped / 60)).padStart(2, '0')
+  const minutes = String(clamped % 60).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function buildNextWindow(windows: TimeWindow[]): TimeWindow {
+  if (windows.length === 0) return createDefaultWindow()
+  const lastWindow = windows[windows.length - 1]
+  const end = parseTimeInput(lastWindow.end)
+  if (!end) return createDefaultWindow()
+  const startMinutes = end.hours * 60 + end.minutes
+  if (startMinutes >= 23 * 60 + 59) return createDefaultWindow()
+  const durationMinutes = getDefaultWindowDurationMinutes()
+  const endMinutes = Math.min(startMinutes + durationMinutes, 23 * 60 + 59)
+  if (endMinutes <= startMinutes) return createDefaultWindow()
+  return {
+    start: formatTimeFromMinutes(startMinutes),
+    end: formatTimeFromMinutes(endMinutes),
+  }
+}
+
 function getTimezoneOptions(): string[] {
   const options = new Set<string>()
   const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -605,7 +636,7 @@ export function AvailabilityRulesEditor({
     setWeeklyWindows((prev) => {
       const nextWindows = prev.map((dayWindows) => [...dayWindows])
       const list = nextWindows[day] ?? []
-      list.push(createDefaultWindow())
+      list.push(buildNextWindow(list))
       nextWindows[day] = list
       return nextWindows
     })
@@ -934,7 +965,7 @@ export function AvailabilityRulesEditor({
   }, [])
 
   const handleEditorWindowAdd = React.useCallback(() => {
-    setEditorWindows((prev) => [...prev, createDefaultWindow()])
+    setEditorWindows((prev) => [...prev, buildNextWindow(prev)])
   }, [])
 
   const handleEditorWindowRemove = React.useCallback((index: number) => {

@@ -109,7 +109,9 @@ const crud = makeCrudRoute({
   },
   hooks: {
     afterList: async (payload, ctx) => {
-      const items = Array.isArray(payload?.items) ? payload.items : []
+      const items: Array<Record<string, unknown>> = Array.isArray(payload?.items)
+        ? (payload.items as Array<Record<string, unknown>>)
+        : []
       if (!items.length) return
       const eventIds = new Set<string>()
       const customerIds = new Set<string>()
