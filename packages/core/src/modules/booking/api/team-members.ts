@@ -31,6 +31,7 @@ const listSchema = z
     isActive: z.string().optional(),
     teamId: z.string().uuid().optional(),
     roleId: z.string().uuid().optional(),
+    ids: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -71,6 +72,15 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
+      if (typeof query.ids === 'string' && query.ids.trim().length > 0) {
+        const ids = query.ids
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+        if (ids.length > 0) {
+          filters[F.id] = { $in: ids }
+        }
+      }
       const term = sanitizeSearchTerm(query.search)
       if (term) {
         const like = `%${escapeLikePattern(term)}%`

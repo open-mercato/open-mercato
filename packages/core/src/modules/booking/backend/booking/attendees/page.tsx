@@ -1,13 +1,11 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -246,11 +244,7 @@ export default function BookingAttendeesPage() {
       <PageBody>
         <DataTable<AttendeeRow>
           title={labels.title}
-          actions={(
-            <Button size="sm" asChild>
-              <Link href="/backend/booking/attendees/create">{labels.actions.add}</Link>
-            </Button>
-          )}
+          actions={null}
           data={rows}
           columns={columns}
           searchValue={search}

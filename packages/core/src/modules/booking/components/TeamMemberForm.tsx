@@ -8,6 +8,7 @@ import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fiel
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { TagsSection, type TagOption } from '@open-mercato/ui/backend/detail'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
@@ -36,6 +37,7 @@ export type TeamMemberFormProps = {
   onDelete?: () => Promise<void>
   isLoading?: boolean
   loadingMessage?: string
+  tagsSection?: TeamMemberTagsSectionConfig
 }
 
 type TeamRoleRow = {
@@ -56,6 +58,16 @@ type TeamsResponse = {
   items?: Array<{ id?: string; name?: string }>
 }
 
+type TeamMemberTagsSectionConfig = {
+  title: string
+  tags: TagOption[]
+  onChange: (next: TagOption[]) => void
+  loadOptions: (query?: string) => Promise<TagOption[]>
+  createTag: (label: string) => Promise<TagOption>
+  onSave: (payload: { next: TagOption[] }) => Promise<void>
+  labels: Record<string, string>
+}
+
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
   const normalized = normalizeCustomFieldValues({ value })
   return normalized.value
@@ -70,7 +82,7 @@ export const buildTeamMemberPayload = (
     : []
   const tags = Array.isArray(values.tags)
     ? values.tags.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-    : []
+    : null
   const customFields = collectCustomFieldValues(values, { transform: normalizeCustomFieldSubmitValue })
   return {
     ...(options.id ? { id: options.id } : {}),
@@ -79,7 +91,7 @@ export const buildTeamMemberPayload = (
     displayName: typeof values.displayName === 'string' ? values.displayName : '',
     description: typeof values.description === 'string' && values.description.trim().length ? values.description : null,
     roleIds,
-    tags,
+    ...(tags ? { tags } : {}),
     isActive: values.isActive ?? true,
     ...(Object.keys(customFields).length ? { customFields } : {}),
   }
@@ -96,6 +108,7 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     onDelete,
     isLoading,
     loadingMessage,
+    tagsSection,
   } = props
   const translate = useT()
   const router = useRouter()
@@ -230,172 +243,214 @@ export function TeamMemberForm(props: TeamMemberFormProps) {
     return options
   }, [])
 
-  const fields = React.useMemo<CrudField[]>(() => [
-    {
-      id: 'userId',
-      label: translate('booking.teamMembers.form.fields.user', 'User'),
-      type: 'custom',
-      component: ({ value, setValue }) => (
-        <LookupSelect
-          value={typeof value === 'string' ? value : null}
-          onChange={(next) => setValue(next)}
-          options={userOptions}
-          fetchOptions={fetchUserOptions}
-          placeholder={translate('booking.teamMembers.form.fields.user.placeholder', 'Select a user')}
-          searchPlaceholder={translate('booking.teamMembers.form.fields.user.search', 'Search users')}
-          emptyLabel={translate('booking.teamMembers.form.fields.user.empty', 'No users found')}
-          selectedHintLabel={(id) => translate('booking.teamMembers.form.fields.user.selected', 'Selected user: {{id}}', { id })}
-        />
-      ),
-    },
-    {
-      id: 'teamId',
-      label: translate('booking.teamMembers.form.fields.team', 'Team'),
-      type: 'custom',
-      component: ({ value, setValue, setFormValue, values, disabled }) => {
-        const currentValue = typeof value === 'string' ? value : ''
-        return (
-          <select
-            className="w-full h-9 rounded border px-2 text-sm"
-            value={currentValue}
-            onChange={(event) => {
-              const nextValue = event.target.value || undefined
-              const nextTeamId = event.target.value || null
-              setValue(nextValue)
-              setSelectedTeamId(nextTeamId)
-              if (!setFormValue) return
-              const roleIds = Array.isArray(values?.roleIds)
-                ? values?.roleIds.filter((item): item is string => typeof item === 'string')
-                : []
-              const allowedRoleIds = buildAllowedRoleIdSet(roles, nextTeamId)
-              const nextRoleIds = roleIds.filter((roleId) => allowedRoleIds.has(roleId))
-              if (nextRoleIds.length !== roleIds.length) {
-                setFormValue('roleIds', nextRoleIds)
-              }
-            }}
-            data-crud-focus-target=""
-            disabled={disabled}
-          >
-            <option value="">{translate('ui.forms.select.emptyOption', '—')}</option>
-            {teamOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        )
+  const fields = React.useMemo<CrudField[]>(() => {
+    const baseFields: CrudField[] = [
+      {
+        id: 'userId',
+        label: translate('booking.teamMembers.form.fields.user', 'User'),
+        type: 'custom',
+        component: ({ value, setValue }) => (
+          <LookupSelect
+            value={typeof value === 'string' ? value : null}
+            onChange={(next) => setValue(next)}
+            options={userOptions}
+            fetchOptions={fetchUserOptions}
+            placeholder={translate('booking.teamMembers.form.fields.user.placeholder', 'Select a user')}
+            searchPlaceholder={translate('booking.teamMembers.form.fields.user.search', 'Search users')}
+            emptyLabel={translate('booking.teamMembers.form.fields.user.empty', 'No users found')}
+            selectedHintLabel={(id) => translate('booking.teamMembers.form.fields.user.selected', 'Selected user: {{id}}', { id })}
+          />
+        ),
       },
-    },
-    {
-      id: 'displayName',
-      label: translate('booking.teamMembers.form.fields.displayName', 'Display name'),
-      type: 'text',
-      required: true,
-    },
-    {
-      id: 'description',
-      label: translate('booking.teamMembers.form.fields.description', 'Description'),
-      type: 'richtext',
-      editor: 'uiw',
-    },
-    {
-      id: 'roleIds',
-      label: translate('booking.teamMembers.form.fields.roles', 'Roles'),
-      type: 'custom',
-      component: ({ value, setValue, disabled }) => {
-        const selectedValues = Array.isArray(value)
-          ? value.filter((item): item is string => typeof item === 'string')
-          : []
-        return (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => router.push(createRoleHref)}
-                disabled={disabled}
-              >
-                <Plus className="mr-2 h-4 w-4" aria-hidden />
-                {translate('booking.teamMembers.form.actions.defineRole', 'Define new role')}
-              </Button>
-            </div>
-            <input
-              className="w-full h-8 rounded border px-2 text-sm"
-              placeholder={translate('ui.forms.listbox.searchPlaceholder', 'Search...')}
-              value={roleSearch}
-              onChange={(event) => setRoleSearch(event.target.value)}
+      {
+        id: 'teamId',
+        label: translate('booking.teamMembers.form.fields.team', 'Team'),
+        type: 'custom',
+        component: ({ value, setValue, setFormValue, values, disabled }) => {
+          const currentValue = typeof value === 'string' ? value : ''
+          return (
+            <select
+              className="w-full h-9 rounded border px-2 text-sm"
+              value={currentValue}
+              onChange={(event) => {
+                const nextValue = event.target.value || undefined
+                const nextTeamId = event.target.value || null
+                setValue(nextValue)
+                setSelectedTeamId(nextTeamId)
+                if (!setFormValue) return
+                const roleIds = Array.isArray(values?.roleIds)
+                  ? values?.roleIds.filter((item): item is string => typeof item === 'string')
+                  : []
+                const allowedRoleIds = buildAllowedRoleIdSet(roles, nextTeamId)
+                const nextRoleIds = roleIds.filter((roleId) => allowedRoleIds.has(roleId))
+                if (nextRoleIds.length !== roleIds.length) {
+                  setFormValue('roleIds', nextRoleIds)
+                }
+              }}
               data-crud-focus-target=""
               disabled={disabled}
-            />
-            <div className="rounded border max-h-48 overflow-auto divide-y">
-              {filteredRoleOptions.map((option) => {
-                const isSelected = selectedValues.includes(option.value)
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      const next = new Set(selectedValues)
-                      if (isSelected) {
-                        next.delete(option.value)
-                      } else {
-                        next.add(option.value)
-                      }
-                      setValue(Array.from(next))
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSelected ? 'bg-muted' : ''}`}
-                    disabled={disabled}
-                  >
-                    <span className="inline-flex items-center gap-2">
-                      <input type="checkbox" className="size-4" readOnly checked={isSelected} />
-                      <span>{option.label}</span>
-                    </span>
-                  </button>
-                )
-              })}
-              {!filteredRoleOptions.length ? (
-                <div className="px-3 py-2 text-sm text-muted-foreground">
-                  {translate('ui.forms.listbox.noMatches', 'No matches')}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )
+            >
+              <option value="">{translate('ui.forms.select.emptyOption', '—')}</option>
+              {teamOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )
+        },
       },
-    },
-    {
-      id: 'tags',
-      label: translate('booking.teamMembers.form.fields.tags', 'Tags'),
-      type: 'tags',
-      placeholder: translate('booking.teamMembers.form.fields.tags.placeholder', 'Add tags'),
-    },
-    {
-      id: 'isActive',
-      label: translate('booking.teamMembers.form.fields.active', 'Active'),
-      type: 'checkbox',
-    },
-  ], [createRoleHref, fetchUserOptions, filteredRoleOptions, roleSearch, roles, router, translate, teamOptions, userOptions])
+      {
+        id: 'displayName',
+        label: translate('booking.teamMembers.form.fields.displayName', 'Display name'),
+        type: 'text',
+        required: true,
+      },
+      {
+        id: 'description',
+        label: translate('booking.teamMembers.form.fields.description', 'Description'),
+        type: 'richtext',
+        editor: 'uiw',
+      },
+      {
+        id: 'roleIds',
+        label: translate('booking.teamMembers.form.fields.roles', 'Roles'),
+        type: 'custom',
+        component: ({ value, setValue, disabled }) => {
+          const selectedValues = Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === 'string')
+            : []
+          return (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push(createRoleHref)}
+                  disabled={disabled}
+                >
+                  <Plus className="mr-2 h-4 w-4" aria-hidden />
+                  {translate('booking.teamMembers.form.actions.defineRole', 'Define new role')}
+                </Button>
+              </div>
+              <input
+                className="w-full h-8 rounded border px-2 text-sm"
+                placeholder={translate('ui.forms.listbox.searchPlaceholder', 'Search...')}
+                value={roleSearch}
+                onChange={(event) => setRoleSearch(event.target.value)}
+                data-crud-focus-target=""
+                disabled={disabled}
+              />
+              <div className="rounded border max-h-48 overflow-auto divide-y">
+                {filteredRoleOptions.map((option) => {
+                  const isSelected = selectedValues.includes(option.value)
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        const next = new Set(selectedValues)
+                        if (isSelected) {
+                          next.delete(option.value)
+                        } else {
+                          next.add(option.value)
+                        }
+                        setValue(Array.from(next))
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${isSelected ? 'bg-muted' : ''}`}
+                      disabled={disabled}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <input type="checkbox" className="size-4" readOnly checked={isSelected} />
+                        <span>{option.label}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+                {!filteredRoleOptions.length ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">
+                    {translate('ui.forms.listbox.noMatches', 'No matches')}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
+        id: 'isActive',
+        label: translate('booking.teamMembers.form.fields.active', 'Active'),
+        type: 'checkbox',
+      },
+    ]
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => ([
-    {
-      id: 'details',
-      column: 1,
-      fields: ['userId', 'teamId', 'displayName', 'description', 'roleIds', 'isActive'],
-    },
-    {
-      id: 'tags',
-      title: translate('booking.teamMembers.form.fields.tags', 'Tags'),
-      column: 2,
-      fields: ['tags'],
-    },
-    {
-      id: 'custom',
-      title: translate('entities.customFields.title', 'Custom Attributes'),
-      column: 2,
-      kind: 'customFields',
-    },
-  ]), [translate])
+    if (!tagsSection) {
+      baseFields.splice(5, 0, {
+        id: 'tags',
+        label: translate('booking.teamMembers.form.fields.tags', 'Tags'),
+        type: 'tags',
+        placeholder: translate('booking.teamMembers.form.fields.tags.placeholder', 'Add tags'),
+      })
+    }
+
+    return baseFields
+  }, [
+    createRoleHref,
+    fetchUserOptions,
+    filteredRoleOptions,
+    roleSearch,
+    roles,
+    router,
+    tagsSection,
+    translate,
+    teamOptions,
+    userOptions,
+  ])
+
+  const groups = React.useMemo<CrudFormGroup[]>(() => {
+    const baseGroups: CrudFormGroup[] = [
+      {
+        id: 'details',
+        column: 1,
+        fields: ['userId', 'teamId', 'displayName', 'description', 'roleIds', 'isActive'],
+      },
+      {
+        id: 'custom',
+        title: translate('entities.customFields.title', 'Custom Attributes'),
+        column: 2,
+        kind: 'customFields',
+      },
+    ]
+
+    if (tagsSection) {
+      baseGroups.push({
+        id: 'tags',
+        column: 2,
+        bare: true,
+        component: () => (
+          <TagsSection
+            title={tagsSection.title}
+            tags={tagsSection.tags}
+            onChange={tagsSection.onChange}
+            loadOptions={tagsSection.loadOptions}
+            createTag={tagsSection.createTag}
+            onSave={tagsSection.onSave}
+            labels={tagsSection.labels}
+          />
+        ),
+      })
+    } else {
+      baseGroups.splice(1, 0, {
+        id: 'tags',
+        title: translate('booking.teamMembers.form.fields.tags', 'Tags'),
+        column: 2,
+        fields: ['tags'],
+      })
+    }
+
+    return baseGroups
+  }, [tagsSection, translate])
 
   return (
     <CrudForm<TeamMemberFormValues>

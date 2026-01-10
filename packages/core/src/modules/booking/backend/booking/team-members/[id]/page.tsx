@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCallOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -11,6 +11,7 @@ import { useT } from '@/lib/i18n/context'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/booking/lib/memberSchedule'
 import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } from '@open-mercato/core/modules/booking/components/TeamMemberForm'
+import { type TagOption } from '@open-mercato/ui/backend/detail'
 
 type TeamMemberRecord = {
   id: string
@@ -37,6 +38,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
   const router = useRouter()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<TeamMemberFormValues | null>(null)
+  const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const flashShownRef = React.useRef(false)
@@ -57,20 +59,16 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
         const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           const resolvedTeamId = record.teamId ?? record.team_id ?? null
+          const normalizedRoleIds = normalizeStringList(record.roleIds ?? record.role_ids)
+          const normalizedTags = normalizeStringList(record.tags)
+          setTags(normalizedTags.map((tag) => ({ id: tag, label: tag })))
           setInitialValues({
             id: record.id,
             teamId: resolvedTeamId,
             userId: record.userId ?? record.user_id ?? null,
             displayName: record.displayName ?? record.display_name ?? '',
             description: record.description ?? '',
-            roleIds: Array.isArray(record.roleIds)
-              ? record.roleIds
-              : Array.isArray(record.role_ids)
-                ? record.role_ids
-                : [],
-            tags: Array.isArray(record.tags)
-              ? record.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0)
-              : [],
+            roleIds: normalizedRoleIds,
             isActive: record.isActive ?? true,
             ...customFields,
           })
@@ -111,6 +109,98 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     }
   }, [memberId, router, searchParams, translate])
 
+  const tagLabels = React.useMemo(
+    () => ({
+      loading: translate('booking.teamMembers.tags.loading', 'Loading tags...'),
+      placeholder: translate('booking.teamMembers.tags.placeholder', 'Type to add tags'),
+      empty: translate('booking.teamMembers.tags.empty', 'No tags yet. Add labels to organize team members.'),
+      loadError: translate('booking.teamMembers.tags.loadError', 'Failed to load tags.'),
+      createError: translate('booking.teamMembers.tags.createError', 'Failed to create tag.'),
+      updateError: translate('booking.teamMembers.tags.updateError', 'Failed to update tags.'),
+      labelRequired: translate('booking.teamMembers.tags.labelRequired', 'Tag name is required.'),
+      saveShortcut: translate('booking.teamMembers.tags.saveShortcut', 'Save Cmd+Enter / Ctrl+Enter'),
+      cancelShortcut: translate('booking.teamMembers.tags.cancelShortcut', 'Cancel (Esc)'),
+      edit: translate('ui.forms.actions.edit', 'Edit'),
+      cancel: translate('ui.forms.actions.cancel', 'Cancel'),
+      success: translate('booking.teamMembers.tags.success', 'Tags updated.'),
+    }),
+    [translate],
+  )
+
+  const loadTagOptions = React.useCallback(async (query?: string): Promise<TagOption[]> => {
+    const params = new URLSearchParams({ page: '1', pageSize: '100' })
+    if (query && query.trim().length) params.set('search', query.trim())
+    const call = await apiCall<{ items?: Array<{ id?: string; label?: string; slug?: string; color?: string | null }> }>(
+      `/api/booking/tags?${params.toString()}`,
+    )
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
+    return items
+      .map((raw) => {
+        const label =
+          typeof raw.label === 'string'
+            ? raw.label.trim()
+            : typeof raw.slug === 'string'
+              ? raw.slug.trim()
+              : ''
+        if (!label) return null
+        const color = typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
+        return { id: label, label, color }
+      })
+      .filter((entry): entry is TagOption => entry !== null)
+  }, [])
+
+  const createTag = React.useCallback(
+    async (label: string): Promise<TagOption> => {
+      const trimmed = label.trim()
+      if (!trimmed.length) {
+        throw new Error(translate('booking.teamMembers.tags.labelRequired', 'Tag name is required.'))
+      }
+      const response = await apiCallOrThrow<Record<string, unknown>>(
+        '/api/booking/tags',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ label: trimmed }),
+        },
+        { errorMessage: translate('booking.teamMembers.tags.createError', 'Failed to create tag.') },
+      )
+      const payload = response.result ?? {}
+      const color = typeof (payload as any)?.color === 'string' && (payload as any).color.trim().length
+        ? (payload as any).color.trim()
+        : null
+      return { id: trimmed, label: trimmed, color }
+    },
+    [translate],
+  )
+
+  const handleTagsSave = React.useCallback(
+    async ({ next }: { next: TagOption[] }) => {
+      if (!memberId) return
+      const nextLabels = Array.from(
+        new Set(next.map((tag) => tag.label.trim()).filter((tag) => tag.length > 0)),
+      )
+      await updateCrud('booking/team-members', { id: memberId, tags: nextLabels }, {
+        errorMessage: translate('booking.teamMembers.tags.updateError', 'Failed to update tags.'),
+      })
+      setTags(nextLabels.map((tag) => ({ id: tag, label: tag })))
+      flash(translate('booking.teamMembers.tags.success', 'Tags updated.'), 'success')
+    },
+    [memberId, translate],
+  )
+
+  const tagsSection = React.useMemo(
+    () => ({
+      title: translate('booking.teamMembers.tags.title', 'Tags'),
+      tags,
+      onChange: setTags,
+      loadOptions: loadTagOptions,
+      createTag,
+      onSave: handleTagsSave,
+      labels: tagLabels,
+    }),
+    [createTag, handleTagsSave, loadTagOptions, tagLabels, tags, translate],
+  )
+
   const handleSubmit = React.useCallback(async (values: TeamMemberFormValues) => {
     if (!memberId) return
     const payload = buildTeamMemberPayload(values, { id: memberId })
@@ -146,7 +236,6 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
 
   const resolvedInitialValues = initialValues ?? {
     roleIds: [],
-    tags: [],
     isActive: true,
   }
 
@@ -183,6 +272,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
               initialValues={resolvedInitialValues}
               onSubmit={handleSubmit}
               onDelete={handleDelete}
+              tagsSection={tagsSection}
               isLoading={!initialValues}
               loadingMessage={translate('booking.teamMembers.form.loading', 'Loading team member...')}
             />
@@ -203,4 +293,11 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       </PageBody>
     </Page>
   )
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0)
 }

@@ -286,9 +286,25 @@ export function AvailabilityRulesEditor({
 
   const usingRuleSet = Boolean(rulesetId) && availabilityRules.length === 0 && !customOverridesEnabled
   const activeRules = usingRuleSet ? rulesetRules : availabilityRules
+  const scheduleRules = React.useMemo(() => {
+    const dateBlockers = new Set<string>()
+    activeRules.forEach((rule) => {
+      if (rule.kind !== 'unavailability') return
+      const window = parseAvailabilityRuleWindow(rule)
+      if (window.repeat !== 'once') return
+      dateBlockers.add(formatDateInput(window.startAt))
+    })
+    if (!dateBlockers.size) return activeRules
+    return activeRules.filter((rule) => {
+      const window = parseAvailabilityRuleWindow(rule)
+      if (window.repeat !== 'once') return true
+      if (rule.kind === 'unavailability') return true
+      return !dateBlockers.has(formatDateInput(window.startAt))
+    })
+  }, [activeRules])
   const scheduleItems = React.useMemo(
-    () => buildScheduleItems({ availabilityRules: activeRules, bookedEvents, translate: t }),
-    [activeRules, bookedEvents, buildScheduleItems, t],
+    () => buildScheduleItems({ availabilityRules: scheduleRules, bookedEvents, translate: t }),
+    [bookedEvents, buildScheduleItems, scheduleRules, t],
   )
 
   const listLabels = React.useMemo(() => {
@@ -578,8 +594,8 @@ export function AvailabilityRulesEditor({
     setIsWeeklyAutoSaving(options?.silentSuccess === true)
     try {
       const windows: Array<{ weekday: number; start: string; end: string }> = []
-      weeklyWindows.forEach((windows, day) => {
-        windows.forEach((window) => {
+      weeklyWindows.forEach((dayWindows, day) => {
+        dayWindows.forEach((window) => {
           const start = toDateForWeekday(day, window.start)
           const end = toDateForWeekday(day, window.end)
           if (!start || !end || start >= end) return
@@ -931,7 +947,17 @@ export function AvailabilityRulesEditor({
     const validWindows = editorWindows
 
     try {
-      await Promise.all(editorRules.map((rule) => deleteCrud('booking/availability', rule.id, { errorMessage: listLabels.saveDateError })))
+      const rulesToDelete = editorScope === 'date'
+        ? activeRules.filter((rule) => {
+          const window = parseAvailabilityRuleWindow(rule)
+          if (window.repeat !== 'once') return false
+          return editorDates.some((date) => formatDateInput(window.startAt) === date)
+        })
+        : editorRules
+      const uniqueRuleIds = Array.from(new Set(rulesToDelete.map((rule) => rule.id)))
+      await Promise.all(
+        uniqueRuleIds.map((id) => deleteCrud('booking/availability', id, { errorMessage: listLabels.saveDateError })),
+      )
 
       const creations: Array<Promise<unknown>> = []
       if (editorScope === 'weekday') {
@@ -951,7 +977,7 @@ export function AvailabilityRulesEditor({
           }, { errorMessage: listLabels.saveDateError }))
         })
       } else {
-        const dates = editorDates.filter((value) => value && value.length)
+        const dates = Array.from(new Set(editorDates.filter((value) => value && value.length)))
         if (editorUnavailable) {
           const trimmedNote = editorNote.trim()
           dates.forEach((date) => {
