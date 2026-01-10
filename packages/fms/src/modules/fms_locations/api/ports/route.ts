@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { FmsPort } from '../../data/entities'
+import { FmsLocation } from '../../data/entities'
 import { createPortSchema, updatePortSchema } from '../../data/validators'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
@@ -9,7 +9,6 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     limit: z.coerce.number().min(1).max(100).default(20),
     q: z.string().optional(),
-    quadrant: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -25,7 +24,9 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
-  const filters: Record<string, unknown> = {}
+  const filters: Record<string, unknown> = {
+    type: 'port',
+  }
 
   if (query.q && query.q.trim().length > 0) {
     const term = `%${escapeLikePattern(query.q.trim())}%`
@@ -35,17 +36,13 @@ function buildSearchFilters(query: z.infer<typeof listSchema>): Record<string, u
     ]
   }
 
-  if (query.quadrant) {
-    filters.quadrant = query.quadrant
-  }
-
   return filters
 }
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
-    entity: FmsPort,
+    entity: FmsLocation,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
@@ -58,7 +55,10 @@ const crud = makeCrudRoute({
       'code',
       'name',
       'locode',
-      'quadrant',
+      'lat',
+      'lng',
+      'city',
+      'country',
       'organization_id',
       'tenant_id',
       'created_at',
@@ -69,7 +69,8 @@ const crud = makeCrudRoute({
       code: 'code',
       name: 'name',
       locode: 'locode',
-      quadrant: 'quadrant',
+      city: 'city',
+      country: 'country',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -79,7 +80,10 @@ const crud = makeCrudRoute({
       code: item.code ?? null,
       name: item.name ?? null,
       locode: item.locode ?? null,
-      quadrant: item.quadrant ?? null,
+      lat: item.lat ?? null,
+      lng: item.lng ?? null,
+      city: item.city ?? null,
+      country: item.country ?? null,
       organization_id: item.organization_id ?? null,
       tenant_id: item.tenant_id ?? null,
       created_at: item.created_at,
@@ -90,6 +94,7 @@ const crud = makeCrudRoute({
     schema: createPortSchema.partial(),
     mapToEntity: (input) => ({
       ...input,
+      type: 'port' as const,
     }),
   },
   update: {
@@ -98,7 +103,10 @@ const crud = makeCrudRoute({
       if (input.code !== undefined) entity.code = input.code
       if (input.name !== undefined) entity.name = input.name
       if (input.locode !== undefined) entity.locode = input.locode
-      if (input.quadrant !== undefined) entity.quadrant = input.quadrant
+      if (input.lat !== undefined) entity.lat = input.lat
+      if (input.lng !== undefined) entity.lng = input.lng
+      if (input.city !== undefined) entity.city = input.city
+      if (input.country !== undefined) entity.country = input.country
       entity.updatedAt = new Date()
     },
   },

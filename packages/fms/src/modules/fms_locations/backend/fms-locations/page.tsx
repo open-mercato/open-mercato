@@ -3,9 +3,16 @@
 import * as React from 'react'
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
-import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Upload, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import {
   DynamicTable,
   TableSkeleton,
@@ -18,6 +25,9 @@ import type {
   CellSaveStartEvent,
   CellSaveSuccessEvent,
   CellSaveErrorEvent,
+  NewRowSaveEvent,
+  NewRowSaveSuccessEvent,
+  NewRowSaveErrorEvent,
   FilterRow,
   ColumnDef,
   PerspectiveConfig,
@@ -35,28 +45,21 @@ import type {
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTableConfig } from '../../components/useTableConfig'
-import { PortDrawer } from '../../components/PortDrawer'
-import { TerminalDrawer } from '../../components/TerminalDrawer'
+import { ImportDialog } from '../../components/ImportDialog'
 
 interface FmsLocationRow {
   id: string
   code: string
   name: string
-  quadrant: string
   type: 'port' | 'terminal'
   portId?: string | null
+  locode?: string | null
+  lat?: number | null
+  lng?: number | null
+  city?: string | null
+  country?: string | null
   createdAt: string
   updatedAt: string
-}
-
-const getQuadrantColor = (quadrant: string) => {
-  const colors: Record<string, string> = {
-    NE: 'bg-blue-100 text-blue-800',
-    NW: 'bg-green-100 text-green-800',
-    SE: 'bg-yellow-100 text-yellow-800',
-    SW: 'bg-purple-100 text-purple-800',
-  }
-  return colors[quadrant] || 'bg-gray-100 text-gray-800'
 }
 
 const getTypeColor = (type: string) => {
@@ -65,17 +68,6 @@ const getTypeColor = (type: string) => {
     terminal: 'bg-orange-100 text-orange-800',
   }
   return colors[type] || 'bg-gray-100 text-gray-800'
-}
-
-const QuadrantRenderer = ({ value }: { value: string }) => {
-  if (!value) return <span>-</span>
-  return (
-    <span
-      className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getQuadrantColor(value)}`}
-    >
-      {value}
-    </span>
-  )
 }
 
 const CodeRenderer = ({ value }: { value: string }) => {
@@ -100,7 +92,6 @@ const TypeRenderer = ({ value }: { value: string }) => {
 
 const RENDERERS: Record<string, (value: any, rowData: any) => React.ReactNode> = {
   CodeRenderer: (value) => <CodeRenderer value={value} />,
-  QuadrantRenderer: (value) => <QuadrantRenderer value={value} />,
   TypeRenderer: (value) => <TypeRenderer value={value} />,
 }
 
@@ -148,8 +139,9 @@ export default function FmsLocationsPage() {
   const tableRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
 
-  const [isPortDrawerOpen, setIsPortDrawerOpen] = useState(false)
-  const [isTerminalDrawerOpen, setIsTerminalDrawerOpen] = useState(false)
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
+  const [locationToDelete, setLocationToDelete] = useState<FmsLocationRow | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [sortField, setSortField] = useState('type')
@@ -220,6 +212,50 @@ export default function FmsLocationsPage() {
     queryClient.invalidateQueries({ queryKey: ['fms_locations'] })
   }, [queryClient])
 
+  const handleConfirmDelete = useCallback(async () => {
+    if (!locationToDelete) return
+
+    setIsDeleting(true)
+    const endpoint = locationToDelete.type === 'port'
+      ? `/api/fms_locations/ports/${locationToDelete.id}`
+      : `/api/fms_locations/terminals/${locationToDelete.id}`
+
+    try {
+      const response = await apiCall<{ error?: string }>(endpoint, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        flash('Location deleted', 'success')
+        queryClient.invalidateQueries({ queryKey: ['fms_locations'] })
+        setLocationToDelete(null)
+      } else {
+        flash(response.result?.error || 'Failed to delete location', 'error')
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : 'Failed to delete location', 'error')
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [locationToDelete, queryClient])
+
+  const actionsRenderer = useCallback((rowData: any, _rowIndex: number) => {
+    const row = rowData as FmsLocationRow
+    if (!row.id) return null
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setLocationToDelete(row)
+        }}
+        className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+        title="Delete"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    )
+  }, [])
+
   useEventHandlers(
     {
       [TableEvents.CELL_EDIT_SAVE]: async (payload: CellEditSaveEvent) => {
@@ -265,6 +301,62 @@ export default function FmsLocationsPage() {
             colIndex: payload.colIndex,
             error: errorMessage,
           } as CellSaveErrorEvent)
+        }
+      },
+
+      [TableEvents.NEW_ROW_SAVE]: async (payload: NewRowSaveEvent) => {
+        const { rowIndex, rowData } = payload
+
+        if (!rowData.type || !rowData.code || !rowData.name) {
+          flash('Type, Code and Name are required', 'error')
+          dispatch(tableRef.current as HTMLElement, TableEvents.NEW_ROW_SAVE_ERROR, {
+            rowIndex,
+            error: 'Type, Code and Name are required',
+          } as NewRowSaveErrorEvent)
+          return
+        }
+
+        const endpoint = rowData.type === 'port'
+          ? '/api/fms_locations/ports'
+          : '/api/fms_locations/terminals'
+
+        try {
+          const response = await apiCall<{ id: string; error?: string }>(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code: rowData.code,
+              name: rowData.name,
+              locode: rowData.locode || null,
+              lat: rowData.lat ? parseFloat(rowData.lat) : null,
+              lng: rowData.lng ? parseFloat(rowData.lng) : null,
+              city: rowData.city || null,
+              country: rowData.country || null,
+            }),
+          })
+
+          if (response.ok && response.result?.id) {
+            flash('Location created', 'success')
+            dispatch(tableRef.current as HTMLElement, TableEvents.NEW_ROW_SAVE_SUCCESS, {
+              rowIndex,
+              savedRowData: { ...rowData, id: response.result.id },
+            } as NewRowSaveSuccessEvent)
+            queryClient.invalidateQueries({ queryKey: ['fms_locations'] })
+          } else {
+            const error = response.result?.error || 'Failed to create location'
+            flash(error, 'error')
+            dispatch(tableRef.current as HTMLElement, TableEvents.NEW_ROW_SAVE_ERROR, {
+              rowIndex,
+              error,
+            } as NewRowSaveErrorEvent)
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          flash(errorMessage, 'error')
+          dispatch(tableRef.current as HTMLElement, TableEvents.NEW_ROW_SAVE_ERROR, {
+            rowIndex,
+            error: errorMessage,
+          } as NewRowSaveErrorEvent)
         }
       },
 
@@ -367,66 +459,81 @@ export default function FmsLocationsPage() {
 
   if (configLoading) {
     return (
-      <Page>
-        <PageBody>
-          <TableSkeleton rows={10} columns={5} />
-        </PageBody>
-      </Page>
+      <div style={{ height: 'calc(100vh - 110px)' }}>
+        <TableSkeleton rows={10} columns={5} />
+      </div>
     )
   }
 
+  const importButton = (
+    <Button onClick={() => setIsImportDialogOpen(true)} size="sm" variant="outline">
+      <Upload className="h-4 w-4 mr-1" />
+      Import
+    </Button>
+  )
+
   return (
-    <Page>
-      <PageBody>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-semibold">Locations</h1>
-          <div className="flex gap-2">
-            <Button onClick={() => setIsPortDrawerOpen(true)} size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              New Port
+    <div>
+      <DynamicTable
+        tableRef={tableRef}
+        data={tableData}
+        columns={columns}
+        tableName="Locations"
+        idColumnName="id"
+        height="calc(100vh - 110px)"
+        colHeaders={true}
+        rowHeaders={true}
+        savedPerspectives={savedPerspectives}
+        activePerspectiveId={activePerspectiveId}
+        actionsRenderer={actionsRenderer}
+        uiConfig={{
+          hideAddRowButton: false,
+          topBarEnd: importButton,
+        }}
+        pagination={{
+          currentPage: page,
+          totalPages: Math.ceil((data?.total || 0) / limit),
+          limit,
+          limitOptions: [25, 50, 100],
+          onPageChange: setPage,
+          onLimitChange: (l) => {
+            setLimit(l)
+            setPage(1)
+          },
+        }}
+        debug={process.env.NODE_ENV === 'development'}
+      />
+      <ImportDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImported={handleLocationCreated}
+      />
+      <Dialog open={!!locationToDelete} onOpenChange={(open) => !open && setLocationToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Location</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete &quot;{locationToDelete?.name}&quot;? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setLocationToDelete(null)}
+              disabled={isDeleting}
+            >
+              Cancel
             </Button>
-            <Button onClick={() => setIsTerminalDrawerOpen(true)} size="sm" variant="outline">
-              <Plus className="h-4 w-4 mr-1" />
-              New Terminal
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
             </Button>
-          </div>
-        </div>
-        <DynamicTable
-          tableRef={tableRef}
-          data={tableData}
-          columns={columns}
-          tableName="Locations"
-          idColumnName="id"
-          height={600}
-          colHeaders={true}
-          rowHeaders={true}
-          savedPerspectives={savedPerspectives}
-          activePerspectiveId={activePerspectiveId}
-          uiConfig={{ hideAddRowButton: true }}
-          pagination={{
-            currentPage: page,
-            totalPages: Math.ceil((data?.total || 0) / limit),
-            limit,
-            limitOptions: [25, 50, 100],
-            onPageChange: setPage,
-            onLimitChange: (l) => {
-              setLimit(l)
-              setPage(1)
-            },
-          }}
-          debug={process.env.NODE_ENV === 'development'}
-        />
-        <PortDrawer
-          open={isPortDrawerOpen}
-          onOpenChange={setIsPortDrawerOpen}
-          onCreated={handleLocationCreated}
-        />
-        <TerminalDrawer
-          open={isTerminalDrawerOpen}
-          onOpenChange={setIsTerminalDrawerOpen}
-          onCreated={handleLocationCreated}
-        />
-      </PageBody>
-    </Page>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }

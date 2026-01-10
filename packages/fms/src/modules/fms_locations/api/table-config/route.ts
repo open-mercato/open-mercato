@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { TableColumnConfig } from './table-config-generator'
 
-const QUADRANT_VALUES = ['NE', 'NW', 'SE', 'SW']
 const TYPE_VALUES = ['port', 'terminal']
 
 const LOCATION_COLUMNS: TableColumnConfig[] = [
@@ -12,7 +11,6 @@ const LOCATION_COLUMNS: TableColumnConfig[] = [
     width: 100,
     type: 'dropdown',
     source: TYPE_VALUES,
-    readOnly: true,
     renderer: 'TypeRenderer',
   },
   {
@@ -32,12 +30,26 @@ const LOCATION_COLUMNS: TableColumnConfig[] = [
     width: 120,
   },
   {
-    data: 'quadrant',
-    title: 'Quadrant',
+    data: 'lat',
+    title: 'Latitude',
     width: 100,
-    type: 'dropdown',
-    source: QUADRANT_VALUES,
-    renderer: 'QuadrantRenderer',
+    type: 'numeric',
+  },
+  {
+    data: 'lng',
+    title: 'Longitude',
+    width: 100,
+    type: 'numeric',
+  },
+  {
+    data: 'city',
+    title: 'City',
+    width: 150,
+  },
+  {
+    data: 'country',
+    title: 'Country',
+    width: 120,
   },
   {
     data: 'createdAt',

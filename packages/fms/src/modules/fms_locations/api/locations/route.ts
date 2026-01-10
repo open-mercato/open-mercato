@@ -11,7 +11,6 @@ const listSchema = z
     page: z.coerce.number().min(1).default(1),
     limit: z.coerce.number().min(1).max(100).default(20),
     q: z.string().optional(),
-    quadrant: z.string().optional(),
     type: z.enum(['port', 'terminal']).optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -27,9 +26,12 @@ const SORT_FIELD_MAP: Record<string, string> = {
   code: 'code',
   name: 'name',
   locode: 'locode',
-  quadrant: 'quadrant',
   type: 'product_type',
   productType: 'product_type',
+  city: 'city',
+  country: 'country',
+  lat: 'lat',
+  lng: 'lng',
   createdAt: 'created_at',
   updatedAt: 'updated_at',
 }
@@ -48,12 +50,11 @@ export async function GET(req: Request) {
   const rawParams = Object.fromEntries(url.searchParams.entries())
   const query = listSchema.parse(rawParams)
 
-  const { page, limit, q, quadrant, type, sortField, sortDir } = query
+  const { page, limit, q, type, sortField, sortDir } = query
 
   const conditions: string[] = []
   const params: any[] = []
 
-  // Build organization scope
   const allowedOrgIds: string[] = []
   if (scope?.filterIds?.length) {
     scope.filterIds.forEach((id) => {
@@ -85,11 +86,6 @@ export async function GET(req: Request) {
     params.push(term, term)
   }
 
-  if (quadrant) {
-    conditions.push(`quadrant = ?`)
-    params.push(quadrant)
-  }
-
   if (type) {
     conditions.push(`product_type = ?`)
     params.push(type)
@@ -116,9 +112,12 @@ export async function GET(req: Request) {
       code,
       name,
       locode,
-      quadrant,
       product_type,
       port_id,
+      lat,
+      lng,
+      city,
+      country,
       created_at,
       updated_at
     FROM fms_locations
@@ -135,9 +134,12 @@ export async function GET(req: Request) {
     code: item.code,
     name: item.name,
     locode: item.locode,
-    quadrant: item.quadrant,
     type: item.product_type,
     portId: item.port_id,
+    lat: item.lat,
+    lng: item.lng,
+    city: item.city,
+    country: item.country,
     createdAt: item.created_at,
     updatedAt: item.updated_at,
   }))

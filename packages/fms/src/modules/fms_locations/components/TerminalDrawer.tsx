@@ -24,13 +24,6 @@ interface TerminalDrawerProps {
   preselectedPortId?: string
 }
 
-const QUADRANT_OPTIONS = [
-  { value: 'NE', label: 'Northeast' },
-  { value: 'NW', label: 'Northwest' },
-  { value: 'SE', label: 'Southeast' },
-  { value: 'SW', label: 'Southwest' },
-]
-
 interface Port {
   id: string
   code: string
@@ -42,8 +35,11 @@ export function TerminalDrawer({ open, onOpenChange, onCreated, preselectedPortI
   const [formData, setFormData] = useState({
     code: '',
     name: '',
-    quadrant: 'NE' as string,
     portId: preselectedPortId || '',
+    lat: '',
+    lng: '',
+    city: '',
+    country: '',
   })
 
   const { data: portsData } = useQuery({
@@ -66,17 +62,26 @@ export function TerminalDrawer({ open, onOpenChange, onCreated, preselectedPortI
     setIsSubmitting(true)
 
     try {
+      const payload = {
+        ...formData,
+        portId: formData.portId || null,
+        lat: formData.lat ? parseFloat(formData.lat) : null,
+        lng: formData.lng ? parseFloat(formData.lng) : null,
+        city: formData.city || null,
+        country: formData.country || null,
+      }
+
       const response = await apiCall<{ id: string; error?: string }>('/api/fms_locations/terminals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
 
       if (response.ok && response.result?.id) {
         flash('Terminal created successfully', 'success')
         onCreated(response.result.id)
         onOpenChange(false)
-        setFormData({ code: '', name: '', quadrant: 'NE', portId: preselectedPortId || '' })
+        setFormData({ code: '', name: '', portId: preselectedPortId || '', lat: '', lng: '', city: '', country: '' })
       } else {
         flash(response.result?.error || 'Failed to create terminal', 'error')
       }
@@ -99,25 +104,24 @@ export function TerminalDrawer({ open, onOpenChange, onCreated, preselectedPortI
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-[425px]" onKeyDown={handleKeyDown}>
+      <SheetContent className="sm:max-w-[425px] overflow-y-auto" onKeyDown={handleKeyDown}>
         <SheetHeader>
           <SheetTitle>Create New Terminal</SheetTitle>
           <SheetDescription>
-            Add a new terminal to a port.
+            Add a new terminal. Optionally assign it to a port.
           </SheetDescription>
         </SheetHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="portId">Port</Label>
+            <Label htmlFor="portId">Port (optional)</Label>
             <select
               id="portId"
               value={formData.portId}
               onChange={(e) => setFormData({ ...formData, portId: e.target.value })}
               disabled={!!preselectedPortId}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              required
             >
-              <option value="">Select port...</option>
+              <option value="">No port (standalone terminal)</option>
               {portsData?.map((port) => (
                 <option key={port.id} value={port.id}>
                   {port.code} - {port.name}
@@ -145,26 +149,53 @@ export function TerminalDrawer({ open, onOpenChange, onCreated, preselectedPortI
               required
             />
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="lat">Latitude</Label>
+              <Input
+                id="lat"
+                type="number"
+                step="any"
+                placeholder="54.3520"
+                value={formData.lat}
+                onChange={(e) => setFormData({ ...formData, lat: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lng">Longitude</Label>
+              <Input
+                id="lng"
+                type="number"
+                step="any"
+                placeholder="18.6466"
+                value={formData.lng}
+                onChange={(e) => setFormData({ ...formData, lng: e.target.value })}
+              />
+            </div>
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="quadrant">Quadrant</Label>
-            <select
-              id="quadrant"
-              value={formData.quadrant}
-              onChange={(e) => setFormData({ ...formData, quadrant: e.target.value })}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {QUADRANT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="city">City</Label>
+            <Input
+              id="city"
+              placeholder="Gdansk"
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="country">Country</Label>
+            <Input
+              id="country"
+              placeholder="Poland"
+              value={formData.country}
+              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+            />
           </div>
           <SheetFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting || !formData.portId}>
+            <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Creating...' : 'Create Terminal'}
             </Button>
           </SheetFooter>

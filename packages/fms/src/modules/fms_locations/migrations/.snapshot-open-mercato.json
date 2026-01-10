@@ -52,13 +52,67 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "quadrant": {
-          "name": "quadrant",
+        "product_type": {
+          "name": "product_type",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
+          "mappedType": "text"
+        },
+        "locode": {
+          "name": "locode",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "port_id": {
+          "name": "port_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "lat": {
+          "name": "lat",
+          "type": "double precision",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "double"
+        },
+        "lng": {
+          "name": "lng",
+          "type": "double precision",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "double"
+        },
+        "city": {
+          "name": "city",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "country": {
+          "name": "country",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
           "mappedType": "text"
         },
         "created_at": {
@@ -108,48 +162,17 @@
           "nullable": true,
           "length": 6,
           "mappedType": "datetime"
-        },
-        "product_type": {
-          "name": "product_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "enumItems": [
-            "port",
-            "terminal"
-          ],
-          "mappedType": "enum"
-        },
-        "locode": {
-          "name": "locode",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "port_id": {
-          "name": "port_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
         }
       },
       "name": "fms_locations",
       "schema": "public",
       "indexes": [
         {
+          "keyName": "fms_locations_type_idx",
           "columnNames": [
             "product_type"
           ],
           "composite": false,
-          "keyName": "fms_locations_product_type_index",
           "constraint": false,
           "primary": false,
           "unique": false
@@ -166,18 +189,6 @@
           "unique": false
         },
         {
-          "keyName": "fms_locations_unique",
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "code"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
           "keyName": "fms_locations_pkey",
           "columnNames": [
             "id"
@@ -189,21 +200,7 @@
         }
       ],
       "checks": [],
-      "foreignKeys": {
-        "fms_locations_port_id_foreign": {
-          "constraintName": "fms_locations_port_id_foreign",
-          "columnNames": [
-            "port_id"
-          ],
-          "localTableName": "public.fms_locations",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.fms_locations",
-          "deleteRule": "restrict",
-          "updateRule": "cascade"
-        }
-      },
+      "foreignKeys": {},
       "nativeEnums": {}
     }
   ],
