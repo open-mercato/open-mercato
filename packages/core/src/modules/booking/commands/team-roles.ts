@@ -7,7 +7,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { BookingTeamRole } from '../data/entities'
+import { BookingTeam, BookingTeamRole } from '../data/entities'
 import {
   bookingTeamRoleCreateSchema,
   bookingTeamRoleUpdateSchema,
@@ -21,6 +21,7 @@ type TeamRoleSnapshot = {
   id: string
   tenantId: string
   organizationId: string
+  teamId: string | null
   name: string
   description: string | null
   appearanceIcon: string | null
@@ -42,6 +43,7 @@ async function loadTeamRoleSnapshot(em: EntityManager, id: string): Promise<Team
     id: role.id,
     tenantId: role.tenantId,
     organizationId: role.organizationId,
+    teamId: role.teamId ?? null,
     name: role.name,
     description: role.description ?? null,
     appearanceIcon: role.appearanceIcon ?? null,
@@ -62,6 +64,22 @@ async function loadTeamRoleCustomSnapshot(
   })
 }
 
+async function ensureTeamExists(
+  em: EntityManager,
+  teamId: string,
+  tenantId: string,
+  organizationId: string,
+): Promise<void> {
+  const team = await findOneWithDecryption(
+    em,
+    BookingTeam,
+    { id: teamId, tenantId, organizationId, deletedAt: null },
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (!team) throw new CrudHttpError(400, { error: 'Team not found.' })
+}
+
 const createTeamRoleCommand: CommandHandler<BookingTeamRoleCreateInput, { roleId: string }> = {
   id: 'booking.team-roles.create',
   async execute(rawInput, ctx) {
@@ -70,10 +88,14 @@ const createTeamRoleCommand: CommandHandler<BookingTeamRoleCreateInput, { roleId
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    if (parsed.teamId) {
+      await ensureTeamExists(em, parsed.teamId, parsed.tenantId, parsed.organizationId)
+    }
     const now = new Date()
     const role = em.create(BookingTeamRole, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
+      teamId: parsed.teamId ?? null,
       name: parsed.name,
       description: parsed.description ?? null,
       appearanceIcon: parsed.appearanceIcon ?? null,
@@ -173,6 +195,12 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
     ensureTenantScope(ctx, role.tenantId)
     ensureOrganizationScope(ctx, role.organizationId)
 
+    if (parsed.teamId !== undefined) {
+      if (parsed.teamId) {
+        await ensureTeamExists(em, parsed.teamId, role.tenantId, role.organizationId)
+      }
+      role.teamId = parsed.teamId ?? null
+    }
     if (parsed.name !== undefined) role.name = parsed.name
     if (parsed.description !== undefined) role.description = parsed.description ?? null
     if (parsed.appearanceIcon !== undefined) role.appearanceIcon = parsed.appearanceIcon ?? null
@@ -212,6 +240,7 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
     const customBefore = snapshots.customBefore as CustomFieldSnapshot | undefined
     const customAfter = await loadTeamRoleCustomSnapshot(em, after)
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
+      'teamId',
       'name',
       'description',
       'appearanceIcon',
@@ -249,6 +278,7 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const role = await em.findOne(BookingTeamRole, { id: before.id })
     if (!role) return
+    role.teamId = before.teamId ?? null
     role.name = before.name
     role.description = before.description ?? null
     role.appearanceIcon = before.appearanceIcon ?? null
@@ -356,6 +386,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
         id: before.id,
         tenantId: before.tenantId,
         organizationId: before.organizationId,
+        teamId: before.teamId ?? null,
         name: before.name,
         description: before.description ?? null,
         appearanceIcon: before.appearanceIcon ?? null,
@@ -366,6 +397,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
       })
       em.persist(role)
     } else {
+      role.teamId = before.teamId ?? null
       role.name = before.name
       role.description = before.description ?? null
       role.appearanceIcon = before.appearanceIcon ?? null

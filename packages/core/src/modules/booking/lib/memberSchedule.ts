@@ -8,11 +8,19 @@ const DEFAULT_TITLE_MAP = {
   once: 'Availability',
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 function toDate(value: string | Date): Date | null {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed
+}
+
+function toFullDayWindow(value: Date): { start: Date; end: Date } {
+  const start = new Date(value.getFullYear(), value.getMonth(), value.getDate())
+  const end = new Date(start.getTime() + DAY_MS)
+  return { start, end }
 }
 
 export function buildMemberScheduleItems(params: {
@@ -22,6 +30,7 @@ export function buildMemberScheduleItems(params: {
     createdAt?: string | null
     kind?: 'availability' | 'unavailability'
     note?: string | null
+    exdates?: string[]
   }>
   bookedEvents: Array<{
     id: string
@@ -32,6 +41,12 @@ export function buildMemberScheduleItems(params: {
   }>
   translate: (key: string, fallback?: string) => string
 }): ScheduleItem[] {
+  const overrideExdates = Array.from(new Set(
+    params.availabilityRules
+      .map((rule) => parseAvailabilityRuleWindow(rule))
+      .filter((window) => window.repeat === 'once')
+      .map((window) => toFullDayWindow(window.startAt).start.toISOString()),
+  ))
   const availabilityItems = params.availabilityRules.map((rule) => {
     const window = parseAvailabilityRuleWindow(rule)
     const isUnavailable = rule.kind === 'unavailability'
@@ -41,13 +56,17 @@ export function buildMemberScheduleItems(params: {
     const fallback = isUnavailable ? 'Unavailable' : DEFAULT_TITLE_MAP[window.repeat]
     const baseTitle = params.translate(titleKey, fallback)
     const title = rule.note ? `${baseTitle}: ${rule.note}` : baseTitle
+    const windowTime = window.repeat === 'once' ? toFullDayWindow(window.startAt) : { start: window.startAt, end: window.endAt }
+    const exdates = window.repeat === 'once'
+      ? rule.exdates ?? []
+      : [...(rule.exdates ?? []), ...overrideExdates]
     return {
       id: rule.id,
       kind: isUnavailable ? 'exception' as const : 'availability' as const,
       title,
-      startsAt: window.startAt,
-      endsAt: window.endAt,
-      metadata: { rule },
+      startsAt: windowTime.start,
+      endsAt: windowTime.end,
+      metadata: { rule: { ...rule, exdates } },
     }
   })
   const eventItems = params.bookedEvents

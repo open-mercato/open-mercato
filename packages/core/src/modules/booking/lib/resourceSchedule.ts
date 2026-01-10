@@ -15,6 +15,7 @@ export type ResourceAvailabilityRule = {
   createdAt?: string | null
   kind?: 'availability' | 'unavailability'
   note?: string | null
+  exdates?: string[]
 }
 
 export type ResourceBookedEvent = {
@@ -38,11 +39,19 @@ const DEFAULT_TITLE_MAP = {
   },
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 function toDate(value: string | Date): Date | null {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed
+}
+
+function toFullDayWindow(value: Date): { start: Date; end: Date } {
+  const start = new Date(value.getFullYear(), value.getMonth(), value.getDate())
+  const end = new Date(start.getTime() + DAY_MS)
+  return { start, end }
 }
 
 export function parseAvailabilityRuleWindow(rule: ResourceAvailabilityRule): AvailabilityRuleWindow {
@@ -112,6 +121,12 @@ export function buildResourceScheduleItems(params: {
   isAvailableByDefault: boolean
   translate: (key: string, fallback?: string) => string
 }): ScheduleItem[] {
+  const overrideExdates = Array.from(new Set(
+    params.availabilityRules
+      .map((rule) => parseAvailabilityRuleWindow(rule))
+      .filter((window) => window.repeat === 'once')
+      .map((window) => toFullDayWindow(window.startAt).start.toISOString()),
+  ))
   const availabilityLinkLabel = params.translate('booking.resources.schedule.actions.details', 'Details')
   const availabilityItems = params.availabilityRules.map((rule) => {
     const window = parseAvailabilityRuleWindow(rule)
@@ -120,14 +135,18 @@ export function buildResourceScheduleItems(params: {
     const availabilityKind: ScheduleItem['kind'] = isUnavailable ? 'exception' : (params.isAvailableByDefault ? 'exception' : 'availability')
     const baseTitle = buildAvailabilityTitle(window.repeat, mode, params.translate)
     const title = rule.note ? `${baseTitle}: ${rule.note}` : baseTitle
+    const windowTime = window.repeat === 'once' ? toFullDayWindow(window.startAt) : { start: window.startAt, end: window.endAt }
+    const exdates = window.repeat === 'once'
+      ? rule.exdates ?? []
+      : [...(rule.exdates ?? []), ...overrideExdates]
     return {
       id: rule.id,
       kind: availabilityKind,
       title,
       linkLabel: availabilityLinkLabel,
-      startsAt: window.startAt,
-      endsAt: window.endAt,
-      metadata: { rule },
+      startsAt: windowTime.start,
+      endsAt: windowTime.end,
+      metadata: { rule: { ...rule, exdates } },
     }
   })
   const eventItems = params.bookedEvents

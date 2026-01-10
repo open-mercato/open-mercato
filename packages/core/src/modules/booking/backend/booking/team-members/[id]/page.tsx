@@ -20,6 +20,7 @@ const DEFAULT_PAGE_SIZE = 100
 
 type TeamMemberRecord = {
   id: string
+  teamId?: string | null
   displayName: string
   description?: string | null
   userId?: string | null
@@ -48,6 +49,10 @@ type UsersResponse = {
   items?: Array<{ id?: string; email?: string; organizationName?: string | null }>
 }
 
+type TeamsResponse = {
+  items?: Array<{ id?: string; name?: string }>
+}
+
 export default function BookingTeamMemberDetailPage({ params }: { params?: { id?: string } }) {
   const memberId = params?.id
   const t = useT()
@@ -57,6 +62,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [roles, setRoles] = React.useState<TeamRoleRow[]>([])
   const [userOptions, setUserOptions] = React.useState<LookupSelectItem[]>([])
+  const [teamOptions, setTeamOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const flashShownRef = React.useRef(false)
@@ -96,6 +102,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
           }
           setInitialValues({
             id: record.id,
+            teamId: record.teamId ?? record.team_id ?? null,
             userId: record.userId ?? record.user_id ?? null,
             displayName: record.displayName ?? record.display_name ?? '',
             description: record.description ?? '',
@@ -157,6 +164,30 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     return () => { cancelled = true }
   }, [scopeVersion])
 
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadTeams() {
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
+        const call = await apiCall<TeamsResponse>(`/api/booking/teams?${params.toString()}`)
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const options = items
+          .map((team) => {
+            const id = typeof team.id === 'string' ? team.id : null
+            const name = typeof team.name === 'string' ? team.name : null
+            if (!id || !name) return null
+            return { value: id, label: name }
+          })
+          .filter((entry): entry is { value: string; label: string } => entry !== null)
+        if (!cancelled) setTeamOptions(options)
+      } catch {
+        if (!cancelled) setTeamOptions([])
+      }
+    }
+    loadTeams()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
   const fetchUserOptions = React.useCallback(async (query?: string): Promise<LookupSelectItem[]> => {
     const params = new URLSearchParams({ page: '1', pageSize: '50' })
     if (query && query.trim().length) params.set('search', query.trim())
@@ -197,6 +228,16 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       ),
     },
     {
+      id: 'teamId',
+      label: t('booking.teamMembers.form.fields.team', 'Team'),
+      type: 'select',
+      listbox: true,
+      options: [
+        { value: '', label: t('booking.teamMembers.form.fields.team.unassigned', 'Unassigned') },
+        ...teamOptions,
+      ],
+    },
+    {
       id: 'displayName',
       label: t('booking.teamMembers.form.fields.displayName', 'Display name'),
       type: 'text',
@@ -234,6 +275,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     const customFields = collectCustomFieldValues(values)
     const payload: Record<string, unknown> = {
       id: memberId,
+      teamId: values.teamId ? String(values.teamId) : null,
       userId: values.userId ? String(values.userId) : null,
       displayName: values.displayName ? String(values.displayName) : '',
       description: typeof values.description === 'string' && values.description.trim().length ? values.description : null,

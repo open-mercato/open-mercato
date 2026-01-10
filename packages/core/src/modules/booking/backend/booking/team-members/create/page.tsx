@@ -33,11 +33,16 @@ type UsersResponse = {
   items?: UserRow[]
 }
 
+type TeamsResponse = {
+  items?: Array<{ id?: string; name?: string }>
+}
+
 export default function BookingTeamMemberCreatePage() {
   const t = useT()
   const router = useRouter()
   const [roles, setRoles] = React.useState<TeamRoleRow[]>([])
   const [userOptions, setUserOptions] = React.useState<LookupSelectItem[]>([])
+  const [teamOptions, setTeamOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const scopeVersion = useOrganizationScopeVersion()
 
   React.useEffect(() => {
@@ -53,6 +58,30 @@ export default function BookingTeamMemberCreatePage() {
       }
     }
     loadRoles()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadTeams() {
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
+        const call = await apiCall<TeamsResponse>(`/api/booking/teams?${params.toString()}`)
+        const items = Array.isArray(call.result?.items) ? call.result.items : []
+        const options = items
+          .map((team) => {
+            const id = typeof team.id === 'string' ? team.id : null
+            const name = typeof team.name === 'string' ? team.name : null
+            if (!id || !name) return null
+            return { value: id, label: name }
+          })
+          .filter((entry): entry is { value: string; label: string } => entry !== null)
+        if (!cancelled) setTeamOptions(options)
+      } catch {
+        if (!cancelled) setTeamOptions([])
+      }
+    }
+    loadTeams()
     return () => { cancelled = true }
   }, [scopeVersion])
 
@@ -94,6 +123,16 @@ export default function BookingTeamMemberCreatePage() {
       ),
     },
     {
+      id: 'teamId',
+      label: t('booking.teamMembers.form.fields.team', 'Team'),
+      type: 'select',
+      listbox: true,
+      options: [
+        { value: '', label: t('booking.teamMembers.form.fields.team.unassigned', 'Unassigned') },
+        ...teamOptions,
+      ],
+    },
+    {
       id: 'displayName',
       label: t('booking.teamMembers.form.fields.displayName', 'Display name'),
       type: 'text',
@@ -129,6 +168,7 @@ export default function BookingTeamMemberCreatePage() {
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     const customFields = collectCustomFieldValues(values)
     const payload: Record<string, unknown> = {
+      teamId: values.teamId ? String(values.teamId) : null,
       userId: values.userId ? String(values.userId) : null,
       displayName: values.displayName ? String(values.displayName) : '',
       description: typeof values.description === 'string' && values.description.trim().length ? values.description : null,
@@ -157,7 +197,7 @@ export default function BookingTeamMemberCreatePage() {
           cancelHref="/backend/booking/team-members"
           submitLabel={t('booking.teamMembers.form.actions.create', 'Create')}
           fields={fields}
-          initialValues={{ isActive: true, roleIds: [], tags: [] }}
+          initialValues={{ isActive: true, roleIds: [], tags: [], teamId: null }}
           entityId={E.booking.booking_team_member}
           onSubmit={handleSubmit}
         />

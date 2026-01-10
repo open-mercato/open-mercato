@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { BookingTeamMember, BookingTeamRole } from '../data/entities'
+import { BookingTeam, BookingTeamMember, BookingTeamRole } from '../data/entities'
 import { bookingTeamMemberCreateSchema, bookingTeamMemberUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
@@ -29,6 +29,8 @@ const listSchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     search: z.string().optional(),
     isActive: z.string().optional(),
+    teamId: z.string().uuid().optional(),
+    roleId: z.string().uuid().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -51,6 +53,7 @@ const crud = makeCrudRoute({
       F.id,
       F.organization_id,
       F.tenant_id,
+      F.team_id,
       F.display_name,
       F.description,
       F.user_id,
@@ -77,6 +80,12 @@ const crud = makeCrudRoute({
       if (isActive !== undefined) {
         filters[F.is_active] = isActive
       }
+      if (query.teamId) {
+        filters[F.team_id] = query.teamId
+      }
+      if (query.roleId) {
+        filters[F.role_ids] = { $contains: [query.roleId] }
+      }
       return filters
     },
     decorateCustomFields: { entityIds: [E.booking.booking_team_member] },
@@ -87,6 +96,7 @@ const crud = makeCrudRoute({
       if (!items.length) return
       const roleIds = new Set<string>()
       const userIds = new Set<string>()
+      const teamIds = new Set<string>()
       items.forEach((item) => {
         if (!item || typeof item !== 'object') return
         const roleList = Array.isArray(item.roleIds) ? item.roleIds : Array.isArray(item.role_ids) ? item.role_ids : []
@@ -99,6 +109,12 @@ const crud = makeCrudRoute({
             ? item.user_id
             : null
         if (userId) userIds.add(userId)
+        const teamId = typeof item.teamId === 'string'
+          ? item.teamId
+          : typeof item.team_id === 'string'
+            ? item.team_id
+            : null
+        if (teamId) teamIds.add(teamId)
       })
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const roleById = new Map<string, string>()
@@ -127,6 +143,19 @@ const crud = makeCrudRoute({
           userById.set(user.id, { id: user.id, email: user.email ?? null })
         })
       }
+      const teamById = new Map<string, { id: string; name: string }>()
+      if (teamIds.size) {
+        const teams = await findWithDecryption(
+          em,
+          BookingTeam,
+          { id: { $in: Array.from(teamIds) }, deletedAt: null },
+          undefined,
+          { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
+        )
+        teams.forEach((team) => {
+          teamById.set(team.id, { id: team.id, name: team.name })
+        })
+      }
       items.forEach((item) => {
         if (!item || typeof item !== 'object') return
         const roleList = Array.isArray(item.roleIds) ? item.roleIds : Array.isArray(item.role_ids) ? item.role_ids : []
@@ -139,6 +168,12 @@ const crud = makeCrudRoute({
             ? item.user_id
             : null
         item.user = userId ? (userById.get(userId) ?? null) : null
+        const teamId = typeof item.teamId === 'string'
+          ? item.teamId
+          : typeof item.team_id === 'string'
+            ? item.team_id
+            : null
+        item.team = teamId ? (teamById.get(teamId) ?? null) : null
       })
     },
   },

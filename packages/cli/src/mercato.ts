@@ -225,6 +225,12 @@ export async function run(argv = process.argv) {
       }
       
       if (orgId && tenantId) {
+        if (reinstall) {
+          console.log('🧩 Reinstalling custom field definitions...')
+          runCommand(`yarn mercato entities reinstall --tenant ${tenantId}`)
+          console.log('🧩 ✅ Custom field definitions reinstalled\n')
+        }
+
         console.log('📚 Seeding customer dictionaries...')
         runCommand(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`)
         console.log('📚 ✅ Customer dictionaries seeded\n')

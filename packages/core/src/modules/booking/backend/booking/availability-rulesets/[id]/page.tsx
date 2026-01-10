@@ -11,6 +11,14 @@ import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/back
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { useT } from '@/lib/i18n/context'
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function toFullDayWindow(value: Date): { start: Date; end: Date } {
+  const start = new Date(value.getFullYear(), value.getMonth(), value.getDate())
+  const end = new Date(start.getTime() + DAY_MS)
+  return { start, end }
+}
+
 type RuleSetRecord = {
   id: string
   name: string
@@ -106,6 +114,12 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
   }, [router, rulesetId, t])
 
   const buildScheduleItems = React.useCallback(({ availabilityRules, bookedEvents, translate }) => {
+    const overrideExdates = Array.from(new Set(
+      availabilityRules
+        .map((rule) => parseAvailabilityRuleWindow(rule))
+        .filter((window) => window.repeat === 'once')
+        .map((window) => toFullDayWindow(window.startAt).start.toISOString()),
+    ))
     const availabilityItems = availabilityRules.map((rule) => {
       const window = parseAvailabilityRuleWindow(rule)
       const isUnavailable = rule.kind === 'unavailability'
@@ -121,13 +135,17 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
             : 'Availability'
       const baseTitle = translate(titleKey, fallback)
       const title = rule.note ? `${baseTitle}: ${rule.note}` : baseTitle
+      const windowTime = window.repeat === 'once' ? toFullDayWindow(window.startAt) : { start: window.startAt, end: window.endAt }
+      const exdates = window.repeat === 'once'
+        ? rule.exdates ?? []
+        : [...(rule.exdates ?? []), ...overrideExdates]
       return {
         id: rule.id,
         kind: isUnavailable ? 'exception' as const : 'availability' as const,
         title,
-        startsAt: window.startAt,
-        endsAt: window.endAt,
-        metadata: { rule },
+        startsAt: windowTime.start,
+        endsAt: windowTime.end,
+        metadata: { rule: { ...rule, exdates } },
       }
     })
     return availabilityItems

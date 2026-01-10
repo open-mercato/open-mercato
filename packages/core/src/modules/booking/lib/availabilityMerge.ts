@@ -23,6 +23,7 @@ type ParsedRule = {
   startAt: Date
   durationMinutes: number
   freq: 'DAILY' | 'WEEKLY'
+  repeat: 'once' | 'daily' | 'weekly'
   count?: number
 }
 
@@ -49,7 +50,12 @@ function parseRrule(rule: string): ParsedRule | null {
 
   const countMatch = rule.match(/COUNT=(\d+)/)
   const count = countMatch?.[1] ? Number(countMatch[1]) : undefined
-  return { startAt, durationMinutes, freq, count }
+  const repeat = freq === 'WEEKLY'
+    ? 'weekly'
+    : freq === 'DAILY' && count === 1
+      ? 'once'
+      : 'daily'
+  return { startAt, durationMinutes, freq, count, repeat }
 }
 
 function buildExdateSets(exdates?: string[]) {
@@ -78,10 +84,26 @@ function shouldExcludeOccurrence(startAt: Date, exdates?: string[]): boolean {
   return dateOnly.has(dayKey)
 }
 
-function expandRule(rule: AvailabilityRuleLike, range: AvailabilityRange): AvailabilityWindow[] {
-  const parsed = parseRrule(rule.rrule)
-  if (!parsed) return []
-  const { startAt, durationMinutes, freq, count } = parsed
+function toDayKey(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function startOfDay(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate())
+}
+
+function expandRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: AvailabilityRange): AvailabilityWindow[] {
+  const { startAt, durationMinutes, freq, count, repeat } = parsed
+  if (repeat === 'once') {
+    if (shouldExcludeOccurrence(startAt, rule.exdates)) return []
+    const start = startOfDay(startAt)
+    const end = new Date(start.getTime() + DAY_MS)
+    if (end <= range.start || start >= range.end) return []
+    return [{ start, end, ruleId: rule.id }]
+  }
   const durationMs = durationMinutes * 60000
   const windows: AvailabilityWindow[] = []
   const addWindow = (start: Date) => {
@@ -120,7 +142,12 @@ function expandRule(rule: AvailabilityRuleLike, range: AvailabilityRange): Avail
 }
 
 function expandRules(rules: AvailabilityRuleLike[], range: AvailabilityRange): AvailabilityWindow[] {
-  return rules.flatMap((rule) => expandRule(rule, range)).sort((a, b) => a.start.getTime() - b.start.getTime())
+  const expanded = rules.flatMap((rule) => {
+    const parsed = parseRrule(rule.rrule)
+    if (!parsed) return []
+    return expandRule(rule, parsed, range)
+  })
+  return expanded.sort((a, b) => a.start.getTime() - b.start.getTime())
 }
 
 function subtractWindow(window: AvailabilityWindow, blockers: AvailabilityWindow[]): AvailabilityWindow[] {
@@ -148,12 +175,51 @@ export function getMergedAvailabilityWindows(params: {
   rules: AvailabilityRuleLike[]
   range: AvailabilityRange
 }): AvailabilityWindow[] {
-  const availabilityRules = params.rules.filter((rule) => rule.kind !== 'unavailability')
-  const unavailabilityRules = params.rules.filter((rule) => rule.kind === 'unavailability')
-  const availabilityWindows = expandRules(availabilityRules, params.range)
-  const unavailabilityWindows = expandRules(unavailabilityRules, params.range)
-  if (unavailabilityWindows.length === 0) return availabilityWindows
+  const parsedRules = params.rules
+    .map((rule) => {
+      const parsed = parseRrule(rule.rrule)
+      if (!parsed) return null
+      return { rule, parsed }
+    })
+    .filter((entry): entry is { rule: AvailabilityRuleLike; parsed: ParsedRule } => entry !== null)
 
-  const merged = availabilityWindows.flatMap((window) => subtractWindow(window, unavailabilityWindows))
-  return merged.sort((a, b) => a.start.getTime() - b.start.getTime())
+  const overrideDays = new Map<string, AvailabilityKind>()
+  parsedRules
+    .filter(({ parsed }) => parsed.repeat === 'once')
+    .forEach(({ rule, parsed }) => {
+      const dayKey = toDayKey(parsed.startAt)
+      const kind = rule.kind === 'unavailability' ? 'unavailability' : 'availability'
+      if (kind === 'unavailability') {
+        overrideDays.set(dayKey, 'unavailability')
+      } else if (!overrideDays.has(dayKey)) {
+        overrideDays.set(dayKey, 'availability')
+      }
+    })
+
+  const availabilityRules = parsedRules
+    .filter(({ parsed, rule }) => parsed.repeat !== 'once' && rule.kind !== 'unavailability')
+    .map(({ rule }) => rule)
+  const unavailabilityRules = parsedRules
+    .filter(({ parsed, rule }) => parsed.repeat !== 'once' && rule.kind === 'unavailability')
+    .map(({ rule }) => rule)
+
+  const availabilityWindows = expandRules(availabilityRules, params.range)
+    .filter((window) => !overrideDays.has(toDayKey(window.start)))
+  const unavailabilityWindows = expandRules(unavailabilityRules, params.range)
+
+  const merged = unavailabilityWindows.length === 0
+    ? availabilityWindows
+    : availabilityWindows.flatMap((window) => subtractWindow(window, unavailabilityWindows))
+
+  const overrideWindows: AvailabilityWindow[] = []
+  overrideDays.forEach((kind, dayKey) => {
+    if (kind !== 'availability') return
+    const start = new Date(`${dayKey}T00:00:00`)
+    if (Number.isNaN(start.getTime())) return
+    const end = new Date(start.getTime() + DAY_MS)
+    if (end <= params.range.start || start >= params.range.end) return
+    overrideWindows.push({ start, end })
+  })
+
+  return [...merged, ...overrideWindows].sort((a, b) => a.start.getTime() - b.start.getTime())
 }

@@ -10,10 +10,16 @@ import { useT } from '@/lib/i18n/context'
 
 export type TeamRoleFormValues = {
   id?: string
+  teamId?: string | null
   name: string
   description?: string | null
   appearance?: { icon?: string | null; color?: string | null }
 } & Record<string, unknown>
+
+export type TeamRoleOption = {
+  id: string
+  name: string
+}
 
 export type TeamRoleFormProps = {
   title: string
@@ -21,6 +27,7 @@ export type TeamRoleFormProps = {
   backHref: string
   cancelHref: string
   initialValues: TeamRoleFormValues
+  teamOptions?: TeamRoleOption[]
   onSubmit: (values: TeamRoleFormValues) => Promise<void>
   onDelete?: () => Promise<void>
   isLoading?: boolean
@@ -40,12 +47,14 @@ export const buildTeamRolePayload = (
   const description = typeof values.description === 'string' && values.description.trim().length
     ? values.description.trim()
     : null
+  const teamId = typeof values.teamId === 'string' && values.teamId.trim().length ? values.teamId : null
   const appearance = values.appearance && typeof values.appearance === 'object'
     ? values.appearance as { icon?: string | null; color?: string | null }
     : {}
   const customFields = collectCustomFieldValues(values, { transform: normalizeCustomFieldSubmitValue })
   return {
     ...(options.id ? { id: options.id } : {}),
+    teamId,
     name,
     description,
     appearanceIcon: appearance.icon ?? null,
@@ -61,6 +70,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
     backHref,
     cancelHref,
     initialValues,
+    teamOptions,
     onSubmit,
     onDelete,
     isLoading,
@@ -82,29 +92,45 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
     previewEmptyLabel: t('booking.teamRoles.form.appearance.previewEmpty', 'No appearance selected'),
   }), [t])
 
-  const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'name', label: t('booking.teamRoles.form.fields.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('booking.teamRoles.form.fields.description', 'Description'), type: 'richtext' },
-    {
-      id: 'appearance',
-      label: t('booking.teamRoles.form.appearance.label', 'Appearance'),
-      type: 'custom',
-      component: ({ value, setValue }) => {
-        const current = value && typeof value === 'object'
-          ? (value as { icon?: string | null; color?: string | null })
-          : {}
-        return (
-          <AppearanceSelector
-            icon={current.icon ?? null}
-            color={current.color ?? null}
-            onIconChange={(next) => setValue({ ...current, icon: next })}
-            onColorChange={(next) => setValue({ ...current, color: next })}
-            labels={appearanceLabels}
-          />
-        )
+  const fields = React.useMemo<CrudField[]>(() => {
+    const base: CrudField[] = []
+    if (teamOptions && teamOptions.length) {
+      base.push({
+        id: 'teamId',
+        label: t('booking.teamRoles.form.fields.team', 'Team'),
+        type: 'select',
+        listbox: true,
+        options: [
+          { value: '', label: t('booking.teamRoles.form.fields.team.unassigned', 'Unassigned') },
+          ...teamOptions.map((team) => ({ value: team.id, label: team.name })),
+        ],
+      })
+    }
+    base.push(
+      { id: 'name', label: t('booking.teamRoles.form.fields.name', 'Name'), type: 'text', required: true },
+      { id: 'description', label: t('booking.teamRoles.form.fields.description', 'Description'), type: 'richtext' },
+      {
+        id: 'appearance',
+        label: t('booking.teamRoles.form.appearance.label', 'Appearance'),
+        type: 'custom',
+        component: ({ value, setValue }) => {
+          const current = value && typeof value === 'object'
+            ? (value as { icon?: string | null; color?: string | null })
+            : {}
+          return (
+            <AppearanceSelector
+              icon={current.icon ?? null}
+              color={current.color ?? null}
+              onIconChange={(next) => setValue({ ...current, icon: next })}
+              onColorChange={(next) => setValue({ ...current, color: next })}
+              labels={appearanceLabels}
+            />
+          )
+        },
       },
-    },
-  ], [appearanceLabels, t])
+    )
+    return base
+  }, [appearanceLabels, t, teamOptions])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     { id: 'details', fields: ['name', 'description', 'appearance'] },
