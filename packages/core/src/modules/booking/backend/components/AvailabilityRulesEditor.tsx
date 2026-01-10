@@ -1223,7 +1223,11 @@ export function AvailabilityRulesEditor({
                             type="button"
                             role="tab"
                             aria-selected={editorScope === 'weekday'}
-                            onClick={() => setEditorScope('weekday')}
+                            onClick={() => {
+                              setEditorScope('weekday')
+                              setEditorUnavailable(false)
+                              setEditorNote('')
+                            }}
                             className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
                               editorScope === 'weekday'
                                 ? 'bg-background text-foreground shadow-sm'

@@ -12,6 +12,37 @@ export type BookingMemberRequirement = { memberId: string; qty?: number }
 export type BookingResourceRequirement = { resourceId: string; qty: number }
 export type BookingResourceTypeRequirement = { resourceTypeId: string; qty: number }
 
+@Entity({ tableName: 'booking_teams' })
+@Index({ name: 'booking_teams_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+export class BookingTeam {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'booking_services' })
 @Index({ name: 'booking_services_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 export class BookingService {
@@ -79,6 +110,9 @@ export class BookingTeamRole {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
+  @Property({ name: 'team_id', type: 'uuid', nullable: true })
+  teamId?: string | null
+
   @Property({ type: 'text' })
   name!: string
 
@@ -112,6 +146,9 @@ export class BookingTeamMember {
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
+
+  @Property({ name: 'team_id', type: 'uuid', nullable: true })
+  teamId?: string | null
 
   @Property({ name: 'display_name', type: 'text' })
   displayName!: string

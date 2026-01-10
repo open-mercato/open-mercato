@@ -86,6 +86,7 @@ export const bookingServiceUpdateSchema = z
 
 export const bookingTeamRoleCreateSchema = z.object({
   ...scopedCreateFields,
+  teamId: z.string().uuid().optional().nullable(),
   name: z.string().min(1),
   description: z.string().optional().nullable(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
@@ -99,6 +100,7 @@ export const bookingTeamRoleCreateSchema = z.object({
 
 export const bookingTeamRoleUpdateSchema = z.object({
   ...scopedUpdateFields,
+  teamId: z.string().uuid().optional().nullable(),
   name: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
@@ -112,6 +114,7 @@ export const bookingTeamRoleUpdateSchema = z.object({
 
 export const bookingTeamMemberCreateSchema = z.object({
   ...scopedCreateFields,
+  teamId: z.string().uuid().optional().nullable(),
   displayName: z.string().min(1),
   description: z.string().optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
@@ -123,6 +126,7 @@ export const bookingTeamMemberCreateSchema = z.object({
 
 export const bookingTeamMemberUpdateSchema = z.object({
   ...scopedUpdateFields,
+  teamId: z.string().uuid().optional().nullable(),
   displayName: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   userId: z.string().uuid().optional().nullable(),
@@ -156,6 +160,20 @@ export const bookingResourceTypeUpdateSchema = z.object({
     .regex(/^#([0-9a-fA-F]{6})$/)
     .optional()
     .nullable(),
+})
+
+export const bookingTeamCreateSchema = z.object({
+  ...scopedCreateFields,
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  isActive: z.boolean().optional(),
+})
+
+export const bookingTeamUpdateSchema = z.object({
+  ...scopedUpdateFields,
+  name: z.string().min(1).optional(),
+  description: z.string().optional().nullable(),
+  isActive: z.boolean().optional(),
 })
 
 export const bookingResourceCreateSchema = z.object({
