@@ -11,6 +11,59 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Queue } from '@open-mercato/queue'
 import type { MeilisearchIndexJobPayload } from './queue/meilisearch-indexing'
+import type { EncryptionMapEntry } from './lib/field-policy'
+
+/**
+ * Check if encrypted fields should be excluded from search indexing.
+ * Controlled by SEARCH_EXCLUDE_ENCRYPTED_FIELDS environment variable.
+ * Default: false (index all fields including decrypted data)
+ */
+function shouldExcludeEncryptedFields(): boolean {
+  const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+/**
+ * Create an encryption map resolver that queries the database.
+ * Falls back to empty array if query fails.
+ */
+function createEncryptionMapResolver(
+  knex: Knex,
+): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
+  // Cache encryption maps per entity to avoid repeated queries
+  const cache = new Map<string, { entries: EncryptionMapEntry[]; expiresAt: number }>()
+  const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
+
+  return async (entityId: EntityId): Promise<EncryptionMapEntry[]> => {
+    const cached = cache.get(entityId)
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.entries
+    }
+
+    try {
+      const rows = await knex('encryption_maps')
+        .select('fields_json')
+        .where('entity_id', entityId)
+        .where('is_active', true)
+        .whereNull('deleted_at')
+        .first()
+
+      const fieldsJson = rows?.fields_json
+      const entries: EncryptionMapEntry[] = Array.isArray(fieldsJson)
+        ? fieldsJson.map((f: { field: string; hashField?: string | null }) => ({
+            field: f.field,
+            hashField: f.hashField ?? null,
+          }))
+        : []
+
+      cache.set(entityId, { entries, expiresAt: Date.now() + CACHE_TTL_MS })
+      return entries
+    } catch {
+      // Query failed, return empty array (don't exclude any fields)
+      return []
+    }
+  }
+}
 
 /**
  * Container interface - minimal subset needed for registration.
@@ -94,11 +147,24 @@ export function registerSearchModule(
 
   // Meilisearch strategy (requires host configuration)
   if (!options?.skipMeilisearch && process.env.MEILISEARCH_HOST) {
+    // Build encryption map resolver if SEARCH_EXCLUDE_ENCRYPTED_FIELDS is enabled
+    let encryptionMapResolver: ((entityId: EntityId) => Promise<EncryptionMapEntry[]>) | undefined
+    if (shouldExcludeEncryptedFields()) {
+      try {
+        const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
+        const knex = em.getConnection().getKnex()
+        encryptionMapResolver = createEncryptionMapResolver(knex)
+      } catch {
+        // Knex not available, encrypted field filtering disabled
+      }
+    }
+
     strategies.push(new MeilisearchStrategy({
       fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
         const config = entityConfigMap.get(entityId)
         return config?.fieldPolicy
       },
+      encryptionMapResolver,
     }))
   }
 

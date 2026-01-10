@@ -399,9 +399,36 @@ yarn mercato search worker meilisearch-indexing --concurrency=5
 | `MEILISEARCH_API_KEY` | Meilisearch API key | - |
 | `OPENAI_API_KEY` | OpenAI API key for embeddings | - |
 | `OM_SEARCH_ENABLED` | Enable/disable search module | `true` |
+| `OM_SEARCH_DEBUG` | Enable debug logging for search module | `false` |
+| `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | Exclude encrypted fields from Meilisearch indexing | `false` |
 | `QUEUE_STRATEGY` | Queue strategy (`local` or `async`) | `local` |
 | `REDIS_URL` | Redis connection URL for async queues | - |
 | `QUEUE_REDIS_URL` | Alternative Redis URL for queues | - |
+
+### Debug Logging
+
+Set `OM_SEARCH_DEBUG=true` to enable verbose debug logging for the search module. This outputs detailed information about indexing operations, strategy selection, and error handling. Errors are always logged regardless of this flag.
+
+```env
+OM_SEARCH_DEBUG=true
+```
+
+### Encrypted Field Exclusion
+
+By default, all fields (including decrypted values of encrypted fields) are indexed into Meilisearch for full-text search. For security-sensitive deployments, you can exclude encrypted fields from indexing by setting:
+
+```env
+SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true
+```
+
+When enabled, fields defined in `encryption_maps` are automatically excluded from the Meilisearch index. This includes fields like:
+- Customer PII: `display_name`, `primary_email`, `primary_phone`
+- Person profiles: `first_name`, `last_name`, `job_title`
+- Company profiles: `legal_name`, `brand_name`, `domain`
+- Comments and activities: `body`, `subject`
+- And other fields configured in the encryption maps
+
+**Note:** This only affects Meilisearch indexing. Vector search uses its own field configuration via `buildSource`. Consider adjusting your `buildSource` implementation if you also need to exclude sensitive fields from vector embeddings.
 
 ## Configuring Entities for Search
 
