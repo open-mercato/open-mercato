@@ -20,7 +20,10 @@ export default function BookingResourceCreatePage() {
     const appearance = values.appearance && typeof values.appearance === 'object'
       ? values.appearance as { icon?: string | null; color?: string | null }
       : {}
-    const { appearance: _appearance, customFieldsetCode: _customFieldsetCode, ...rest } = values
+    const { appearance: _appearance, ...rest } = values
+    const customFieldsetCode = typeof values.customFieldsetCode === 'string' && values.customFieldsetCode.trim().length
+      ? values.customFieldsetCode.trim()
+      : BOOKING_RESOURCE_FIELDSET_DEFAULT
     const payload: Record<string, unknown> = {
       ...rest,
       capacity: values.capacity ? Number(values.capacity) : null,
@@ -28,6 +31,7 @@ export default function BookingResourceCreatePage() {
       appearanceIcon: appearance.icon ?? null,
       appearanceColor: appearance.color ?? null,
       isActive: values.isActive ?? true,
+      customFieldsetCode,
       ...collectCustomFieldValues(values),
     }
     if (!payload.name || String(payload.name).trim().length === 0) {
@@ -36,12 +40,6 @@ export default function BookingResourceCreatePage() {
     const { result } = await createCrud<{ id?: string }>('booking/resources', payload, {
       errorMessage: t('booking.resources.form.errors.create', 'Failed to create resource.'),
     })
-    const resourceId = result?.id
-    if (resourceId) {
-      flash(t('booking.resources.form.flash.created', 'Resource created.'), 'success')
-      router.push(`/backend/booking/resources/${encodeURIComponent(resourceId)}`)
-      return
-    }
     flash(t('booking.resources.form.flash.created', 'Resource created.'), 'success')
     router.push('/backend/booking/resources')
   }, [router, t])

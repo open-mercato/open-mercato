@@ -123,7 +123,10 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     const appearance = values.appearance && typeof values.appearance === 'object'
       ? values.appearance as { icon?: string | null; color?: string | null }
       : {}
-    const { appearance: _appearance, customFieldsetCode: _customFieldsetCode, ...rest } = values
+    const { appearance: _appearance, ...rest } = values
+    const customFieldsetCode = typeof values.customFieldsetCode === 'string' && values.customFieldsetCode.trim().length
+      ? values.customFieldsetCode.trim()
+      : BOOKING_RESOURCE_FIELDSET_DEFAULT
     const payload: Record<string, unknown> = {
       ...rest,
       id: resourceId,
@@ -133,6 +136,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       appearanceIcon: appearance.icon ?? null,
       appearanceColor: appearance.color ?? null,
       isActive: values.isActive ?? true,
+      customFieldsetCode,
       ...collectCustomFieldValues(values),
     }
     if (!payload.name || String(payload.name).trim().length === 0) {

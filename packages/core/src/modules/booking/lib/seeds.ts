@@ -11,10 +11,13 @@ import {
   BookingResourceTagAssignment,
   BookingResourceType,
   BookingService,
+  BookingTeamMember,
+  BookingTeamRole,
   type BookingResourceRequirement,
   type BookingResourceTypeRequirement,
 } from '../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   BOOKING_RESOURCE_CUSTOM_FIELD_SETS,
   BOOKING_RESOURCE_FIELDSET_DENTAL_CHAIR,
@@ -149,6 +152,23 @@ type BookingServiceSeed = {
   tagLabels: string[]
   requiredResourceTypes: Array<{ typeKey: string; qty: number }>
   requiredResources?: BookingResourceRequirement[]
+}
+
+type BookingTeamRoleSeed = {
+  key: string
+  name: string
+  description?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+}
+
+type BookingTeamMemberSeed = {
+  key: string
+  displayName: string
+  description?: string | null
+  roleKeys: string[]
+  tags?: string[]
+  userIndex?: number
 }
 
 function normalizeAssetTag(value: string): string {
@@ -347,6 +367,197 @@ const SERVICE_SEEDS: BookingServiceSeed[] = [
     ],
   },
 ]
+
+const TEAM_ROLE_SEEDS: BookingTeamRoleSeed[] = [
+  {
+    key: 'lead_provider',
+    name: 'Lead provider',
+    description: 'Primary service provider for client appointments.',
+    appearanceIcon: 'lucide:badge-check',
+    appearanceColor: '#16a34a',
+  },
+  {
+    key: 'assistant',
+    name: 'Assistant',
+    description: 'Supports service delivery and preparation.',
+    appearanceIcon: 'lucide:user-round',
+    appearanceColor: '#2563eb',
+  },
+  {
+    key: 'coordinator',
+    name: 'Coordinator',
+    description: 'Handles scheduling and client check-ins.',
+    appearanceIcon: 'lucide:clipboard-list',
+    appearanceColor: '#ea580c',
+  },
+]
+
+const TEAM_MEMBER_SEEDS: BookingTeamMemberSeed[] = [
+  {
+    key: 'alex_morgan',
+    displayName: 'Alex Morgan',
+    description: 'Lead provider focused on quality sessions.',
+    roleKeys: ['lead_provider'],
+    tags: ['lead', 'experience'],
+    userIndex: 0,
+  },
+  {
+    key: 'riley_park',
+    displayName: 'Riley Park',
+    description: 'Assistant supporting daily appointments.',
+    roleKeys: ['assistant'],
+    tags: ['support'],
+    userIndex: 1,
+  },
+  {
+    key: 'jordan_lee',
+    displayName: 'Jordan Lee',
+    description: 'Coordinates client prep and follow-ups.',
+    roleKeys: ['coordinator'],
+    tags: ['operations'],
+    userIndex: 2,
+  },
+]
+
+async function seedBookingTeamExamples(
+  em: EntityManager,
+  scope: BookingSeedScope,
+) {
+  const now = new Date()
+  const roleNames = TEAM_ROLE_SEEDS.map((seed) => seed.name)
+  const existingRoles = await findWithDecryption(
+    em,
+    BookingTeamRole,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: { $in: roleNames },
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const roleByName = new Map(existingRoles.map((role) => [role.name.toLowerCase(), role]))
+  const roleByKey = new Map<string, BookingTeamRole>()
+  for (const seed of TEAM_ROLE_SEEDS) {
+    const existing = roleByName.get(seed.name.toLowerCase())
+    if (existing) {
+      let updated = false
+      if (!existing.appearanceIcon && seed.appearanceIcon) {
+        existing.appearanceIcon = seed.appearanceIcon
+        updated = true
+      }
+      if (!existing.appearanceColor && seed.appearanceColor) {
+        existing.appearanceColor = seed.appearanceColor
+        updated = true
+      }
+      if (!existing.description && seed.description) {
+        existing.description = seed.description
+        updated = true
+      }
+      if (updated) {
+        existing.updatedAt = now
+        em.persist(existing)
+      }
+      roleByKey.set(seed.key, existing)
+      continue
+    }
+    const record = em.create(BookingTeamRole, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      name: seed.name,
+      description: seed.description ?? null,
+      appearanceIcon: seed.appearanceIcon ?? null,
+      appearanceColor: seed.appearanceColor ?? null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(record)
+    roleByKey.set(seed.key, record)
+  }
+  await em.flush()
+
+  const users = await findWithDecryption(
+    em,
+    User,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
+  const sortedUsers = [...users].sort((a, b) => {
+    const left = a.email ?? ''
+    const right = b.email ?? ''
+    return left.localeCompare(right)
+  })
+
+  const memberNames = TEAM_MEMBER_SEEDS.map((seed) => seed.displayName)
+  const existingMembers = await findWithDecryption(
+    em,
+    BookingTeamMember,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      displayName: { $in: memberNames },
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const memberByName = new Map(existingMembers.map((member) => [member.displayName.toLowerCase(), member]))
+
+  for (const seed of TEAM_MEMBER_SEEDS) {
+    const roleIds = seed.roleKeys
+      .map((key) => roleByKey.get(key)?.id ?? null)
+      .filter((id): id is string => typeof id === 'string')
+    const userId = typeof seed.userIndex === 'number'
+      ? sortedUsers[seed.userIndex]?.id ?? null
+      : null
+    const existing = memberByName.get(seed.displayName.toLowerCase())
+    if (existing) {
+      let updated = false
+      if (!existing.description && seed.description) {
+        existing.description = seed.description
+        updated = true
+      }
+      if ((!existing.roleIds || existing.roleIds.length === 0) && roleIds.length) {
+        existing.roleIds = roleIds
+        updated = true
+      }
+      const seedTags = seed.tags ?? []
+      if ((!existing.tags || existing.tags.length === 0) && seedTags.length) {
+        existing.tags = seedTags
+        updated = true
+      }
+      if (!existing.userId && userId) {
+        existing.userId = userId
+        updated = true
+      }
+      if (updated) {
+        existing.updatedAt = now
+        em.persist(existing)
+      }
+      continue
+    }
+    const record = em.create(BookingTeamMember, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      displayName: seed.displayName,
+      description: seed.description ?? null,
+      userId,
+      roleIds,
+      tags: seed.tags ?? [],
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    em.persist(record)
+  }
+  await em.flush()
+}
 
 export async function seedBookingResourceExamples(
   em: EntityManager,
@@ -603,4 +814,6 @@ export async function seedBookingResourceExamples(
     em.persist(service)
   }
   await em.flush()
+
+  await seedBookingTeamExamples(em, scope)
 }

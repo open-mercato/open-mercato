@@ -127,6 +127,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - When local validation needs to abort, throw `createCrudFormError(message, fieldErrors?)` from `@open-mercato/ui/backend/utils/serverErrors` instead of ad-hoc objects or strings.
 - To read JSON bodies defensively, prefer `readJsonSafe(response)`—it never throws and keeps compatibility with older call-sites.
 - Avoid swallowing response bodies (`res.json().catch(() => ({}))` or `await res.json().catch(() => null)`). Use the shared helpers so the error pipeline stays consistent.
+- Keep request `pageSize` at or below 100 to respect API validation limits.
 
 ## Code Style
 - Keep modules self-contained; re-use common utilities via `src/lib/`.

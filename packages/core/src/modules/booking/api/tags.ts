@@ -9,6 +9,9 @@ import { BookingResourceTag } from '../data/entities'
 import { bookingResourceTagCreateSchema, bookingResourceTagUpdateSchema } from '../data/validators'
 
 const rawBodySchema = z.object({}).passthrough()
+const createInputSchema = bookingResourceTagCreateSchema.extend({
+  slug: bookingResourceTagCreateSchema.shape.slug.optional(),
+})
 
 const listSchema = z
   .object({
@@ -59,7 +62,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = parseScopedCommandInput(bookingResourceTagCreateSchema, raw ?? {}, ctx, translate)
+        const scoped = parseScopedCommandInput(createInputSchema, raw ?? {}, ctx, translate)
         const slug =
           typeof scoped.slug === 'string' && scoped.slug.trim().length
             ? scoped.slug.trim()

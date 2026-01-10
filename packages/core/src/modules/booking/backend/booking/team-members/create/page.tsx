@@ -13,7 +13,7 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { useT } from '@/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 
-const DEFAULT_PAGE_SIZE = 200
+const DEFAULT_PAGE_SIZE = 100
 
 type TeamRoleRow = {
   id: string

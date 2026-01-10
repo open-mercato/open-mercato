@@ -10,6 +10,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -216,6 +217,7 @@ export function AvailabilityRulesEditor({
   const [editorWindows, setEditorWindows] = React.useState<TimeWindow[]>([createDefaultWindow()])
   const [editorRules, setEditorRules] = React.useState<AvailabilityRule[]>([])
   const [createRuleSetOpen, setCreateRuleSetOpen] = React.useState(false)
+  const [isWeeklyAutoSaving, setIsWeeklyAutoSaving] = React.useState(false)
   const autoSaveTimerRef = React.useRef<number | null>(null)
   const lastSavedWeeklyKeyRef = React.useRef<string | null>(null)
 
@@ -449,7 +451,7 @@ export function AvailabilityRulesEditor({
     })
   }, [])
 
-  const saveWeeklyHours = React.useCallback(async (options?: { silentSuccess?: boolean }) => {
+  const saveWeeklyHours = React.useCallback(async (options?: { silentSuccess?: boolean; skipRefresh?: boolean }) => {
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
@@ -459,6 +461,8 @@ export function AvailabilityRulesEditor({
       return repeat === 'weekly' || repeat === 'daily'
     })
 
+    const shouldSkipRefresh = Boolean(options?.skipRefresh)
+    setIsWeeklyAutoSaving(options?.silentSuccess === true)
     try {
       await Promise.all(
         weeklyRules.map((rule) => deleteCrud('booking/availability', rule.id, { errorMessage: listLabels.saveWeeklyError })),
@@ -485,11 +489,15 @@ export function AvailabilityRulesEditor({
       if (!options?.silentSuccess) {
         flash(listLabels.saveWeeklySuccess, 'success')
       }
-      await refreshAvailability()
-      await refreshRuleSetRules()
+      if (!shouldSkipRefresh) {
+        await refreshAvailability()
+        await refreshRuleSetRules()
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
+    } finally {
+      setIsWeeklyAutoSaving(false)
     }
   }, [
     activeRules,
@@ -513,14 +521,14 @@ export function AvailabilityRulesEditor({
       window.clearTimeout(autoSaveTimerRef.current)
     }
     autoSaveTimerRef.current = window.setTimeout(() => {
-      void saveWeeklyHours({ silentSuccess: true })
+      void saveWeeklyHours({ silentSuccess: true, skipRefresh: viewMode === 'list' })
     }, 600)
     return () => {
       if (autoSaveTimerRef.current !== null) {
         window.clearTimeout(autoSaveTimerRef.current)
       }
     }
-  }, [saveWeeklyHours, usingRuleSet, weeklyKey])
+  }, [saveWeeklyHours, usingRuleSet, viewMode, weeklyKey])
 
   const handleCustomize = React.useCallback(async () => {
     if (!rulesetId) return
@@ -904,7 +912,15 @@ export function AvailabilityRulesEditor({
               <section>
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-base font-semibold">{listLabels.weeklyTitle}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold">{listLabels.weeklyTitle}</h3>
+                      {isWeeklyAutoSaving ? (
+                        <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                          <Spinner size="sm" />
+                          {t('ui.forms.status.saving', 'Saving...')}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-sm text-muted-foreground">{listLabels.weeklySubtitle}</p>
                   </div>
                 </div>

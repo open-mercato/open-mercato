@@ -2480,5 +2480,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
-  (prev.field.type !== 'custom' || prev.values === next.values)
+  (prev.field.type !== 'custom' ||
+    (prev.values === next.values &&
+      prev.field.component === (next.field as CrudCustomField).component))
 )

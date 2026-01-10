@@ -15,7 +15,7 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/backend/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/booking/lib/memberSchedule'
 
-const DEFAULT_PAGE_SIZE = 200
+const DEFAULT_PAGE_SIZE = 100
 
 type TeamMemberRecord = {
   id: string
