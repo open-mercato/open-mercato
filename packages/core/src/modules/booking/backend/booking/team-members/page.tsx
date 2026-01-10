@@ -9,16 +9,21 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
 const PAGE_SIZE = 50
 
 type TeamMemberRow = {
+  kind: 'team' | 'role' | 'member'
   id: string
+  teamId: string | null
+  teamName: string | null
+  roleLabel: string | null
   displayName: string
   description: string | null
   userEmail: string | null
@@ -34,6 +39,14 @@ type TeamMembersResponse = {
   totalPages?: number
 }
 
+type TeamsResponse = {
+  items?: Array<{ id?: string; name?: string }>
+}
+
+type TeamRolesResponse = {
+  items?: Array<{ id?: string; name?: string }>
+}
+
 export default function BookingTeamMembersPage() {
   const t = useT()
   const router = useRouter()
@@ -46,6 +59,9 @@ export default function BookingTeamMembersPage() {
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [teamFilterOptions, setTeamFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [roleFilterOptions, setRoleFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
 
   const labels = React.useMemo(() => ({
     title: t('booking.teamMembers.page.title', 'Team members'),
@@ -59,6 +75,15 @@ export default function BookingTeamMembersPage() {
       updatedAt: t('booking.teamMembers.table.updatedAt', 'Updated'),
       empty: t('booking.teamMembers.table.empty', 'No team members yet.'),
       search: t('booking.teamMembers.table.search', 'Search team members...'),
+    },
+    groups: {
+      unassignedTeam: t('booking.teamMembers.group.unassignedTeam', 'Unassigned team'),
+      unassignedRole: t('booking.teamMembers.group.unassignedRole', 'Unassigned role'),
+      multipleRoles: t('booking.teamMembers.group.multipleRoles', 'Multiple roles'),
+    },
+    filters: {
+      team: t('booking.teamMembers.filters.team', 'Team'),
+      role: t('booking.teamMembers.filters.role', 'Role'),
     },
     actions: {
       add: t('booking.teamMembers.actions.add', 'Add team member'),
@@ -83,9 +108,19 @@ export default function BookingTeamMembersPage() {
       meta: { priority: 1, sticky: true },
       cell: ({ row }) => (
         <div className="flex flex-col">
-          <span className="font-medium">{row.original.displayName}</span>
-          {row.original.description ? (
-            <span className="text-xs text-muted-foreground line-clamp-2">{row.original.description}</span>
+          <span
+            className={
+              row.original.kind === 'team'
+                ? 'font-semibold'
+                : row.original.kind === 'role'
+                  ? 'font-medium pl-4'
+                  : 'font-medium pl-8'
+            }
+          >
+            {row.original.displayName}
+          </span>
+          {row.original.kind === 'member' && row.original.description ? (
+            <span className="text-xs text-muted-foreground line-clamp-2 pl-8">{row.original.description}</span>
           ) : null}
         </div>
       ),
@@ -94,7 +129,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'userEmail',
       header: labels.table.user,
       meta: { priority: 2 },
-      cell: ({ row }) => row.original.userEmail
+      cell: ({ row }) => row.original.kind === 'member' && row.original.userEmail
         ? <span className="text-sm">{row.original.userEmail}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
@@ -102,7 +137,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'roleNames',
       header: labels.table.roles,
       meta: { priority: 3 },
-      cell: ({ row }) => row.original.roleNames.length
+      cell: ({ row }) => row.original.kind === 'member' && row.original.roleNames.length
         ? <span className="text-sm">{row.original.roleNames.join(', ')}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
@@ -110,7 +145,7 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'tags',
       header: labels.table.tags,
       meta: { priority: 4 },
-      cell: ({ row }) => row.original.tags.length
+      cell: ({ row }) => row.original.kind === 'member' && row.original.tags.length
         ? <span className="text-xs text-muted-foreground">{row.original.tags.join(', ')}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
@@ -118,13 +153,15 @@ export default function BookingTeamMembersPage() {
       accessorKey: 'isActive',
       header: labels.table.active,
       meta: { priority: 5 },
-      cell: ({ row }) => <BooleanIcon value={row.original.isActive} />,
+      cell: ({ row }) => row.original.kind === 'member'
+        ? <BooleanIcon value={row.original.isActive} />
+        : <span className="text-xs text-muted-foreground">-</span>,
     },
     {
       accessorKey: 'updatedAt',
       header: labels.table.updatedAt,
       meta: { priority: 6 },
-      cell: ({ row }) => row.original.updatedAt
+      cell: ({ row }) => row.original.kind === 'member' && row.original.updatedAt
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
@@ -143,13 +180,15 @@ export default function BookingTeamMembersPage() {
         params.set('sortDir', sort.desc ? 'desc' : 'asc')
       }
       if (search.trim()) params.set('search', search.trim())
+      if (filterValues.teamId) params.set('teamId', String(filterValues.teamId))
+      if (filterValues.roleId) params.set('roleId', String(filterValues.roleId))
       const payload = await readApiResultOrThrow<TeamMembersResponse>(
         `/api/booking/team-members?${params.toString()}`,
         undefined,
         { errorMessage: labels.errors.load, fallback: { items: [], total: 0, totalPages: 1 } },
       )
       const items = Array.isArray(payload.items) ? payload.items : []
-      setRows(items.map(mapApiTeamMember))
+      setRows(buildTeamMemberRows(items.map(mapApiTeamMember), labels.groups))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
@@ -158,14 +197,84 @@ export default function BookingTeamMembersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [labels.errors.load, page, search, sorting])
+  }, [filterValues.roleId, filterValues.teamId, labels.errors.load, labels.groups, page, search, sorting])
 
   React.useEffect(() => {
     void loadTeamMembers()
   }, [loadTeamMembers, scopeVersion, reloadToken])
 
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadFilters() {
+      try {
+        const teamParams = new URLSearchParams({ page: '1', pageSize: '100' })
+        const roleParams = new URLSearchParams({ page: '1', pageSize: '100' })
+        const [teamsCall, rolesCall] = await Promise.all([
+          apiCall<TeamsResponse>(`/api/booking/teams?${teamParams.toString()}`),
+          apiCall<TeamRolesResponse>(`/api/booking/team-roles?${roleParams.toString()}`),
+        ])
+        const teamItems = Array.isArray(teamsCall.result?.items) ? teamsCall.result.items : []
+        const roleItems = Array.isArray(rolesCall.result?.items) ? rolesCall.result.items : []
+        const teams = teamItems
+          .map((team) => {
+            const id = typeof team.id === 'string' ? team.id : null
+            const name = typeof team.name === 'string' ? team.name : null
+            if (!id || !name) return null
+            return { value: id, label: name }
+          })
+          .filter((entry): entry is { value: string; label: string } => entry !== null)
+        const roles = roleItems
+          .map((role) => {
+            const id = typeof role.id === 'string' ? role.id : null
+            const name = typeof role.name === 'string' ? role.name : null
+            if (!id || !name) return null
+            return { value: id, label: name }
+          })
+          .filter((entry): entry is { value: string; label: string } => entry !== null)
+        if (!cancelled) {
+          setTeamFilterOptions(teams)
+          setRoleFilterOptions(roles)
+        }
+      } catch {
+        if (!cancelled) {
+          setTeamFilterOptions([])
+          setRoleFilterOptions([])
+        }
+      }
+    }
+    loadFilters()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'teamId',
+      label: labels.filters.team,
+      type: 'select',
+      options: teamFilterOptions,
+      placeholder: labels.filters.team,
+    },
+    {
+      id: 'roleId',
+      label: labels.filters.role,
+      type: 'select',
+      options: roleFilterOptions,
+      placeholder: labels.filters.role,
+    },
+  ], [labels.filters.role, labels.filters.team, roleFilterOptions, teamFilterOptions])
+
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
     setPage(1)
   }, [])
 
@@ -174,6 +283,7 @@ export default function BookingTeamMembersPage() {
   }, [])
 
   const handleDelete = React.useCallback(async (entry: TeamMemberRow) => {
+    if (entry.kind !== 'member') return
     const message = labels.actions.deleteConfirm.replace('{{name}}', entry.displayName)
     if (typeof window !== 'undefined' && !window.confirm(message)) return
     try {
@@ -198,6 +308,10 @@ export default function BookingTeamMembersPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
           actions={(
             <Button asChild size="sm">
@@ -221,21 +335,34 @@ export default function BookingTeamMembersPage() {
             totalPages,
             onPageChange: setPage,
           }}
-          rowActions={(row) => (
+          rowActions={(row) => row.kind === 'member' ? (
             <RowActions
               items={[
-                { label: labels.actions.edit, onSelect: () => { router.push(`/backend/booking/team-members/${row.original.id}`) } },
-                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row.original) } },
+                { label: labels.actions.edit, onSelect: () => { router.push(`/backend/booking/team-members/${row.id}`) } },
+                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
               ]}
             />
-          )}
+          ) : null}
         />
       </PageBody>
     </Page>
   )
 }
 
-function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
+type TeamMemberApiRow = {
+  id: string
+  displayName: string
+  description: string | null
+  userEmail: string | null
+  roleNames: string[]
+  tags: string[]
+  isActive: boolean
+  updatedAt: string | null
+  teamId: string | null
+  teamName: string | null
+}
+
+function mapApiTeamMember(item: Record<string, unknown>): TeamMemberApiRow {
   const id = typeof item.id === 'string' ? item.id : ''
   const displayName = typeof item.displayName === 'string'
     ? item.displayName
@@ -259,6 +386,13 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
     : typeof item.is_active === 'boolean'
       ? item.is_active
       : true
+  const teamId = typeof item.teamId === 'string'
+    ? item.teamId
+    : typeof item.team_id === 'string'
+      ? item.team_id
+      : null
+  const team = item.team && typeof item.team === 'object' ? item.team as { name?: unknown } : null
+  const teamName = typeof team?.name === 'string' ? team.name : null
   return {
     id,
     displayName,
@@ -268,7 +402,87 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
     tags,
     isActive,
     updatedAt,
+    teamId,
+    teamName,
   }
+}
+
+function buildTeamMemberRows(
+  items: TeamMemberApiRow[],
+  labels: { unassignedTeam: string; unassignedRole: string; multipleRoles: string },
+): TeamMemberRow[] {
+  const teamGroups = new Map<string, { teamId: string | null; name: string; members: TeamMemberApiRow[] }>()
+  for (const member of items) {
+    const key = member.teamId ?? 'unassigned'
+    const name = member.teamName ?? labels.unassignedTeam
+    const group = teamGroups.get(key) ?? { teamId: member.teamId ?? null, name, members: [] }
+    group.members.push(member)
+    teamGroups.set(key, group)
+  }
+  const sortedTeams = Array.from(teamGroups.values()).sort((a, b) => a.name.localeCompare(b.name))
+  const rows: TeamMemberRow[] = []
+  for (const team of sortedTeams) {
+    rows.push({
+      kind: 'team',
+      id: `team:${team.teamId ?? 'unassigned'}`,
+      teamId: team.teamId,
+      teamName: team.name,
+      roleLabel: null,
+      displayName: team.name,
+      description: null,
+      userEmail: null,
+      roleNames: [],
+      tags: [],
+      isActive: true,
+      updatedAt: null,
+    })
+    const roleGroups = new Map<string, { roleLabel: string; members: TeamMemberApiRow[] }>()
+    for (const member of team.members) {
+      const roleLabel = member.roleNames.length === 1
+        ? member.roleNames[0]
+        : member.roleNames.length > 1
+          ? labels.multipleRoles
+          : labels.unassignedRole
+      const roleGroup = roleGroups.get(roleLabel) ?? { roleLabel, members: [] }
+      roleGroup.members.push(member)
+      roleGroups.set(roleLabel, roleGroup)
+    }
+    const sortedRoles = Array.from(roleGroups.values()).sort((a, b) => a.roleLabel.localeCompare(b.roleLabel))
+    for (const role of sortedRoles) {
+      rows.push({
+        kind: 'role',
+        id: `role:${team.teamId ?? 'unassigned'}:${role.roleLabel}`,
+        teamId: team.teamId,
+        teamName: team.name,
+        roleLabel: role.roleLabel,
+        displayName: role.roleLabel,
+        description: null,
+        userEmail: null,
+        roleNames: [],
+        tags: [],
+        isActive: true,
+        updatedAt: null,
+      })
+      const sortedMembers = [...role.members].sort((a, b) => a.displayName.localeCompare(b.displayName))
+      for (const member of sortedMembers) {
+        rows.push({
+          kind: 'member',
+          id: member.id,
+          teamId: member.teamId,
+          teamName: member.teamName,
+          roleLabel: role.roleLabel,
+          displayName: member.displayName,
+          description: member.description,
+          userEmail: member.userEmail,
+          roleNames: member.roleNames,
+          tags: member.tags,
+          isActive: member.isActive,
+          updatedAt: member.updatedAt,
+        })
+      }
+    }
+  }
+  return rows
 }
 
 function formatDateTime(value: string): string {

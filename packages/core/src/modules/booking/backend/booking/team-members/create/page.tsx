@@ -163,7 +163,7 @@ export default function BookingTeamMemberCreatePage() {
       label: t('booking.teamMembers.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [fetchUserOptions, roles, t, userOptions])
+  ], [fetchUserOptions, roles, t, teamOptions, userOptions])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     const customFields = collectCustomFieldValues(values)

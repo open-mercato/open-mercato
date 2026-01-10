@@ -21,6 +21,7 @@ const DEFAULT_PAGE_SIZE = 100
 type TeamMemberRecord = {
   id: string
   teamId?: string | null
+  team_id?: string | null
   displayName: string
   description?: string | null
   userId?: string | null
@@ -268,7 +269,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       label: t('booking.teamMembers.form.fields.active', 'Active'),
       type: 'checkbox',
     },
-  ], [fetchUserOptions, roles, t, userOptions])
+  ], [fetchUserOptions, roles, t, teamOptions, userOptions])
 
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!memberId) return
