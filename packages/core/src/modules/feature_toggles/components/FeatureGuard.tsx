@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useFeatureFlag } from './hooks/useFeatureFlag'
+import { useFeatureFlagBoolean } from './hooks/useFeatureFlagBoolean'
 
 export type FeatureGuardProps = {
   id: string
@@ -24,7 +24,7 @@ export function FeatureGuard({
   fallback = null,
   loadingFallback = null,
 }: FeatureGuardProps) {
-  const { enabled, isLoading } = useFeatureFlag({ id })
+  const { enabled, isLoading } = useFeatureFlagBoolean({ id })
 
   if (isLoading) {
     return <>{loadingFallback}</>

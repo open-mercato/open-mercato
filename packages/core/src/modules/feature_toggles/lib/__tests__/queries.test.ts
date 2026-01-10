@@ -1,5 +1,6 @@
 import { EntityManager } from '@mikro-orm/postgresql'
-import { getOverrides, GetOverridesQuery } from '../../lib/queries'
+import { getOverrides } from '../../lib/queries'
+import { GetOverridesQuery } from '../../data/validators'
 import { FeatureToggle, FeatureToggleOverride } from '../../data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 
@@ -13,23 +14,31 @@ describe('getOverrides', () => {
         identifier: 'toggle.one',
         name: 'Toggle One',
         category: 'cat1',
-        defaultState: false,
-    } as FeatureToggle
+        defaultValue: false,
+        type: 'boolean',
+        failMode: 'fail_closed',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+    } as unknown as FeatureToggle
 
     const mockToggle2 = {
         id: 'toggle-2',
         identifier: 'toggle.two',
         name: 'Toggle Two',
         category: 'cat2',
-        defaultState: true,
-    } as FeatureToggle
+        defaultValue: false,
+        type: 'boolean',
+        failMode: 'fail_closed',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+    } as unknown as FeatureToggle
 
     const mockOverride1 = {
         id: 'override-1',
         toggle: { id: 'toggle-1' },
         tenantId: 'tenant-1',
-        state: 'enabled',
-    } as FeatureToggleOverride
+        value: undefined,
+    } as unknown as FeatureToggleOverride
 
     beforeEach(() => {
         em = {
@@ -41,7 +50,7 @@ describe('getOverrides', () => {
         (em.find as jest.Mock).mockResolvedValueOnce([mockToggle1, mockToggle2]);
         (em.find as jest.Mock).mockResolvedValueOnce([mockOverride1]);
 
-        const result = await getOverrides(em, mockTenant1, {})
+        const result = await getOverrides(em, mockTenant1, { page: 1, pageSize: 25 })
 
         expect(result.items).toHaveLength(2)
 
@@ -49,16 +58,12 @@ describe('getOverrides', () => {
         expect(item1).toMatchObject({
             toggleId: 'toggle-1',
             tenantId: 'tenant-1',
-            overrideState: 'enabled',
-            tenantName: 'Tenant 1',
         })
 
         const item2 = result.items.find((i) => i.toggleId === 'toggle-2')
         expect(item2).toMatchObject({
             toggleId: 'toggle-2',
             tenantId: 'tenant-1',
-            overrideState: 'inherit',
-            tenantName: 'Tenant 1',
         })
 
         expect(result.total).toBe(2)
@@ -71,7 +76,8 @@ describe('getOverrides', () => {
         const query: GetOverridesQuery = {
             category: 'cat1',
             name: 'One',
-            defaultState: 'enabled'
+            page: 1,
+            pageSize: 25,
         }
 
         await getOverrides(em, mockTenant1, query)
@@ -79,18 +85,21 @@ describe('getOverrides', () => {
         const findCalls = (em.find as jest.Mock).mock.calls
         const toggleFilter = findCalls[0][1] as any[]
 
-        expect(toggleFilter).toHaveLength(3)
+        expect(toggleFilter).toHaveLength(2)
         expect(toggleFilter).toContainEqual({ category: { $ilike: '%cat1%' } })
         expect(toggleFilter).toContainEqual({ name: { $ilike: '%One%' } })
-        expect(toggleFilter).toContainEqual({ defaultState: true })
     })
 
     it('should paginate results', async () => {
         const manyToggles = Array.from({ length: 30 }).map((_, i) => ({
             id: `t-${i}`,
             identifier: `t.${i}`,
-            defaultState: false
-        } as FeatureToggle));
+            defaultValue: false,
+            type: 'boolean',
+            failMode: 'fail_closed',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        } as unknown as FeatureToggle));
 
         (em.find as jest.Mock).mockResolvedValueOnce(manyToggles);
         (em.find as jest.Mock).mockResolvedValueOnce([]);
@@ -110,11 +119,11 @@ describe('getOverrides', () => {
         (em.find as jest.Mock).mockResolvedValueOnce([mockToggle1, mockToggle2]);
         (em.find as jest.Mock).mockResolvedValueOnce([]);
 
-        const resultAsc = await getOverrides(em, mockTenant1, { sortField: 'name', sortDir: 'asc' })
+        const resultAsc = await getOverrides(em, mockTenant1, { sortField: 'name', sortDir: 'asc', page: 1, pageSize: 25 })
         expect(resultAsc.items[0].name).toBe('Toggle One')
         expect(resultAsc.items[1].name).toBe('Toggle Two')
 
-        const resultDesc = await getOverrides(em, mockTenant1, { sortField: 'name', sortDir: 'desc' })
+        const resultDesc = await getOverrides(em, mockTenant1, { sortField: 'name', sortDir: 'desc', page: 1, pageSize: 25 })
         expect(resultDesc.items[0].name).toBe('Toggle Two')
         expect(resultDesc.items[1].name).toBe('Toggle One')
     })

@@ -12,7 +12,15 @@ export type UseFeatureFlagResult = {
   isLoading: boolean
 }
 
-export function useFeatureFlag(options: UseFeatureFlagOptions): UseFeatureFlagResult {
+type Result<T> = {
+  ok: true
+  value: T
+} | {
+  ok: false
+  error: unknown
+}
+
+export function useFeatureFlagBoolean(options: UseFeatureFlagOptions): UseFeatureFlagResult {
   const query = useQuery({
     queryKey: ['featureToggles', 'check', options?.id],
     queryFn: async () => {
@@ -20,16 +28,18 @@ export function useFeatureFlag(options: UseFeatureFlagOptions): UseFeatureFlagRe
         identifier: options.id,
       })
 
-      return await readApiResultOrThrow<{ enabled: boolean }>(
-        `/api/feature_toggles/check?${params.toString()}`,
+      const result = await readApiResultOrThrow<Result<boolean>>(
+        `/api/feature_toggles/check/boolean?${params.toString()}`,
         undefined,
         { errorMessage: 'Failed to check feature flag.' },
       )
+
+      return result
     },
     enabled: !!options.id,
   })
 
-  const enabled = query.data?.enabled ?? false
+  const enabled = query.data?.ok ? query.data.value : false
   const isLoading = query.isLoading
 
   return {

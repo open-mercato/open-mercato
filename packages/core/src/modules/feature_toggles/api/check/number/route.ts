@@ -2,8 +2,8 @@ import { getAuthFromRequest } from "@/lib/auth/server"
 import { createRequestContainer } from "@/lib/di/container"
 import { NextResponse } from "next/server"
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
-import { IsFeatureEnabledFunction } from "../../lib/feature-flag-check"
-import { featureTogglesTag, checkResponseSchema, featureToggleErrorSchema } from "../openapi"
+import { FeatureTogglesService } from "../../../lib/feature-flag-check"
+import { featureTogglesTag, checkNumberResponseSchema, featureToggleErrorSchema } from "../../openapi"
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
 
@@ -18,11 +18,7 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Missing required parameter: identifier' }, { status: 400 })
     }
 
-    if (auth.isSuperAdmin === true) {
-        return NextResponse.json({
-            enabled: true,
-        })
-    }
+    // No superadmin bypass for config values
 
     const container = await createRequestContainer()
     const { scope } = await resolveFeatureCheckContext({
@@ -35,8 +31,12 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Tenant context required. Please select a tenant.' }, { status: 400 })
     }
 
-    const isFeatureEnabled = container.resolve('isFeatureEnabled') as IsFeatureEnabledFunction
-    const result = await isFeatureEnabled(identifier, scope.tenantId)
+    const featureTogglesService = container.resolve('featureTogglesService') as FeatureTogglesService
+    const result = await featureTogglesService.getNumberConfig(identifier, scope.tenantId)
+
+    if (!result.ok) {
+        return NextResponse.json(result, { status: result.error.code === "MISSING_TOGGLE" ? 404 : 400 })
+    }
 
     return NextResponse.json(result)
 }
@@ -49,16 +49,16 @@ export const metadata = routeMetadata
 
 export const openApi: OpenApiRouteDoc = {
     tag: featureTogglesTag,
-    summary: 'Check feature toggle status',
+    summary: 'Check number toggle config',
     methods: {
         GET: {
-            summary: 'Check if feature is enabled',
-            description: 'Checks if a feature toggle is enabled for the current context.',
+            summary: 'Get number config',
+            description: 'Gets the number configuration for a feature toggle.',
             query: z.object({
                 identifier: z.string().describe('Feature toggle identifier'),
             }),
             responses: [
-                { status: 200, description: 'Feature status', schema: checkResponseSchema },
+                { status: 200, description: 'Number config', schema: checkNumberResponseSchema },
             ],
             errors: [
                 { status: 400, description: 'Bad Request', schema: featureToggleErrorSchema },
