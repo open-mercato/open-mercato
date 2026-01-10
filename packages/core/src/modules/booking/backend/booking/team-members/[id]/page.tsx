@@ -50,10 +50,11 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
 
   React.useEffect(() => {
     if (!memberId) return
+    const memberIdValue = memberId
     let cancelled = false
     async function loadMember() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: memberId })
+        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: memberIdValue })
         const payload = await readApiResultOrThrow<TeamMemberResponse>(
           `/api/booking/team-members?${params.toString()}`,
           undefined,
@@ -139,19 +140,17 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
       `/api/booking/tags?${params.toString()}`,
     )
     const items = Array.isArray(call.result?.items) ? call.result.items : []
-    return items
-      .map((raw) => {
-        const label =
-          typeof raw.label === 'string'
-            ? raw.label.trim()
-            : typeof raw.slug === 'string'
-              ? raw.slug.trim()
-              : ''
-        if (!label) return null
-        const color = typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
-        return { id: label, label, color }
-      })
-      .filter((entry): entry is TagOption => entry !== null)
+    return items.flatMap((raw) => {
+      const label =
+        typeof raw.label === 'string'
+          ? raw.label.trim()
+          : typeof raw.slug === 'string'
+            ? raw.slug.trim()
+            : ''
+      if (!label) return []
+      const color = typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null
+      return [{ id: label, label, color }]
+    })
   }, [])
 
   const createTag = React.useCallback(

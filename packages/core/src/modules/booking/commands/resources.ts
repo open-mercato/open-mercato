@@ -89,7 +89,7 @@ async function syncBookingResourceTags(em: EntityManager, params: {
   tagIds?: Array<string | null | undefined> | null
 }) {
   if (params.tagIds === undefined) return
-  const tagIds = normalizeTagIds(params.tagIds)
+  const tagIds = normalizeTagIds(params.tagIds ?? [])
   if (tagIds.length === 0) {
     await em.nativeDelete(BookingResourceTagAssignment, { resource: params.resourceId })
     return
@@ -113,6 +113,8 @@ async function syncBookingResourceTags(em: EntityManager, params: {
       tenantId: params.tenantId,
       resource,
       tag,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(assignment)
   }

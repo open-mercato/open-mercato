@@ -277,14 +277,14 @@ export default function BookingAttendeesPage() {
           onSortingChange={setSorting}
           rowActions={(row) => (
             <RowActions
-              actions={[
+              items={[
                 {
                   label: labels.actions.edit,
-                  onClick: () => router.push(`/backend/booking/attendees/${encodeURIComponent(row.id)}`),
+                  href: `/backend/booking/attendees/${encodeURIComponent(row.id)}`,
                 },
                 {
                   label: labels.actions.delete,
-                  onClick: () => { void handleDelete(row) },
+                  onSelect: () => { void handleDelete(row) },
                   destructive: true,
                 },
               ]}

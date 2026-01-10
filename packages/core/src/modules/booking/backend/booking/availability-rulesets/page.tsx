@@ -162,7 +162,6 @@ export default function BookingAvailabilityRuleSetsPage() {
       <PageBody>
         <DataTable<RuleSetRow>
           title={labels.title}
-          description={labels.description}
           data={rows}
           columns={columns}
           isLoading={isLoading}

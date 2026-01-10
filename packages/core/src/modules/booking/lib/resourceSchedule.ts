@@ -12,7 +12,7 @@ export type AvailabilityRuleWindow = {
 export type ResourceAvailabilityRule = {
   id: string
   rrule: string
-  createdAt?: string | null
+  createdAt?: string | Date | null
   kind?: 'availability' | 'unavailability'
   note?: string | null
   exdates?: string[]
@@ -70,7 +70,7 @@ export function parseAvailabilityRuleWindow(rule: ResourceAvailabilityRule): Ava
       if (!Number.isNaN(parsed.getTime())) start = parsed
     }
   } else if (rule.createdAt) {
-    const parsed = new Date(rule.createdAt)
+    const parsed = rule.createdAt instanceof Date ? rule.createdAt : new Date(rule.createdAt)
     if (!Number.isNaN(parsed.getTime())) start = parsed
   }
   let durationMinutes = 60

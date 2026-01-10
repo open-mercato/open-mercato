@@ -63,10 +63,11 @@ export default function BookingAttendeeDetailPage({ params }: { params?: { id?: 
 
   React.useEffect(() => {
     if (!attendeeId) return
+    const attendeeIdValue = attendeeId
     let cancelled = false
     async function loadAttendee() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: attendeeId })
+        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: attendeeIdValue })
         const payload = await readApiResultOrThrow<AttendeeResponse>(
           `/api/booking/event-attendees?${params.toString()}`,
           undefined,

@@ -210,7 +210,6 @@ export default function BookingTeamsPage() {
       <PageBody>
         <DataTable<TeamRow>
           title={labels.title}
-          description={labels.description}
           data={rows}
           columns={columns}
           isLoading={isLoading}

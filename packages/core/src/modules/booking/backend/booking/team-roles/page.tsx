@@ -233,7 +233,6 @@ export default function BookingTeamRolesPage() {
       <PageBody>
         <DataTable<TeamRoleRow>
           title={labels.title}
-          description={labels.description}
           data={rows}
           columns={columns}
           isLoading={isLoading}

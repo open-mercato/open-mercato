@@ -163,10 +163,11 @@ export default function BookingTeamEditPage({ params }: { params?: { id?: string
 
   React.useEffect(() => {
     if (!teamId) return
+    const teamIdValue = teamId
     let cancelled = false
     async function loadTeam() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: teamId })
+        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: teamIdValue })
         const payload = await readApiResultOrThrow<TeamResponse>(
           `/api/booking/teams?${params.toString()}`,
           undefined,
@@ -328,7 +329,6 @@ export default function BookingTeamEditPage({ params }: { params?: { id?: string
           ) : (
             <DataTable<TeamMemberRow>
               title={memberLabels.title}
-              description={memberLabels.description}
               data={memberRows}
               columns={memberColumns}
               isLoading={membersLoading}

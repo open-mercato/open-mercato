@@ -7,7 +7,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
+import { AvailabilityRulesEditor, type AvailabilityScheduleItemBuilder } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useT } from '@/lib/i18n/context'
@@ -43,10 +43,11 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
 
   React.useEffect(() => {
     if (!rulesetId) return
+    const rulesetIdValue = rulesetId
     let cancelled = false
     async function loadRuleSet() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: rulesetId })
+        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: rulesetIdValue })
         const payload = await readApiResultOrThrow<RuleSetResponse>(
           `/api/booking/availability-rule-sets?${params.toString()}`,
           undefined,
@@ -103,7 +104,7 @@ export default function BookingAvailabilityRuleSetDetailPage({ params }: { param
     }
   }, [router, rulesetId, translate])
 
-  const buildScheduleItems = React.useCallback(({ availabilityRules, bookedEvents, translate: translateLabel }) => {
+  const buildScheduleItems: AvailabilityScheduleItemBuilder = React.useCallback(({ availabilityRules, bookedEvents, translate: translateLabel }) => {
     const overrideExdates = Array.from(new Set(
       availabilityRules
         .map((rule) => parseAvailabilityRuleWindow(rule))

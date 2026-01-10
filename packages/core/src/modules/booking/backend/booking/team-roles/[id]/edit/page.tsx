@@ -41,10 +41,11 @@ export default function BookingTeamRoleEditPage({ params }: { params?: { id?: st
 
   React.useEffect(() => {
     if (!roleId) return
+    const roleIdValue = roleId
     let cancelled = false
     async function loadRole() {
       try {
-        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: roleId })
+        const params = new URLSearchParams({ page: '1', pageSize: '1', ids: roleIdValue })
         const payload = await readApiResultOrThrow<TeamRoleResponse>(
           `/api/booking/team-roles?${params.toString()}`,
           undefined,

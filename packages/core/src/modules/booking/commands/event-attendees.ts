@@ -234,7 +234,7 @@ const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { a
     return { before: snapshot }
   },
   async execute(rawInput, ctx) {
-    const parsed = bookingEventAttendeeUpdateSchema.parse(rawInput)
+    const { parsed, custom } = parseWithCustomFields(bookingEventAttendeeUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const attendee = await findOneWithDecryption(
       em,

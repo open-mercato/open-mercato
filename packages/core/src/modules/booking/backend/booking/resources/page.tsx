@@ -62,7 +62,7 @@ type ResourceTypesResponse = {
 }
 
 export default function BookingResourcesPage() {
-  const [rows, setRows] = React.useState<ResourceTableRow[]>([])
+  const [rows, setRows] = React.useState<ResourceRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -262,7 +262,7 @@ export default function BookingResourcesPage() {
         if (!cancelled) {
           const items = Array.isArray(payload.items) ? payload.items : []
           const mapped = items.map(mapApiResource)
-          setRows(mapped.map((item) => ({ ...item, rowKind: 'resource', depth: 1 })))
+          setRows(mapped)
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
         }

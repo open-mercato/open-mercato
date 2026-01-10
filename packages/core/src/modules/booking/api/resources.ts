@@ -124,9 +124,13 @@ const crud = makeCrudRoute({
   },
   hooks: {
     afterList: async (payload, ctx) => {
-      const items = Array.isArray(payload?.items) ? payload.items : []
+      const items: Array<Record<string, unknown>> = Array.isArray(payload?.items)
+        ? (payload.items as Array<Record<string, unknown>>)
+        : []
       if (items.length === 0) return
-      const resourceIds = items.map((item) => item?.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
+      const resourceIds = items
+        .map((item) => (typeof item.id === 'string' ? item.id : null))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
       if (resourceIds.length === 0) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const assignments = await em.find(
@@ -152,7 +156,8 @@ const crud = makeCrudRoute({
         tagsByResource.set(assignment.resource.id, list)
       })
       items.forEach((item) => {
-        item.tags = tagsByResource.get(item.id) ?? []
+        const resourceId = typeof item.id === 'string' ? item.id : null
+        item.tags = resourceId ? (tagsByResource.get(resourceId) ?? []) : []
       })
     },
   },
