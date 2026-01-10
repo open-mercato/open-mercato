@@ -1,8 +1,10 @@
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
-import type { VectorIndexService, EmbeddingService } from '../../../vector'
+import type { SearchIndexer } from '../../../indexer/search-indexer'
+import type { EmbeddingService } from '../../../vector'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 
 export const metadata = { event: 'query_index.vectorize_purge', persistent: false }
 
@@ -12,6 +14,7 @@ type Payload = {
   organizationId?: string | null
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type HandlerContext = { resolve: <T = any>(name: string) => T }
 
 export default async function handle(payload: Payload, ctx: HandlerContext) {
@@ -25,9 +28,9 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   const tenantId = String(tenantIdRaw)
   const organizationId = payload?.organizationId == null ? null : String(payload.organizationId)
 
-  let service: VectorIndexService
+  let searchIndexer: SearchIndexer
   try {
-    service = ctx.resolve<VectorIndexService>('vectorIndexService')
+    searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
   } catch {
     return
   }
@@ -43,15 +46,17 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
     // Purge operations don't require embedding, ignore config errors
   }
 
-  let em: any | null = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let em: any = null
   try {
-    em = ctx.resolve<any>('em')
+    em = ctx.resolve('em')
   } catch {
     em = null
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let eventBus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
   try {
-    eventBus = ctx.resolve<any>('eventBus')
+    eventBus = ctx.resolve('eventBus')
   } catch {
     eventBus = null
   }
@@ -64,10 +69,9 @@ export default async function handle(payload: Payload, ctx: HandlerContext) {
   if (organizationId != null) registerScope(organizationId)
 
   try {
-    await service.purgeIndex({
-      entityId: entityType,
+    await searchIndexer.purgeEntity({
+      entityId: entityType as EntityId,
       tenantId,
-      organizationId,
     })
     if (em) {
       try {

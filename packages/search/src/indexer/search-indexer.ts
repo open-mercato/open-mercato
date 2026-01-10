@@ -165,11 +165,36 @@ export class SearchIndexer {
       customFields: params.customFields ?? {},
       organizationId: params.organizationId,
       tenantId: params.tenantId,
+      queryEngine: this.queryEngine,
     }
 
-    // Build presenter using config
+    // Try buildSource first (provides text, presenter, links, checksumSource)
+    let text: string | string[] | undefined
     let presenter: SearchResultPresenter | undefined
-    if (config.formatResult) {
+    let url: string | undefined
+    let links: SearchResultLink[] | undefined
+    let checksumSource: unknown | undefined
+
+    if (config.buildSource) {
+      try {
+        const source = await config.buildSource(buildContext)
+        if (source) {
+          text = source.text
+          if (source.presenter) presenter = source.presenter
+          if (source.links) links = source.links
+          if (source.checksumSource !== undefined) checksumSource = source.checksumSource
+        }
+      } catch (error) {
+        console.warn('[SearchIndexer] buildSource failed', {
+          entityId: params.entityId,
+          recordId: params.recordId,
+          error: error instanceof Error ? error.message : error,
+        })
+      }
+    }
+
+    // Fall back to formatResult if no presenter from buildSource
+    if (!presenter && config.formatResult) {
       try {
         const result = await config.formatResult(buildContext)
         if (result) presenter = result
@@ -182,9 +207,8 @@ export class SearchIndexer {
       }
     }
 
-    // Resolve URL
-    let url: string | undefined
-    if (config.resolveUrl) {
+    // Resolve URL if not already set
+    if (!url && config.resolveUrl) {
       try {
         const result = await config.resolveUrl(buildContext)
         if (result) url = result
@@ -197,9 +221,8 @@ export class SearchIndexer {
       }
     }
 
-    // Resolve links
-    let links: SearchResultLink[] | undefined
-    if (config.resolveLinks) {
+    // Resolve links if not already set
+    if (!links && config.resolveLinks) {
       try {
         const result = await config.resolveLinks(buildContext)
         if (result) links = result
@@ -222,9 +245,73 @@ export class SearchIndexer {
       presenter,
       url,
       links,
+      text,
+      checksumSource,
     }
 
     await this.searchService.index(indexableRecord)
+  }
+
+  /**
+   * Index a record by ID (loads the record from database first).
+   * Used by workers that only have record identifiers.
+   */
+  async indexRecordById(params: {
+    entityId: EntityId
+    recordId: string
+    tenantId: string
+    organizationId?: string | null
+  }): Promise<{ action: 'indexed' | 'skipped'; reason?: string }> {
+    if (!this.queryEngine) {
+      return { action: 'skipped', reason: 'queryEngine not available' }
+    }
+
+    const config = this.entityConfigMap.get(params.entityId)
+    if (!config || config.enabled === false) {
+      return { action: 'skipped', reason: 'entity not configured' }
+    }
+
+    // Load record from database
+    try {
+      const result = await this.queryEngine.query(params.entityId, {
+        tenantId: params.tenantId,
+        organizationId: params.organizationId ?? undefined,
+        filters: { id: params.recordId },
+        includeCustomFields: true,
+        page: { page: 1, pageSize: 1 },
+      })
+
+      const record = result.items[0] as Record<string, unknown> | undefined
+      if (!record) {
+        return { action: 'skipped', reason: 'record not found' }
+      }
+
+      // Extract custom fields
+      const customFields: Record<string, unknown> = {}
+      for (const [key, value] of Object.entries(record)) {
+        if (key.startsWith('cf:') || key.startsWith('cf_')) {
+          customFields[key.slice(3)] = value
+        }
+      }
+
+      await this.indexRecord({
+        entityId: params.entityId,
+        recordId: params.recordId,
+        tenantId: params.tenantId,
+        organizationId: params.organizationId,
+        record,
+        customFields,
+      })
+
+      return { action: 'indexed' }
+    } catch (error) {
+      console.error('[SearchIndexer] Failed to load record for indexing', {
+        entityId: params.entityId,
+        recordId: params.recordId,
+        error: error instanceof Error ? error.message : error,
+      })
+      throw error
+    }
   }
 
   /**
@@ -239,6 +326,149 @@ export class SearchIndexer {
    */
   async purgeEntity(params: PurgeEntityParams): Promise<void> {
     await this.searchService.purge(params.entityId, params.tenantId)
+  }
+
+  /**
+   * Reindex an entity via all configured strategies (including vector).
+   * This is the general reindex method that works with all search strategies.
+   */
+  async reindexEntity(params: {
+    entityId: EntityId
+    tenantId: string
+    organizationId?: string | null
+    purgeFirst?: boolean
+  }): Promise<ReindexResult> {
+    if (!this.queryEngine) {
+      return {
+        success: false,
+        entitiesProcessed: 0,
+        recordsIndexed: 0,
+        errors: [{ entityId: params.entityId, error: 'Query engine not available' }],
+      }
+    }
+
+    const config = this.entityConfigMap.get(params.entityId)
+    if (!config || config.enabled === false) {
+      return {
+        success: false,
+        entitiesProcessed: 0,
+        recordsIndexed: 0,
+        errors: [{ entityId: params.entityId, error: 'Entity not configured for search' }],
+      }
+    }
+
+    const result: ReindexResult = {
+      success: true,
+      entitiesProcessed: 1,
+      recordsIndexed: 0,
+      errors: [],
+    }
+
+    // Optionally purge first
+    if (params.purgeFirst) {
+      try {
+        await this.searchService.purge(params.entityId, params.tenantId)
+      } catch (error) {
+        console.warn('[SearchIndexer] Failed to purge entity before reindex', {
+          entityId: params.entityId,
+          error: error instanceof Error ? error.message : error,
+        })
+      }
+    }
+
+    // Paginate through all records
+    let page = 1
+    const pageSize = 200
+    let hasMore = true
+
+    while (hasMore && page <= MAX_PAGES) {
+      try {
+        const queryResult = await this.queryEngine.query(params.entityId, {
+          tenantId: params.tenantId,
+          organizationId: params.organizationId ?? undefined,
+          includeCustomFields: true,
+          page: { page, pageSize },
+        })
+
+        const items = queryResult.items as Record<string, unknown>[]
+        if (items.length === 0) {
+          hasMore = false
+          break
+        }
+
+        // Build and index records
+        const { records } = await this.buildIndexableRecords(
+          params.entityId,
+          params.tenantId,
+          params.organizationId ?? null,
+          items,
+          config,
+        )
+
+        // Index each record via SearchService (sends to all strategies)
+        for (const record of records) {
+          try {
+            await this.searchService.index(record)
+            result.recordsIndexed++
+          } catch (error) {
+            console.warn('[SearchIndexer] Failed to index record', {
+              entityId: params.entityId,
+              recordId: record.recordId,
+              error: error instanceof Error ? error.message : error,
+            })
+          }
+        }
+
+        page++
+        hasMore = items.length === pageSize
+      } catch (error) {
+        result.success = false
+        result.errors.push({
+          entityId: params.entityId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        break
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Reindex all enabled entities via all configured strategies.
+   */
+  async reindexAll(params: {
+    tenantId: string
+    organizationId?: string | null
+    purgeFirst?: boolean
+  }): Promise<ReindexResult> {
+    const result: ReindexResult = {
+      success: true,
+      entitiesProcessed: 0,
+      recordsIndexed: 0,
+      errors: [],
+    }
+
+    const enabledEntities = this.listEnabledEntities()
+
+    for (const entityId of enabledEntities) {
+      const entityResult = await this.reindexEntity({
+        entityId,
+        tenantId: params.tenantId,
+        organizationId: params.organizationId,
+        purgeFirst: params.purgeFirst,
+      })
+
+      result.entitiesProcessed++
+      result.recordsIndexed += entityResult.recordsIndexed
+      result.errors.push(...entityResult.errors)
+
+      if (!entityResult.success) {
+        result.success = false
+      }
+    }
+
+    return result
   }
 
   /**
@@ -331,6 +561,14 @@ export class SearchIndexer {
    * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
   async reindexEntityToMeilisearch(params: ReindexEntityParams): Promise<ReindexResult> {
+    console.log('[SearchIndexer] reindexEntityToMeilisearch called', {
+      entityId: params.entityId,
+      tenantId: params.tenantId,
+      organizationId: params.organizationId,
+      useQueue: params.useQueue,
+      recreateIndex: params.recreateIndex,
+    })
+
     const result: ReindexResult = {
       success: true,
       entitiesProcessed: 0,
@@ -380,7 +618,7 @@ export class SearchIndexer {
       }
 
       // Fetch and index records with pagination
-      const pageSize = 50
+      const pageSize = 200
       let page = 1
       let totalProcessed = 0
       let jobsEnqueued = 0
@@ -436,6 +674,11 @@ export class SearchIndexer {
             })
           } else {
             // Direct indexing (blocking)
+            console.log('[SearchIndexer] Direct indexing batch', {
+              entityId: params.entityId,
+              recordCount: indexableRecords.length,
+              useQueue: params.useQueue,
+            })
             try {
               await meilisearch.bulkIndex(indexableRecords)
               totalProcessed += indexableRecords.length
@@ -599,33 +842,46 @@ export class SearchIndexer {
         customFields,
         organizationId,
         tenantId,
+        queryEngine: this.queryEngine,
       }
 
-      // Build presenter using config
+      // Try buildSource first (provides text, presenter, links, checksumSource)
+      let text: string | string[] | undefined
       let presenter: SearchResultPresenter | undefined
-      if (config.formatResult) {
+      let url: string | undefined
+      let links: SearchResultLink[] | undefined
+      let checksumSource: unknown | undefined
+
+      if (config.buildSource) {
+        try {
+          const source = await config.buildSource(buildContext)
+          if (source) {
+            text = source.text
+            if (source.presenter) presenter = source.presenter
+            if (source.links) links = source.links
+            if (source.checksumSource !== undefined) checksumSource = source.checksumSource
+          }
+        } catch (err) {
+          console.warn('[SearchIndexer] buildSource failed', {
+            entityId,
+            recordId,
+            error: err instanceof Error ? err.message : err,
+          })
+        }
+      }
+
+      // Fall back to formatResult if no presenter from buildSource
+      if (!presenter && config.formatResult) {
         try {
           const result = await config.formatResult(buildContext)
           if (result) presenter = result
-          // Debug: log presenter result for first record
-          if (records.length === 0) {
-            console.log('[SearchIndexer] formatResult debug', {
-              entityId,
-              recordId,
-              presenterTitle: result?.title,
-              recordFirstName: item.first_name,
-              recordLastName: item.last_name,
-              recordPreferredName: item.preferred_name,
-            })
-          }
         } catch {
           // Skip presenter on error
         }
       }
 
-      // Resolve URL
-      let url: string | undefined
-      if (config.resolveUrl) {
+      // Resolve URL if not already set
+      if (!url && config.resolveUrl) {
         try {
           const result = await config.resolveUrl(buildContext)
           if (result) url = result
@@ -634,9 +890,8 @@ export class SearchIndexer {
         }
       }
 
-      // Resolve links
-      let links: SearchResultLink[] | undefined
-      if (config.resolveLinks) {
+      // Resolve links if not already set
+      if (!links && config.resolveLinks) {
         try {
           const result = await config.resolveLinks(buildContext)
           if (result) links = result
@@ -654,6 +909,8 @@ export class SearchIndexer {
         presenter,
         url,
         links,
+        text,
+        checksumSource,
       })
     }
 

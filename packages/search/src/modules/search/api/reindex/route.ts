@@ -68,7 +68,9 @@ export async function POST(req: Request) {
     payload.action === 'clear' ? 'clear' :
     payload.action === 'recreate' ? 'recreate' : 'reindex'
   const entityId = typeof payload.entityId === 'string' ? payload.entityId : undefined
-  const useQueue = payload.useQueue === true
+  // Force direct indexing when using local queue strategy (no background worker)
+  const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+  const useQueue = queueStrategy === 'async' && payload.useQueue === true
 
   const container = await createRequestContainer()
   try {
@@ -162,7 +164,6 @@ export async function POST(req: Request) {
       // TODO: Remove this block when @open-mercato/queue supports auto-processing for local strategy
       // Currently, local queue (file-based) has no background worker, so we process jobs synchronously.
       // Once the queue package implements auto-pulling for local strategy, this workaround can be removed.
-      const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
       let processedSync = false
 
       if (useQueue && queueStrategy === 'local') {

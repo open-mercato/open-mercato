@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import type { VectorIndexService, EmbeddingService } from '../../../../../vector'
+import type { SearchIndexer } from '../../../../../indexer/search-indexer'
+import type { EmbeddingService } from '../../../../../vector'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
-import type { Queue } from '@open-mercato/queue'
-import type { VectorIndexJobPayload } from '../../../../../queue/vector-indexing'
-import { handleVectorIndexJob } from '../../../workers/vector-index.worker'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
@@ -20,25 +19,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
-  let payload: any = {}
+  let payload: { entityId?: string; purgeFirst?: boolean } = {}
   try {
     payload = await req.json()
-  } catch {}
+  } catch {
+    // Default values
+  }
 
   const entityId = typeof payload?.entityId === 'string' ? payload.entityId : undefined
   const purgeFirst = payload?.purgeFirst === true
 
   const container = await createRequestContainer()
   try {
-    let em: any | null = null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let em: any = null
     try {
       em = container.resolve('em')
-    } catch {}
-    let service: VectorIndexService
-    try {
-      service = (container.resolve('vectorIndexService') as VectorIndexService)
     } catch {
-      return NextResponse.json({ error: t('search.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
+      // em not available
+    }
+
+    let searchIndexer: SearchIndexer
+    try {
+      searchIndexer = container.resolve('searchIndexer') as SearchIndexer
+    } catch {
+      return NextResponse.json(
+        { error: t('search.api.errors.indexUnavailable', 'Search indexer unavailable') },
+        { status: 503 }
+      )
     }
 
     // Load saved embedding config and update the embedding service
@@ -72,47 +80,21 @@ export async function POST(req: Request) {
       },
     ).catch(() => undefined)
 
+    // Use SearchIndexer.reindexEntity or reindexAll which indexes via all strategies
+    let result
     if (entityId) {
-      await service.reindexEntity({ entityId, tenantId: auth.tenantId, organizationId: auth.orgId ?? null, purgeFirst })
+      result = await searchIndexer.reindexEntity({
+        entityId: entityId as EntityId,
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId ?? null,
+        purgeFirst,
+      })
     } else {
-      await service.reindexAll({ tenantId: auth.tenantId, organizationId: auth.orgId ?? null, purgeFirst })
-    }
-
-    // TODO: Remove this block when @open-mercato/queue supports auto-processing for local strategy
-    // Currently, local queue (file-based) has no background worker, so we process jobs synchronously.
-    // Once the queue package implements auto-pulling for local strategy, this workaround can be removed.
-    const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-    let processedSync = false
-
-    if (queueStrategy === 'local') {
-      let queue: Queue<VectorIndexJobPayload> | null = null
-      try {
-        queue = container.resolve<Queue<VectorIndexJobPayload>>('vectorIndexQueue')
-      } catch {
-        queue = null
-      }
-      if (queue) {
-        console.log('[search.embeddings.reindex] Processing queue jobs synchronously...')
-        let processed = 0
-        let failed = 0
-        const result = await queue.process(async (job, ctx) => {
-          try {
-            await handleVectorIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
-            processed++
-          } catch (err) {
-            failed++
-            console.warn('[search.embeddings.reindex] Job failed', {
-              jobId: ctx.jobId,
-              error: err instanceof Error ? err.message : err,
-            })
-          }
-        })
-        processedSync = true
-        console.log('[search.embeddings.reindex] Synchronous queue processing complete', {
-          processed: result.processed,
-          failed: result.failed,
-        })
-      }
+      result = await searchIndexer.reindexAll({
+        tenantId: auth.tenantId,
+        organizationId: auth.orgId ?? null,
+        purgeFirst,
+      })
     }
 
     await recordIndexerLog(
@@ -121,28 +103,35 @@ export async function POST(req: Request) {
         source: 'vector',
         handler: 'api:search.embeddings.reindex',
         message: entityId
-          ? `Vector reindex accepted for ${entityId}`
-          : 'Vector reindex accepted for all entities',
+          ? `Vector reindex completed for ${entityId}`
+          : 'Vector reindex completed for all entities',
         entityType: entityId ?? null,
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
-        details: { purgeFirst, processedSync },
+        details: {
+          purgeFirst,
+          recordsIndexed: result.recordsIndexed,
+          success: result.success,
+        },
       },
     ).catch(() => undefined)
-    return NextResponse.json({ ok: true, processedSync })
+
+    return NextResponse.json({
+      ok: result.success,
+      recordsIndexed: result.recordsIndexed,
+      entitiesProcessed: result.entitiesProcessed,
+      errors: result.errors.length > 0 ? result.errors : undefined,
+    })
   } catch (error: unknown) {
     const err = error as { message?: string; status?: number; statusCode?: number }
-    // Determine HTTP status from error, if available
     const status = typeof err?.status === 'number'
       ? err.status
       : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
-    // Log full error details server-side only
     console.error('[search.embeddings.reindex] failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
       status,
     })
-    // Return generic message to client - don't expose internal error details
     return NextResponse.json(
       { error: t('search.api.errors.reindexFailed', 'Vector reindex failed. Please try again or contact support.') },
       { status: status >= 400 ? status : 500 }

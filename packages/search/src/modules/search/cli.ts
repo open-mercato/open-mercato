@@ -3,7 +3,6 @@ import { createRequestContainer } from '@/lib/di/container'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
-import type { VectorIndexService } from '../../vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -12,6 +11,7 @@ import type { SearchIndexer } from '../../indexer/search-indexer'
 import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../queue/vector-indexing'
 import { MEILISEARCH_INDEXING_QUEUE_NAME, type MeilisearchIndexJobPayload } from '../../queue/meilisearch-indexing'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 
 type CliProgressBar = {
   update(completed: number): void
@@ -472,9 +472,8 @@ async function reindexCommand(rest: string[]): Promise<void> {
   }
 
   try {
-    const service = (container.resolve('vectorIndexService') as VectorIndexService)
-    await service.ensureDriverReady()
-    const enabledEntities = new Set(service.listEnabledEntities())
+    const searchIndexer = container.resolve<SearchIndexer>('searchIndexer')
+    const enabledEntities = new Set(searchIndexer.listEnabledEntities())
     const baseEventBus = (() => {
       try {
         return container.resolve('eventBus') as {
@@ -532,7 +531,7 @@ async function reindexCommand(rest: string[]): Promise<void> {
       if (purgeFirst && tenantId) {
         try {
           console.log('  -> purging existing vector index rows...')
-          await service.purgeIndex({ tenantId, organizationId: organizationId ?? null, entityId: entityType })
+          await searchIndexer.purgeEntity({ entityId: entityType as EntityId, tenantId })
           await resetVectorCoverageAfterPurge(baseEm, entityType, tenantId ?? null, organizationId ?? null)
           if (baseEventBus) {
             const scopes = new Set<string>()
@@ -586,12 +585,6 @@ async function reindexCommand(rest: string[]): Promise<void> {
 
           const partitionContainer = await createRequestContainer()
           const partitionEm = partitionContainer.resolve<EntityManager>('em')
-          let partitionVectorService: VectorIndexService | null = null
-          try {
-            partitionVectorService = partitionContainer.resolve<VectorIndexService>('vectorIndexService')
-          } catch {
-            partitionVectorService = null
-          }
           try {
             let progressBar: CliProgressBar | null = null
             const useBar = partitionTargets.length === 1
@@ -606,7 +599,6 @@ async function reindexCommand(rest: string[]): Promise<void> {
               partitionCount,
               partitionIndex: part,
               resetCoverage: shouldResetCoverage(part),
-              vectorService: partitionVectorService,
               onProgress(info) {
                 if (useBar) {
                   if (info.total > 0 && !progressBar) {
@@ -666,13 +658,12 @@ async function reindexCommand(rest: string[]): Promise<void> {
         return
       }
       const purgeFirst = defaultPurge
-      await service.ensureDriverReady(entityId)
       await runReindex(entityId, purgeFirst)
       console.log('Vector reindex completed.')
       return
     }
 
-    const entityIds = service.listEnabledEntities()
+    const entityIds = searchIndexer.listEnabledEntities()
     if (!entityIds.length) {
       console.log('No entities enabled for vector search.')
       return
@@ -682,7 +673,6 @@ async function reindexCommand(rest: string[]): Promise<void> {
     for (let idx = 0; idx < entityIds.length; idx += 1) {
       const id = entityIds[idx]!
       console.log(`[${idx + 1}/${entityIds.length}] Preparing ${id}...`)
-      await service.ensureDriverReady(id)
       processedOverall += await runReindex(id, defaultPurge)
     }
     console.log(`Vector reindex completed. Total processed rows: ${processedOverall.toLocaleString()}`)

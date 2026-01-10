@@ -57,6 +57,13 @@ export class SearchService {
   }
 
   /**
+   * Get all registered strategies.
+   */
+  getStrategies(): SearchStrategy[] {
+    return Array.from(this.strategies.values())
+  }
+
+  /**
    * Execute a search query across configured strategies.
    *
    * @param query - Search query string

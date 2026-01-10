@@ -1,6 +1,7 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { VectorIndexJobPayload } from '../../../queue/vector-indexing'
-import type { VectorIndexService, VectorIndexOperationResult, EmbeddingService } from '../../../vector'
+import type { SearchIndexer } from '../../../indexer/search-indexer'
+import type { EmbeddingService } from '../../../vector'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { logVectorOperation } from '../../../vector/lib/vector-logs'
@@ -13,6 +14,7 @@ type HandlerContext = { resolve: <T = unknown>(name: string) => T }
  * Process a vector index job.
  *
  * This handler is called by the queue worker to process indexing and deletion jobs.
+ * It uses SearchIndexer to load records and index them via SearchService.
  *
  * @param job - The queued job containing payload
  * @param jobCtx - Queue job context with job ID and attempt info
@@ -40,11 +42,11 @@ export async function handleVectorIndexJob(
     return
   }
 
-  let service: VectorIndexService
+  let searchIndexer: SearchIndexer
   try {
-    service = ctx.resolve<VectorIndexService>('vectorIndexService')
+    searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
   } catch {
-    console.warn('[vector-index.worker] vectorIndexService not available')
+    console.warn('[vector-index.worker] searchIndexer not available')
     return
   }
 
@@ -82,25 +84,29 @@ export async function handleVectorIndexJob(
     : 'worker:vector-indexing:index'
 
   try {
-    let result: VectorIndexOperationResult
+    let action: 'indexed' | 'deleted' | 'skipped' = 'skipped'
+    let delta = 0
 
     if (jobType === 'delete') {
-      result = await service.deleteRecord({
+      await searchIndexer.deleteRecord({
         entityId: entityType,
         recordId,
         tenantId,
-        organizationId,
       })
+      action = 'deleted'
+      delta = -1
     } else {
-      result = await service.indexRecord({
+      const result = await searchIndexer.indexRecordById({
         entityId: entityType,
         recordId,
         tenantId,
         organizationId,
       })
+      action = result.action
+      if (result.action === 'indexed') {
+        delta = 1
+      }
     }
-
-    const delta = computeVectorDelta(result)
 
     if (delta !== 0) {
       let adjustmentsApplied = false
@@ -143,7 +149,13 @@ export async function handleVectorIndexJob(
       handler: handlerName,
       entityType,
       recordId,
-      result,
+      result: {
+        action,
+        tenantId,
+        organizationId: organizationId ?? null,
+        created: action === 'indexed',
+        existed: action === 'deleted',
+      },
     })
   } catch (error) {
     console.warn(`[vector-index.worker] Failed to ${jobType} vector index`, {
@@ -167,15 +179,4 @@ export async function handleVectorIndexJob(
     // Re-throw to let the queue handle retry logic
     throw error
   }
-}
-
-function computeVectorDelta(result: VectorIndexOperationResult): number {
-  if (!result) return 0
-  if (result.action === 'indexed') {
-    return result.created ? 1 : 0
-  }
-  if (result.action === 'deleted') {
-    return result.existed ? -1 : 0
-  }
-  return 0
 }

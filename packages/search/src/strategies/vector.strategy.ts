@@ -103,8 +103,10 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   async index(record: IndexableRecord): Promise<void> {
-    // Build text content for embedding
-    const textContent = this.buildTextContent(record)
+    // Use text from buildSource if available, otherwise fall back to generic extraction
+    const textContent = record.text
+      ? (Array.isArray(record.text) ? record.text.join('\n') : record.text)
+      : this.buildTextContent(record)
     if (!textContent) return
 
     const embedding = await this.embeddingService.createEmbedding(textContent)
@@ -114,7 +116,7 @@ export class VectorSearchStrategy implements SearchStrategy {
       recordId: record.recordId,
       tenantId: record.tenantId,
       organizationId: record.organizationId,
-      checksum: this.computeSimpleChecksum(record),
+      checksum: this.computeChecksum(record),
       embedding,
       url: record.url,
       presenter: record.presenter,
@@ -165,13 +167,63 @@ export class VectorSearchStrategy implements SearchStrategy {
 
   /**
    * Compute a checksum for change detection using SHA-256.
+   * Uses checksumSource from buildSource if available, otherwise uses fields/presenter/url.
    */
-  private computeSimpleChecksum(record: IndexableRecord): string {
-    const content = JSON.stringify({
-      fields: record.fields,
-      presenter: record.presenter,
-      url: record.url,
-    })
+  private computeChecksum(record: IndexableRecord): string {
+    const source = record.checksumSource !== undefined
+      ? record.checksumSource
+      : {
+          fields: record.fields,
+          presenter: record.presenter,
+          url: record.url,
+        }
+    const content = JSON.stringify(source)
     return createHash('sha256').update(content).digest('hex').slice(0, 16)
+  }
+
+  /**
+   * List entries in the vector index (for admin/debugging).
+   */
+  async listEntries(options: {
+    tenantId: string
+    organizationId?: string | null
+    entityId?: string
+    limit?: number
+    offset?: number
+  }): Promise<Array<{
+    entityId: string
+    recordId: string
+    tenantId: string
+    organizationId: string | null
+    presenter?: unknown
+    url?: string
+  }>> {
+    await this.ensureReady()
+    // Delegate to vector driver's list method if available
+    const listMethod = (this.vectorDriver as unknown as {
+      list?: (options: {
+        tenantId: string
+        organizationId?: string | null
+        entityId?: string
+        limit?: number
+        offset?: number
+      }) => Promise<unknown[]>
+    }).list
+
+    if (typeof listMethod === 'function') {
+      const entries = await listMethod.call(this.vectorDriver, options)
+      return entries as Array<{
+        entityId: string
+        recordId: string
+        tenantId: string
+        organizationId: string | null
+        presenter?: unknown
+        url?: string
+      }>
+    }
+
+    // Fallback: return empty array if driver doesn't support listing
+    console.warn('[VectorSearchStrategy] Vector driver does not support listing entries')
+    return []
   }
 }

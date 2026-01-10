@@ -102,6 +102,10 @@ export type IndexableRecord = {
   url?: string
   /** Additional action links */
   links?: SearchResultLink[]
+  /** Text content for embedding (from buildSource, used by vector strategy) */
+  text?: string | string[]
+  /** Source object for checksum calculation (change detection) */
+  checksumSource?: unknown
 }
 
 // =============================================================================
@@ -192,6 +196,8 @@ export type SearchBuildContext = {
   tenantId?: string | null
   /** DI container for resolving dependencies */
   container?: unknown
+  /** Query engine for loading related records (optional, used by buildSource for entity hydration) */
+  queryEngine?: unknown
 }
 
 /**

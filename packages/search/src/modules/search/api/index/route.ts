@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import type { VectorIndexService } from '../../../../vector'
+import type { SearchIndexer } from '../../../../indexer/search-indexer'
+import type { SearchService } from '../../../../service'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { VectorSearchStrategy } from '../../../../strategies/vector.strategy'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -38,33 +41,56 @@ export async function GET(req: Request) {
   const offset = parseOffset(url.searchParams.get('offset'))
 
   const container = await createRequestContainer()
-  let service: VectorIndexService
   try {
-    service = (container.resolve('vectorIndexService') as VectorIndexService)
-  } catch {
-    return NextResponse.json({ error: t('search.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
-  }
+    // Get the vector strategy from search service
+    let searchService: SearchService
+    try {
+      searchService = container.resolve('searchService') as SearchService
+    } catch {
+      return NextResponse.json(
+        { error: t('search.api.errors.serviceUnavailable', 'Search service unavailable') },
+        { status: 503 }
+      )
+    }
 
-  try {
-    const entries = await service.listIndexEntries({
+    // Access vector strategy for listing entries
+    const strategies = searchService.getStrategies()
+    const vectorStrategy = strategies.find((s) => s.id === 'vector') as VectorSearchStrategy | undefined
+
+    if (!vectorStrategy) {
+      return NextResponse.json(
+        { error: t('search.api.errors.vectorUnavailable', 'Vector strategy not configured') },
+        { status: 503 }
+      )
+    }
+
+    const isAvailable = await vectorStrategy.isAvailable()
+    if (!isAvailable) {
+      return NextResponse.json(
+        { error: t('search.api.errors.vectorUnavailable', 'Vector strategy not available') },
+        { status: 503 }
+      )
+    }
+
+    // List vector entries via the strategy
+    const entries = await vectorStrategy.listEntries({
       tenantId: auth.tenantId,
       organizationId: auth.orgId ?? null,
       entityId: entityIdParam ?? undefined,
       limit,
       offset,
     })
+
     return NextResponse.json({ entries, limit, offset })
   } catch (error: unknown) {
     const err = error as { status?: number; statusCode?: number }
     const status = typeof err?.status === 'number'
       ? err.status
       : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
-    // Log full error details server-side only
     console.error('[search.index.list] failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
     })
-    // Return generic message to client - don't expose internal error details
     return NextResponse.json(
       { error: t('search.api.errors.indexFetchFailed', 'Failed to fetch vector index. Please try again.') },
       { status: status >= 400 ? status : 500 }
@@ -97,34 +123,45 @@ export async function DELETE(req: Request) {
   }
 
   const container = await createRequestContainer()
-  let service: VectorIndexService
   try {
-    service = (container.resolve('vectorIndexService') as VectorIndexService)
-  } catch {
-    return NextResponse.json({ error: t('search.api.errors.indexUnavailable', 'Vector index unavailable') }, { status: 503 })
-  }
+    let searchIndexer: SearchIndexer
+    try {
+      searchIndexer = container.resolve('searchIndexer') as SearchIndexer
+    } catch {
+      return NextResponse.json(
+        { error: t('search.api.errors.indexUnavailable', 'Search indexer unavailable') },
+        { status: 503 }
+      )
+    }
 
-  let em: any | null = null
-  try {
-    em = container.resolve('em')
-  } catch {}
-  let eventBus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
-  try {
-    eventBus = container.resolve('eventBus')
-  } catch {
-    eventBus = null
-  }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let em: any = null
+    try {
+      em = container.resolve('em')
+    } catch {
+      // em not available
+    }
 
-  const entityIds = entityIdParam ? [entityIdParam] : service.listEnabledEntities()
-  const scopes = new Set<string>()
-  const registerScope = (org: string | null) => {
-    const key = org ?? '__null__'
-    if (!scopes.has(key)) scopes.add(key)
-  }
-  registerScope(null)
-  if (auth.orgId) registerScope(auth.orgId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let eventBus: { emitEvent(event: string, payload: any, options?: any): Promise<void> } | null = null
+    try {
+      eventBus = container.resolve('eventBus')
+    } catch {
+      eventBus = null
+    }
 
-  try {
+    const entityIds = entityIdParam
+      ? [entityIdParam]
+      : searchIndexer.listEnabledEntities()
+
+    const scopes = new Set<string>()
+    const registerScope = (org: string | null) => {
+      const key = org ?? '__null__'
+      if (!scopes.has(key)) scopes.add(key)
+    }
+    registerScope(null)
+    if (auth.orgId) registerScope(auth.orgId)
+
     await recordIndexerLog(
       { em: em ?? undefined },
       {
@@ -139,11 +176,16 @@ export async function DELETE(req: Request) {
         details: { entityIds },
       },
     ).catch(() => undefined)
-    await service.purgeIndex({
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId ?? null,
-      entityId: entityIdParam ?? undefined,
-    })
+
+    // Purge each entity using SearchIndexer
+    for (const entityId of entityIds) {
+      await searchIndexer.purgeEntity({
+        entityId: entityId as EntityId,
+        tenantId: auth.tenantId,
+      })
+    }
+
+    // Update coverage counts
     if (em) {
       try {
         for (const entityId of entityIds) {
@@ -165,6 +207,8 @@ export async function DELETE(req: Request) {
         console.warn('[search.index.purge] Failed to reset coverage after purge', coverageError)
       }
     }
+
+    // Emit coverage refresh events
     if (eventBus) {
       await Promise.all(
         entityIds.flatMap((entityId) =>
@@ -185,6 +229,7 @@ export async function DELETE(req: Request) {
         ),
       )
     }
+
     await recordIndexerLog(
       { em: em ?? undefined },
       {
@@ -199,6 +244,7 @@ export async function DELETE(req: Request) {
         details: { entityIds },
       },
     ).catch(() => undefined)
+
     return NextResponse.json({ ok: true })
   } catch (error: unknown) {
     const err = error as { status?: number; statusCode?: number }
@@ -206,11 +252,19 @@ export async function DELETE(req: Request) {
       ? err.status
       : (typeof err?.statusCode === 'number' ? err.statusCode : 500)
     const errorMessage = error instanceof Error ? error.message : String(error)
-    // Log full error details server-side only
     console.error('[search.index.purge] failed', {
       error: errorMessage,
       stack: error instanceof Error ? error.stack : undefined,
     })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let em: any = null
+    try {
+      em = container.resolve('em')
+    } catch {
+      // em not available
+    }
+
     await recordIndexerLog(
       { em: em ?? undefined },
       {
@@ -223,13 +277,18 @@ export async function DELETE(req: Request) {
         entityType: entityIdParam ?? null,
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
-        details: { error: errorMessage, entityIds },
+        details: { error: errorMessage },
       },
     ).catch(() => undefined)
-    // Return generic message to client - don't expose internal error details
+
     return NextResponse.json(
       { error: t('search.api.errors.purgeFailed', 'Vector index purge failed. Please try again.') },
       { status: status >= 400 ? status : 500 }
     )
+  } finally {
+    const disposable = container as unknown as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
   }
 }

@@ -403,6 +403,209 @@ yarn mercato search worker meilisearch-indexing --concurrency=5
 | `REDIS_URL` | Redis connection URL for async queues | - |
 | `QUEUE_REDIS_URL` | Alternative Redis URL for queues | - |
 
+## Configuring Entities for Search
+
+Each module can define which entities are searchable by creating a `search.ts` file in the module root.
+
+### Entity Configuration Structure
+
+```typescript
+// packages/your-package/src/modules/your-module/search.ts
+import type {
+  SearchModuleConfig,
+  SearchBuildContext,
+  SearchIndexSource,
+  SearchResultPresenter,
+  SearchResultLink,
+} from '@open-mercato/shared/modules/search'
+
+export const searchConfig: SearchModuleConfig = {
+  entities: [
+    {
+      entityId: 'your_module:your_entity',  // Must match entity registry
+      enabled: true,
+      priority: 10,  // Higher = appears first in mixed results
+
+      // FOR VECTOR SEARCH: buildSource generates text for embeddings
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        const lines: string[] = []
+
+        // Add text that should be searchable semantically
+        lines.push(`Name: ${ctx.record.name}`)
+        lines.push(`Description: ${ctx.record.description}`)
+
+        // Include custom fields
+        if (ctx.customFields.notes) {
+          lines.push(`Notes: ${ctx.customFields.notes}`)
+        }
+
+        if (!lines.length) return null
+
+        return {
+          text: lines,  // This text gets embedded for vector search
+          presenter: {
+            title: ctx.record.name,
+            subtitle: ctx.record.description,
+            icon: 'lucide:file',
+          },
+          links: [
+            { href: `/your-entity/${ctx.record.id}`, label: 'View', kind: 'primary' }
+          ],
+          checksumSource: { record: ctx.record, customFields: ctx.customFields },
+        }
+      },
+
+      // FOR MEILISEARCH: fieldPolicy controls full-text indexing
+      fieldPolicy: {
+        searchable: ['name', 'description', 'notes'],  // Indexed for full-text
+        hashOnly: ['email', 'phone'],                   // Hashed, not searchable
+        excluded: ['password', 'secret'],               // Never indexed
+      },
+
+      // Optional: Custom presenter formatting
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        return {
+          title: ctx.record.name,
+          subtitle: ctx.record.status,
+          icon: 'lucide:user',
+        }
+      },
+
+      // Optional: Primary URL for the record
+      resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
+        return `/your-entity/${ctx.record.id}`
+      },
+
+      // Optional: Additional action links
+      resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        return [
+          { href: `/your-entity/${ctx.record.id}/edit`, label: 'Edit', kind: 'secondary' }
+        ]
+      },
+    },
+  ],
+}
+
+export default searchConfig
+```
+
+### Search Strategies Comparison
+
+| Aspect | Meilisearch | Vector Search | Token Search |
+|--------|-------------|---------------|--------------|
+| **Configuration** | `fieldPolicy` | `buildSource` | Automatic |
+| **Search Type** | Full-text with typo tolerance | Semantic similarity | Exact token matching |
+| **Good For** | Exact matches, filters, facets | Natural language, "find similar" | Simple lookups |
+| **Backend** | Meilisearch server | pgvector/Qdrant/ChromaDB + embeddings | PostgreSQL |
+| **Requires** | `MEILISEARCH_HOST` | `OPENAI_API_KEY` (or other provider) | Database connection |
+
+### Enabling/Disabling Strategies
+
+You can control which strategies are used at multiple levels:
+
+#### Per Entity
+
+```typescript
+// Meilisearch only (no vector search)
+{
+  entityId: 'your_module:your_entity',
+  enabled: true,
+  // NO buildSource = no vector search
+  fieldPolicy: {
+    searchable: ['name', 'description'],
+  },
+}
+
+// Vector only (no Meilisearch)
+{
+  entityId: 'your_module:your_entity',
+  enabled: true,
+  buildSource: async (ctx) => ({ text: [...], presenter: {...} }),
+  // NO fieldPolicy = no Meilisearch
+}
+
+// Both strategies
+{
+  entityId: 'your_module:your_entity',
+  enabled: true,
+  buildSource: async (ctx) => ({ text: [...], presenter: {...} }),
+  fieldPolicy: { searchable: ['name'] },
+}
+```
+
+#### Global Level (DI Registration)
+
+In `packages/core/src/bootstrap.ts`:
+
+```typescript
+import { registerSearchModule } from '@open-mercato/search'
+
+registerSearchModule(container, {
+  moduleConfigs: searchModuleConfigs,
+  skipVector: true,      // Disable vector search globally
+  skipMeilisearch: true, // Disable Meilisearch globally
+  skipTokens: true,      // Disable token search globally
+})
+```
+
+#### Per Query
+
+```typescript
+// Only use Meilisearch for this search
+const results = await searchService.search('query', {
+  tenantId: '...',
+  strategies: ['meilisearch'],
+})
+
+// Only use vector search
+const results = await searchService.search('query', {
+  tenantId: '...',
+  strategies: ['vector'],
+})
+
+// Use all available strategies (default)
+const results = await searchService.search('query', {
+  tenantId: '...',
+})
+```
+
+#### Environment-Based
+
+Strategies automatically become unavailable if their backend is not configured:
+
+| Strategy | Required Environment |
+|----------|---------------------|
+| Meilisearch | `MEILISEARCH_HOST` |
+| Vector | `OPENAI_API_KEY` (or other embedding provider) |
+| Tokens | Database connection (always available) |
+
+### SearchBuildContext
+
+The context object passed to `buildSource` and other config functions:
+
+```typescript
+interface SearchBuildContext {
+  record: Record<string, unknown>       // The database record
+  customFields: Record<string, unknown> // Custom field values (cf:* fields)
+  tenantId?: string | null
+  organizationId?: string | null
+  queryEngine?: QueryEngine             // For loading related entities
+}
+```
+
+### SearchIndexSource
+
+The return type from `buildSource`:
+
+```typescript
+interface SearchIndexSource {
+  text: string | string[]              // Text to embed for vector search
+  presenter?: SearchResultPresenter    // Display info for search results
+  links?: SearchResultLink[]           // Action links
+  checksumSource?: unknown             // Used for change detection
+}
+```
+
 ## Architecture
 
 ```
