@@ -133,9 +133,9 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
   }, [appearanceLabels, t, teamOptions])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
-    { id: 'details', fields: ['name', 'description', 'appearance'] },
+    { id: 'details', fields: teamOptions && teamOptions.length ? ['teamId', 'name', 'description', 'appearance'] : ['name', 'description', 'appearance'] },
     { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
-  ], [t])
+  ], [t, teamOptions])
 
   return (
     <CrudForm<TeamRoleFormValues>
