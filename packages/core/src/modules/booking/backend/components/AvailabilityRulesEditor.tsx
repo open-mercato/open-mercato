@@ -11,6 +11,7 @@ import { createCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
+import { Calendar, List, Trash2 } from 'lucide-react'
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -164,6 +165,14 @@ function buildWindowsFromRules(rules: AvailabilityRule[]): TimeWindow[] {
     .sort((a, b) => a.start.localeCompare(b.start))
 }
 
+function serializeWeeklyWindows(map: Map<number, TimeWindow[]>): string {
+  const payload = Array.from({ length: 7 }, (_, day) => {
+    const windows = map.get(day) ?? []
+    return windows.map((window) => ({ start: window.start, end: window.end }))
+  })
+  return JSON.stringify(payload)
+}
+
 export function AvailabilityRulesEditor({
   subjectType,
   subjectId,
@@ -200,6 +209,8 @@ export function AvailabilityRulesEditor({
   const [editorWeekday, setEditorWeekday] = React.useState<number>(new Date().getDay())
   const [editorWindows, setEditorWindows] = React.useState<TimeWindow[]>([createDefaultWindow()])
   const [editorRules, setEditorRules] = React.useState<AvailabilityRule[]>([])
+  const autoSaveTimerRef = React.useRef<number | null>(null)
+  const lastSavedWeeklyKeyRef = React.useRef<string | null>(null)
 
   const usingRuleSet = Boolean(rulesetId) && availabilityRules.length === 0
   const activeRules = usingRuleSet ? rulesetRules : availabilityRules
@@ -374,10 +385,16 @@ export function AvailabilityRulesEditor({
   }, [activeRules])
 
   const [weeklyWindows, setWeeklyWindows] = React.useState<Map<number, TimeWindow[]>>(weeklyDraft)
+  const weeklyDraftKey = React.useMemo(() => serializeWeeklyWindows(weeklyDraft), [weeklyDraft])
+  const weeklyKey = React.useMemo(() => serializeWeeklyWindows(weeklyWindows), [weeklyWindows])
 
   React.useEffect(() => {
     setWeeklyWindows(weeklyDraft)
   }, [weeklyDraft])
+
+  React.useEffect(() => {
+    lastSavedWeeklyKeyRef.current = weeklyDraftKey
+  }, [weeklyDraftKey])
 
   const dateSpecificRules = React.useMemo(
     () => activeRules.filter((rule) => parseAvailabilityRuleWindow(rule).repeat === 'once'),
@@ -418,7 +435,7 @@ export function AvailabilityRulesEditor({
     })
   }, [])
 
-  const saveWeeklyHours = React.useCallback(async () => {
+  const saveWeeklyHours = React.useCallback(async (options?: { silentSuccess?: boolean }) => {
     const subjectForRules: AvailabilitySubjectType = usingRuleSet ? 'ruleset' : subjectType
     const subjectIdForRules = usingRuleSet ? (rulesetId ?? '') : subjectId
     if (!subjectIdForRules) return
@@ -450,7 +467,10 @@ export function AvailabilityRulesEditor({
         })
       })
       await Promise.all(creations)
-      flash(listLabels.saveWeeklySuccess, 'success')
+      lastSavedWeeklyKeyRef.current = weeklyKey
+      if (!options?.silentSuccess) {
+        flash(listLabels.saveWeeklySuccess, 'success')
+      }
       await refreshAvailability()
       await refreshRuleSetRules()
     } catch (error) {
@@ -469,7 +489,24 @@ export function AvailabilityRulesEditor({
     timezone,
     usingRuleSet,
     weeklyWindows,
+    weeklyKey,
   ])
+
+  React.useEffect(() => {
+    if (usingRuleSet) return
+    if (weeklyKey === lastSavedWeeklyKeyRef.current) return
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current)
+    }
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      void saveWeeklyHours({ silentSuccess: true })
+    }, 600)
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current)
+      }
+    }
+  }, [saveWeeklyHours, usingRuleSet, weeklyKey])
 
   const handleCustomize = React.useCallback(async () => {
     if (!rulesetId) return
@@ -689,19 +726,25 @@ export function AvailabilityRulesEditor({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              variant={viewMode === 'list' ? 'default' : 'outline'}
-              size="sm"
+              variant="outline"
+              size="icon"
               onClick={() => setViewMode('list')}
+              aria-label={listLabels.listLabel}
+              title={listLabels.listLabel}
+              className={viewMode === 'list' ? 'bg-accent text-accent-foreground' : undefined}
             >
-              {listLabels.listLabel}
+              <List className="size-4" aria-hidden />
             </Button>
             <Button
               type="button"
-              variant={viewMode === 'calendar' ? 'default' : 'outline'}
-              size="sm"
+              variant="outline"
+              size="icon"
               onClick={() => setViewMode('calendar')}
+              aria-label={listLabels.calendarLabel}
+              title={listLabels.calendarLabel}
+              className={viewMode === 'calendar' ? 'bg-accent text-accent-foreground' : undefined}
             >
-              {listLabels.calendarLabel}
+              <Calendar className="size-4" aria-hidden />
             </Button>
           </div>
         </div>
@@ -771,9 +814,9 @@ export function AvailabilityRulesEditor({
               onSlotClick={handleSlotClick}
             />
           ) : (
-            <div className="space-y-6">
+            <div className="grid gap-6 lg:grid-cols-2">
               {usingRuleSet ? (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                <div className="lg:col-span-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                   {listLabels.customizePrompt}
                 </div>
               ) : null}
@@ -783,9 +826,6 @@ export function AvailabilityRulesEditor({
                     <h3 className="text-base font-semibold">{listLabels.weeklyTitle}</h3>
                     <p className="text-sm text-muted-foreground">{listLabels.weeklySubtitle}</p>
                   </div>
-                  <Button type="button" variant="outline" size="sm" onClick={saveWeeklyHours} disabled={usingRuleSet}>
-                    {listLabels.saveWeekly}
-                  </Button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {DAY_LABELS.map((day, index) => {
@@ -820,12 +860,13 @@ export function AvailabilityRulesEditor({
                                 />
                                 <Button
                                   type="button"
-                                  variant="ghost"
-                                  size="sm"
+                                  variant="outline"
+                                  size="icon"
                                   onClick={() => handleWeeklyWindowRemove(index, windowIndex)}
                                   disabled={usingRuleSet}
+                                  aria-label={listLabels.removeWindow}
                                 >
-                                  {listLabels.removeWindow}
+                                  <Trash2 className="size-4" aria-hidden />
                                 </Button>
                               </div>
                             ))
@@ -866,16 +907,17 @@ export function AvailabilityRulesEditor({
                           </Button>
                           <Button
                             type="button"
-                            variant="ghost"
-                            size="sm"
+                            variant="outline"
+                            size="icon"
                             onClick={async () => {
                               await Promise.all(rules.map((rule) => deleteCrud('booking/availability', rule.id)))
                               await refreshAvailability()
                               await refreshRuleSetRules()
                             }}
                             disabled={usingRuleSet}
+                            aria-label={listLabels.removeWindow}
                           >
-                            {listLabels.removeWindow}
+                            <Trash2 className="size-4" aria-hidden />
                           </Button>
                         </div>
                       </div>
@@ -952,8 +994,14 @@ export function AvailabilityRulesEditor({
                       value={value}
                       onChange={(event) => handleEditorDateChange(index, event.target.value)}
                     />
-                    <Button type="button" variant="ghost" size="sm" onClick={() => handleEditorDateRemove(index)}>
-                      {listLabels.removeWindow}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleEditorDateRemove(index)}
+                      aria-label={listLabels.removeWindow}
+                    >
+                      <Trash2 className="size-4" aria-hidden />
                     </Button>
                   </div>
                 ))}
@@ -995,8 +1043,14 @@ export function AvailabilityRulesEditor({
                     onChange={(event) => handleEditorWindowChange(index, { ...window, end: event.target.value })}
                     className="h-9 w-[120px]"
                   />
-                  <Button type="button" variant="ghost" size="sm" onClick={() => handleEditorWindowRemove(index)}>
-                    {listLabels.removeWindow}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handleEditorWindowRemove(index)}
+                    aria-label={listLabels.removeWindow}
+                  >
+                    <Trash2 className="size-4" aria-hidden />
                   </Button>
                 </div>
               ))}

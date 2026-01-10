@@ -225,9 +225,6 @@ export class BookingResource {
   @Property({ name: 'availability_rule_set_id', type: 'uuid', nullable: true })
   availabilityRuleSetId?: string | null
 
-  @Property({ name: 'is_available_by_default', type: 'boolean', default: true })
-  isAvailableByDefault: boolean = true
-
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

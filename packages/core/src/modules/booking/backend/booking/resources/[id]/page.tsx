@@ -35,7 +35,6 @@ type ResourceRecord = {
   capacityUnitIcon: string | null
   tags?: TagOption[] | null
   isActive: boolean
-  isAvailableByDefault: boolean
   appearanceIcon?: string | null
   appearanceColor?: string | null
   resource_type_id?: string | null
@@ -46,7 +45,6 @@ type ResourceRecord = {
   appearance_icon?: string | null
   appearance_color?: string | null
   is_active?: boolean
-  is_available_by_default?: boolean
   availabilityRuleSetId?: string | null
   availability_rule_set_id?: string | null
 } & Record<string, unknown>
@@ -80,7 +78,6 @@ function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
     appearanceIcon: record.appearanceIcon ?? record.appearance_icon ?? null,
     appearanceColor: record.appearanceColor ?? record.appearance_color ?? null,
     isActive: record.isActive ?? record.is_active ?? true,
-    isAvailableByDefault: record.isAvailableByDefault ?? record.is_available_by_default ?? true,
   }
 }
 
@@ -93,7 +90,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   const [resourceTypesLoaded, setResourceTypesLoaded] = React.useState(false)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
-  const [isAvailableByDefault, setIsAvailableByDefault] = React.useState(true)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
   const [capacityUnitDictionaryId, setCapacityUnitDictionaryId] = React.useState<string | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
@@ -131,7 +127,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
             else if (key.startsWith('cf:')) customValues[`cf_${key.slice(3)}`] = value
           }
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
-          setIsAvailableByDefault(resource.isAvailableByDefault ?? true)
           setAvailabilityRuleSetId(
             typeof resource.availabilityRuleSetId === 'string'
               ? resource.availabilityRuleSetId
@@ -148,7 +143,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
             capacityUnitValue: resource.capacityUnitValue ?? '',
             appearance: { icon: resource.appearanceIcon ?? null, color: resource.appearanceColor ?? null },
             isActive: resource.isActive ?? true,
-            isAvailableByDefault: resource.isAvailableByDefault ?? true,
             customFieldsetCode: resource.resourceTypeId
               ? (resourceFieldsetByTypeId.get(resource.resourceTypeId) ?? BOOKING_RESOURCE_FIELDSET_DEFAULT)
               : BOOKING_RESOURCE_FIELDSET_DEFAULT,
@@ -201,7 +195,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     return () => { cancelled = true }
   }, [scopeVersion])
 
-  const availabilityMode = isAvailableByDefault ? 'unavailability' : 'availability'
+  const availabilityMode = 'unavailability'
 
   const loadBookedEvents = React.useCallback(async (nextRange: { start: Date; end: Date }): Promise<AvailabilityBookedEvent[]> => {
     if (!resourceId) return []
@@ -221,10 +215,10 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     ({ availabilityRules, bookedEvents, translate }) => buildResourceScheduleItems({
       availabilityRules,
       bookedEvents,
-      isAvailableByDefault,
+      isAvailableByDefault: true,
       translate,
     }),
-    [isAvailableByDefault],
+    [],
   )
 
   const appearanceLabels = React.useMemo(() => ({
@@ -240,12 +234,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     iconClearLabel: t('booking.resources.form.appearance.iconClear', 'Clear icon'),
     previewEmptyLabel: t('booking.resources.form.appearance.previewEmpty', 'No appearance selected'),
   }), [t])
-
-  const defaultAvailabilityLabel = t('booking.resources.form.fields.defaultAvailability', 'Available by default')
-  const defaultAvailabilityDescription = t(
-    'booking.resources.form.fields.defaultAvailability.help',
-    'When unchecked, this resource is unavailable unless you add availability rules.',
-  )
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('booking.resources.form.fields.name', 'Name'), type: 'text', required: true },
@@ -331,28 +319,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       },
     },
     {
-      id: 'isAvailableByDefault',
-      label: defaultAvailabilityLabel,
-      description: defaultAvailabilityDescription,
-      type: 'custom',
-      component: ({ value, setValue, disabled }) => (
-        <label className="inline-flex items-center gap-2">
-          <input
-            type="checkbox"
-            className="size-4"
-            checked={value === true}
-            onChange={(event) => {
-              const next = event.target.checked
-              setValue(next)
-              setIsAvailableByDefault(next)
-            }}
-            disabled={disabled}
-          />
-          <span className="text-sm">{defaultAvailabilityLabel}</span>
-        </label>
-      ),
-    },
-    {
       id: 'isActive',
       label: t('booking.resources.form.fields.active', 'Active'),
       type: 'checkbox',
@@ -360,39 +326,13 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
   ], [
     appearanceLabels,
     capacityUnitDictionaryId,
-    defaultAvailabilityDescription,
-    defaultAvailabilityLabel,
     resolveFieldsetCode,
     resourceTypes,
     t,
   ])
 
-  const groups = React.useMemo<CrudFormGroup[]>(() => ([
-    {
-      id: 'details',
-      column: 1,
-      fields: [
-        'name',
-        'description',
-        'resourceTypeId',
-        'capacity',
-        'capacityUnitValue',
-        'appearance',
-        'isAvailableByDefault',
-        'isActive',
-      ],
-    },
-    {
-      id: 'custom',
-      title: t('entities.customFields.title', 'Custom Attributes'),
-      column: 2,
-      kind: 'customFields',
-    },
-  ]), [t])
-
   const handleSubmit = React.useCallback(async (values: Record<string, unknown>) => {
     if (!resourceId) return
-    const nextIsAvailableByDefault = values.isAvailableByDefault ?? true
     const appearance = values.appearance && typeof values.appearance === 'object'
       ? values.appearance as { icon?: string | null; color?: string | null }
       : {}
@@ -406,7 +346,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
       appearanceIcon: appearance.icon ?? null,
       appearanceColor: appearance.color ?? null,
       isActive: values.isActive ?? true,
-      isAvailableByDefault: nextIsAvailableByDefault,
       ...collectCustomFieldValues(values),
     }
     if (!payload.name || String(payload.name).trim().length === 0) {
@@ -415,7 +354,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     await updateCrud('booking/resources', payload, {
       errorMessage: t('booking.resources.form.errors.update', 'Failed to update resource.'),
     })
-    setIsAvailableByDefault(Boolean(nextIsAvailableByDefault))
     flash(t('booking.resources.form.flash.updated', 'Resource updated.'), 'success')
   }, [resourceId, t])
 
@@ -519,6 +457,44 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     [resourceId, t],
   )
 
+  const groups = React.useMemo<CrudFormGroup[]>(() => ([
+    {
+      id: 'details',
+      column: 1,
+      fields: [
+        'name',
+        'description',
+        'resourceTypeId',
+        'capacity',
+        'capacityUnitValue',
+        'appearance',
+        'isActive',
+      ],
+    },
+    {
+      id: 'custom',
+      title: t('entities.customFields.title', 'Custom Attributes'),
+      column: 2,
+      kind: 'customFields',
+    },
+    {
+      id: 'tags',
+      column: 2,
+      bare: true,
+      component: () => (
+        <TagsSection
+          title={t('booking.resources.tags.title', 'Tags')}
+          tags={tags}
+          onChange={setTags}
+          loadOptions={loadTagOptions}
+          createTag={createTag}
+          onSave={handleTagsSave}
+          labels={tagLabels}
+        />
+      ),
+    },
+  ]), [createTag, handleTagsSave, loadTagOptions, t, tagLabels, tags])
+
   const handleDelete = React.useCallback(async () => {
     if (!resourceId) return
     await deleteCrud('booking/resources', resourceId, {
@@ -568,6 +544,7 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
                 title={t('booking.resources.form.editTitle', 'Edit resource')}
                 backHref="/backend/booking/resources"
                 cancelHref="/backend/booking/resources"
+                successRedirect="/backend/booking/resources"
                 fields={fields}
                 groups={groups}
                 initialValues={initialValues ?? undefined}
@@ -578,18 +555,6 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
                 isLoading={!initialValues}
                 loadingMessage={t('booking.resources.form.loading', 'Loading resource...')}
               />
-
-              <div className="mt-6">
-                <TagsSection
-                  title={t('booking.resources.tags.title', 'Tags')}
-                  tags={tags}
-                  onChange={setTags}
-                  loadOptions={loadTagOptions}
-                  createTag={createTag}
-                  onSave={handleTagsSave}
-                  labels={tagLabels}
-                />
-              </div>
             </>
           ) : (
             <AvailabilityRulesEditor

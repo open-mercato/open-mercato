@@ -173,7 +173,6 @@ export const bookingResourceCreateSchema = z.object({
     .optional()
     .nullable(),
   isActive: z.boolean().optional(),
-  isAvailableByDefault: z.boolean().optional(),
   availabilityRuleSetId: z.string().uuid().optional().nullable(),
 })
 
@@ -193,7 +192,6 @@ export const bookingResourceUpdateSchema = z.object({
     .optional()
     .nullable(),
   isActive: z.boolean().optional(),
-  isAvailableByDefault: z.boolean().optional(),
   availabilityRuleSetId: z.string().uuid().optional().nullable(),
 })
 

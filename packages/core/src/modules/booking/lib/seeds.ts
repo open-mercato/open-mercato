@@ -3,7 +3,7 @@ import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@
 import { BOOKING_CAPACITY_UNIT_DEFAULTS, BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from './capacityUnits'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
-import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
+import { CustomFieldEntityConfig, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import {
   BookingResource,
@@ -17,7 +17,13 @@ import {
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import {
   BOOKING_RESOURCE_CUSTOM_FIELD_SETS,
+  BOOKING_RESOURCE_FIELDSET_DENTAL_CHAIR,
   BOOKING_RESOURCE_FIELDSETS,
+  BOOKING_RESOURCE_FIELDSET_HAIR_KIT,
+  BOOKING_RESOURCE_FIELDSET_LAPTOP,
+  BOOKING_RESOURCE_FIELDSET_ROOM,
+  BOOKING_RESOURCE_FIELDSET_SEAT,
+  resolveBookingResourceFieldsetCode,
 } from './resourceCustomFields'
 
 export type BookingSeedScope = { tenantId: string; organizationId: string }
@@ -143,6 +149,102 @@ type BookingServiceSeed = {
   tagLabels: string[]
   requiredResourceTypes: Array<{ typeKey: string; qty: number }>
   requiredResources?: BookingResourceRequirement[]
+}
+
+function normalizeAssetTag(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return 'RESOURCE'
+  const upper = trimmed.toUpperCase()
+  const normalized = upper.replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return normalized || 'RESOURCE'
+}
+
+function buildBaseResourceCustomValues(resourceName: string, seedKey?: string | null) {
+  const tagSource = seedKey?.trim().length ? seedKey : resourceName
+  const assetTag = normalizeAssetTag(tagSource ?? resourceName)
+  return {
+    asset_tag: assetTag,
+    owner: 'Operations',
+    warranty_expires: '2026-12-31',
+    ops_notes: `Seeded for ${resourceName}.`,
+  }
+}
+
+function buildResourceTypeCustomValues(fieldsetCode: string, seedKey?: string | null) {
+  switch (fieldsetCode) {
+    case BOOKING_RESOURCE_FIELDSET_ROOM:
+      return {
+        room_floor: '1',
+        room_zone: 'North Wing',
+        room_projector: true,
+        room_whiteboard: true,
+        room_access_notes: 'Keycard access required after 6pm.',
+      }
+    case BOOKING_RESOURCE_FIELDSET_LAPTOP: {
+      const serialSource = seedKey?.trim().length ? seedKey : 'resource'
+      return {
+        laptop_serial: `LT-${normalizeAssetTag(serialSource)}`,
+        laptop_cpu: 'Intel i7',
+        laptop_ram_gb: 16,
+        laptop_storage_gb: 512,
+        laptop_os: 'windows',
+        laptop_accessories: 'Docking station, charger, spare mouse.',
+      }
+    }
+    case BOOKING_RESOURCE_FIELDSET_SEAT:
+      return {
+        seat_style: 'standard',
+        seat_heated: false,
+        seat_positioning: 'Adjust headrest for extended sessions.',
+      }
+    case BOOKING_RESOURCE_FIELDSET_HAIR_KIT:
+      return {
+        kit_inventory: 'Shears, clippers, comb set, cape, spray bottle.',
+        kit_restock_cycle: 'Monthly',
+        kit_maintenance: 'Replace clipper blades every quarter.',
+      }
+    case BOOKING_RESOURCE_FIELDSET_DENTAL_CHAIR:
+      return {
+        chair_model: 'DX-300',
+        chair_ultrasonic: true,
+        chair_last_disinfected: '2025-01-01',
+        chair_inspection_notes: 'Monthly inspection scheduled.',
+      }
+    default:
+      return {}
+  }
+}
+
+async function fillMissingResourceCustomFields(
+  em: EntityManager,
+  scope: BookingSeedScope,
+  resource: BookingResource,
+  customValues: Record<string, string | number | boolean | null>,
+) {
+  const keys = Object.keys(customValues)
+  if (!keys.length) return
+  const existingValues = await em.find(CustomFieldValue, {
+    entityId: E.booking.booking_resource,
+    recordId: resource.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    fieldKey: { $in: keys },
+  })
+  const existingKeys = new Set(existingValues.map((value) => value.fieldKey))
+  const missingValues: Record<string, string | number | boolean | null> = {}
+  for (const key of keys) {
+    if (!existingKeys.has(key)) {
+      missingValues[key] = customValues[key] ?? null
+    }
+  }
+  if (Object.keys(missingValues).length === 0) return
+  await setRecordCustomFields(em, {
+    entityId: E.booking.booking_resource,
+    recordId: resource.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: missingValues,
+  })
 }
 
 const RESOURCE_TYPE_SEEDS: BookingResourceTypeSeed[] = [
@@ -298,6 +400,19 @@ export async function seedBookingResourceExamples(
   }
   await em.flush()
 
+  const allTypes = await findWithDecryption(
+    em,
+    BookingResourceType,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const typeNameById = new Map(allTypes.map((type) => [type.id, type.name]))
+
   const tagSlugs = TAG_SEEDS.map((seed) => seed.slug)
   const existingTags = await findWithDecryption(
     em,
@@ -377,72 +492,28 @@ export async function seedBookingResourceExamples(
   }
   await em.flush()
 
-  for (const seed of RESOURCE_SEEDS) {
-    const resource = resourceByKey.get(seed.key)
-    if (!resource) continue
-    const baseValues = {
-      asset_tag: seed.key.toUpperCase(),
-      owner: 'Operations',
-      ops_notes: `Seeded for ${seed.name}.`,
-    }
-    let customValues: Record<string, string | number | boolean | null> = { ...baseValues }
-    switch (seed.typeKey) {
-      case 'room':
-        customValues = {
-          ...baseValues,
-          room_floor: '1',
-          room_zone: 'North Wing',
-          room_projector: true,
-          room_whiteboard: true,
-          room_access_notes: 'Keycard access required after 6pm.',
-        }
-        break
-      case 'laptop':
-        customValues = {
-          ...baseValues,
-          laptop_serial: `LT-${seed.key.toUpperCase()}`,
-          laptop_cpu: 'Intel i7',
-          laptop_ram_gb: 16,
-          laptop_storage_gb: 512,
-          laptop_os: 'windows',
-          laptop_accessories: 'Docking station, charger, spare mouse.',
-        }
-        break
-      case 'client_seat':
-        customValues = {
-          ...baseValues,
-          seat_style: 'standard',
-          seat_heated: false,
-          seat_positioning: 'Adjust headrest for extended sessions.',
-        }
-        break
-      case 'hair_kit':
-        customValues = {
-          ...baseValues,
-          kit_inventory: 'Shears, clippers, comb set, cape, spray bottle.',
-          kit_restock_cycle: 'Monthly',
-          kit_maintenance: 'Replace clipper blades every quarter.',
-        }
-        break
-      case 'dental_chair':
-        customValues = {
-          ...baseValues,
-          chair_model: 'DX-300',
-          chair_ultrasonic: true,
-          chair_last_disinfected: '2025-01-01',
-          chair_inspection_notes: 'Monthly inspection scheduled.',
-        }
-        break
-      default:
-        customValues = { ...baseValues }
-    }
-    await setRecordCustomFields(em, {
-      entityId: E.booking.booking_resource,
-      recordId: resource.id,
-      organizationId: scope.organizationId,
+  const resourcesInScope = await findWithDecryption(
+    em,
+    BookingResource,
+    {
       tenantId: scope.tenantId,
-      values: customValues,
-    })
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  const seedKeyByName = new Map(RESOURCE_SEEDS.map((seed) => [seed.name.toLowerCase(), seed.key]))
+  for (const resource of resourcesInScope) {
+    const resourceName = resource.name ?? 'Resource'
+    const seedKey = seedKeyByName.get(resourceName.toLowerCase()) ?? null
+    const typeName = resource.resourceTypeId ? typeNameById.get(resource.resourceTypeId) ?? null : null
+    const fieldsetCode = resolveBookingResourceFieldsetCode(typeName ?? resourceName)
+    const customValues = {
+      ...buildBaseResourceCustomValues(resourceName, seedKey),
+      ...buildResourceTypeCustomValues(fieldsetCode, seedKey),
+    }
+    await fillMissingResourceCustomFields(em, scope, resource, customValues)
   }
 
   const resourceList = Array.from(resourceByKey.values())

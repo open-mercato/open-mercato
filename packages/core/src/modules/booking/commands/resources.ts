@@ -3,6 +3,8 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { BookingResource, BookingResourceTag, BookingResourceTagAssignment } from '../data/entities'
 import {
@@ -13,6 +15,7 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
+import { E } from '@/generated/entities.ids.generated'
 
 type CapacityUnitSnapshot = {
   value: string
@@ -117,8 +120,8 @@ async function syncBookingResourceTags(em: EntityManager, params: {
 
 const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resourceId: string }> = {
   id: 'booking.resources.create',
-  async execute(input, ctx) {
-    const parsed = bookingResourceCreateSchema.parse(input)
+  async execute(rawInput, ctx) {
+    const { parsed, custom } = parseWithCustomFields(bookingResourceCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
@@ -143,13 +146,21 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       appearanceIcon: parsed.appearanceIcon ?? null,
       appearanceColor: parsed.appearanceColor ?? null,
       isActive: parsed.isActive ?? true,
-      isAvailableByDefault: parsed.isAvailableByDefault ?? true,
       availabilityRuleSetId: parsed.availabilityRuleSetId ?? null,
       createdAt: now,
       updatedAt: now,
     })
     em.persist(record)
     await em.flush()
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.booking.booking_resource,
+      recordId: record.id,
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+      values: custom,
+    })
     await syncBookingResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,
@@ -163,10 +174,16 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
 
 const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resourceId: string }> = {
   id: 'booking.resources.update',
-  async execute(input, ctx) {
-    const parsed = bookingResourceUpdateSchema.parse(input)
+  async execute(rawInput, ctx) {
+    const { parsed, custom } = parseWithCustomFields(bookingResourceUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(BookingResource, { id: parsed.id, deletedAt: null })
+    const record = await findOneWithDecryption(
+      em,
+      BookingResource,
+      { id: parsed.id, deletedAt: null },
+      undefined,
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+    )
     if (!record) throw new CrudHttpError(404, { error: 'Booking resource not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -195,7 +212,6 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (parsed.description !== undefined) record.description = parsed.description ?? null
     if (parsed.resourceTypeId !== undefined) record.resourceTypeId = parsed.resourceTypeId ?? null
     if (parsed.capacity !== undefined) record.capacity = parsed.capacity ?? null
-    if (parsed.isAvailableByDefault !== undefined) record.isAvailableByDefault = parsed.isAvailableByDefault
     if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
     if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
@@ -208,6 +224,15 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (parsed.isActive !== undefined) record.isActive = parsed.isActive
 
     await em.flush()
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await setCustomFieldsIfAny({
+      dataEngine,
+      entityId: E.booking.booking_resource,
+      recordId: record.id,
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+      values: custom,
+    })
     return { resourceId: record.id }
   },
 }
@@ -218,7 +243,13 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Resource id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(BookingResource, { id, deletedAt: null })
+    const record = await findOneWithDecryption(
+      em,
+      BookingResource,
+      { id, deletedAt: null },
+      undefined,
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+    )
     if (!record) throw new CrudHttpError(404, { error: 'Booking resource not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)

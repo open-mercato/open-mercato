@@ -63,7 +63,6 @@ const crud = makeCrudRoute({
       'appearance_icon',
       'appearance_color',
       F.is_active,
-      'is_available_by_default',
       'availability_rule_set_id',
       F.created_at,
       F.updated_at,
