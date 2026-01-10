@@ -1,15 +1,10 @@
 /**
- * Location type discriminator for STI
+ * Location type discriminator
  */
 export type LocationType = 'port' | 'terminal'
 
 /**
- * Quadrant type for geographic position
- */
-export type Quadrant = 'NE' | 'NW' | 'SE' | 'SW'
-
-/**
- * Base location interface (shared fields for STI)
+ * Unified location interface
  */
 export interface IFmsLocation {
   id: string
@@ -17,25 +12,16 @@ export interface IFmsLocation {
   tenantId: string
   code: string
   name: string
-  quadrant: Quadrant
+  type: LocationType
+  locode?: string | null
+  portId?: string | null
+  lat?: number | null
+  lng?: number | null
+  city?: string | null
+  country?: string | null
   createdAt: Date
   createdBy?: string | null
   updatedAt: Date
   updatedBy?: string | null
   deletedAt?: Date | null
-}
-
-/**
- * Port entity interface
- */
-export interface IFmsPort extends IFmsLocation {
-  locationType: 'port'
-}
-
-/**
- * Terminal entity interface
- */
-export interface IFmsTerminal extends IFmsLocation {
-  locationType: 'terminal'
-  portId: string
 }

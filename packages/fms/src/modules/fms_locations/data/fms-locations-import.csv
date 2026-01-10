@@ -1,0 +1,1690 @@
+code,name,type,lat,lng,locode,port_code,city,country
+AEAJM,Port of Ajman,port,25.422928,55.453252,AEAJM,,Ajman,United Arab Emirates
+AEFJR,Port of Al Fujayrah,port,25.178991,56.358533,AEFJR,,Al Fujayrah,United Arab Emirates
+AEJEA,Port of Jebel Ali,port,25.022032,55.04607,AEJEA,,Jebel Ali,United Arab Emirates
+AEKHL,Khalifa Port,port,24.83333333,54.66666667,AEKHL,,Abu Dhabi,United Arab Emirates
+AEKLF,Port of Khorfakkan,port,25.351373,56.36735,AEKLF,,Khorfakkan,United Arab Emirates
+AEMSA,MINA SAQR,port,25.97345394,56.05033319,AEMSA,,Ras Al Khaimah,United Arab Emirates
+AEQIW,Port of Umm al Qaiwain,port,25.585619,55.580817,AEQIW,,Umm al Qaiwain,United Arab Emirates
+AERKT,Port of Ras al-Khaimah,port,25.8006926,55.9761994,AERKT,,Ras al-Khaimah,United Arab Emirates
+AESHJ,Port of Sharjah,port,25.360337,55.368772,AESHJ,,Sharjah,United Arab Emirates
+AGSJO,Port of St. John's,port,17.11664618,-61.85001073,AGSJO,,St. John's,Antigua and Barbuda
+ALDRZ,Port of Durres,port,41.31127,19.451365,ALDRZ,,Durres,Albania
+AOCAB,Port of Cabinda,port,-5.5775197,12.1927103,AOCAB,,Cabinda,Angola
+AOLAD,Port of Luanda,port,-8.799128,13.251995,AOLAD,,Luanda,Angola
+AOLOB,Port of Lobito,port,-12.34898,13.549334,AOLOB,,Lobito,Angola
+AOMSZ,Port of Namibe,port,-15.803132,11.837903,AOMSZ,,Namibe,Angola
+AOSZA,Soio,port,-6.1349,12.36894,AOSZA,,Soio,Angola
+ARBHI,Port of Bahia Blanca,port,-38.790041,-62.27711,ARBHI,,Bahia Blanca,Argentina
+ARBUE,Port of Buenos Aires,port,-34.584968,-58.360374,ARBUE,,Buenos Aires,Argentina
+ARLPG,La Plata,port,-34.92145,-57.95453,ARLPG,,La Plata,Argentina
+ARMDQ,Port of Mar del Plata,port,-38.04695241,-57.53840175,ARMDQ,,Mar del Plata,Argentina
+ARPMY,Port of Puerto Madryn,port,-42.73692838,-65.03728722,ARPMY,,Puerto Madryn,Argentina
+ARPUD,Port of Puerto Deseado,port,-47.7515646,-65.9013774,ARPUD,,Puerto Deseado,Argentina
+ARROS,Port of Rosario,port,-32.977314,-60.617791,ARROS,,Rosario,Argentina
+ARUSH,Port of Ushuaia,port,-54.8019121,-68.3029511,ARUSH,,Ushuaia,Argentina
+ARZAE,Port of Zarate,port,-34.065806,-59.034372,ARZAE,,Zarate,Argentina
+ASPPG,Port of Pago Pago,port,-14.276838,-170.685416,ASPPG,,Pago Pago,American Samoa
+AUADL,Port of Adelaide,port,-34.834319,138.508912,AUADL,,Adelaide,Australia
+AUBEL,Port of Bell Bay,port,-41.181636,146.366649,AUBEL,,Bell Bay,Australia
+AUBNE,Port of Brisbane,port,-27.37516355,153.17745584,AUBNE,,Brisbane,Australia
+AUDAM,Dampier,port,-20.66275,116.71256,AUDAM,,Dampier,Australia
+AUDRW,Port of Darwin,port,-12.460774,130.85037,AUDRW,,Darwin,Australia
+AUFRE,Port of Fremantle,port,-32.048786,115.739518,AUFRE,,Fremantle,Australia
+AUGLT,Gladstone,port,-23.84852,151.25775,AUGLT,,Gladstone,Australia
+AUMEL,Port of Melbourne,port,-37.839843,144.906848,AUMEL,,Melbourne,Australia
+AUSYD,Port of Sydney,port,-33.970634,151.216219,AUSYD,,Sydney,Australia
+AUTSV,Port of Townsville,port,-19.2589635,146.8169483,AUTSV,,Townsville,Australia
+AWBAR,Port of Barcadera,port,12.4815822,-69.9967074,AWBAR,,Barcadera,Aruba
+AWORJ,Port of Oranjestad,port,12.480207,-69.997972,AWORJ,,Oranjestad,Aruba
+BBBGI,Port of Bridgetown,port,13.10418,-59.629262,BBBGI,,Bridgetown,Barbados
+BDCGP,Port of Chittagong,port,22.309024,91.802273,BDCGP,,Chittagong,Bangladesh
+BDMGL,Port of Mongla,port,22.488844,89.590759,BDMGL,,Mongla,Bangladesh
+BEANR,Port of Antwerp,port,51.249596,4.407942,BEANR,,Antwerp,Belgium
+BEZEE,Port of Zeebrugge,port,51.338996,3.214373,BEZEE,,Zeebrugge,Belgium
+BGBOJ,Port of Burgas,port,42.485108,27.45842,BGBOJ,,Burgas,Bulgaria
+BGVAR,Port of Varna,port,43.196219,27.91588,BGVAR,,Varna,Bulgaria
+BHKBS,Khalifa Bin Salman Port,port,26.189586,50.714409,BHKBS,,Manama,Bahrain
+BJCOO,Port of Cotonou,port,6.34868,2.428158,BJCOO,,Cotonou,Benin
+BLGUS,Gustavia,port,17.89674768,-62.8479364,BLGUS,,Gustavia,St. Barthélemy
+BMBDA,Hamilton,port,32.2949,-64.78303,BMBDA,,Hamilton,Bermuda
+BNMUA,Port of Muara,port,5.02992,115.079428,BNMUA,,Muara,Brunei
+BRFOR,Port of Fortaleza,port,-3.707523,-38.473307,BRFOR,,Fortaleza,Brazil
+BRIBB,Port of Imbituba,port,-28.23147903,-48.65442306,BRIBB,,Imbituba,Brazil
+BRIOA,Port of Itapoa,port,-26.182529,-48.604504,BRIOA,,Itapoa,Brazil
+BRITJ,Port of Itajai,port,-26.901166,-48.664406,BRITJ,,Itajai,Brazil
+BRMAO,Port of Manaus,port,-3.135885,-60.029317,BRMAO,,Manaus,Brazil
+BRMCP,Santana Pt./Macapa,port,-0.05,-51.16666667,BRMCP,,Macapa,Brazil
+BRPEC,Port of Pecem,port,-3.54914198,-38.81132823,BRPEC,,Pecem,Brazil
+BRPNG,Port of Paranagua,port,-25.501334,-48.502233,BRPNG,,Paranagua,Brazil
+BRRIG,Port of Rio Grande,port,-32.046768,-52.073312,BRRIG,,Rio Grande,Brazil
+BRRIO,Port of Rio de Janeiro,port,-22.876559,-43.206891,BRRIO,,Rio de Janeiro,Brazil
+BRSPB,Port of Sepetiba,port,-22.931559,-43.837973,BRSPB,,Sepetiba,Brazil
+BRSSA,Port of Salvador,port,-12.958365,-38.507753,BRSSA,,Salvador,Brazil
+BRSSZ,Port of Santos,port,-23.965687,-46.291012,BRSSZ,,Santos,Brazil
+BRSUA,Port of Suape,port,-8.391619,-34.968646,BRSUA,,Suape,Brazil
+BRVDC,Port of Vila do Conde,port,-1.5,-48.616667,BRVDC,,Vila do Conde,Brazil
+BRVIX,Port of Vitoria,port,-20.28909236,-40.24150606,BRVIX,,Vitoria,Brazil
+BSFPO,Port of Freeport,port,26.529933,-78.764613,BSFPO,,Freeport,Bahamas
+BSNAS,Nassau,port,25.05823,-77.34306,BSNAS,,Nassau,Bahamas
+BZBZE,Belize City,port,17.49952,-88.19756,BZBZE,,Belize City,Belize
+CACBK,Corner Brook,port,48.95,-57.93333333,CACBK,,Corner Brook,Canada
+CAHAL,Port of Halifax,port,44.629525,-63.563141,CAHAL,,Halifax,Canada
+CAMTR,Port of Montreal,port,45.494652,-73.548446,CAMTR,,Montreal,Canada
+CAPRR,Port of Prince Rupert,port,54.285384,-130.360552,CAPRR,,Prince Rupert,Canada
+CASJB,Port of Saint-John,port,45.26332,-66.064484,CASJB,,Saint John,Canada
+CAVAN,Port of Vancouver,port,49.288785,-123.095212,CAVAN,,Vancouver,Canada
+CDBOA,Port of Boma,port,-5.859577,13.0534,CDBOA,,Boma,Democratic Republic of the Congo
+CDMAT,Port of Matadi,port,-5.823222,13.450547,CDMAT,,Matadi,Democratic Republic of the Congo
+CGPNR,Port of Pointe Noire,port,-4.778312,11.830252,CGPNR,,Pointe Noire,Republic of the Congo
+CIABJ,Port of Abidjan,port,5.274944,-4.013071,CIABJ,,Abidjan,Côte d’Ivoire
+CISPY,Port of San-Pedro,port,4.75570595,-6.64051584,CISPY,,San-Pedro,Côte d’Ivoire
+CLANF,Port of Antofagasta,port,-23.651508,-70.404901,CLANF,,Antofagasta,Chile
+CLARI,Port of Arica,port,-18.474563,-70.32761,CLARI,,Arica,Chile
+CLCNL,Port of Coronel,port,-37.02919167,-73.14828283,CLCNL,,Coronel,Chile
+CLIQQ,Port of Iquique,port,-20.204008,-70.157109,CLIQQ,,Iquique,Chile
+CLLQN,Port of Lirquen,port,-36.707293,-72.989489,CLLQN,,Lirquen,Chile
+CLPAG,Port of Puerto Angamos,port,-23.069005,-70.386584,CLPAG,,Mejillones,Chile
+CLPCH,Puerto Chacabuco,port,-45.46286933,-72.8161672,CLPCH,,Puerto Chacabuco,Chile
+CLPUQ,Port of Punta Arenas,port,-53.1638329,-70.9170683,CLPUQ,,Punta Arenas,Chile
+CLSAI,Port of San Antonio,port,-33.587862,-71.622438,CLSAI,,San Antonio,Chile
+CLSVE,Port of San Vicente,port,-36.712992,-73.108188,CLSVE,,San Vicente,Chile
+CLVAP,Port of Valparaiso,port,-33.033219,-71.626671,CLVAP,,Valparaiso,Chile
+CMDLA,Port of Douala,port,4.042268,9.678506,CMDLA,,Douala,Cameroon
+CMKBI,Port of Kribi,port,2.9405941,9.9101915,CMKBI,,Kribi,Cameroon
+CNDCB,Port of Da Chan Bay,port,22.539977,113.853799,CNDCB,,Shenzhen,China
+CNDLC,Port of Dalian,port,38.939192,121.643901,CNDLC,,Dalian,China
+CNFZH,Fuzhou,port,26.08333333,119.3,CNFZH,,Fuzhou,China
+CNJGY,Port of Jiangyin,port,25.43251329,119.29457327,CNJGY,,Xiamen,China
+CNJUJ,Port of Jiujiang,port,22.8321724,113.01389326,CNJUJ,,Guangzhou,China
+CNLYG,Port of Lianyungang,port,34.747748,119.440883,CNLYG,,Lianyungang,China
+CNNGB,Port of Ningbo-Zhoushan,port,29.88306199,122.04113742,CNNGB,,Ningbo,China
+CNNSA,Port of Nansha,port,22.637417,113.682556,CNNSA,,Guangzhou,China
+CNQZH,Port of Qinzhou,port,21.681131,108.637199,CNQZH,,Qinzhou,China
+CNQZJ,Port of Quanzhou,port,24.874132,118.675676,CNQZJ,,Quanzhou,China
+CNRZH,Port of Rizhao,port,35.416734,119.526925,CNRZH,,Rizhao,China
+CNSDG,Port of Shuidong,port,21.511597,111.002007,CNSDG,,Maoming,China
+CNSHA,Port of Shanghai,port,31.32702688,121.63981922,CNSHA,,Shanghai,China
+CNSHK,Port of Shekou,port,22.466858,113.898003,CNSHK,,Shenzhen,China
+CNSUD,Port of Shunde,port,22.80524,113.293359,CNSUD,,Foshan,China
+CNTAO,Port of Qingdao,port,36.009445,120.206436,CNTAO,,Qingdao,China
+CNTXG,Tianjin Xingang Port,port,38.984784,117.741908,CNTXG,,Tianjin,China
+CNXMN,Port of Xiamen,port,24.502256,118.073735,CNXMN,,Xiamen,China
+CNYPG,Yangpu Port,port,19.73111396,109.19641812,CNYPG,,Yangpu,China
+CNYTN,Port of Yantian,port,22.567177,114.285299,CNYTN,,Shenzhen,China
+CNZHA,Port of Zhanjiang,port,21.186145,110.46575,CNZHA,,Zhanjiang,China
+CNZOS,Zhoushan,port,29.98869,122.20488,CNZOS,,Zhoushan,China
+COBAQ,Port of Barranquilla,port,10.968411,-74.759002,COBAQ,,Barranquilla,Colombia
+COBUN,Port of Buenaventura,port,3.893647,-77.072752,COBUN,,Buenaventura,Colombia
+COCTG,Port of Cartagena (Colombia),port,10.377237,-75.510074,COCTG,,Cartagena,Colombia
+COSMR,Port of Santa Marta,port,11.250202,-74.215422,COSMR,,Santa Marta,Colombia
+COTRB,Port of Turbo,port,8.0915,-76.728896,COTRB,,Turbo,Colombia
+CRCAL,Port of Caldera,port,9.912021,-84.720951,CRCAL,,Caldera,Costa Rica
+CRMOB,Port of Moin,port,10.001309,-83.077532,CRMOB,,Moin,Costa Rica
+CUMAR,Port of Mariel,port,23.006814,-82.762625,CUMAR,,Mariel,Cuba
+CUSCU,Port of Santiago de Cuba,port,20.01693,-75.8301537,CUSCU,,Santiago de Cuba,Cuba
+CVMIN,Port of Mindelo,port,16.890304,-24.997186,CVMIN,,Mindelo,Cape Verde
+CVRAI,Port of Praia,port,14.910722,-23.4992,CVRAI,,Praia,Cape Verde
+CWWIL,Port of Willemstad,port,12.1224221,-68.8824233,CWWIL,,Willemstad,Curaçao
+CYLMS,Port of Limassol,port,34.648361,33.015103,CYLMS,,Limassol,Cyprus
+DEBRV,Port of Bremerhaven,port,53.573096,8.541773,DEBRV,,Bremerhaven,Germany
+DEHAM,Port of Hamburg,port,53.539512,9.907993,DEHAM,,Hamburg,Germany
+DEKEL,Kiel,port,54.32133,10.13489,DEKEL,,Kiel,Germany
+DEWVN,Port of Wilhelmshaven,port,53.589523,8.153378,DEWVN,,Wilhelmshaven,Germany
+DJJIB,Port of Djibouti,port,11.604577,43.137998,DJJIB,,Djibouti,Djibouti
+DKAAL,Port of Aalborg,port,57.047264,10.054751,DKAAL,,Aalborg,Denmark
+DKAAR,Port of Aarhus,port,56.154639,10.242176,DKAAR,,Aarhus,Denmark
+DKCPH,Port of Copenhagen,port,55.711004,12.605766,DKCPH,,Copenhagen,Denmark
+DKFRC,Port of Fredericia,port,55.557987,9.745178,DKFRC,,Fredericia,Denmark
+DKKAL,Port of Kalundborg,port,55.686444,11.089183,DKKAL,,Kalundborg,Denmark
+DMRSU,Port of Roseau,port,15.312086,-61.389224,DMRSU,,Roseau,Dominica
+DOCAU,Port of Caucedo,port,18.425719,-69.631602,DOCAU,,Caucedo,Dominican Republic
+DOHAI,Port of Rio Haina,port,18.422565,-70.017819,DOHAI,,Rio Haina,Dominican Republic
+DOMAN,Port of Manzanillo (Dominican Republic),port,19.70691401,-71.74313508,DOMAN,,Manzanillo,Dominican Republic
+DZAAE,Port of Annaba,port,36.899494,7.767506,DZAAE,,Annaba,Algeria
+DZALG,Port of Algiers,port,36.760855,3.069564,DZALG,,Algiers,Algeria
+DZAZW,Arzew,port,35.86666667,-0.31666667,DZAZW,,Arzew,Algeria
+DZBJA,Port of Bejaia,port,36.751195,5.086632,DZBJA,,Bejaia,Algeria
+DZDJE,Port of Djen-Djen,port,36.82018923,5.89090289,DZDJE,,Djen-Djen,Algeria
+DZGHZ,Port of Ghazaouet,port,35.102771,-1.86214,DZGHZ,,Ghazaouet,Algeria
+DZMOS,Port of Mostaganem,port,36.0131235,0.1401381,DZMOS,,Mostaganem,Algeria
+DZORN,Port of Oran,port,35.709397,-0.636177,DZORN,,Oran,Algeria
+DZSKI,Port of Skikda,port,36.888419,6.901103,DZSKI,,Skikda,Algeria
+ECGYE,Port of Guayaquil,port,-2.281333,-79.907442,ECGYE,,Guayaquil,Ecuador
+ECPBO,Puerto Bolívar,port,-3.259639,-80.00101187,ECPBO,,Puerto Bolivar,Ecuador
+ECPSJ,Posorja,port,-2.71006,-80.24556,ECPSJ,,Posorja,Ecuador
+EEMUG,Port of Muuga,port,59.490943,24.970023,EEMUG,,Tallinn,Estonia
+EETLL,Port of Tallinn,port,59.459005,24.705977,EETLL,,Tallinn,Estonia
+EGAIS,Port of Ain Sukhna,port,29.652265,32.350996,EGAIS,,Ain Sukhna,Egypt
+EGAKI,Abu Qir,port,31.31104,30.06121,EGAKI,,Abu Qir,Egypt
+EGALY,Port of El Iskandariya,port,31.183333,29.916667,EGALY,,Alexandria,Egypt
+EGDAM,Port of Damietta,port,31.461292,31.757076,EGDAM,,Damietta,Egypt
+EGPSD,Port Said,port,31.26798807,32.30162666,EGPSD,,Port Said,Egypt
+ERMSW,Port of Massawa,port,15.607875,39.4553839,ERMSW,,Massawa,Eritrea
+ESACE,Lanzarote,port,28.95027,-13.60556,ESACE,,Arrecife,Spain
+ESAGP,Port of Malaga,port,36.721261,-4.4212655,ESAGP,,Malaga,Spain
+ESALC,Port of Alicante,port,38.32778,-0.500646,ESALC,,Alicante,Spain
+ESALG,Port of Algeciras,port,36.13158,-5.423222,ESALG,,Algeciras,Spain
+ESBCN,Port of Barcelona,port,41.350367,2.168378,ESBCN,,Barcelona,Spain
+ESBIO,Port of Bilbao,port,43.347055,-3.042623,ESBIO,,Bilbao,Spain
+ESCAD,Port of Cádiz,port,36.537078,-6.287943,ESCAD,,Cadiz,Spain
+ESCAR,Port of Cartagena (Spain),port,37.595582,-0.974976,ESCAR,,Cartagena,Spain
+ESCAS,Port Castellon,port,39.963427,0.027669,ESCAS,,Castellon,Spain
+ESFRO,Port of Ferrol,port,43.489646,-8.2193451,ESFRO,,Ferrol,Spain
+ESFUE,Fuerteventura,port,28.45272,-13.86376,ESFUE,,Puerto del Rosario,Spain
+ESGIJ,Port of Gijon,port,43.561301,-5.696703,ESGIJ,,Gijon,Spain
+ESHUV,Port of Huelva,port,37.151176,-6.880164,ESHUV,,Huelva,Spain
+ESLEI,Port of Almeria,port,36.834047,-2.4637136,ESLEI,,Almeria,Spain
+ESLPA,Port of Las Palmas,port,28.145553,-15.414079,ESLPA,,Las Palmas,Spain
+ESMPG,Port of Marín,port,42.4054,-8.692753,ESMPG,,Marin,Spain
+ESSAG,Port of Sagunto,port,39.6798633,-0.2784385,ESSAG,,Sagunto,Spain
+ESSCT,Port of Santa Cruz de Tenerife,port,28.487373,-16.228956,ESSCT,,Santa Cruz de Tenerife,Spain
+ESSPC,Santa Cruz de La Palma,port,28.68333333,-17.76666667,ESSPC,,Santa Cruz de La Palma,Spain
+ESSVQ,Port of Sevilla,port,37.3890924,-5.9844589,ESSVQ,,Sevilla,Spain
+ESVGO,Port of Vigo,port,42.247261,-8.710129,ESVGO,,Vigo,Spain
+ESVLC,Port of Valencia,port,39.448085,-0.315232,ESVLC,,Valencia,Spain
+FIHEL,Port of Helsinki,port,60.16182,24.958011,FIHEL,,Helsinki,Finland
+FIKEM,Kemi,port,65.77917,24.58472,FIKEM,,Kemi,Finland
+FIKOK,Kokkola,port,63.83847,23.13066,FIKOK,,Kokkola,Finland
+FIKTK,Port of Kotka,port,60.420502,26.910018,FIKTK,,Kotka,Finland
+FIOUL,Port of Oulu,port,65.0120888,25.4650773,FIOUL,,Oulu,Finland
+FIRAU,Port of Rauma,port,61.130618,21.432514,FIRAU,,Rauma,Finland
+FITOR,Port of Tornio,port,65.847301,24.1520236,FITOR,,Tornio,Finland
+FJLTK,Port of Lautoka,port,-17.6063243,177.43845469,FJLTK,,Lautoka,Fiji
+FJSUV,Port of Suva,port,-18.132811,178.424234,FJSUV,,Suva,Fiji
+FOTHO,Tórshavn,port,62.00973,-6.77164,FOTHO,,Torshavn,Faroe Islands
+FRBES,Port of Brest,port,48.382033,-4.466494,FRBES,,Brest,France
+FRBOD,Bordeaux,port,44.84044,-0.5805,FRBOD,,Bordeaux,France
+FRDKK,Port of Dunkerque,port,51.047161,2.360714,FRDKK,,Dunkerque,France
+FRFOS,Port of Fos-sur-Mer,port,43.406745,4.851067,FRFOS,,Fos-sur-Mer,France
+FRLEH,Port of Le Havre,port,49.473055,0.152544,FRLEH,,Le Havre,France
+FRMRS,Port of Marseille,port,43.349109,5.334789,FRMRS,,Marseille,France
+FRMTX,Port of Montoir-de-Bretagne,port,47.296787,-2.152749,FRMTX,,Montoir-de-Bretagne,France
+GALBV,Port of Libreville,port,0.284044,9.503722,GALBV,,Libreville,Gabon
+GAPOG,Port of Port-Gentil,port,-0.689627,8.774989,GAPOG,,Port-Gentil,Gabon
+GBBEL,Port of Belfast,port,54.614734,-5.907735,GBBEL,,Belfast,United Kingdom
+GBBRS,Bristol,port,51.45523,-2.59665,GBBRS,,Bristol,United Kingdom
+GBFXT,Port of Felixstowe,port,51.948073,1.314709,GBFXT,,Felixstowe,United Kingdom
+GBGRG,Port of Grangemouth,port,56.025081,-3.696377,GBGRG,,Grangemouth,United Kingdom
+GBGRK,Port of Greenock,port,55.956476,-4.771983,GBGRK,,Greenock,United Kingdom
+GBIMM,Port of Immingham,port,53.627367,-0.19888,GBIMM,,Immingham,United Kingdom
+GBLGP,London Gateway Port,port,51.504515,0.501317,GBLGP,,London,United Kingdom
+GBLIV,Port of Liverpool,port,53.461439,-3.022784,GBLIV,,Liverpool,United Kingdom
+GBNCL,Newcastle upon Tyne,port,54.97328,-1.61396,GBNCL,,Newcastle upon Tyne,United Kingdom
+GBSOU,Port of Southampton,port,50.906108,-1.454048,GBSOU,,Southampton,United Kingdom
+GBTEE,Port of Teesport,port,54.601207,-1.146269,GBTEE,,Middlesbrough,United Kingdom
+GBTIL,Port of Tilbury,port,51.459013,0.340595,GBTIL,,Tilbury,United Kingdom
+GDSTG,Port of Saint George's,port,12.047947,-61.749906,GDSTG,,Saint George's,Grenada
+GEBUS,Port of Batumi,port,41.647302,41.651374,GEBUS,,Batumi,Georgia
+GEPTI,Port of Poti,port,42.155677,41.661739,GEPTI,,Poti,Georgia
+GFDDC,Port of Degrad des Cannes,port,4.853636,-52.274347,GFDDC,,Cayenne,French Guiana
+GFSLM,Saint-Laurent-du-Maroni,port,5.5,-54.03333333,GFSLM,,Saint-Laurent-du-Maroni,French Guiana
+GHTEM,Port of Tema,port,5.624685,0.00774,GHTEM,,Tema,Ghana
+GHTKD,Port of Takoradi,port,4.886333,-1.738257,GHTKD,,Takoradi,Ghana
+GIGIB,Port of Gibraltar,port,36.147766,-5.363828,GIGIB,,Gibraltar,Gibraltar
+GMBJL,Port of Banjul,port,13.442253,-16.57349,GMBJL,,Banjul,Gambia
+GNCKY,Port of Conakry,port,9.509715,-13.722855,GNCKY,,Conakry,Guinea
+GPPTP,Port of Pointe-a-Pitre,port,16.229364,-61.545216,GPPTP,,Pointe-a-Pitre,Guadeloupe
+GQBSG,Port of Bata,port,1.822427,9.733596,GQBSG,,Bata,Equatorial Guinea
+GQSSG,Port of Malabo,port,3.76376,8.744658,GQSSG,,Malabo,Equatorial Guinea
+GRHER,Port of Heraklion,port,35.34453,25.14894,GRHER,,Heraklion,Greece
+GRPIR,Port of Piraeus,port,37.953052,23.58993,GRPIR,,Piraeus,Greece
+GRSKG,Port of Thessaloniki,port,40.634922,22.906009,GRSKG,,Thessaloniki,Greece
+GRVOL,Port of Volos,port,39.35634,22.94,GRVOL,,Volos,Greece
+GTPBR,Port of Puerto Barrios,port,15.734724,-88.606854,GTPBR,,Puerto Barrios,Guatemala
+GTPRQ,Port of Puerto Quetzal,port,13.926468,-90.791179,GTPRQ,,Puerto Quetzal,Guatemala
+GTSTC,Port of Santo Tomas de Castilla,port,15.696374,-88.616186,GTSTC,,Santo Tomas de Castilla,Guatemala
+GUGUM,Guam,port,13.47191,144.74978,GUGUM,,Hagatna,Guam
+GWOXB,Port of Bissau,port,11.85980562,-15.57682569,GWOXB,,Bissau,Guinea-Bissau
+GYGEO,Port of Georgetown,port,6.800076,-58.17025,GYGEO,,Georgetown,Guyana
+HKHKG,Port of Hong Kong,port,22.324813,114.126778,HKHKG,,Hong Kong,Hong Kong
+HNPCR,Port of Puerto Cortes,port,15.843149,-87.94628,HNPCR,,Puerto Cortes,Honduras
+HNSLO,San Lorenzo,port,13.42417,-87.44722,HNSLO,,San Lorenzo,Honduras
+HRPLE,Port of Ploce,port,43.0439004,17.426494,HRPLE,,Ploce,Croatia
+HRRJK,Port of Rijeka,port,45.327567,14.432263,HRRJK,,Rijeka,Croatia
+HTCAP,Port of Cap-Haitien,port,19.7370362,-72.2067681,HTCAP,,Cap-Haitien,Haiti
+HTLFF,Lafiteau,port,18.48333,-72.43333,HTLFF,,Port-au-Prince,Haiti
+HTPAP,Port of Port-au-Prince,port,18.557225,-72.350319,HTPAP,,Port-au-Prince,Haiti
+IDBIT,Port of Bitung,port,1.4820335,125.148879,IDBIT,,Bitung,Indonesia
+IDBLW,Port of Belawan,port,3.787932,98.693528,IDBLW,,Belawan,Indonesia
+IDBPN,Port of Balikpapan,port,-1.2379274,116.8528526,IDBPN,,Balikpapan,Indonesia
+IDBTM,Port of Batam Island,port,1.1248851,103.9252269,IDBTM,,Batam,Indonesia
+IDDJB,Port of Jambi,port,-1.6101229,103.6131203,IDDJB,,Jambi,Indonesia
+IDJKT,Port of Jakarta,port,-6.097369,106.889488,IDJKT,,Jakarta,Indonesia
+IDKTJ,Kualatanjung,port,3.35343459,99.44428142,IDKTJ,,Kuala Tanjung,Indonesia
+IDMAK,Port of Makassar,port,-5.129257,119.40457,IDMAK,,Makassar,Indonesia
+IDPDG,Port of Padang,port,-1.000077,100.371602,IDPDG,,Padang,Indonesia
+IDPER,Port of Perawang,port,0.676127,101.642355,IDPER,,Perawang,Indonesia
+IDPLM,Port of Palembang,port,-2.980502,104.78197,IDPLM,,Palembang,Indonesia
+IDPNJ,Port of Panjang,port,-5.465781,105.315927,IDPNJ,,Bandar Lampung,Indonesia
+IDPNK,Port of Pontianak,port,-0.0263303,109.3425039,IDPNK,,Pontianak,Indonesia
+IDSRG,Port of Semarang,port,-6.938802,110.423762,IDSRG,,Semarang,Indonesia
+IDSUB,Port of Surabaya,port,-7.199074,112.727302,IDSUB,,Surabaya,Indonesia
+IDTRK,Tarakan,port,3.31332,117.59152,IDTRK,,Tarakan,Indonesia
+IEDUB,Dublin Port,port,53.347236,-6.214135,IEDUB,,Dublin,Ireland
+IEORK,Port of Cork,port,51.900607,-8.415729,IEORK,,Cork,Ireland
+ILASH,Port of Ashdod,port,31.826299,34.642907,ILASH,,Ashdod,Israel
+ILHFA,Port of Haifa,port,32.818896,35.009912,ILHFA,,Haifa,Israel
+INCCU,Port of Kolkata,port,22.538959,88.299817,INCCU,,Kolkata,India
+INCOK,Port of Cochin,port,9.977464,76.25097,INCOK,,Kochi,India
+INGGV,Gangavaram,port,17.65,83.25,INGGV,,Gangavaram,India
+INHAL,Port of Haldia,port,22.036797,88.085889,INHAL,,Haldia,India
+INHZA,Port of Hazira,port,21.086688,72.628665,INHZA,,Hazira,India
+INIXE,Port of Mangalore,port,12.931585,74.812889,INIXE,,Mangalore,India
+INIXY,Port of Kandla,port,23.008141,70.1872551,INIXY,,Kandla,India
+INKAK,Kakinada,port,16.96036,82.23809,INKAK,,Kakinada,India
+INKAT,Port of Kattupalli,port,13.31178,80.346865,INKAT,,Kattupalli,India
+INMAA,Port of Chennai,port,13.095784,80.302681,INMAA,,Chennai,India
+INMUN,Port of Mundra,port,22.743841,69.711672,INMUN,,Mundra,India
+INNSA,Port of Nhava Sheva,port,18.949814,72.946746,INNSA,,Mumbai,India
+INPAV,Port of Pipavav,port,20.921551,71.511482,INPAV,,Pipavav,India
+INTUT,Port of Tuticorin,port,8.750016,78.216114,INTUT,,Tuticorin,India
+INVTZ,Port of Visakhapatnam,port,17.69417,83.299626,INVTZ,,Visakhapatnam,India
+IQUQR,Port of Umm Qasr,port,30.060584,47.926525,IQUQR,,Umm Qasr,Iraq
+ISGRT,Grundartangi,port,64.36022082,-21.7742138,ISGRT,,Grundartangi,Iceland
+ISREY,Port of Reykjavik,port,64.149648,-21.8542,ISREY,,Reykjavik,Iceland
+ITAOI,Port of Ancona,port,43.621462,13.495888,ITAOI,,Ancona,Italy
+ITAUG,Augusta,port,37.22342698,15.22196661,ITAUG,,Augusta,Italy
+ITBRI,Port of Bari,port,41.137038,16.871264,ITBRI,,Bari,Italy
+ITCAG,Port of Cagliari,port,39.212048,9.075066,ITCAG,,Cagliari,Italy
+ITCVV,Port of Civitavecchia,port,42.105474,11.771625,ITCVV,,Civitavecchia,Italy
+ITGIT,Port of Gioia Tauro,port,38.457085,15.906675,ITGIT,,Gioia Tauro,Italy
+ITGOA,Port of Genoa,port,44.404749,8.885687,ITGOA,,Genoa,Italy
+ITLIV,Port of Livorno,port,43.555459,10.298529,ITLIV,,Livorno,Italy
+ITMDC,Marina di Carrara,port,44.03838,10.04142,ITMDC,,Marina di Carrara,Italy
+ITMLZ,Milazzo,port,38.21935,15.24291,ITMLZ,,Milazzo,Italy
+ITMSN,Messina,port,38.19394,15.55256,ITMSN,,Messina,Italy
+ITNAP,Port of Napoli,port,40.838747,14.284745,ITNAP,,Naples,Italy
+ITPAN,Panarea,port,38.63692,15.0753,ITPAN,,Panarea,Italy
+ITPZL,Pozzallo,port,36.71630722,14.82902134,ITPZL,,Pozzallo,Italy
+ITRAN,Port of Ravenna,port,44.450126,12.246619,ITRAN,,Ravenna,Italy
+ITSAL,Port of Salerno,port,40.672797,14.744603,ITSAL,,Salerno,Italy
+ITSPE,Port of La Spezia,port,44.105878,9.844382,ITSPE,,La Spezia,Italy
+ITTAR,Taranto,port,40.48333333,17.23333333,ITTAR,,Taranto,Italy
+ITTPS,Port of Trapani,port,38.012592,12.519246,ITTPS,,Trapani,Italy
+ITTRS,Port of Trieste,port,45.63038,13.764144,ITTRS,,Trieste,Italy
+ITVCE,Port of Venezia,port,45.45466,12.244686,ITVCE,,Venice,Italy
+ITVDL,Port of Vado Ligure,port,44.261576,8.453358,ITVDL,,Vado Ligure,Italy
+JMKIN,Port of Kingston,port,17.980436,-76.833944,JMKIN,,Kingston,Jamaica
+JMMBJ,Port of Montego Bay,port,18.460021,-77.936007,JMMBJ,,Montego Bay,Jamaica
+JOAQB,Port of Aqaba,port,29.470092,34.975782,JOAQB,,Aqaba,Jordan
+JPAXT,Port of Akita,port,39.7199218,140.1035697,JPAXT,,Akita,Japan
+JPHBK,Hibikinada,port,33.9366,130.82588,JPHBK,,Kitakyushu,Japan
+JPHIJ,Port of Hiroshima,port,34.348251,132.439125,JPHIJ,,Hiroshima,Japan
+JPHKT,Port of Hakata,port,33.611125,130.401338,JPHKT,,Fukuoka,Japan
+JPIWK,Port of Iwakuni,port,34.186787,132.236938,JPIWK,,Iwakuni,Japan
+JPIYM,Iyomishima,port,33.9907,133.53848,JPIYM,,Saijo,Japan
+JPKCZ,Kochi,port,33.55,133.53333,JPKCZ,,Kochi,Japan
+JPKIJ,Port of Niigata,port,37.950803,139.072121,JPKIJ,,Niigata,Japan
+JPKWS,Port of Kawasaki,port,35.5298198,139.7024039,JPKWS,,Kawasaki,Japan
+JPMIZ,Port of Mizushima,port,34.515193,133.740872,JPMIZ,,Kurashiki,Japan
+JPMOJ,Port of Moji-ku,port,33.964052,131.013892,JPMOJ,,Kitakyushu,Japan
+JPNAH,Port of Naha,port,26.234223,127.669682,JPNAH,,Naha,Japan
+JPNAN,Nakanoseki,port,34.01648,131.52912,JPNAN,,Hagi,Japan
+JPNGO,Port of Nagoya,port,35.02442,136.792995,JPNGO,,Nagoya,Japan
+JPOIT,Port of Oita,port,33.268961,131.66224,JPOIT,,Oita,Japan
+JPOMZ,Port of Omaezaki,port,34.619817,138.216245,JPOMZ,,Omaezaki,Japan
+JPOSA,Port of Osaka,port,34.643782,135.431169,JPOSA,,Osaka,Japan
+JPSBS,Port of Shibushi,port,31.495442,131.045336,JPSBS,,Shibushi,Japan
+JPSDJ,Port of Sendai,port,38.266955,141.02565,JPSDJ,,Sendai,Japan
+JPSMZ,Port of Shimizu,port,35.034496,138.50798,JPSMZ,,Shimizu,Japan
+JPTKY,Port of Tokuyama,port,34.038128,131.787038,JPTKY,,Shunan,Japan
+JPTMK,Port of Tomakomai,port,42.63841,141.629681,JPTMK,,Tomakomai,Japan
+JPTOS,Port of Toyama-Shinko,port,36.773713,137.105233,JPTOS,,Toyama,Japan
+JPTYO,Port of Tokyo,port,35.59639,139.772132,JPTYO,,Tokyo,Japan
+JPUKB,Port of Kobe,port,34.689538,135.216598,JPUKB,,Kobe,Japan
+JPYKK,Port of Yokkaichi,port,34.996962,136.669464,JPYKK,,Yokkaichi,Japan
+JPYOK,Port of Yokohama,port,35.442162,139.679416,JPYOK,,Yokohama,Japan
+KELAU,Lamu,port,-2.27169,40.90201,KELAU,,Lamu,Kenya
+KEMBA,Port of Mombasa,port,-4.053185,39.647615,KEMBA,,Mombasa,Kenya
+KHKOS,Port of Sihanoukville,port,10.64821,103.511588,KHKOS,,Sihanoukville,Cambodia
+KHPNH,Port of Phnom Penh,port,11.583759,104.921705,KHPNH,,Phnom Penh,Cambodia
+KMMUT,Port of Mutsamudu,port,-12.1695811,44.40047,KMMUT,,Mutsamudu,Comoros
+KMYVA,Port of Moroni,port,-11.704253,43.248383,KMYVA,,Moroni,Comoros
+KNBAS,Port of Basseterre,port,17.292008,-62.722493,KNBAS,,Basseterre,Saint Kitts and Nevis
+KRINC,Port of Incheon,port,37.439518,126.597622,KRINC,,Incheon,South Korea
+KRKAN,Port of Gwangyang,port,34.90743,127.677017,KRKAN,,Gwangyang,South Korea
+KRKJE,Geoje,port,34.85,128.58333333,KRKJE,,Geoje,South Korea
+KRKUV,Gunsan,port,35.98333333,126.71666667,KRKUV,,Gunsan,South Korea
+KRMAS,Masan,port,35.2,128.56666667,KRMAS,,Masan,South Korea
+KRMOK,Mokpo,port,34.8,126.38333333,KRMOK,,Mokpo,South Korea
+KRPTK,Pyeongtaek,port,36.99472,127.08889,KRPTK,,Pyeongtaek,South Korea
+KRPUS,Port of Busan,port,35.104239,129.086227,KRPUS,,Busan,South Korea
+KRUSN,Port of Ulsan,port,35.45519,129.366743,KRUSN,,Ulsan,South Korea
+KWSAA,Port of Shuaiba,port,29.043756,48.154464,KWSAA,,Shuaiba,Kuwait
+KWSWK,Port of Shuwaikh,port,29.359635,47.923489,KWSWK,,Kuwait City,Kuwait
+LBBYT,Beirut,port,33.89332,35.50157,LBBYT,,Beirut,Lebanon
+LBKYE,Port of Tripoli,port,34.4362632,35.83304117,LBKYE,,Tripoli,Lebanon
+LCCAS,Port of Castries,port,14.011058,-60.992964,LCCAS,,Castries,Saint Lucia
+LKCMB,Port of Colombo,port,6.944721,79.83494,LKCMB,,Colombo,Sri Lanka
+LRMLW,Port of Monrovia,port,6.341934,-10.796339,LRMLW,,Monrovia,Liberia
+LTKLJ,Port of Klaipeda,port,55.681465,21.14175,LTKLJ,,Klaipeda,Lithuania
+LVRIX,Port of Riga,port,57.00676,24.097012,LVRIX,,Riga,Latvia
+LYBEN,Port of Bingazi,port,32.0947711,20.1879106,LYBEN,,Benghazi,Libya
+LYKHO,Port of Al Khums,port,32.674359,14.245722,LYKHO,,Al Khums,Libya
+LYMRA,Port of Misurata,port,32.359738,15.221641,LYMRA,,Misrata,Libya
+LYTIP,Port of Tripoli,port,32.88509803,13.18807821,LYTIP,,Tripoli,Libya
+MAAGA,Port of Agadir,port,30.425963,-9.641283,MAAGA,,Agadir,Morocco
+MACAS,Port of Casablanca,port,33.608284,-7.594831,MACAS,,Casablanca,Morocco
+MANDR,Nador,port,35.16813,-2.93352,MANDR,,Nador,Morocco
+MAPTM,Port of Tanger Med,port,35.89093368,-5.49265254,MAPTM,,Tanger,Morocco
+MATNG,Port of Tangier,port,35.785791,-5.803451,MATNG,,Tangier,Morocco
+MEBAR,Port of Bar,port,42.087278,19.084589,MEBAR,,Bar,Montenegro
+MGDIE,Port of Antsiranana,port,-12.268533,49.288387,MGDIE,,Antsiranana,Madagascar
+MGEHL,Port of Ehoala,port,-25.0667273,46.9630766,MGEHL,,Fort Dauphin,Madagascar
+MGMJN,Port of Mahajanga,port,-15.726998,46.312628,MGMJN,,Mahajanga,Madagascar
+MGNOS,Port of Nosy Be,port,-13.4074,48.281069,MGNOS,,Nosy Be,Madagascar
+MGTLE,Toliara,port,-23.35,43.66667,MGTLE,,Toliara,Madagascar
+MGTOA,Port of Toamasina,port,-18.153174,49.426926,MGTOA,,Toamasina,Madagascar
+MMRGN,Port of Yangon,port,16.773471,96.133923,MMRGN,,Yangon,Myanmar (Burma)
+MPSPN,Port of Saipan,port,15.1515153,145.7297891,MPSPN,,Saipan,Northern Mariana Islands
+MQFDF,Port of Fort-de-France,port,14.591199,-61.049749,MQFDF,,Fort-de-France,Martinique
+MRNDB,Port of Nouadhibou,port,20.899484,-17.05266,MRNDB,,Nouadhibou,Mauritania
+MRNKC,Port of Nouakchott,port,17.989333,-16.024768,MRNKC,,Nouakchott,Mauritania
+MTMAR,Port of Marsaxlokk,port,35.837133,14.544672,MTMAR,,Marsaxlokk,Malta
+MTMLA,Port of Valletta,port,35.8989085,14.5145528,MTMLA,,Valletta,Malta
+MUPLU,Port Louis,port,-20.142185,57.490675,MUPLU,,Port Louis,Mauritius
+MVMLE,Port of Male,port,4.180596,73.505755,MVMLE,,Male,Maldives
+MXATM,Port of Altamira,port,22.479561,-97.885006,MXATM,,Altamira,Mexico
+MXESE,Port of Ensenada,port,31.851734,-116.629534,MXESE,,Ensenada,Mexico
+MXGYM,Port of Guaymas,port,27.921682,-110.86804,MXGYM,,Guaymas,Mexico
+MXLZC,Port of Lazaro Cardenas,port,17.952727,-102.172074,MXLZC,,Lazaro Cardenas,Mexico
+MXMZT,Port of Mazatlan,port,23.193214,-106.415216,MXMZT,,Mazatlan,Mexico
+MXPGO,Port of Progreso,port,21.28715615,-89.66457591,MXPGO,,Progreso,Mexico
+MXPMS,Puerto Morelos,port,20.83594158,-86.88738661,MXPMS,,Puerto Morelos,Mexico
+MXVER,Port of Veracruz,port,19.211602,-96.133827,MXVER,,Veracruz,Mexico
+MXZLO,Port of Manzanillo (Mexico),port,19.067583,-104.291383,MXZLO,,Manzanillo,Mexico
+MYBKI,Port of Kota Kinabalu,port,6.066038,116.122345,MYBKI,,Kota Kinabalu,Malaysia
+MYBTU,Port of Bintulu,port,3.264507,113.073221,MYBTU,,Bintulu,Malaysia
+MYKCH,Port of Kuching,port,1.583858,110.423046,MYKCH,,Kuching,Malaysia
+MYKUA,Port of Kuantan,port,3.971155,103.420553,MYKUA,,Kuantan,Malaysia
+MYPEN,Port of Penang (Georgetown),port,5.412075,100.365884,MYPEN,,Penang,Malaysia
+MYPGU,Port of Pasir Gudang,port,1.436666,103.890821,MYPGU,,Pasir Gudang,Malaysia
+MYPKG,Port Klang,port,2.920508,101.288173,MYPKG,,Port Klang,Malaysia
+MYSDK,Port of Sandakan,port,5.839444,118.1171729,MYSDK,,Sandakan,Malaysia
+MYTPP,Port of Tanjung Pelepas,port,1.349654,103.550892,MYTPP,,Johor Bahru,Malaysia
+MYTWU,Port of Tawau,port,4.244651,117.8911861,MYTWU,,Tawau,Malaysia
+MZBEW,Port of Beira,port,-19.821229,34.83397,MZBEW,,Beira,Mozambique
+MZMNC,Port of Nacala,port,-14.543673,40.666414,MZMNC,,Nacala,Mozambique
+MZMPM,Port of Maputo,port,-25.960879,32.545412,MZMPM,,Maputo,Mozambique
+NAWVB,Port of Walvis Bay,port,-22.951044,14.496753,NAWVB,,Walvis Bay,Namibia
+NCNOU,Port of Noumea,port,-22.265293,166.432568,NCNOU,,Noumea,New Caledonia
+NGLKK,Lekki,port,6.45,3.1,NGLKK,,Lagos,Nigeria
+NGLOS,Port of Lagos,port,6.435543,3.390679,NGLOS,,Lagos,Nigeria
+NGONN,Port of Onne,port,4.767176,7.009132,NGONN,,Port Harcourt,Nigeria
+NICIO,Port of Corinto,port,12.482483,-87.167951,NICIO,,Corinto,Nicaragua
+NLMOE,Moerdijk,port,51.70167,4.62639,NLMOE,,Moerdijk,Netherlands
+NLRTM,Port of Rotterdam,port,51.977083,4.068274,NLRTM,,Rotterdam,Netherlands
+NLVLI,Port of Vlissingen,port,51.46407,3.693846,NLVLI,,Vlissingen,Netherlands
+NOAES,Port of Alesund,port,62.469957,6.152896,NOAES,,Alesund,Norway
+NOBGO,Port of Bergen,port,60.390057,5.309774,NOBGO,,Bergen,Norway
+NOBVK,Port of Brevik,port,59.063192,9.698639,NOBVK,,Brevik,Norway
+NODRM,Port of Drammen,port,59.73826773,10.23619778,NODRM,,Drammen,Norway
+NOEGE,Port of Egersund,port,58.4514216,5.9998032,NOEGE,,Egersund,Norway
+NOFRK,Port of Fredrikstad,port,59.182962,10.954481,NOFRK,,Fredrikstad,Norway
+NOFRO,Port of Floroe,port,61.5994886,5.0314409,NOFRO,,Floro,Norway
+NOFUS,Fusa,port,60.20372,5.62952,NOFUS,,Fusa,Norway
+NOGJM,Port of Gjemnes,port,62.96963244,7.73701741,NOGJM,,Gjemnes,Norway
+NOGLO,Glomfjord,port,66.81614,13.94598,NOGLO,,Glomfjord,Norway
+NOHAU,Port of Haugesund,port,59.422212,5.252017,NOHAU,,Haugesund,Norway
+NOIKR,Port of Ikornnes,port,62.386302,6.557621,NOIKR,,Halsafjorden,Norway
+NOKRS,Port of Kristiansand,port,58.144367,7.984454,NOKRS,,Kristiansand,Norway
+NOLAR,Port of Larvik,port,59.038225,10.040385,NOLAR,,Larvik,Norway
+NOMAY,Port of Maloy,port,61.938468,5.140377,NOMAY,,Maloy,Norway
+NOMQN,Mo i Rana,port,66.31666667,14.13333333,NOMQN,,Mo i Rana,Norway
+NOMSS,Port of Moss,port,59.426795,10.657428,NOMSS,,Moss,Norway
+NOORK,Port of Orkanger,port,63.3122326,9.8535236,NOORK,,Orkanger,Norway
+NOOSL,Port of Oslo,port,59.886681,10.755124,NOOSL,,Oslo,Norway
+NORDB,Randaberg,port,59,5.63333333,NORDB,,Randaberg,Norway
+NOSAT,Salten,port,67.36667,15.55,NOSAT,,Bodo,Norway
+NOSKN,Stokmarknes,port,68.56462,14.91075,NOSKN,,Stokmarknes,Norway
+NOSTM,Port of Straumen,port,63.873424,11.295976,NOSTM,,Straumen,Norway
+NOSVE,Port of Svelgen,port,61.771222,5.295827,NOSVE,,Svelgen,Norway
+NOSVG,Port of Stavanger,port,58.9699756,5.7331073,NOSVG,,Stavanger,Norway
+NOTAE,Port of Tananger,port,58.928914,5.588349,NOTAE,,Tananger,Norway
+NZAKL,Port of Auckland,port,-36.84118,174.783828,NZAKL,,Auckland,New Zealand
+NZBLU,Port of Bluff,port,-46.595883,168.330967,NZBLU,,Bluff,New Zealand
+NZLYT,Port of Lyttelton,port,-43.60961,172.723257,NZLYT,,Lyttelton,New Zealand
+NZMAP,Northport,port,-35.832497,174.486055,NZMAP,,Whangarei,New Zealand
+NZNPE,Port of Napier,port,-39.475155,176.916768,NZNPE,,Napier,New Zealand
+NZNSN,Port of Nelson,port,-41.261422,173.269587,NZNSN,,Nelson,New Zealand
+NZPOE,Port Chalmers,port,-45.811998,170.625933,NZPOE,,Dunedin,New Zealand
+NZTIU,Port of Timaru,port,-44.388383,171.256053,NZTIU,,Timaru,New Zealand
+NZTRG,Port of Tauranga,port,-37.660074,176.174843,NZTRG,,Tauranga,New Zealand
+NZWLG,Port of Wellington,port,-41.279257,174.789431,NZWLG,,Wellington,New Zealand
+OMDQM,Port of Duqm,port,19.666945,57.726395,OMDQM,,Duqm,Oman
+OMSLL,Port of Salalah,port,16.943364,53.999347,OMSLL,,Salalah,Oman
+OMSOH,Port of Sohar,port,24.512536,56.611611,OMSOH,,Sohar,Oman
+PABLB,Port of Balboa,port,8.95753,-79.564092,PABLB,,Balboa,Panama
+PACTB,Port of Cristobal,port,9.351753,-79.906913,PACTB,,Colon,Panama
+PAMIT,Port of Manzanillo,port,9.36143143,-79.88175865,PAMIT,,Colon,Panama
+PECHY,Chancay,port,-11.57139,-77.26722,PECHY,,Chancay,Peru
+PECLL,Port of Callao,port,-12.052579,-77.151357,PECLL,,Callao,Peru
+PEILQ,Port of Ilo,port,-17.650052,-71.349394,PEILQ,,Ilo,Peru
+PEMRI,Port of Matarani,port,-16.999684,-72.107242,PEMRI,,Matarani,Peru
+PEPAI,Port of Paita,port,-5.080992,-81.105661,PEPAI,,Paita,Peru
+PEPIO,Pisco,port,-13.71029,-76.20538,PEPIO,,Pisco,Peru
+PESVY,Salaverry,port,-8.221,-78.97698,PESVY,,Salaverry,Peru
+PFPPT,Port of Papeete,port,-17.537095,-149.576312,PFPPT,,Papeete,French Polynesia
+PGGUR,Alotau,port,-10.31509,150.45742,PGGUR,,Alotau,Papua New Guinea
+PGKIM,Port of Kimbe,port,-5.54936183,150.14807611,PGKIM,,Kimbe,Papua New Guinea
+PGLAE,Port of Lae,port,-6.74126,146.985985,PGLAE,,Lae,Papua New Guinea
+PGMAG,Port of Madang,port,-5.209072,145.801046,PGMAG,,Madang,Papua New Guinea
+PGPOM,Port Moresby,port,-9.472817,147.150887,PGPOM,,Port Moresby,Papua New Guinea
+PGRAB,Port of Rabaul,port,-4.1999648,152.1644612,PGRAB,,Rabaul,Papua New Guinea
+PGWWK,Wewak,port,-3.54964,143.63229,PGWWK,,Wewak,Papua New Guinea
+PHBCD,"Bacolod, Negros",port,10.683671,122.938392,PHBCD,,Bacolod,Philippines
+PHBTG,Port of Batangas,port,13.759925,121.041915,PHBTG,,Batangas,Philippines
+PHCEB,Port of Cebu,port,10.307216,123.921574,PHCEB,,Cebu,Philippines
+PHCGY,Port of Cagayan de Oro,port,8.493481,124.663111,PHCGY,,Cagayan de Oro,Philippines
+PHDVO,Port of Davao,port,7.126998,125.662978,PHDVO,,Davao,Philippines
+PHGES,Port of General Santos,port,6.092543,125.155995,PHGES,,General Santos,Philippines
+PHILO,Iloilo,port,10.720222,122.562189,PHILO,,Iloilo,Philippines
+PHMNL,Port of Manila,port,14.600611,120.953019,PHMNL,,Manila,Philippines
+PHSFS,Port of Subic Bay,port,14.801786,120.266299,PHSFS,,Subic,Philippines
+PHZAM,Zamboanga,port,6.91028,122.07389,PHZAM,,Zamboanga,Philippines
+PKBQM,Port of Qasim,port,24.765141,67.328811,PKBQM,,Karachi,Pakistan
+PKKHI,Port of Karachi,port,24.835057,66.975514,PKKHI,,Karachi,Pakistan
+PLGDN,Port of Gdansk,port,54.385008,18.716208,PLGDN,,Gdansk,Poland
+PLGDY,Port of Gdynia,port,54.543542,18.515272,PLGDY,,Gdynia,Poland
+PLSZZ,Port of Szczecin,port,53.42152,14.571484,PLSZZ,,Szczecin,Poland
+PRSJU,Port of San Juan,port,18.435605,-66.092795,PRSJU,,San Juan,Puerto Rico
+PTCNL,Canical,port,32.73834,-16.73836,PTCNL,,Canical,Portugal
+PTHOR,Horta,port,38.53333333,-28.63333333,PTHOR,,Horta,Portugal
+PTLEI,Port of Leixoes,port,41.192004,-8.687004,PTLEI,,Porto,Portugal
+PTLIS,Port of Lisboa,port,38.72497,-9.108239,PTLIS,,Lisbon,Portugal
+PTPDL,Port of Ponta Delgada,port,37.7428301,-25.6805868,PTPDL,,Ponta Delgada,Portugal
+PTPRV,Port of Praia da Vitoria,port,38.7339162,-27.0646976,PTPRV,,Praia da Vitoria,Portugal
+PTSET,Port of Setubal,port,38.515718,-8.874791,PTSET,,Setubal,Portugal
+PTSIE,Port of Sines,port,37.933788,-8.847279,PTSIE,,Sines,Portugal
+PTVEL,Velas,port,38.68333333,-28.21666667,PTVEL,,Velas,Portugal
+PYASU,Port of Asuncion,port,-25.2637399,-57.575926,PYASU,,Asuncion,Paraguay
+PYVLL,Villeta,port,-25.50691,-57.56633,PYVLL,,Villeta,Paraguay
+QADOH,Port of Doha,port,25.2854473,51.5310398,QADOH,,Doha,Qatar
+QAUMS,Port of Umm Sa'id (Mesaieed),port,24.9909255,51.5493483,QAUMS,,Mesaieed,Qatar
+REPDG,Port of Pointe des Galets,port,-20.930817,55.317638,REPDG,,Le Port,Réunion
+ROCND,Port of Constanta,port,44.106072,28.660661,ROCND,,Constanta,Romania
+RUFPT,Vladivostok Sea Fishing Port,port,43.0911505,131.86692669,RUFPT,,Vladivostok,Russia
+RULED,Port of Saint Petersburg,port,59.882407,30.198084,RULED,,Saint Petersburg,Russia
+RUNVS,Port of Novorossiysk,port,44.733822,37.788268,RUNVS,,Novorossiysk,Russia
+SADMM,Port of Dammam,port,26.501907,50.19665,SADMM,,Dammam,Saudi Arabia
+SAJED,Port of Jeddah,port,21.450682,39.159569,SAJED,,Jeddah,Saudi Arabia
+SAJUB,Port of Jubail,port,27.024119,49.679251,SAJUB,,Jubail,Saudi Arabia
+SAKAC,Port of King Abdullah City,port,22.5265,39.094126,SAKAC,,Rabigh,Saudi Arabia
+SANEO,Port of NEOM,port,27.55869021,35.55324841,SANEO,,Neom,Saudi Arabia
+SBHIR,"Port of Honiara, Guadalcanal",port,-9.427446,159.959111,SBHIR,,Honiara,Solomon Islands
+SBNOR,Port of Noro,port,-8.2409868,157.199876,SBNOR,,Noro,Solomon Islands
+SCPOV,Port of Victoria,port,-4.626831,55.463437,SCPOV,,Victoria,Seychelles
+SDPZU,Port Sudan,port,19.602977,37.231892,SDPZU,,Port Sudan,Sudan
+SEAHU,Port of Aahus,port,55.9250391,14.2979949,SEAHU,,Ahus,Sweden
+SEGOT,Port of Gothenburg,port,57.688927,11.859487,SEGOT,,Gothenburg,Sweden
+SEGVX,Port of Gaevle,port,60.69299,17.223255,SEGVX,,Gavle,Sweden
+SEHAD,Port of Halmstad,port,56.651064,12.846857,SEHAD,,Halmstad,Sweden
+SEHEL,Port of Helsingborg,port,56.031169,12.692816,SEHEL,,Helsingborg,Sweden
+SEMMA,Port of Malmo,port,55.604981,13.003822,SEMMA,,Malmo,Sweden
+SENRK,Port of Norrkoping,port,58.622989,16.241856,SENRK,,Norrkoping,Sweden
+SEOXE,Oxelösund,port,58.67057,17.10152,SEOXE,,Oxelosund,Sweden
+SEPIT,Piteå,port,65.31717,21.47944,SEPIT,,Pitea,Sweden
+SESKE,Skelleftehamn,port,64.68580206,21.23523299,SESKE,,Skelleftea,Sweden
+SESOE,Port of Sodertalje,port,59.2892214,17.9682729,SESOE,,Sodertalje,Sweden
+SESTO,Port of Stockholm,port,59.342491,18.125997,SESTO,,Stockholm,Sweden
+SEUME,Port of Umea,port,63.790928,20.310492,SEUME,,Umea,Sweden
+SGSIN,Port of Singapore,port,1.271141,103.767573,SGSIN,,Singapore,Singapore
+SIKOP,Port of Koper,port,45.553568,13.73313,SIKOP,,Koper,Slovenia
+SLFNA,Port of Freetown,port,8.493826,-13.214796,SLFNA,,Freetown,Sierra Leone
+SNDKR,Port of Dakar,port,14.673757,-17.425212,SNDKR,,Dakar,Senegal
+SOBBO,Port of Berbera,port,10.438508,44.998136,SOBBO,,Berbera,Somalia
+SOKMU,Port of Kismayu,port,-0.387152,42.546176,SOKMU,,Kismayo,Somalia
+SOMGQ,Port of Mogadishu,port,2.02552,45.335228,SOMGQ,,Mogadishu,Somalia
+SRPBM,Port of Paramaribo,port,5.813567,-55.165917,SRPBM,,Paramaribo,Suriname
+SVAQJ,Port of Acajutla,port,13.575078,-89.833514,SVAQJ,,Acajutla,El Salvador
+SXPHI,Port of Philipsburg,port,18.010264,-63.044095,SXPHI,,Philipsburg,Sint Maarten
+SYLTK,Port of Latakia,port,35.528573,35.770169,SYLTK,,Latakia,Syria
+SYTTS,Port of Tartus,port,34.90866,35.86905,SYTTS,,Tartus,Syria
+TGLFW,Port of Lome,port,6.137226,1.275025,TGLFW,,Lome,Togo
+THBKK,Bangkok Port,port,13.704182,100.572268,THBKK,,Bangkok,Thailand
+THLCH,Laem Chabang Port,port,13.05790294,100.89059642,THLCH,,Si Racha,Thailand
+THSGK,Songkhla,port,7.19882,100.5951,THSGK,,Songkhla,Thailand
+TLDIL,Port of Dili,port,-8.552701,125.573944,TLDIL,,Dili,Timor-Leste
+TNSFA,Port of Sfax,port,34.7478469,10.766163,TNSFA,,Sfax,Tunisia
+TNTUN,Port of Tunis,port,36.802663,10.267494,TNTUN,,Tunis,Tunisia
+TOTBU,Port of Nuku'alofa,port,-21.137023,-175.179552,TOTBU,,Nuku'alofa,Tonga
+TRALI,Port of Aliaga,port,38.755504,26.928987,TRALI,,Aliaga,Turkey
+TRAYT,Port of Antalya,port,36.839151,30.611134,TRAYT,,Antalya,Turkey
+TRDRC,Derince,port,40.75694,29.81472,TRDRC,,Derince,Turkey
+TRGEB,Port of Gebze,port,40.757797,29.364887,TRGEB,,Gebze,Turkey
+TRGEM,Port of Gemlik,port,40.417478,29.114975,TRGEM,,Gemlik,Turkey
+TRISK,Port of Iskenderun,port,36.686807,36.202185,TRISK,,Iskenderun,Turkey
+TRIST,Port of Istanbul,port,41.003764,29.013212,TRIST,,Istanbul,Turkey
+TRIZM,Port of Izmir,port,38.443321,27.152281,TRIZM,,Izmir,Turkey
+TRMER,Port of Mersin,port,36.804467,34.643623,TRMER,,Mersin,Turkey
+TRSSX,Port of Samsun,port,41.304127,36.33679,TRSSX,,Samsun,Turkey
+TRTEK,Port of Tekirdag,port,40.965336,27.502528,TRTEK,,Tekirdag,Turkey
+TRTZX,Port of Trabzon,port,41.003196,39.739051,TRTZX,,Trabzon,Turkey
+TRYAL,Yalova,port,40.65451438,29.28380035,TRYAL,,Yalova,Turkey
+TRYAR,Yarimca Port,port,40.76049903,29.74407422,TRYAR,,Yarimca,Turkey
+TTPOS,Port of Port-of-Spain,port,10.655259,-61.525569,TTPOS,,Port of Spain,Trinidad and Tobago
+TTPTS,Port of Point Lisas,port,10.408241,-61.494433,TTPTS,,Point Lisas,Trinidad and Tobago
+TWKEL,Port of Keelung,port,25.142288,121.756604,TWKEL,,Keelung,Taiwan
+TWKHH,Port of Kaohsiung,port,22.560112,120.331185,TWKHH,,Kaohsiung,Taiwan
+TWTPE,Port of Taipei,port,25.160126,121.396481,TWTPE,,Taipei,Taiwan
+TWTXG,Port of Taichung,port,24.279529,120.524185,TWTXG,,Taichung,Taiwan
+TZDAR,Port of Dar es Salaam,port,-6.829418,39.28962,TZDAR,,Dar es Salaam,Tanzania
+TZMYW,Port of Mtwara,port,-10.268466,40.199235,TZMYW,,Mtwara,Tanzania
+TZTGT,Port of Tanga,port,-5.066453,39.104504,TZTGT,,Tanga,Tanzania
+TZZNZ,Port of Zanzibar,port,-6.155685,39.192199,TZZNZ,,Zanzibar,Tanzania
+UAILK,Port of Chornomorsk,port,46.314702,30.664431,UAILK,,Chornomorsk,Ukraine
+UAODS,Port of Odessa,port,46.484085,30.756126,UAODS,,Odessa,Ukraine
+USADQ,Kodiak,port,57.78852,-152.40533,USADQ,,Kodiak,United States
+USANC,Anchorage,port,61.21806,-149.90028,USANC,,Anchorage,United States
+USBAL,Port of Baltimore,port,39.252439,-76.542694,USBAL,,Baltimore,United States
+USBOS,Port of Boston,port,42.341439,-71.022781,USBOS,,Boston,United States
+USCHS,Port of Charleston,port,32.829979,-79.892303,USCHS,,Charleston,United States
+USDUT,Port of Dutch Harbor,port,53.8898,-166.5422,USDUT,,Dutch Harbor,United States
+USHNL,Port of Honolulu,port,21.311289,-157.8775,USHNL,,Honolulu,United States
+USHOU,Port of Houston,port,29.681294,-94.990496,USHOU,,Houston,United States
+USILM,Port of Wilmington,port,34.2257255,-77.9447102,USILM,,Wilmington,United States
+USJAX,Port of Jacksonville,port,30.334318,-81.628064,USJAX,,Jacksonville,United States
+USLAX,Port of Los Angeles,port,33.732208,-118.25971,USLAX,,Los Angeles,United States
+USLGB,Port of Long Beach,port,33.757102,-118.229311,USLGB,,Long Beach,United States
+USMIA,Port of Miami,port,25.767181,-80.159647,USMIA,,Miami,United States
+USMOB,Port of Mobile,port,30.668651,-88.034516,USMOB,,Mobile,United States
+USMSY,Port of New Orleans,port,29.912266,-90.107988,USMSY,,New Orleans,United States
+USNTD,Port Hueneme,port,34.14997589,-119.20470402,USNTD,,Port Hueneme,United States
+USNYC,Port of New York,port,40.684655,-74.010459,USNYC,,New York,United States
+USOAK,Port of Oakland,port,37.799003,-122.322393,USOAK,,Oakland,United States
+USORF,Port of Norfolk,port,36.913761,-76.326421,USORF,,Norfolk,United States
+USPDX,Portland,port,45.52345,-122.67621,USPDX,,Portland,United States
+USPEF,Port Everglades,port,26.072129,-80.116985,USPEF,,Fort Lauderdale,United States
+USPHL,"Port of Philadelphia (Pennsylvania, US)",port,39.898881,-75.136583,USPHL,,Philadelphia,United States
+USSAV,Port of Savannah,port,32.121103,-81.135334,USSAV,,Savannah,United States
+USSEA,Port of Seattle,port,47.59428,-122.341075,USSEA,,Seattle,United States
+USTIW,Port of Tacoma,port,47.274029,-122.41373,USTIW,,Tacoma,United States
+USTPA,Port of Tampa,port,27.910234,-82.431518,USTPA,,Tampa,United States
+UYMVD,Port of Montevideo,port,-34.905367,-56.218427,UYMVD,,Montevideo,Uruguay
+VCCRP,Port of Campden Park,port,13.169484,-61.248062,VCCRP,,Kingstown,St Vincent and Grenadines
+VEEGU,Port of El Guamache,port,10.8958956,-64.0665046,VEEGU,,El Guamache,Venezuela
+VEGUA,Guaranao,port,11.7,-70.15,VEGUA,,Puerto Cabello,Venezuela
+VEGUT,Port of Guanta,port,10.2343685,-64.591805,VEGUT,,Guanta,Venezuela
+VELAG,Port of La Guaira,port,10.602418,-66.948609,VELAG,,La Guaira,Venezuela
+VEMAR,Port of Maracaibo,port,10.6544509,-71.7147951,VEMAR,,Maracaibo,Venezuela
+VEPBL,Port of Puerto Cabello,port,10.467973,-68.000849,VEPBL,,Puerto Cabello,Venezuela
+VGOP9,Spanish Town,port,18.45,-64.43333333,VGOP9,,Road Town,British Virgin Islands
+VGRAD,"Port of Road Town, Tortola",port,18.426091,-64.609206,VGRAD,,Road Town,British Virgin Islands
+VICHA,Port of Charlotte Amalie,port,18.3419004,-64.9307007,VICHA,,Charlotte Amalie,U.S. Virgin Islands
+VICTD,Port of St. Croix,port,17.696129,-64.754258,VICTD,,Christiansted,U.S. Virgin Islands
+VNC8Q,Chu Lai,port,15.4,108.7,VNC8Q,,Chu Lai,Vietnam
+VNDAD,Port of Da Nang,port,16.118526,108.216342,VNDAD,,Da Nang,Vietnam
+VNHPH,Port of Haiphong,port,20.837211,106.77639,VNHPH,,Haiphong,Vietnam
+VNNGH,Nghi Son,port,19.31577424,105.80917049,VNNGH,,Thanh Hoa,Vietnam
+VNNHT,Nhon Trach,port,10.71666667,106.85,VNNHT,,Dong Nai,Vietnam
+VNSGN,Port of Ho Chi Minh City,port,10.758802,106.718392,VNSGN,,Ho Chi Minh City,Vietnam
+VNUIH,Port of Qui Nhon,port,13.779952,109.245134,VNUIH,,Quy Nhon,Vietnam
+VNVUT,Vung Tau Port,port,10.38924062,107.09498194,VNVUT,,Vung Tau,Vietnam
+VUSAN,Port of Santo,port,-15.4840017,166.9182097,VUSAN,,Luganville,Vanuatu
+VUVLI,Port Vila,port,-17.7332512,168.3273245,VUVLI,,Port Vila,Vanuatu
+WFMAU,Matautu,port,-13.28163,-176.17453,WFMAU,,Mata-Utu,Wallis and Futuna
+WFSIG,Sigave,port,-14.28333333,-178.16666667,WFSIG,,Sigave,Wallis and Futuna
+WSAPW,Port of Apia,port,-13.825856,-171.762006,WSAPW,,Apia,Samoa
+YEADE,Port of Aden,port,12.797553,45.006044,YEADE,,Aden,Yemen
+YEMKX,Mukalla,port,14.54248,49.12424,YEMKX,,Mukalla,Yemen
+YTLON,Port of Longoni,port,-12.723676,45.165078,YTLON,,Longoni,Mayotte
+ZACPT,Port of Cape Town,port,-33.91585,18.455147,ZACPT,,Cape Town,South Africa
+ZADUR,Port of Durban,port,-29.880875,31.021129,ZADUR,,Durban,South Africa
+ZAELS,Port of East London,port,-33.0291582,27.8545867,ZAELS,,East London,South Africa
+ZAPLZ,Port Elizabeth,port,-33.957487,25.638047,ZAPLZ,,Port Elizabeth,South Africa
+ZAZBA,Port of Coega,port,-33.800056,25.682019,ZAZBA,,Coega,South Africa
+CNFQG,Fuqing,port,25.71666667,119.36666667,CNFQG,,Fuqing,China
+CNSTG,Port of Shantou,port,23.36814,116.71479,CNSTG,,Shantou,China
+KWKWI,Port of Kuwait,port,29.31166,47.481766,KWKWI,,Kuwait City,Kuwait
+SESDL,Sundsvall,port,62.39129,17.3063,SESDL,,Sundsvall,Sweden
+DELBC,Lübeck,port,53.86893,10.68729,DELBC,,Lübeck,Germany
+DKSKA,Skagen,port,57.72093,10.58394,DKSKA,,Skagen,Denmark
+FRSET,Sete,port,43.4,3.7,FRSET,,Sète,France
+FRURO,Rouen,port,49.44313,1.09932,FRURO,,Rouen,France
+GBLTP,London Thamesport,port,51.43333333,0.6,GBLTP,,Sheerness,United Kingdom
+INPRT,Paradip Garh,port,20.31666667,86.61666667,INPRT,,Paradip,India
+INTRV,Thiruvananthapuram (ex Trivandrum),port,8.48333333,76.91666667,INTRV,,Thiruvananthapuram,India
+ITTRI,Termini Imerese,port,37.98333333,13.7,ITTRI,,Termini Imerese,Italy
+LKHBA,Hambantota,port,6.12262098,81.11060088,LKHBA,,Hambantota,Sri Lanka
+VNDNA,Dong Nai,port,18.1,106.33333,VNDNA,,Bien Hoa,Vietnam
+EGSUZ,Port of As Suways (Suez),port,29.9668343,32.5498069,EGSUZ,,Suez,Egypt
+TRCKZ,Canakkale,port,40.14985763,26.4019742,TRCKZ,,Çanakkale,Turkey
+CNGGZ,Port of Guangzhou,port,23.12911,113.264385,CNGGZ,,Guangzhou,China
+CNXCI,Xiaochi,port,29.75359,115.98951,CNXCI,,Xiaochi,China
+PHDNO,Danao,port,10.53762693,123.96796266,PHDNO,,Danao,Philippines
+N025E055-03895,Hutchison Ports Ajman International Terminal (HAJT),terminal,25.42160686,55.45365123,AEAJM,AEAJM,Ajman,United Arab Emirates
+N025E055-04237,Jumeirah Port,terminal,25.24822303,55.26969317,AEAJM,AEAJM,Ajman,United Arab Emirates
+N025E056-03555,Fujairah Terminal,terminal,25.178991,56.358533,AEFJR,AEFJR,Al Fujayrah,United Arab Emirates
+AEJEA-T001,DP World Jebel Ali - Terminal 1,terminal,24.995454,55.073513,AEJEA,AEJEA,Jebel Ali,United Arab Emirates
+N025E055-02046,DP World Jebel Ali - Terminal 2,terminal,25.022106,55.061602,AEJEA,AEJEA,Jebel Ali,United Arab Emirates
+N024E055-01407,DP World Jebel Ali - Terminal 3,terminal,24.98503,55.051491,AEJEA,AEJEA,Jebel Ali,United Arab Emirates
+N025E055-01404,DP World Jebel Ali - Terminal 4,terminal,25.032999,55.048557,AEJEA,AEJEA,Jebel Ali,United Arab Emirates
+N024E055-01748,Ro-Ro Terminal East - Berth Area 01,terminal,24.99765628,55.05873135,AEJEA,AEJEA,Jebel Ali,United Arab Emirates
+N024E054-04238,Abu Dhabi Terminals (ADT),terminal,24.80881573,54.64782455,AEKHL,AEKHL,Abu Dhabi,United Arab Emirates
+N024E054-03574,CMA Terminals Khalifa Port,terminal,24.82757676,54.66193253,AEKHL,AEKHL,Abu Dhabi,United Arab Emirates
+N024E054-03423,CSP Khalifa Port,terminal,24.81563385,54.65657306,AEKHL,AEKHL,Abu Dhabi,United Arab Emirates
+N025E056-03482,Khor Fakkan Container Terminal (KCTKLF),terminal,25.351373,56.36735,AEKLF,AEKLF,Khorfakkan,United Arab Emirates
+N025E056-04034,KGL Ports International,terminal,25.98142859,56.05551219,AEMSA,AEMSA,Ras Al Khaimah,United Arab Emirates
+N025E055-03862,Umm Al Quaim Terminal,terminal,25.58710879,55.58131756,AEQIW,AEQIW,Umm al Qaiwain,United Arab Emirates
+N025E055-03975,Ras Al Khaimah Container Terminal,terminal,25.79036605,55.95557715,AERKT,AERKT,Ras al-Khaimah,United Arab Emirates
+N025E055-01760,Sharjah Container Terminal (SHJSCT),terminal,25.3584005,55.37075447,AESHJ,AESHJ,Sharjah,United Arab Emirates
+N017W062-03882,St Johns Antigua Terminal,terminal,17.125643,-61.855774,AGSJO,AGSJO,St. John's,Antigua and Barbuda
+N041E019-00944,Durres Container Terminal,terminal,41.311485,19.450865,ALDRZ,ALDRZ,Durres,Albania
+S006E012-04009,Cabinda Terminal,terminal,-5.547735,12.193033,AOCAB,AOCAB,Cabinda,Angola
+S009E013-01761,Soportos Terminal 5M,terminal,-8.788832,13.27155334,AOLAD,AOLAD,Luanda,Angola
+S009E013-01840,Terminal Polivalente Containers (MPT),terminal,-8.79991871,13.2512721,AOLAD,AOLAD,Luanda,Angola
+S013E013-03124,Lobito Port Terminal,terminal,-12.34898,13.549334,AOLOB,AOLOB,Lobito,Angola
+S016E012-03129,Sogester Namibe Terminal,terminal,-15.1911314,12.13082897,AOMSZ,AOMSZ,Namibe,Angola
+S007E012-03147,Porto Do Soyo,terminal,-6.125556,12.321389,AOSZA,AOSZA,Soio,Angola
+S039W063-03850,Terminal Bahía Blanca (TBB),terminal,-38.78915225,-62.27733909,ARBHI,ARBHI,Bahia Blanca,Argentina
+S035W059-01070,APM Terminals 4 Buenos Aires (TERM4),terminal,-34.57877949,-58.37009795,ARBUE,ARBUE,Buenos Aires,Argentina
+S035W059-02954,Exolgan Container Terminal (EXOL),terminal,-34.64110901,-58.34516057,ARBUE,ARBUE,Buenos Aires,Argentina
+S035W059-01842,Terminales Rio de la Plata (TRP),terminal,-34.58526077,-58.36274012,ARBUE,ARBUE,Buenos Aires,Argentina
+S035W058-02608,La Plata Terminal de Contedores (TECPLATA),terminal,-34.85488746,-57.88772274,ARLPG,ARLPG,La Plata,Argentina
+S039W058-03841,Mar del Plata Terminal,terminal,-38.04758301,-57.54042858,ARMDQ,ARMDQ,Mar del Plata,Argentina
+S043W066-04239,PTO Publico,terminal,-42.73611111,-65.03861111,ARPMY,ARPMY,Puerto Madryn,Argentina
+S048W066-04240,Puerto Deseado Port Terminal,terminal,-47.7517616,-65.87944813,ARPUD,ARPUD,Puerto Deseado,Argentina
+S033W061-02647,Rosario Port Terminal (TROSA),terminal,-32.97711684,-60.61868789,ARROS,ARROS,Rosario,Argentina
+S055W069-04066,Ushuaia Port Terminal,terminal,-54.80853424,-68.30377773,ARUSH,ARUSH,Ushuaia,Argentina
+S035W060-03326,Terminal Zarate (TZARA),terminal,-34.06680541,-59.03563532,ARZAE,ARZAE,Zarate,Argentina
+S015W171-03472,Pago Pago Terminal,terminal,-14.276838,-170.685416,ASPPG,ASPPG,Pago Pago,American Samoa
+S035E138-01967,Flinders Adelaide Container Terminal (FLACT),terminal,-34.76995178,138.49098167,AUADL,AUADL,Adelaide,Australia
+S042E146-03316,QUBE Ports Bell Bay,terminal,-41.13903331,146.85588011,AUBEL,AUBEL,Bell Bay,Australia
+S028E153-01435,DP World Brisbane - Fisherman Islands Terminal (DPBNE),terminal,-27.37467444,153.1714682,AUBNE,AUBNE,Brisbane,Australia
+S028E153-01707,Hutchison Ports Brisbane Container Terminals (BCT),terminal,-27.36164443,153.18094484,AUBNE,AUBNE,Brisbane,Australia
+S028E153-04241,Patrick Fishermen Island Terminals (PTFIT),terminal,-27.36638711,153.17784446,AUBNE,AUBNE,Brisbane,Australia
+S021E116-04037,Dampier Terminal,terminal,-20.62764392,116.7492925,AUDAM,AUDAM,Dampier,Australia
+S013E130-03578,Darwin Terminal,terminal,-12.48917136,130.88119689,AUDRW,AUDRW,Darwin,Australia
+S033E115-02486,DP World Fremantle,terminal,-32.04608787,115.74068255,AUFRE,AUFRE,Fremantle,Australia
+S033E115-01971,Fremantle Patrick Terminal,terminal,-32.04104429,115.74676883,AUFRE,AUFRE,Fremantle,Australia
+S024E151-02550,Auckland Point Wharves,terminal,-23.83235482,151.25800732,AUGLT,AUGLT,Gladstone,Australia
+AUMEL-T001,DP World West Swanson Dock (CONWS),terminal,-37.81399033,144.91046088,AUMEL,AUMEL,Melbourne,Australia
+S038E144-01284,Patrick Terminal East Swanson (ASES1),terminal,-37.81393755,144.91700895,AUMEL,AUMEL,Melbourne,Australia
+S038E144-00961,Victoria International Container Terminal (VICT),terminal,-37.84390962,144.9113735,AUMEL,AUMEL,Melbourne,Australia
+S034E151-01446,DP World Sydney Port Botany Terminal (CTLPB),terminal,-33.97188292,151.2172394,AUSYD,AUSYD,Sydney,Australia
+S034E151-01535,Hutchison Ports Sydney International Container Terminal (SICT),terminal,-33.96281607,151.20215217,AUSYD,AUSYD,Sydney,Australia
+S034E151-00941,Patrick Terminal Port Botany Sydney (ASLPB),terminal,-33.96707693,151.21168446,AUSYD,AUSYD,Sydney,Australia
+S020E146-02549,NSS Container Terminal,terminal,-19.24912467,146.83665798,AUTSV,AUTSV,Townsville,Australia
+S020E146-02548,Shell Depot Berth 01,terminal,-19.24418535,146.83647355,AUTSV,AUTSV,Townsville,Australia
+N012W070-03600,Barcadera Container Terminal,terminal,12.4815822,-69.9967074,AWBAR,AWBAR,Barcadera,Aruba
+N012W071-04184,Oranjestad Terminal,terminal,12.52338698,-70.04680739,AWORJ,AWORJ,Oranjestad,Aruba
+N013W060-02405,Bridgetown Port Terminal - Barbados,terminal,13.106289,-59.628815,BBBGI,BBBGI,Bridgetown,Barbados
+BDCGP-T001,Chittagong Container Terminal (CCT),terminal,22.30018436,91.79490758,BDCGP,BDCGP,Chittagong,Bangladesh
+N022E091-02306,Chittagong New Container Terminal (NCT),terminal,22.29559349,91.7930595,BDCGP,BDCGP,Chittagong,Bangladesh
+N022E089-03540,Mongla Container Terminal,terminal,22.488844,89.590759,BDMGL,BDMGL,Mongla,Bangladesh
+N051E004-04242,Antwerp Container Terminal (K730),terminal,51.320374,4.330757,BEANR,BEANR,Antwerp,Belgium
+N051E004-03994,Antwerp Euroterminal (K1333),terminal,51.27334,4.211022,BEANR,BEANR,Antwerp,Belgium
+N051E004-01043,Antwerp Gateway Terminal (K1700),terminal,51.289272,4.265227,BEANR,BEANR,Antwerp,Belgium
+N051E004-01044,MSC PSA European Terminal (MPET) Deurganckdok (K1718),terminal,51.281844,4.254389,BEANR,BEANR,Antwerp,Belgium
+N051E004-00758,MSC PSA European Terminal (MPET) Deurganckdok (K1742),terminal,51.296813,4.259777,BEANR,BEANR,Antwerp,Belgium
+N051E004-00762,PSA Europa Terminal (K869),terminal,51.339942,4.276342,BEANR,BEANR,Antwerp,Belgium
+N051E004-01819,PSA Noordzee Terminal (K913),terminal,51.351576,4.265099,BEANR,BEANR,Antwerp,Belgium
+N051E003-01869,C.RO Ports Albert II Dock,terminal,51.351201,3.186035,BEZEE,BEZEE,Zeebrugge,Belgium
+N051E003-01870,CSP Zeebrugge Terminal,terminal,51.347019,3.190606,BEZEE,BEZEE,Zeebrugge,Belgium
+N051E003-04243,Oostdam Zeebrugge,terminal,51.35352503,3.22197809,BEZEE,BEZEE,Zeebrugge,Belgium
+N051E003-04244,PSA Zeebrugge NV,terminal,51.350653,3.175235,BEZEE,BEZEE,Zeebrugge,Belgium
+N051E003-02310,Zeebrugge Car Terminal,terminal,51.32610254,3.21841842,BEZEE,BEZEE,Zeebrugge,Belgium
+N042E027-02955,Burgas Container Terminal,terminal,42.486482,27.461293,BGBOJ,BGBOJ,Burgas,Bulgaria
+N043E027-02961,Varna West Port Terminal,terminal,43.190057,27.645505,BGVAR,BGVAR,Varna,Bulgaria
+N026E050-01442,APM Terminals Bahrain,terminal,26.18714463,50.7154852,BHKBS,BHKBS,Manama,Bahrain
+BJCOO-T001,Common Container Terminal Benin (BTER),terminal,6.344314,2.421483,BJCOO,BJCOO,Cotonou,Benin
+N017W063-03888,Gustavia Terminal,terminal,17.902346,-62.853372,BLGUS,BLGUS,Gustavia,St. Barthélemy
+N032W065-04077,Bermuda Container Line,terminal,32.29229205,-64.77931993,BMBDA,BMBDA,Hamilton,Bermuda
+N005E115-03108,Muara Port Terminal,terminal,5.02431972,115.06947588,BNMUA,BNMUA,Muara,Brunei
+S004W039-02478,Termaco Terminal Fortaleza,terminal,-3.707523,-38.473307,BRFOR,BRFOR,Fortaleza,Brazil
+S029W049-02774,TECON Imbituba SA,terminal,-28.22972222,-48.65,BRIBB,BRIBB,Imbituba,Brazil
+S027W049-00901,Itapoa Terminais Portuarios (ITP),terminal,-26.18335777,-48.60561764,BRIOA,BRIOA,Itapoa,Brazil
+S027W049-02962,APM Terminals Itajai,terminal,-26.901166,-48.664406,BRITJ,BRITJ,Itajai,Brazil
+S027W049-04245,Portonave Navegacao Port Terminal,terminal,-26.8962912,-48.66290375,BRITJ,BRITJ,Itajai,Brazil
+BRMAO-T001,Porto Chibatao,terminal,-3.15469906,-59.99047034,BRMAO,BRMAO,Manaus,Brazil
+S004W060-04246,Super Terminais Comercio,terminal,-3.15042446,-59.99779607,BRMAO,BRMAO,Manaus,Brazil
+S001W052-02700,Macapa,terminal,-0.06115172,-51.16692444,BRMCP,BRMCP,Macapa,Brazil
+S004W039-04247,APM Terminals Pecem (BRAPEC),terminal,-3.54954342,-38.81084299,BRPEC,BRPEC,Pecem,Brazil
+S026W049-00904,Terminais De Conteineres De Paranagua (TCP),terminal,-25.50311184,-48.50028072,BRPNG,BRPNG,Paranagua,Brazil
+S033W053-02274,TECON Rio Grande (TECRG),terminal,-32.046768,-52.073312,BRRIG,BRRIG,Rio Grande,Brazil
+S023W044-00986,Multi Rio Operacoes Portuaria (MROP),terminal,-22.876559,-43.206891,BRRIO,BRRIO,Rio de Janeiro,Brazil
+S023W044-01116,"Rio de Janeiro, Libra Terminal 1",terminal,-22.87322335,-43.2050444,BRRIO,BRRIO,Rio de Janeiro,Brazil
+S023W044-02050,Itaguai TECON,terminal,-22.931559,-43.837973,BRSPB,BRSPB,Sepetiba,Brazil
+S013W039-02616,Tecon Salvador Container Terminal (TECSV),terminal,-12.958365,-38.507753,BRSSA,BRSSA,Salvador,Brazil
+S024W047-00992,Brasil Terminal Portuario (BTP),terminal,-23.92179634,-46.35172024,BRSSZ,BRSSZ,Santos,Brazil
+S024W047-01061,DP World Santos,terminal,-23.9225681,-46.31719758,BRSSZ,BRSSZ,Santos,Brazil
+S024W047-00629,Tecon - Santos Brasil Guaruja,terminal,-23.96677223,-46.28993855,BRSSZ,BRSSZ,Santos,Brazil
+S009W035-00980,TECON Suape (TECSU),terminal,-8.391619,-34.968646,BRSUA,BRSUA,Suape,Brazil
+S002W049-04248,Tecon Vila do Conde,terminal,-1.54638478,-48.74873648,BRVDC,BRVDC,Vila do Conde,Brazil
+S021W041-03029,Terminal de Vila Velha (TDVV),terminal,-20.32509249,-40.32896885,BRVIX,BRVIX,Vitoria,Brazil
+N026W079-00568,Freeport Container Port,terminal,26.5286815,-78.76784446,BSFPO,BSFPO,Freeport,Bahamas
+N025W078-03853,Nassau Port Terminal,terminal,25.08377374,-77.36005268,BSNAS,BSNAS,Nassau,Bahamas
+N017W089-03592,Belize Port Terminal,terminal,17.481514,-88.20384444,BZBZE,BZBZE,Belize City,Belize
+N048W058-03342,Corner Brook Terminal,terminal,48.96046241,-57.94075041,CACBK,CACBK,Corner Brook,Canada
+N044W064-00513,Cerescorp (Fairview Cove Terminal),terminal,44.664225,-63.627481,CAHAL,CAHAL,Halifax,Canada
+N044W064-01450,Halifax PSA Container Terminal (HAFXT),terminal,44.630399,-63.566116,CAHAL,CAHAL,Halifax,Canada
+N045W074-02163,Cast Terminal Montreal,terminal,45.585938,-73.506495,CAMTR,CAMTR,Montreal,Canada
+N045W074-02160,Racine Terminal Montreal,terminal,45.56736558,-73.51828977,CAMTR,CAMTR,Montreal,Canada
+N045W074-03260,Termont Montreal Maisonneuve (TMTMAI),terminal,45.522597,-73.544916,CAMTR,CAMTR,Montreal,Canada
+N045W074-04249,Termont Montreal Viau,terminal,45.57865313,-73.50853843,CAMTR,CAMTR,Montreal,Canada
+N054W131-01052,Fairview Container Terminal - Prince Rupert,terminal,54.2854487,-130.35880215,CAPRR,CAPRR,Prince Rupert,Canada
+N045W067-02270,DP World St John Terminal,terminal,45.26271682,-66.06728744,CASJB,CASJB,Saint John,Canada
+N049W124-02127,DP World Centerm Container Terminal (CTM),terminal,49.28776122,-123.09445437,CAVAN,CAVAN,Vancouver,Canada
+N049W124-01045,Deltaport Container Terminal (DLT),terminal,49.02097351,-123.15481196,CAVAN,CAVAN,Vancouver,Canada
+N049W123-02589,Fraser Surrey Docks Container Terminal (FSD),terminal,49.18608714,-122.91032593,CAVAN,CAVAN,Vancouver,Canada
+N049W124-01473,Vanterm Container Terminal (VTM),terminal,49.28688162,-123.07357106,CAVAN,CAVAN,Vancouver,Canada
+S006E013-03110,Terminal Containers Boma (TCB),terminal,-5.859577,13.0534,CDBOA,CDBOA,Boma,Democratic Republic of the Congo
+S006E013-03112,Matadi Gateway Terminal (MGT),terminal,-5.83429588,13.43229321,CDMAT,CDMAT,Matadi,Democratic Republic of the Congo
+S006E013-04164,Terminal Containers Matadi (TCM),terminal,-5.82349498,13.45211976,CDMAT,CDMAT,Matadi,Democratic Republic of the Congo
+S005E011-01685,Congo Terminal Pointe Noire,terminal,-4.77626772,11.82824888,CGPNR,CGPNR,Pointe Noire,Republic of the Congo
+N005W005-00235,Abidjan SETV Container Terminal (SETV1),terminal,5.2736418,-4.01204115,CIABJ,CIABJ,Abidjan,Côte d’Ivoire
+N005W005-03307,Cote d'Ivoire Terminal,terminal,5.281111,-4.017222,CIABJ,CIABJ,Abidjan,Côte d’Ivoire
+N004W007-02740,APM Terminals San Pedro,terminal,4.74083266,-6.61982976,CISPY,CISPY,San-Pedro,Côte d’Ivoire
+S024W071-03021,Antofagasta Terminal Internacional (ATI),terminal,-23.65051258,-70.40816022,CLANF,CLANF,Antofagasta,Chile
+S019W071-03014,Terminal Puerto Arica (TPA),terminal,-18.47559198,-70.32629734,CLARI,CLARI,Arica,Chile
+S038W074-02867,Coronel Container Terminal (CPC),terminal,-37.03010828,-73.14827655,CLCNL,CLCNL,Coronel,Chile
+S021W071-02983,Iquique Terminal Internacional (ITI),terminal,-20.20435892,-70.15676965,CLIQQ,CLIQQ,Iquique,Chile
+S037W073-01071,Puerto Lirquen Terminal (PLIRQ),terminal,-36.71481325,-72.98452631,CLLQN,CLLQN,Lirquen,Chile
+S024W071-04250,Puerto Angamos (PANGA),terminal,-23.06895402,-70.3856202,CLPAG,CLPAG,Mejillones,Chile
+S046W073-04039,Puerto Chacabuco,terminal,-45.46607336,-72.82052549,CLPCH,CLPCH,Puerto Chacabuco,Chile
+S054W071-04088,Terminal Jose de los Santos Mardone (SMA),terminal,-53.12749084,-70.86076757,CLPUQ,CLPUQ,Punta Arenas,Chile
+S034W072-00671,Puerto Central Terminal (PCE),terminal,-33.58719132,-71.61727367,CLSAI,CLSAI,San Antonio,Chile
+S034W072-01834,San Antonio Terminal International (STI),terminal,-33.58953593,-71.62222046,CLSAI,CLSAI,San Antonio,Chile
+S037W074-02966,San Vincente Terminal International (SVTI),terminal,-36.72781422,-73.13557822,CLSVE,CLSVE,San Vicente,Chile
+S034W072-02993,Terminal Pacifico Sur (TPS),terminal,-33.03343916,-71.62808002,CLVAP,CLVAP,Valparaiso,Chile
+N004E009-02837,Douala International Terminal (RTC),terminal,4.04055209,9.67810993,CMDLA,CMDLA,Douala,Cameroon
+CMKBI-T001,Kribi Container Terminal,terminal,2.7249359,9.8613715,CMKBI,CMKBI,Kribi,Cameroon
+N022E113-00106,Da Chan Bay Terminal One,terminal,22.53428539,113.85798752,CNDCB,CNDCB,Shenzhen,China
+N039E121-04251,Dalian International Container Terminal (DICT),terminal,39.01502287,121.85472613,CNDLC,CNDLC,Dalian,China
+N039E121-01298,Dalian Port Container Terminal (DPCT),terminal,38.99584516,121.88236328,CNDLC,CNDLC,Dalian,China
+N026E119-03202,Fuzhou Qingzhou Container Terminal,terminal,26.00840865,119.4769355,CNFZH,CNFZH,Fuzhou,China
+N025E119-03173,Fuzhou Jiangyin International Container Terminal (FICT),terminal,25.4153845,119.287448,CNJGY,CNJGY,Xiamen,China
+N022E113-03225,Jiujiang Barge,terminal,22.81519513,113.02738148,CNJUJ,CNJUJ,Guangzhou,China
+N034E119-01456,Lianyungang New Oriental International Terminal (LNOCT),terminal,34.74252252,119.43311568,CNLYG,CNLYG,Lianyungang,China
+CNNGB-T001,Beilun Phase 3 Container Terminal (BLCT2),terminal,29.93940732,121.83556505,CNNGB,CNNGB,Ningbo,China
+N029E121-01355,China Merchants International Container Terminal (BLCT5),terminal,29.93379089,121.9291546,CNNGB,CNNGB,Ningbo,China
+N029E121-00076,Ningbo Beilun International Container Terminal (BLCT1),terminal,29.93039627,121.86444705,CNNGB,CNNGB,Ningbo,China
+N029E121-04252,Ningbo Beilun Second Container Terminal (NBSCT),terminal,29.93906336,121.83764213,CNNGB,CNNGB,Ningbo,China
+N029E122-01932,Ningbo Chuanshan Container Term (YZCT7),terminal,29.88725273,122.04358573,CNNGB,CNNGB,Ningbo,China
+N029E122-04253,Ningbo Gangji Container Terminal,terminal,29.88937275,122.03496718,CNNGB,CNNGB,Ningbo,China
+N029E122-00749,Ningbo Meishan Island International Container Terminal (BLCT6),terminal,29.77095613,122.0010126,CNNGB,CNNGB,Ningbo,China
+N029E122-04254,Ningbo Yuandong Container Terminal,terminal,29.88662601,122.05263107,CNNGB,CNNGB,Ningbo,China
+N029E121-00326,Ningbo-Zhoushan Yongzhou Terminal,terminal,29.99047442,121.8433402,CNNGB,CNNGB,Ningbo,China
+CNNSA-T001,Guangzhou South China Oceangate Container Terminal (Nansha Phase 2),terminal,22.64581725,113.67457372,CNNSA,CNNSA,Guangzhou,China
+N022E113-04255,Nansha Container Terminal Phase I,terminal,22.65404005,113.67319166,CNNSA,CNNSA,Guangzhou,China
+N022E113-01378,Nansha Phase III Container Terminal (NCT),terminal,22.63356119,113.68038811,CNNSA,CNNSA,Guangzhou,China
+N021E108-01943,Qinzhou International Container Terminal,terminal,21.67668144,108.64038967,CNQZH,CNQZH,Qinzhou,China
+N024E118-01336,Quanzhou Houzhu Terminal,terminal,24.88189903,118.68435154,CNQZJ,CNQZJ,Quanzhou,China
+N035E119-03568,Rizhao Ore Terminal,terminal,35.37869967,119.54329334,CNRZH,CNRZH,Rizhao,China
+N035E119-01502,Rizhao Riqinq Terminal,terminal,35.36764103,119.53103415,CNRZH,CNRZH,Rizhao,China
+N021E111-03208,Port of Maoming,terminal,21.51412556,111.01713703,CNSDG,CNSDG,Maoming,China
+N031E121-04256,Jiangnan SY Group - Berth Area 01,terminal,31.35676586,121.73073283,CNSHA,CNSHA,Shanghai,China
+N031E121-00682,Shanghai East Container Terminal (SECT),terminal,31.33600829,121.64624888,CNSHA,CNSHA,Shanghai,China
+N030E122-00534,Shanghai Guandong Container Terminal (Yangshan Phase 3),terminal,30.61335181,122.07767146,CNSHA,CNSHA,Shanghai,China
+CNSHA-T001,Shanghai International Port Container Terminal (WaiGaoQiao Phase 4) (SIPG),terminal,31.32251128,121.66964168,CNSHA,CNSHA,Shanghai,China
+N031E121-04257,Shanghai Mingdong Container Terminal (WaiGaoQiao Phase 5)(SMCT),terminal,31.32798773,121.65987096,CNSHA,CNSHA,Shanghai,China
+N031E121-00064,Shanghai Pudong International Container Terminal (WaiGaoQiao Phase 1),terminal,31.36531722,121.58888005,CNSHA,CNSHA,Shanghai,China
+N030E122-04258,Shanghai Shangdong Container Terminal (Yangshan Phase 4),terminal,30.65468318,122.0244772,CNSHA,CNSHA,Shanghai,China
+N030E122-00330,Shanghai Shengdong International Container Terminal (Yangshan Phase 1&2),terminal,30.63121195,122.05243957,CNSHA,CNSHA,Shanghai,China
+N031E121-00065,Shanghai Zhendong International Container Terminal (WaiGaoQiao Phase 2),terminal,31.36978782,121.57899014,CNSHA,CNSHA,Shanghai,China
+N022E113-02898,Chiwan Container Terminal (CCT),terminal,22.46434955,113.87883294,CNSHK,CNSHK,Shenzhen,China
+N022E113-01142,Shekou Container Terminal (SCT),terminal,22.45658767,113.89055654,CNSHK,CNSHK,Shenzhen,China
+N022E113-01804,Shenzhen Mawan Container Terminal (MCT),terminal,22.48884556,113.86874518,CNSHK,CNSHK,Shenzhen,China
+N022E113-03224,Beijiao Container Terminal,terminal,22.89947685,113.21848489,CNSUD,CNSUD,Foshan,China
+N036E120-00053,Qianwan United Advance Terminal (QQCTUA),terminal,36.0011164,120.18748954,CNTAO,CNTAO,Qingdao,China
+N036E120-00045,Qingdao New Qianwan Container Terminal (QQCTN),terminal,36.01004022,120.23416099,CNTAO,CNTAO,Qingdao,China
+N036E120-00048,Qingdao Qianwan Container Terminal (QQCTX),terminal,36.01110724,120.20070805,CNTAO,CNTAO,Qingdao,China
+N035E120-01236,Qingdao Qianwan United Container Terminal (QQCTU),terminal,35.99317501,120.2067906,CNTAO,CNTAO,Qingdao,China
+N038E117-03460,Tianjin Alliance International Container Terminal (TACT),terminal,38.99446412,117.77310054,CNTXG,CNTXG,Tianjin,China
+N034E135-04176,Rokko Island RWX,terminal,34.68834502,135.28344363,JPUKB,JPUKB,Kobe,Japan
+N038E117-01700,Tianjin Five Continents International Container Terminal (FICT),terminal,38.98043145,117.78298904,CNTXG,CNTXG,Tianjin,China
+CNTXG-T001,Tianjin Harbour Second Stevedoring,terminal,38.98448584,117.7589149,CNTXG,CNTXG,Tianjin,China
+N038E117-01701,Tianjin Orient Container Terminal (TOCT),terminal,38.97713675,117.78033409,CNTXG,CNTXG,Tianjin,China
+N038E117-03200,Tianjin Port Container Terminal (TCT),terminal,38.98026244,117.76973561,CNTXG,CNTXG,Tianjin,China
+N039E117-01896,Tianjin Port Euroasia International Container Terminal (TECT),terminal,39.00314893,117.77017607,CNTXG,CNTXG,Tianjin,China
+N038E117-01053,Tianjin Port Pacific International Container Terminal (TPCT),terminal,38.99565447,117.79411449,CNTXG,CNTXG,Tianjin,China
+N039E117-01488,Tianjin Port Shenghua International Container Terminal (TSCT),terminal,39.01335633,117.76755741,CNTXG,CNTXG,Tianjin,China
+N024E118-01639,Dongdu Haitian Container Terminal (XHCT),terminal,24.51982754,118.08386302,CNXMN,CNXMN,Xiamen,China
+N024E118-03589,Dongdu Modern Terminal,terminal,24.54044168,118.09450603,CNXMN,CNXMN,Xiamen,China
+N024E118-00016,Xiamen Haicang International Container Terminal (XICT),terminal,24.44919678,118.00878074,CNXMN,CNXMN,Xiamen,China
+N024E118-00208,Xiamen Hairun Container Terminal (XRCT),terminal,24.5063953,118.07774055,CNXMN,CNXMN,Xiamen,China
+N024E117-01452,Xiamen Ocean Gate Container Terminal (XOGT),terminal,24.45815024,117.97235004,CNXMN,CNXMN,Xiamen,China
+N024E118-02941,Xiamen Songyu Container Terminal (XSCT),terminal,24.44474967,118.03314345,CNXMN,CNXMN,Xiamen,China
+N019E109-01344,Yangpu International Container Terminal,terminal,19.71680367,109.17187859,CNYPG,CNYPG,Yangpu,China
+N022E114-00321,Yantian International Container Terminal (YICT),terminal,22.57354165,114.2750164,CNYTN,CNYTN,Shenzhen,China
+N022E114-00908,Yantian West Container Terminal (YICTW),terminal,22.56218601,114.2475593,CNYTN,CNYTN,Shenzhen,China
+N021E110-04259,Zhanjiang Port International Container Terminal,terminal,21.14060174,110.3873981,CNZHA,CNZHA,Zhanjiang,China
+N029E122-01507,Zhoushan Port Free Trade Terminal,terminal,29.96338121,122.24315422,CNZOS,CNZOS,Zhoushan,China
+N010W075-03593,Barranquilla Container Terminal (BCT),terminal,10.96932702,-74.76066251,COBAQ,COBAQ,Barranquilla,Colombia
+N003W078-01206,Sociedad Portuaria Regional De Buenaventura (SPRBUN),terminal,3.89232042,-77.07248385,COBUN,COBUN,Buenaventura,Colombia
+N003W078-01205,Sociedad Puerto Industrial Aguadulce (SPIA),terminal,3.9054247,-77.08436736,COBUN,COBUN,Buenaventura,Colombia
+N003W078-00399,Terminal de Contenedores de Buenaventura (TCBUEN),terminal,3.89257999,-77.04621786,COBUN,COBUN,Buenaventura,Colombia
+N010W076-03406,Compas Terminal El Bosque (CTGTM),terminal,10.39765806,-75.52725882,COCTG,COCTG,Cartagena,Colombia
+N010W076-01631,Contecar Terminal Cartagena (TCC),terminal,10.37843908,-75.50960728,COCTG,COCTG,Cartagena,Colombia
+N010W076-04260,Sociedad Portuaria De Cartagena (SPRC),terminal,10.4066049,-75.53274235,COCTG,COCTG,Cartagena,Colombia
+N011W075-02799,Santa Marta International Terminal (SMITCO),terminal,11.24993755,-74.21472491,COSMR,COSMR,Santa Marta,Colombia
+N008W077-03409,Turbo Port,terminal,8.08712767,-76.73076584,COTRB,COTRB,Turbo,Colombia
+N009W085-01001,Sociedad Portuaria de Caldera Terminal (SPCAD),terminal,9.91147995,-84.71948076,CRCAL,CRCAL,Caldera,Costa Rica
+N010W084-02431,APM Terminals Moin,terminal,10.01279851,-83.09779162,CRMOB,CRMOB,Moin,Costa Rica
+N023W083-02753,Terminal de Contenedores de Mariel,terminal,23.006814,-82.762625,CUMAR,CUMAR,Mariel,Cuba
+N020W076-04004,Servicios Portuarios Del Oriente (ESPO),terminal,20.028435,-75.841633,CUSCU,CUSCU,Santiago de Cuba,Cuba
+N016W025-04222,Mindelo Terminal,terminal,16.890304,-24.997186,CVMIN,CVMIN,Mindelo,Cape Verde
+N014W024-03945,Praia Terminal,terminal,14.910722,-23.4992,CVRAI,CVRAI,Praia,Cape Verde
+N012W069-03602,Willemstad Terminal,terminal,12.11396052,-68.91382866,CWWIL,CWWIL,Willemstad,Curaçao
+N034E033-03314,DP World Limassol,terminal,34.6528439,33.01493351,CYLMS,CYLMS,Limassol,Cyprus
+N034E033-02357,Eurogate Container Terminal Limassol (EGL),terminal,34.650005,33.01457,CYLMS,CYLMS,Limassol,Cyprus
+N053E008-01034,Eurogate Container Terminal Bremerhaven (EGB),terminal,53.587792,8.530004,DEBRV,DEBRV,Bremerhaven,Germany
+N053E008-01033,MSC Gate Bremerhaven (MSCBH),terminal,53.572174,8.544209,DEBRV,DEBRV,Bremerhaven,Germany
+N053E008-01601,North Sea Terminal Bremerhaven (NTB),terminal,53.598185,8.519554,DEBRV,DEBRV,Bremerhaven,Germany
+N053E009-01026,Burchardkai Hamburg (CTB),terminal,53.531329,9.91971,DEHAM,DEHAM,Hamburg,Germany
+N053E009-01751,Container Terminal Altenwerder Hamburg (CTA),terminal,53.508213,9.928937,DEHAM,DEHAM,Hamburg,Germany
+N053E009-01588,Container Terminal Tollerort (CTT),terminal,53.535219,9.948485,DEHAM,DEHAM,Hamburg,Germany
+N053E009-03867,Cruise Center Steinwerder,terminal,53.52882781,9.96069809,DEHAM,DEHAM,Hamburg,Germany
+N053E009-04261,Eurogate Container Terminal Hamburg (EGH),terminal,53.5248979,9.92385161,DEHAM,DEHAM,Hamburg,Germany
+N053E009-03745,Sud West Terminal (SWT),terminal,53.533075,9.987162,DEHAM,DEHAM,Hamburg,Germany
+N053E009-03550,Unikai (UCT),terminal,53.531787,9.999155,DEHAM,DEHAM,Hamburg,Germany
+N054E010-04186,Kiel-Ostuferhafen,terminal,54.334906,10.170186,DEKEL,DEKEL,Kiel,Germany
+N053E008-01978,JadeWeserPort Eurogate Container Terminal Wilhelmshaven (EGW),terminal,53.59341,8.150602,DEWVN,DEWVN,Wilhelmshaven,Germany
+N011E043-02144,Doraleh Container Terminal (DCT),terminal,11.59715227,43.10589863,DJJIB,DJJIB,Djibouti,Djibouti
+N057E010-02981,Aalborg Container Terminal,terminal,57.04701,10.055408,DKAAL,DKAAL,Aalborg,Denmark
+N056E010-02628,APM Terminals Aarhus (AAT),terminal,56.153845,10.243249,DKAAR,DKAAR,Aarhus,Denmark
+N056E010-04226,Aarhus Oliehavn,terminal,56.15341632,10.22535945,DKAAR,DKAAR,Aarhus,Denmark
+N055E012-03894,Copenhagen Malmö Port Copenhagen (CMPDK),terminal,55.71141,12.605438,DKCPH,DKCPH,Copenhagen,Denmark
+DKFRC-T001,Fredericia Centerhavn,terminal,55.5579719,9.74483208,DKFRC,DKFRC,Fredericia,Denmark
+N055E009-03064,Fredericia Container Terminal (FCT),terminal,55.56096507,9.74938272,DKFRC,DKFRC,Fredericia,Denmark
+N055E011-03776,APM Terminals Kalundborg,terminal,55.66229263,11.06274715,DKKAL,DKKAL,Kalundborg,Denmark
+N055E011-04074,Kalundborg Container Terminal,terminal,55.675455,11.095584,DKKAL,DKKAL,Kalundborg,Denmark
+N015W062-03793,Roseau Port Terminal,terminal,15.312301,-61.389595,DMRSU,DMRSU,Roseau,Dominica
+N018W070-00704,DP World Caucedo,terminal,18.42534086,-69.6328926,DOCAU,DOCAU,Caucedo,Dominican Republic
+N018W071-03136,Haina International Terminals (HIT),terminal,18.42512181,-70.0155769,DOHAI,DOHAI,Rio Haina,Dominican Republic
+N019W072-04262,Puerto Manzanillo,terminal,19.70459531,-71.74347543,DOMAN,DOMAN,Manzanillo,Dominican Republic
+N036E007-02770,Annaba Terminal,terminal,36.894266,7.76203,DZAAE,DZAAE,Annaba,Algeria
+N036E003-03169,DP World Container Terminal Djazair,terminal,36.75995,3.068634,DZALG,DZALG,Algiers,Algeria
+N036E003-03167,Entreprise Portuaire D'Alger (EPAL),terminal,36.768699,3.061825,DZALG,DZALG,Algiers,Algeria
+N036E003-04263,Mole Bologhine General Cargo Quay 22,terminal,36.76573883,3.06308439,DZALG,DZALG,Algiers,Algeria
+N035W001-03928,Arzew Terminal,terminal,35.85905359,-0.30068011,DZAZW,DZAZW,Arzew,Algeria
+N036E005-03370,Bejaia Mediterranean Terminal (BMT),terminal,36.741597,5.07843,DZBJA,DZBJA,Bejaia,Algeria
+N036E005-03935,DP World Djen-Djen Terminal,terminal,36.82290735,5.88236965,DZDJE,DZDJE,Djen-Djen,Algeria
+N035W002-03879,EPO Terminal Ghazaouet,terminal,35.101658,-1.862262,DZGHZ,DZGHZ,Ghazaouet,Algeria
+N036E000-03918,Mostaganem Terminal,terminal,36.01422041,0.12573295,DZMOS,DZMOS,Mostaganem,Algeria
+N035W001-03813,Entreprise Portuaire d'Oran (EPO),terminal,35.710763,-0.636283,DZORN,DZORN,Oran,Algeria
+N036E006-04187,Port Methanier,terminal,36.88220474,6.93863032,DZSKI,DZSKI,Skikda,Algeria
+N036E006-03327,Skikda Container Terminal,terminal,36.886023,6.904359,DZSKI,DZSKI,Skikda,Algeria
+S003W080-03597,Contecon Guayaquil (CGSA),terminal,-2.28098234,-79.90722523,ECGYE,ECGYE,Guayaquil,Ecuador
+S003W080-03599,Naportec Terminal,terminal,-2.25297904,-79.92608997,ECGYE,ECGYE,Guayaquil,Ecuador
+S003W080-02000,Terminal Portuario de Guayaquil (TPG),terminal,-2.24648364,-79.9279635,ECGYE,ECGYE,Guayaquil,Ecuador
+S004W081-03398,Puerto Bolivar Port (ECPBO),terminal,-3.26071641,-80.0001261,ECPBO,ECPBO,Puerto Bolivar,Ecuador
+S003W081-04264,DP World Posorja,terminal,-2.69340918,-80.25136501,ECPSJ,ECPSJ,Posorja,Ecuador
+N059E024-02913,HHLA TK Terminal Estonia,terminal,59.489029,24.972825,EEMUG,EEMUG,Tallinn,Estonia
+N059E024-04189,Ferry Terminal A,terminal,59.444749,24.762034,EETLL,EETLL,Tallinn,Estonia
+N029E032-01984,DP World Sokhna,terminal,29.652862,32.34882995,EGAIS,EGAIS,Ain Sukhna,Egypt
+N031E030-03280,Hutchison Ports Abu Qir,terminal,31.3125,30.077778,EGAKI,EGAKI,Abu Qir,Egypt
+N031E029-02811,AICT - Alexandria Terminal,terminal,31.188437,29.873317,EGALY,EGALY,Alexandria,Egypt
+N031E029-03340,AICT - El Dekheila Terminal,terminal,31.141619,29.79278,EGALY,EGALY,Alexandria,Egypt
+N031E031-00660,Damietta Bulk & Grain Terminal,terminal,31.46839879,31.7652197,EGDAM,EGDAM,Damietta,Egypt
+N031E031-04265,Damietta Container Handling Company (DCHC),terminal,31.458121,31.758304,EGDAM,EGDAM,Damietta,Egypt
+N031E032-00015,Port Said West Terminal (PSCCH),terminal,31.244822,32.301163,EGPSD,EGPSD,Port Said,Egypt
+N031E032-02852,Suez Canal Container Terminal (SCCT),terminal,31.208177,32.357047,EGPSD,EGPSD,Port Said,Egypt
+N015E039-03956,Massawa Terminal,terminal,15.61297901,39.48074319,ERMSW,ERMSW,Massawa,Eritrea
+N028W014-03989,Boluda Maritime Terminals Lanzarote,terminal,28.970095,-13.529974,ESACE,ESACE,Arrecife,Spain
+N014W061-02408,Castries Terminal,terminal,14.01032698,-60.99333351,LCCAS,LCCAS,Castries,Saint Lucia
+N036W005-03034,Noatum Container Terminal Malaga,terminal,36.704976,-4.421223,ESAGP,ESAGP,Malaga,Spain
+N038W001-04266,Terminales Maritimas del Sureste (TMS),terminal,38.33107508,-0.49877492,ESALC,ESALC,Alicante,Spain
+N036W006-02570,APM Terminals Algeciras,terminal,36.141704,-5.43815,ESALG,ESALG,Algeciras,Spain
+N036W006-01722,Dique de Abrigo Ingeniero,terminal,36.13568675,-5.4302564,ESALG,ESALG,Algeciras,Spain
+N036W006-01610,Total Terminal International Algeciras (TTI),terminal,36.129418,-5.424886,ESALG,ESALG,Algeciras,Spain
+N041E002-00491,APM Terminals Barcelona (TCB),terminal,41.354102,2.169006,ESBCN,ESBCN,Barcelona,Spain
+N041E002-03939,Autoterminal Barcelona,terminal,41.33293767,2.1445954,ESBCN,ESBCN,Barcelona,Spain
+N041E002-00962,Barcelona Europe South Terminal (BEST),terminal,41.307598,2.143469,ESBCN,ESBCN,Barcelona,Spain
+N041E002-04267,Terminal Catalunya - Moll Princep d'Espanya,terminal,41.34000388,2.1489859,ESBCN,ESBCN,Barcelona,Spain
+N043W004-02929,CSP Iberian Bilbao Terminal (ex Noatum),terminal,43.345826,-3.041457,ESBIO,ESBIO,Bilbao,Spain
+N036W007-03799,Cadiz Container Terminal (TCD),terminal,36.53597833,-6.28985509,ESCAD,ESCAD,Cadiz,Spain
+N037W001-03965,Terminal Maritima de Cartagena (TMC),terminal,37.595761,-0.974275,ESCAR,ESCAR,Cartagena,Spain
+N039E000-02636,Noatum Container Terminal Castellon,terminal,39.96499264,0.02888478,ESCAS,ESCAS,Castellon,Spain
+N043W009-04268,Yilport Ferrol Container Terminal,terminal,43.46486432,-8.32357204,ESFRO,ESFRO,Ferrol,Spain
+N028W014-04099,Estibadora Majorera - Puerto del Rosario Fuerteventura,terminal,28.492531,-13.854597,ESFUE,ESFUE,Puerto del Rosario,Spain
+N043W006-02925,APM Terminals Gijon (TEGIJ),terminal,43.554364,-5.688922,ESGIJ,ESGIJ,Gijon,Spain
+N037W007-02508,Yilport Terminal Huelva,terminal,37.15062762,-6.87690203,ESHUV,ESHUV,Huelva,Spain
+N036W003-03927,Port of Almeria,terminal,36.833264,-2.476108,ESLEI,ESLEI,Almeria,Spain
+N028W016-04269,La Luz Terminal de Contenedores,terminal,28.14399789,-15.41394387,ESLPA,ESLPA,Las Palmas,Spain
+N028W016-02651,Operaciones Portuarias Canarias (OPCSA),terminal,28.133141,-15.41446629,ESLPA,ESLPA,Las Palmas,Spain
+N042W009-04076,Marin Container Terminal,terminal,42.404722,-8.691603,ESMPG,ESMPG,Marin,Spain
+N039W001-02569,Intersagunto Terminales,terminal,39.644801,-0.21646,ESSAG,ESSAG,Sagunto,Spain
+N028W017-03804,Compañía Auxiliar del Puerto SA (CAPSA),terminal,28.487373,-16.228956,ESSCT,ESSCT,Santa Cruz de Tenerife,Spain
+N028W017-03530,Terminal de Contenedores de Tenerife (TCT),terminal,28.490183,-16.223545,ESSCT,ESSCT,Santa Cruz de Tenerife,Spain
+N028W018-04084,Boluda Maritime Terminals Santa Cruz de la Palma,terminal,28.67624753,-17.76909077,ESSPC,ESSPC,Santa Cruz de La Palma,Spain
+N037W006-03985,Terminal Marítima del Guadalquivir (TMG),terminal,37.355524,-5.998921,ESSVQ,ESSVQ,Sevilla,Spain
+N042W009-02263,Terminales Maritimas de Vigo (Termavi),terminal,42.246723,-8.708618,ESVGO,ESVGO,Vigo,Spain
+N039W001-02630,APM Terminals Valencia (TCV),terminal,39.456326,-0.31914,ESVLC,ESVLC,Valencia,Spain
+N039W001-00500,CSP Iberian Valencia Terminal,terminal,39.43009567,-0.32247588,ESVLC,ESVLC,Valencia,Spain
+N039W001-04270,MSC Terminal Valencia,terminal,39.44286539,-0.32687205,ESVLC,ESVLC,Valencia,Spain
+FIHEL-T001,Finnsteve Container Terminal,terminal,60.21564365,25.19349923,FIHEL,FIHEL,Helsinki,Finland
+N060E025-03420,Multi-Link Container Terminal (MLTHEL),terminal,60.21161911,25.19211752,FIHEL,FIHEL,Helsinki,Finland
+N060E025-02932,Steveco Vuosaari Container Terminal [FIVCT],terminal,60.21747655,25.18717805,FIHEL,FIHEL,Helsinki,Finland
+N065E024-02714,Kemi Shipping Terminal,terminal,65.666269,24.523617,FIKEM,FIKEM,Kemi,Finland
+N063E023-03070,Silverstone Port Container Terminal,terminal,63.85972222,23.03611111,FIKOK,FIKOK,Kokkola,Finland
+N060E026-03639,Multi-Link Terminal Kotka (MLTKTK),terminal,60.42416667,26.90972222,FIKTK,FIKTK,Kotka,Finland
+N060E026-04271,Steveco Kotka Container Terminal (FIKCT),terminal,60.420674,26.905861,FIKTK,FIKTK,Kotka,Finland
+N064E025-02660,Herman Andersson Terminal Oulu,terminal,64.9974967,25.41314185,FIOUL,FIOUL,Oulu,Finland
+N061E021-03410,Rauma Euroports Terminal (REU),terminal,61.130516,21.439261,FIRAU,FIRAU,Rauma,Finland
+N065E024-03805,Outokumpu Terminal - Tornio,terminal,65.755794,24.155327,FITOR,FITOR,Tornio,Finland
+S018E177-03462,Lautoka Terminal,terminal,-17.60376391,177.43861189,FJLTK,FJLTK,Lautoka,Fiji
+S019E178-03349,Suva Container Terminal,terminal,-18.132811,178.424234,FJSUV,FJSUV,Suva,Fiji
+N062W007-03551,Tórshavn Terminal,terminal,62.004642,-6.765261,FOTHO,FOTHO,Torshavn,Faroe Islands
+N048W005-03266,UAT Terminal Multimodal Brest,terminal,48.383319,-4.465256,FRBES,FRBES,Brest,France
+N044W001-03901,Terminal Portuaire de Bassens,terminal,44.907916,-0.537187,FRBOD,FRBOD,Bordeaux,France
+N051E002-01671,Terminal des Flandres,terminal,51.01042,2.183532,FRDKK,FRDKK,Dunkerque,France
+N043E004-01706,Eurofos Terminal Conteneurs,terminal,43.40737,4.848447,FRFOS,FRFOS,Fos-sur-Mer,France
+N043E004-04272,Evere,terminal,43.4175738,4.85334617,FRFOS,FRFOS,Fos-sur-Mer,France
+N043E004-01796,Seayard Fos 2XL,terminal,43.41669537,4.83301897,FRFOS,FRFOS,Fos-sur-Mer,France
+N049E000-02693,Quai de l'Asie,terminal,49.46962534,0.16760396,FRLEH,FRLEH,Le Havre,France
+N049E000-02316,Radicatel Seine Container Terminal S.C.T.,terminal,49.48665608,0.4849764,FRLEH,FRLEH,Le Havre,France
+N049E000-01147,Terminal De Normandie MSC (TNMSC),terminal,49.463522,0.136771,FRLEH,FRLEH,Le Havre,France
+N049E000-03454,"Terminal Nord, Quai des Ameriques",terminal,49.47653641,0.1647152,FRLEH,FRLEH,Le Havre,France
+N049E000-02565,Terminal Porte Océane (TPO),terminal,49.460398,0.15878,FRLEH,FRLEH,Le Havre,France
+N049E000-04273,Terminal de France (TDF),terminal,49.459282,0.169044,FRLEH,FRLEH,Le Havre,France
+N049E000-01929,Terminal de l'Atlantique (QATL),terminal,49.473702,0.152006,FRLEH,FRLEH,Le Havre,France
+N049E000-03442,Terminal de l'Europe,terminal,49.48229,0.177841,FRLEH,FRLEH,Le Havre,France
+N043E005-02221,Med Europe Terminal (Intramar),terminal,43.348245,5.337853,FRMRS,FRMRS,Marseille,France
+N047W003-02503,Terminal Grand Ouest (TGO),terminal,47.29779605,-2.15485565,FRMTX,FRMTX,Montoir-de-Bretagne,France
+N000E009-03039,Libreville Terminal (STCG),terminal,0.28407652,9.50677666,GALBV,GALBV,Libreville,Gabon
+S001E008-03038,Port Gentil Terminal,terminal,-0.68953537,8.77337404,GAPOG,GAPOG,Port-Gentil,Gabon
+N054W006-03746,Victoria Terminal 3,terminal,54.632667,-5.885453,GBBEL,GBBEL,Belfast,United Kingdom
+N051W003-03942,Royal Portbury Docks Container Terminal,terminal,51.493889,-2.722403,GBBRS,GBBRS,Bristol,United Kingdom
+N051E001-01865,Landguard Terminal (LNG),terminal,51.94827945,1.31685029,GBFXT,GBFXT,Felixstowe,United Kingdom
+N051E001-04274,Trinity Terminal (TTY),terminal,51.960663,1.300335,GBFXT,GBFXT,Felixstowe,United Kingdom
+N056W004-03779,Grangemouth Container Terminal (GCT),terminal,56.023871,-3.698208,GBGRG,GBGRG,Grangemouth,United Kingdom
+N055W005-03394,Greenock Ocean Terminal (GOT),terminal,55.955567,-4.762992,GBGRK,GBGRK,Greenock,United Kingdom
+N053W001-03741,Immingham Container Terminal,terminal,53.632018,-0.199707,GBIMM,GBIMM,Immingham,United Kingdom
+N051E000-01159,DP World London Gateway (DPWLG),terminal,51.504429,0.497707,GBLGP,GBLGP,London,United Kingdom
+N053W004-03243,Freight Terminal Liverpool,terminal,53.45899,-3.013489,GBLIV,GBLIV,Liverpool,United Kingdom
+N053W004-02086,Liverpool 2 Container Terminal (L2CT),terminal,53.45348162,-3.02282191,GBLIV,GBLIV,Liverpool,United Kingdom
+N053W004-03790,Royal Seaforth Container Terminal (RSCT),terminal,53.462197,-3.02094,GBLIV,GBLIV,Liverpool,United Kingdom
+N054W002-03732,Tyne Logistics Company,terminal,54.984115,-1.455452,GBNCL,GBNCL,Newcastle upon Tyne,United Kingdom
+N050W002-01737,DP World Southampton (DPWS),terminal,50.909095,-1.458821,GBSOU,GBSOU,Southampton,United Kingdom
+N054W002-03714,Teesport Container Terminal 1,terminal,54.607596,-1.154916,GBTEE,GBTEE,Middlesbrough,United Kingdom
+N054W002-03716,Teesport Container Terminal 2,terminal,54.60202821,-1.15007032,GBTEE,GBTEE,Middlesbrough,United Kingdom
+N051E000-04275,London Container Terminal (LCT),terminal,51.46005,0.336671,GBTIL,GBTIL,Tilbury,United Kingdom
+N012W062-03734,St George Terminal - Grenada,terminal,12.04799355,-61.74931195,GDSTG,GDSTG,Saint George's,Grenada
+N041E041-04119,Batumi  International Container Terminal (BICT),terminal,41.64897946,41.65758566,GEBUS,GEBUS,Batumi,Georgia
+N042E041-01100,APT Terminals Poti (APMT),terminal,42.152354,41.652841,GEPTI,GEPTI,Poti,Georgia
+N042E041-02823,Poti General Cargo - Berth Area 03,terminal,42.15546462,41.65721018,GEPTI,GEPTI,Poti,Georgia
+N004W053-02778,Degrad des Cannes Port Terminal,terminal,4.85465264,-52.27375183,GFDDC,GFDDC,Cayenne,French Guiana
+N005W055-03919,Saint Laurant Du Maroni Terminal,terminal,5.49440955,-54.03566208,GFSLM,GFSLM,Saint-Laurent-du-Maroni,French Guiana
+N005E000-01712,GPHA Container Terminal (GPHA),terminal,5.62814871,0.00603553,GHTEM,GHTEM,Tema,Ghana
+N005E000-03274,Meridian Port Services Terminal 2 (MPS2),terminal,5.625793,0.008459,GHTEM,GHTEM,Tema,Ghana
+N005W001-00243,Meridian Port Services Terminal 3 (MPS3),terminal,5.61628449,-0.01479203,GHTEM,GHTEM,Tema,Ghana
+N005E000-03353,Tema Terminal,terminal,5.63314787,0.00946099,GHTEM,GHTEM,Tema,Ghana
+N004W002-02680,Takoradi Terminal,terminal,4.886333,-1.738257,GHTKD,GHTKD,Takoradi,Ghana
+N036W006-03865,Gibraltar Terminal,terminal,36.147821,-5.363549,GIGIB,GIGIB,Gibraltar,Gibraltar
+N013W017-02637,Banjul Terminal,terminal,13.44408582,-16.57334369,GMBJL,GMBJL,Banjul,Gambia
+N009W014-01481,Conakry Container Terminal (CCT),terminal,9.51130478,-13.72058618,GNCKY,GNCKY,Conakry,Guinea
+N016W062-02280,Terminal de Jarry,terminal,16.230597,-61.544395,GPPTP,GPPTP,Pointe-a-Pitre,Guadeloupe
+N001E009-02671,Deltamar Bata Terminal,terminal,1.82545332,9.74175679,GQBSG,GQBSG,Bata,Equatorial Guinea
+N003E008-04276,Deltamar Malabo Terminal,terminal,3.76031951,8.77774531,GQSSG,GQSSG,Malabo,Equatorial Guinea
+N035E025-04161,Heraklion Port Terminal,terminal,35.34408482,25.14996587,GRHER,GRHER,Heraklion,Greece
+N037E023-00455,Piraeus Container Terminal (GRPCT),terminal,37.957006,23.590264,GRPIR,GRPIR,Piraeus,Greece
+N040E022-02504,Thessaloniki Port Authority Container Terminal (THPASA),terminal,40.636541,22.907363,GRSKG,GRSKG,Thessaloniki,Greece
+N039E022-04169,Volos Port Terminal,terminal,39.35644988,22.93622627,GRVOL,GRVOL,Volos,Greece
+N015W089-02807,Terminal Ferroviaria Puerto Barrios (TFPB),terminal,15.73432673,-88.60384354,GTPBR,GTPBR,Puerto Barrios,Guatemala
+N013W091-03155,APM Terminals Quetzal (TCQ),terminal,13.927049,-90.791459,GTPRQ,GTPRQ,Puerto Quetzal,Guatemala
+N013W091-04277,Empresa Portuaria Quetzal Terminal (EPQEZ),terminal,13.92880841,-90.78318769,GTPRQ,GTPRQ,Puerto Quetzal,Guatemala
+N015W089-01351,Empresa Portuaria Nacional Container Terminal (EPSTC),terminal,15.69428682,-88.61560064,GTSTC,GTSTC,Santo Tomas de Castilla,Guatemala
+N013E144-02786,Guam Container Terminal,terminal,13.4615942,144.67045227,GUGUM,GUGUM,Hagatna,Guam
+N011W016-02719,Bissau Port Terminal,terminal,11.85896452,-15.5768419,GWOXB,GWOXB,Bissau,Guinea-Bissau
+N006W059-02560,Muneshwers Wharf Georgetown,terminal,6.81430804,-58.16762514,GYGEO,GYGEO,Georgetown,Guyana
+N022E114-02298,Hong Kong Container Terminal 8 (ACT/HIT/COSCO),terminal,22.32399028,114.12929798,HKHKG,HKHKG,Hong Kong,Hong Kong
+N022E114-00530,Hong Kong Container Terminal 9,terminal,22.33529658,114.11427232,HKHKG,HKHKG,Hong Kong,Hong Kong
+N022E114-00686,Hong Kong DP World Terminal 3,terminal,22.34600974,114.12286909,HKHKG,HKHKG,Hong Kong,Hong Kong
+N022E114-04278,"Hong Kong International Terminal 6,7 (HIT)",terminal,22.33294475,114.12810619,HKHKG,HKHKG,Hong Kong,Hong Kong
+N022E114-04279,"Hong Kong Modern Terminals 1,2,5 (MTL)",terminal,22.349462,114.12165549,HKHKG,HKHKG,Hong Kong,Hong Kong
+N015W088-01354,Empresa Nacional Portuaria Container Terminal (ENPCR),terminal,15.84318636,-87.94534304,HNPCR,HNPCR,Puerto Cortes,Honduras
+N013W088-02156,San Lorenzo Port,terminal,13.40263191,-87.4263963,HNSLO,HNSLO,San Lorenzo,Honduras
+N043E017-03096,Ploce Container Terminal,terminal,43.0438378,17.42861422,HRPLE,HRPLE,Ploce,Croatia
+N045E014-01958,Adriatic Gate Container Terminal (AGCT),terminal,45.320741,14.452418,HRRJK,HRRJK,Rijeka,Croatia
+N019W073-03967,Cap Terminal,terminal,19.75930238,-72.19578875,HTCAP,HTCAP,Cap-Haitien,Haiti
+N018W073-03836,Lafito Terminal,terminal,18.69477343,-72.36435143,HTLFF,HTLFF,Port-au-Prince,Haiti
+N018W073-03607,Port-au-Prince Container Terminal (PAPCT),terminal,18.5579509,-72.34872526,HTPAP,HTPAP,Port-au-Prince,Haiti
+N001E125-04207,Bitung Terminal,terminal,1.44121009,125.19768434,IDBIT,IDBIT,Bitung,Indonesia
+N003E098-02794,Belawan International Container Terminal (BICT),terminal,3.79995937,98.72249294,IDBLW,IDBLW,Belawan,Indonesia
+N003E098-04053,Belawan New Container Terminal B (BNCT),terminal,3.79322545,98.71537803,IDBLW,IDBLW,Belawan,Indonesia
+N003E098-03363,PT Prima Terminal Petikemas,terminal,3.78748669,98.6991856,IDBLW,IDBLW,Belawan,Indonesia
+S002E116-03543,Balikpapan Terminal,terminal,-1.159637,116.784587,IDBPN,IDBPN,Balikpapan,Indonesia
+N001E103-02831,APL Batam Terminal,terminal,1.16368555,104.00132318,IDBTM,IDBTM,Batam,Indonesia
+S002E103-03189,APL Kuala Tungkal Jambi,terminal,-1.53534268,103.66053071,IDDJB,IDDJB,Jambi,Indonesia
+S007E106-01365,Jakarta International Container Terminal UTC-1 (JICT),terminal,-6.10384512,106.89486375,IDJKT,IDJKT,Jakarta,Indonesia
+S007E106-03628,Multicon Terminal Indrajaya (MTI),terminal,-6.10411722,106.87960104,IDJKT,IDJKT,Jakarta,Indonesia
+S007E106-02649,New Priok Container Terminal One (NPCT1),terminal,-6.09372386,106.92145406,IDJKT,IDJKT,Jakarta,Indonesia
+S007E106-03545,Port Tanjung Priok - UTC II,terminal,-6.10960599,106.87428021,IDJKT,IDJKT,Jakarta,Indonesia
+S007E106-04280,Tangguh Samudera Jaya (TSJ),terminal,-6.10508416,106.8900672,IDJKT,IDJKT,Jakarta,Indonesia
+S007E106-01364,Terminal Mustika Alam Lestari (MAL),terminal,-6.09863651,106.8896676,IDJKT,IDJKT,Jakarta,Indonesia
+S007E106-04281,Terminal Peti Kemas Koja (UTC-3),terminal,-6.10026871,106.9019101,IDJKT,IDJKT,Jakarta,Indonesia
+N003E099-04282,Kuala Tanjung Multipurpose Terminal,terminal,3.3592691,99.45209957,IDKTJ,IDKTJ,Kuala Tanjung,Indonesia
+S006E119-04197,Ujung Pandang Terminal Makassar,terminal,-5.12944881,119.40487543,IDMAK,IDMAK,Makassar,Indonesia
+S002E100-04231,Teluk Bayur Terminal - Padang,terminal,-1.00095505,100.37154136,IDPDG,IDPDG,Padang,Indonesia
+N000E101-03186,Perawang Terminal,terminal,0.67860488,101.64122722,IDPER,IDPER,Perawang,Indonesia
+S003E104-03992,Boom Baru Terminal Palembang,terminal,-2.97988443,104.7821594,IDPLM,IDPLM,Palembang,Indonesia
+S006E105-03245,Unit Terminal Petikemas Panjang (UTPK),terminal,-5.46548048,105.3167645,IDPNJ,IDPNJ,Bandar Lampung,Indonesia
+S001E109-03156,Pontianak Pelindo II,terminal,-0.01971047,109.33677705,IDPNK,IDPNK,Pontianak,Indonesia
+S007E110-02553,Terminal Peti Kemas Semarang (TPK),terminal,-6.93868425,110.42497138,IDSRG,IDSRG,Semarang,Indonesia
+S008E112-04199,Berlian Jasa Terminal Indonesia (BJT),terminal,-7.20628375,112.72652433,IDSUB,IDSUB,Surabaya,Indonesia
+S008E112-04283,Surabaya Container Terminal (TPS),terminal,-7.21419185,112.72046855,IDSUB,IDSUB,Surabaya,Indonesia
+S008E112-04284,Terminal Teluk Lamong (TTL),terminal,-7.20241032,112.66916713,IDSUB,IDSUB,Surabaya,Indonesia
+N003E117-04206,Pelabuhan Malundung Tarakan,terminal,3.28420339,117.5963827,IDTRK,IDTRK,Tarakan,Indonesia
+N053W007-03375,Dublin Ferryport Terminal (DFT),terminal,53.348623,-6.196108,IEDUB,IEDUB,Dublin,Ireland
+N053W007-03684,Marine Terminal Dublin - South Bank Quay ,terminal,53.342712,-6.209743,IEDUB,IEDUB,Dublin,Ireland
+N053W007-03900,Portroe Terminal,terminal,53.34721515,-6.21263684,IEDUB,IEDUB,Dublin,Ireland
+IEORK-T001,Cork Ferry Port,terminal,51.831974,-8.320963,IEORK,IEORK,Cork,Ireland
+N051W009-03379,Ringaskiddy Deepwater Terminal (CCT),terminal,51.83462697,-8.32148757,IEORK,IEORK,Cork,Ireland
+N051W009-03876,Tivoli Container Terminal (TCT),terminal,51.901786,-8.415313,IEORK,IEORK,Cork,Ireland
+N031E034-00001,Asdod Port Terminal (APCL),terminal,31.835976,34.651158,ILASH,ILASH,Ashdod,Israel
+N031E034-03269,Hadarom Container Terminal,terminal,31.84548584,34.64778567,ILASH,ILASH,Ashdod,Israel
+N032E035-03382,Haifa Bayport Container Terminal,terminal,32.82656914,35.03146338,ILHFA,ILHFA,Haifa,Israel
+N032E035-00160,Haifa Port Terminal (HPCL),terminal,32.817593,35.008922,ILHFA,ILHFA,Haifa,Israel
+N022E088-03617,Bharat Kolkata Container Terminal,terminal,22.54081264,88.30499144,INCCU,INCCU,Kolkata,India
+N022E088-03088,Calcutta Port Trust Container Terminal,terminal,22.54028389,88.30052927,INCCU,INCCU,Kolkata,India
+N009E076-02994,International Container Transshipment Terminal (ICTT),terminal,9.97896495,76.25167395,INCOK,INCOK,Kochi,India
+N017E083-03573,Gangavaram Terminal,terminal,17.62008663,83.23258186,INGGV,INGGV,Gangavaram,India
+N022E088-03094,Haldia International Container Terminal (HICT),terminal,22.03714894,88.08560981,INHAL,INHAL,Haldia,India
+N021E072-00726,Adani Hazira Container Terminal,terminal,21.08589663,72.63152785,INHZA,INHZA,Hazira,India
+N012E074-02193,New Mangalore Port Trust (NMPT),terminal,12.93444929,74.81942705,INIXE,INIXE,Mangalore,India
+N022E070-02943,Kandla International Terminal (KICT),terminal,22.98362637,70.22260796,INIXY,INIXY,Kandla,India
+N016E082-03418,Kakinada Container Terminal (KCT),terminal,16.96637115,82.28045505,INKAK,INKAK,Kakinada,India
+N013E080-02079,Kattupalli International Container Terminal (KICT),terminal,13.31251426,80.34338353,INKAT,INKAT,Kattupalli,India
+N013E080-04285,Adani Ennore Container Terminal,terminal,13.27223873,80.33610731,INMAA,INMAA,Chennai,India
+N013E080-03369,Chennai Container Terminal (CCTL),terminal,13.10555861,80.29750302,INMAA,INMAA,Chennai,India
+N013E080-01408,Chennai International Container Terminal (CITPL),terminal,13.09207444,80.30195701,INMAA,INMAA,Chennai,India
+N022E069-01112,Adani International Container Terminal - CT3 (AICTPL),terminal,22.73923442,69.69767639,INMUN,INMUN,Mundra,India
+N022E069-04286,Adani Mundra Container Terminal - CT4 (AMCT),terminal,22.73929149,69.6886291,INMUN,INMUN,Mundra,India
+N022E069-00736,Mundra International Container Terminal - CT2 (MICT),terminal,22.74458701,69.70720809,INMUN,INMUN,Mundra,India
+N018E072-00884,APM Terminals Gateway Terminals India (GTI),terminal,18.94303071,72.94592132,INNSA,INNSA,Mumbai,India
+N018E072-04287,Bharat Mumbai Container Terminals (BMCT),terminal,18.9373629,72.94073431,INNSA,INNSA,Mumbai,India
+INNSA-T001,Nhava Sheva Freeport (NSFT),terminal,18.94977,72.95083,INNSA,INNSA,Mumbai,India
+INNSA-T002,Nhava Sheva Gateway Terminal (NSIGT),terminal,18.95629721,72.95354037,INNSA,INNSA,Mumbai,India
+N018E072-04288,Nhava Sheva International Container Terminal (NSICT),terminal,18.9531425,72.951464,INNSA,INNSA,Mumbai,India
+N020E071-02053,APM Terminals Pipavav,terminal,20.921551,71.511482,INPAV,INPAV,Pipavav,India
+N008E078-03399,Dakhsin Bharat Gateway Terminal (DBGT),terminal,8.75062715,78.2127858,INTUT,INTUT,Tuticorin,India
+N008E078-04289,JM Baxi TICT,terminal,8.75225254,78.2105657,INTUT,INTUT,Tuticorin,India
+N008E078-02728,PSA Sical Container Terminal Tuticorin,terminal,8.74864809,78.21582467,INTUT,INTUT,Tuticorin,India
+N017E083-01415,Visakhapatnam Container Terminal (VCT),terminal,17.69401567,83.30066603,INVTZ,INVTZ,Visakhapatnam,India
+N030E047-03201,Basra Gateway Terminal East (BGTE),terminal,30.06313444,47.93395798,IQUQR,IQUQR,Umm Qasr,Iraq
+N030E047-01937,Basra Gateway Terminal West (BGTW),terminal,30.06043355,47.92579468,IQUQR,IQUQR,Umm Qasr,Iraq
+N030E047-02720,CMA CGM Terminals Iraq,terminal,30.02358534,47.95001072,IQUQR,IQUQR,Umm Qasr,Iraq
+N064W022-04223,Port of Grundartangi,terminal,64.356842,-21.777091,ISGRT,ISGRT,Grundartangi,Iceland
+N064W022-03904,Sundahoefn Container Terminal,terminal,64.1495067,-21.84480393,ISREY,ISREY,Reykjavik,Iceland
+N043E013-02605,Adriatic Services Enterprise Ancona (ASE),terminal,43.61980126,13.49474125,ITAOI,ITAOI,Ancona,Italy
+N037E015-02606,Augusta Bunker Terminal,terminal,37.23818479,15.19790914,ITAUG,ITAUG,Augusta,Italy
+N041E016-03077,Container Terminal Bari,terminal,41.141564,16.869189,ITBRI,ITBRI,Bari,Italy
+N041E016-04236,Impresa Portuale Metropolitan (IMP),terminal,41.12974104,16.86411511,ITBRI,ITBRI,Bari,Italy
+N039E009-03526,Cagliari International Container Terminal (CICT),terminal,39.214658,9.073194,ITCAG,ITCAG,Cagliari,Italy
+N039E009-04123,Grendi Terminal Cagliari,terminal,39.20944444,9.07833333,ITCAG,ITCAG,Cagliari,Italy
+N042E011-03218,Civitavecchia Fruit and Forest Terminal,terminal,42.10330866,11.77567246,ITCVV,ITCVV,Civitavecchia,Italy
+N042E011-03125,Roma Terminal Container (RTC),terminal,42.10670207,11.77443494,ITCVV,ITCVV,Civitavecchia,Italy
+N038E015-03234,Medcenter Container Terminal (MCT) Gioia Tauro,terminal,38.460713,15.910263,ITGIT,ITGIT,Gioia Tauro,Italy
+N044E008-00971,Genoa Port Terminal (GPT) Marittima,terminal,44.403764,8.897743,ITGOA,ITGOA,Genoa,Italy
+N044E008-00476,Industrie Rebora - deposito Erzelli,terminal,44.41080674,8.8736957,ITGOA,ITGOA,Genoa,Italy
+N044E008-01775,PSA Genova Prá Terminal,terminal,44.420816,8.786874,ITGOA,ITGOA,Genoa,Italy
+N044E008-00967,South European Container Hub (SECH),terminal,44.4044,8.912337,ITGOA,ITGOA,Genoa,Italy
+N044E008-03880,Terminal San Giorgio (TSG),terminal,44.40944015,8.88453978,ITGOA,ITGOA,Genoa,Italy
+N044E008-01778,Voltri Terminal Riparazioni SRL (VTR),terminal,44.42629282,8.76362006,ITGOA,ITGOA,Genoa,Italy
+N043E010-00965,Leghorn Terminal Lorenzini,terminal,43.574855,10.31277433,ITLIV,ITLIV,Livorno,Italy
+N043E010-00470,Terminal Darsena Toscana (TDT),terminal,43.574367,10.30273,ITLIV,ITLIV,Livorno,Italy
+N044E010-03558,Marina di Carrara Terminal,terminal,44.03324839,10.04762532,ITMDC,ITMDC,Marina di Carrara,Italy
+N038E015-04230,Port of Milazzo,terminal,38.21589167,15.2427447,ITMLZ,ITMLZ,Milazzo,Italy
+N038E015-00518,Messina Strait,terminal,38.19056182,15.56578677,ITMSN,ITMSN,Messina,Italy
+N040E014-03231,CONATECO Naples,terminal,40.8348777,14.2974905,ITNAP,ITNAP,Naples,Italy
+ITNAP-T001,Molo Bausan,terminal,40.839098,14.285574,ITNAP,ITNAP,Naples,Italy
+N040E014-02218,Terminal Flavio Gioia Napoli,terminal,40.840567,14.282291,ITNAP,ITNAP,Naples,Italy
+N038E015-02166,ITPAN,terminal,38.63692,15.0753,ITPAN,ITPAN,Panarea,Italy
+N036E014-03402,Sermi Terminal Pozzallo,terminal,36.71611111,14.82888889,ITPZL,ITPZL,Pozzallo,Italy
+N044E012-02483,Terminal Container Ravenna (TCR),terminal,44.449085,12.248769,ITRAN,ITRAN,Ravenna,Italy
+N040E014-00881,Salerno Container Terminal (SCT),terminal,40.67421,14.742322,ITSAL,ITSAL,Salerno,Italy
+N044E009-01783,La Spezia Container Terminal (LSCT),terminal,44.107772,9.84551,ITSPE,ITSPE,La Spezia,Italy
+N044E009-02360,Terminal Del Golfo (TDG),terminal,44.10563729,9.85396961,ITSPE,ITSPE,La Spezia,Italy
+N040E017-02554,Yilport Taranto San Cataldo Container Terminal,terminal,40.50299414,17.15364468,ITTAR,ITTAR,Taranto,Italy
+N038E012-04121,Trapani Container Terminal (SCS),terminal,38.01239,12.519801,ITTPS,ITTPS,Trapani,Italy
+N045E013-03546,Molo VI Container Terminal,terminal,45.637357,13.752343,ITTRS,ITTRS,Trieste,Italy
+N045E013-01946,Trieste Maritime Terminal (TMT) Molo VII,terminal,45.631146,13.761127,ITTRS,ITTRS,Trieste,Italy
+N045E012-03509,Terminal Intermodale Venezia (TIV),terminal,45.45697,12.254305,ITVCE,ITVCE,Venice,Italy
+N045E012-02485,Venezia Container Terminal (VECON),terminal,45.454441,12.246945,ITVCE,ITVCE,Venice,Italy
+N044E008-02159,APM Terminals Vado Ligure,terminal,44.267831,8.444839,ITVDL,ITVDL,Vado Ligure,Italy
+N017W077-02317,Kingston Container Terminal (KCT),terminal,17.980436,-76.833944,JMKIN,JMKIN,Kingston,Jamaica
+N017W077-04290,Kingston Freeport Terminal (KFTL),terminal,17.99048308,-76.83291216,JMKIN,JMKIN,Kingston,Jamaica
+N017W077-03596,Kingston Wharves Limited (KWL),terminal,17.98450093,-76.8283628,JMKIN,JMKIN,Kingston,Jamaica
+N018W078-03833,Montego Bay Freeport Terminal,terminal,18.46002661,-77.93528939,JMMBJ,JMMBJ,Montego Bay,Jamaica
+N029E034-02717,Aqaba Container Terminal (ACT),terminal,29.46941428,34.97759249,JOAQB,JOAQB,Aqaba,Jordan
+N039E140-04061,Akita Container Terminal,terminal,39.7673313,140.04032472,JPAXT,JPAXT,Akita,Japan
+N033E130-04291,Hibiki Container Terminal (HCT),terminal,33.93194444,130.76472222,JPHBK,JPHBK,Kitakyushu,Japan
+N034E132-03194,Hiroshima Port International Container Terminal (HICT),terminal,34.34692012,132.44012298,JPHIJ,JPHIJ,Hiroshima,Japan
+N034E132-04046,Kaita Container Terminal,terminal,34.35349921,132.51136989,JPHIJ,JPHIJ,Hiroshima,Japan
+N033E130-03433,Island City Container Terminal (IICT),terminal,33.65978425,130.40468743,JPHKT,JPHKT,Fukuoka,Japan
+N033E130-02301,Kashii Park Container Terminal (KSI),terminal,33.65196991,130.4089586,JPHKT,JPHKT,Fukuoka,Japan
+N034E132-03570,Iwakuni Container Terminal,terminal,34.18819065,132.23707841,JPIWK,JPIWK,Iwakuni,Japan
+N033E133-02930,Kaneko International Container Terminal (KICT),terminal,33.99204494,133.53961477,JPIYM,JPIYM,Saijo,Japan
+N033E133-04095,Kochi Container Terminal,terminal,33.51243496,133.58512297,JPKCZ,JPKCZ,Kochi,Japan
+N037E139-02951,Niigata Eastport Container Terminal,terminal,37.96965378,139.2284562,JPKIJ,JPKIJ,Niigata,Japan
+N035E139-04173,Kawasaki Container Terminal (KCT),terminal,35.48958223,139.7522141,JPKWS,JPKWS,Kawasaki,Japan
+N034E133-03183,Mizushima International Container Terminal (MICT),terminal,34.50162162,133.6830611,JPMIZ,JPMIZ,Kurashiki,Japan
+N033E131-01500,Moji Tachinoura Container Terminal No.1,terminal,33.96756667,131.00474326,JPMOJ,JPMOJ,Kitakyushu,Japan
+N033E131-01499,Moji Tachinoura Container Terminal No.2,terminal,33.96363053,131.01457469,JPMOJ,JPMOJ,Kitakyushu,Japan
+N026E127-02586,Naha Container Terminal,terminal,26.23507632,127.66911523,JPNAH,JPNAH,Naha,Japan
+N034E131-04033,Nakanoseki Container Terminal,terminal,34.01017157,131.56113363,JPNAN,JPNAN,Hagi,Japan
+N035E136-03388,Kinjo Pier (KJC),terminal,35.0452287,136.8511457,JPNGO,JPNGO,Nagoya,Japan
+N035E136-01496,Nabeta United Container Terminal (NUCT),terminal,35.02429846,136.79063671,JPNGO,JPNGO,Nagoya,Japan
+N035E136-02106,Tobishima Container Terminal (TCB),terminal,35.02834135,136.82145134,JPNGO,JPNGO,Nagoya,Japan
+N035E136-01324,Tobishima Minami Container Terminal (NCB),terminal,35.04043111,136.8329888,JPNGO,JPNGO,Nagoya,Japan
+N035E136-01944,Tobishima Pier North Container Terminal (TNT),terminal,35.04537758,136.83071695,JPNGO,JPNGO,Nagoya,Japan
+N035E136-03220,Tobishima Pier South Container Terminal (TST),terminal,35.03346627,136.83599957,JPNGO,JPNGO,Nagoya,Japan
+N033E131-03932,Oita Container Terminal (OCT),terminal,33.2694758,131.66139224,JPOIT,JPOIT,Oita,Japan
+N034E138-02437,Omaezaki Container Terminal (OZCT),terminal,34.62467656,138.21910914,JPOMZ,JPOMZ,Omaezaki,Japan
+N034E135-01305,Nanko C-1/2/3/4 Container Terminal,terminal,34.63473246,135.43866963,JPOSA,JPOSA,Osaka,Japan
+N034E135-01533,Nanko C-10/11/12 Dream Island Container Terminal (DICT),terminal,34.6495672,135.39717094,JPOSA,JPOSA,Osaka,Japan
+JPOSA-T001,Nanko C-8 Container Terminal,terminal,34.64242444,135.43083745,JPOSA,JPOSA,Osaka,Japan
+N034E135-03430,Nanko C-9 Container Terminal,terminal,34.64188287,135.42708732,JPOSA,JPOSA,Osaka,Japan
+N031E131-03076,Shibushi Container Terminal,terminal,31.45148859,131.08718688,JPSBS,JPSBS,Shibushi,Japan
+N038E141-03087,Sendai Takasago Container Terminal,terminal,38.2658111,141.02215947,JPSDJ,JPSDJ,Sendai,Japan
+N035E138-01559,Shin-Okitsu Container Terminal (OKT),terminal,35.04110288,138.51790924,JPSMZ,JPSMZ,Shimizu,Japan
+N035E138-04078,Sodeshi Container Terminal,terminal,35.03629277,138.50599475,JPSMZ,JPSMZ,Shimizu,Japan
+N034E131-03166,Tokuyama Container Terminal,terminal,34.03773528,131.7881394,JPTKY,JPTKY,Shunan,Japan
+N042E141-04174,Irifune Wharf,terminal,42.63841,141.629681,JPTMK,JPTMK,Tomakomai,Japan
+N042E141-04064,Tomakomai International Container Terminal (TICT),terminal,42.60885603,141.78465366,JPTMK,JPTMK,Tomakomai,Japan
+N036E137-04178,Toyama Shinko Container Terminal,terminal,36.77451004,137.10639254,JPTOS,JPTOS,Toyama,Japan
+N035E139-01315,Tokyo Aomi A1-4 Container Terminal,terminal,35.60962052,139.78305241,JPTYO,JPTYO,Tokyo,Japan
+N035E139-01313,Tokyo Kamigumi Y1 Container Terminal,terminal,35.593352,139.800047,JPTYO,JPTYO,Tokyo,Japan
+N035E139-01552,Tokyo Ohi O1-2 Container Terminal,terminal,35.61061846,139.76217153,JPTYO,JPTYO,Tokyo,Japan
+N035E139-04292,Tokyo Ohi O3-8 Container Terminal (TICT),terminal,35.60154777,139.76573491,JPTYO,JPTYO,Tokyo,Japan
+N034E135-03451,Kobe International Container Terminal,terminal,34.68208921,135.20238487,JPUKB,JPUKB,Kobe,Japan
+N034E135-01330,PC-13/14/15 Container Terminal,terminal,34.65846339,135.23318836,JPUKB,JPUKB,Kobe,Japan
+N034E135-03446,PC-16/17 Container Terminal,terminal,34.65583056,135.24104984,JPUKB,JPUKB,Kobe,Japan
+N034E135-01945,PC-18 Container Terminal,terminal,34.66460466,135.23070474,JPUKB,JPUKB,Kobe,Japan
+N034E135-03436,RC-1/2 Container Terminal,terminal,34.68377739,135.25495808,JPUKB,JPUKB,Kobe,Japan
+N034E135-01855,RC-3/4/5 Container Terminal,terminal,34.67919417,135.25960577,JPUKB,JPUKB,Kobe,Japan
+N034E135-02124,RC-6/7 Container Terminal,terminal,34.6818448,135.28445435,JPUKB,JPUKB,Kobe,Japan
+N034E136-01836,Yokkaichi Container Terminal - Kasumiagaura (KSN),terminal,34.99814588,136.66932917,JPYKK,JPYKK,Yokkaichi,Japan
+N035E139-02856,APM Terminals Yokohama Honmoku MC1-MC4,terminal,35.40358269,139.67751447,JPYOK,JPYOK,Yokohama,Japan
+N035E139-03384,Daikoku C-3 Container Terminal,terminal,35.45911919,139.69729939,JPYOK,JPYOK,Yokohama,Japan
+N035E139-03383,Daikoku T-9 Container Terminal,terminal,35.45635667,139.69148005,JPYOK,JPYOK,Yokohama,Japan
+N035E139-03434,Honmoku BC Container Terminal,terminal,35.43858959,139.67593604,JPYOK,JPYOK,Yokohama,Japan
+N035E139-03435,Honmoku D-1 Container Terminal,terminal,35.43270569,139.6824351,JPYOK,JPYOK,Yokohama,Japan
+N035E139-01261,Honmoku D-4 Container Terminal,terminal,35.43708284,139.68478635,JPYOK,JPYOK,Yokohama,Japan
+N035E139-03456,Honmuku A-5/6 Container Terminal,terminal,35.4489048,139.67213895,JPYOK,JPYOK,Yokohama,Japan
+S003E040-02214,Lamu Port,terminal,-2.19395706,40.93314251,KELAU,KELAU,Lamu,Kenya
+S005E039-00754,Mombasa Container Terminal KPA (MCT),terminal,-4.0425141,39.63467285,KEMBA,KEMBA,Mombasa,Kenya
+N010E103-01808,Sihanoukville Container Terminal (PAS),terminal,10.64704,103.511025,KHKOS,KHKOS,Sihanoukville,Cambodia
+N011E104-03447,Phnom Penh Autonomous Port (PPAP),terminal,11.58325846,104.92202379,KHPNH,KHPNH,Phnom Penh,Cambodia
+N011E105-03048,Phnom Penh Container Terminal LM17,terminal,11.473611,105.143056,KHPNH,KHPNH,Phnom Penh,Cambodia
+S013E044-03988,Mutsamudu Terminal,terminal,-12.16681999,44.39101211,KMMUT,KMMUT,Mutsamudu,Comoros
+S012E043-04001,Moroni Container Terminal,terminal,-11.70514222,43.24762446,KMYVA,KMYVA,Moroni,Comoros
+N017W063-03890,Basseterre Seaport St Kitts,terminal,17.28876107,-62.70783947,KNBAS,KNBAS,Basseterre,Saint Kitts and Nevis
+N037E126-04069,E1 Container Terminal,terminal,37.44074307,126.61141848,KRINC,KRINC,Incheon,South Korea
+N037E126-01304,Incheon Container Terminal (ICT),terminal,37.44012354,126.59772751,KRINC,KRINC,Incheon,South Korea
+N037E126-04293,Sunkwang Newport Container Terminal (SNCT),terminal,37.34306703,126.63184866,KRINC,KRINC,Incheon,South Korea
+N034E127-02049,Gwangyang International Container Terminal (GWCT),terminal,34.91213669,127.68071515,KRKAN,KRKAN,Gwangyang,South Korea
+N034E127-01561,Korea Express Gwangyang Terminal (KEGT),terminal,34.89422724,127.64964546,KRKAN,KRKAN,Gwangyang,South Korea
+N034E127-02897,Kwangyang West Container Terminal (KWCT),terminal,34.9003631,127.65795297,KRKAN,KRKAN,Gwangyang,South Korea
+N034E128-03564,Port of Geoje,terminal,34.84837838,128.58320247,KRKJE,KRKJE,Geoje,South Korea
+N035E126-03566,Port of Gunsan,terminal,35.97426576,126.56037833,KRKUV,KRKUV,Gunsan,South Korea
+N035E128-02703,Masan Hang Terminal,terminal,35.1675372,128.58143341,KRMAS,KRMAS,Masan,South Korea
+N034E126-02832,Hyundai Samho HI - Berth Area 01,terminal,34.73779736,126.37447823,KRMOK,KRMOK,Mokpo,South Korea
+N036E126-03541,Pyeongtaek Car Terminal,terminal,36.98133536,126.82798003,KRPTK,KRPTK,Pyeongtaek,South Korea
+N036E126-04294,Pyeongtaek Container Terminal (PCT),terminal,36.9693681,126.83688987,KRPTK,KRPTK,Pyeongtaek,South Korea
+N035E128-00032,Busan Container Terminal (BCT),terminal,35.0627887,128.79950221,KRPUS,KRPUS,Busan,South Korea
+N035E128-00334,Busan Newport Container Terminal (BNCT),terminal,35.06619252,128.81509115,KRPUS,KRPUS,Busan,South Korea
+N035E128-01208,Busan West Container Terminal (BWCT),terminal,35.07657158,128.773908,KRPUS,KRPUS,Busan,South Korea
+N035E129-03485,CJ Korea Express Busan Container Terminal (KBCT),terminal,35.10146589,129.09571923,KRPUS,KRPUS,Busan,South Korea
+N035E128-00034,DP Pusan Newport Company (PNC),terminal,35.07979119,128.80973573,KRPUS,KRPUS,Busan,South Korea
+N035E129-02116,Dongbu Pusan Container Terminal (DPCT),terminal,35.10758907,129.0718357,KRPUS,KRPUS,Busan,South Korea
+N035E128-00856,Hanjin Busan Newport Container Terminal (HJNC),terminal,35.07977217,128.79155082,KRPUS,KRPUS,Busan,South Korea
+N035E129-02847,Hutchison Ports Busan Terminal (HBCT),terminal,35.12429285,129.05949061,KRPUS,KRPUS,Busan,South Korea
+N035E128-02028,PSA Hyundai Pusan Newport Terminal (HPNT),terminal,35.06978827,128.82826322,KRPUS,KRPUS,Busan,South Korea
+N035E128-04295,Pusan Newport International Terminal (PNIT),terminal,35.07961568,128.8232718,KRPUS,KRPUS,Busan,South Korea
+N035E129-01417,Sebang Busan Container Terminal (SBCT),terminal,35.10516412,129.08242699,KRPUS,KRPUS,Busan,South Korea
+N035E129-03535,Ulsan Container Terminal [UDITC],terminal,35.45707426,129.3661223,KRUSN,KRUSN,Ulsan,South Korea
+N029E048-02111,Shuaiba Area Container Terminal,terminal,29.0457323,48.15324356,KWSAA,KWSAA,Shuaiba,Kuwait
+N029E047-02401,Shuwaikh Container Terminal Berth 10 (SWKCT),terminal,29.34664755,47.92263086,KWSWK,KWSWK,Kuwait City,Kuwait
+N029E047-02197,Shuwaikh Container Terminal Berth 12-13 (SWKCT),terminal,29.34834251,47.92070052,KWSWK,KWSWK,Kuwait City,Kuwait
+N033E035-02095,Beirut Container Terminal (BCTC),terminal,33.908035,35.533172,LBBYT,LBBYT,Beirut,Lebanon
+N034E035-02393,Gulftainer Terminal,terminal,34.459694,35.829167,LBKYE,LBKYE,Tripoli,Lebanon
+N006E079-01126,Colombo International Container Terminal (CICT),terminal,6.94400681,79.83277095,LKCMB,LKCMB,Colombo,Sri Lanka
+N006E079-02935,Colombo West International Terminal (CWIT),terminal,6.95145793,79.82237568,LKCMB,LKCMB,Colombo,Sri Lanka
+N006E079-00633,Jaya Container Terminal (JCT),terminal,6.94797957,79.85439999,LKCMB,LKCMB,Colombo,Sri Lanka
+N006E079-00745,South Asia Gateway Terminal (SAGT),terminal,6.94675292,79.8444779,LKCMB,LKCMB,Colombo,Sri Lanka
+N006E079-02912,Unity Container Terminal (LKUCT),terminal,6.9585604,79.85487834,LKCMB,LKCMB,Colombo,Sri Lanka
+N006W011-02701,APM Terminals Monrovia,terminal,6.341934,-10.796339,LRMLW,LRMLW,Monrovia,Liberia
+N055E021-02379,Klaipeda Container Terminal (KKT),terminal,55.64530925,21.15895598,LTKLJ,LTKLJ,Klaipeda,Lithuania
+N055E021-03298,Klaipedos Smelte Container Terminal (KAS),terminal,55.67849106,21.14361254,LTKLJ,LTKLJ,Klaipeda,Lithuania
+N057E024-02619,Baltic Container Terminal Riga (BCT),terminal,57.00797,24.098253,LVRIX,LVRIX,Riga,Latvia
+N056E024-02372,Riga Container Terminal (RCT),terminal,56.976714,24.094069,LVRIX,LVRIX,Riga,Latvia
+N057E024-02620,Riga Universal Terminal (RUT),terminal,57.040064,24.07759,LVRIX,LVRIX,Riga,Latvia
+N032E020-02666,Benghazi Terminal,terminal,32.111364,20.047438,LYBEN,LYBEN,Benghazi,Libya
+N032E014-03190,Khoms Container Terminal,terminal,32.674359,14.245722,LYKHO,LYKHO,Al Khums,Libya
+N032E015-02791,Container Terminal Misurata,terminal,32.364164,15.21862,LYMRA,LYMRA,Misrata,Libya
+N032E013-04083,Tripoli Terminal,terminal,32.907257,13.191922,LYTIP,LYTIP,Tripoli,Libya
+N030W010-03306,Agadir Terminal (SMA),terminal,30.427124,-9.640902,MAAGA,MAAGA,Agadir,Morocco
+MACAS-T001,Marsa Maroc Terminal Casablanca,terminal,33.609545,-7.593921,MACAS,MACAS,Casablanca,Morocco
+N033W008-01830,Somaport Terminal,terminal,33.60362309,-7.60445484,MACAS,MACAS,Casablanca,Morocco
+N035W003-04141,Marsa Maroc Terminal Nador,terminal,35.27311096,-2.91920369,MANDR,MANDR,Nador,Morocco
+N035W006-02512,APM Terminals Tanger Med (TC1),terminal,35.889876,-5.495181,MAPTM,MAPTM,Tanger,Morocco
+N035W006-03490,APM Terminals Tanger Med (TC4),terminal,35.85963767,-5.54169315,MAPTM,MAPTM,Tanger,Morocco
+N035W006-04296,Eurogate Tanger Med 2 (TC2),terminal,35.894161,-5.488575,MAPTM,MAPTM,Tanger,Morocco
+N035W006-02254,Tanger Alliance Terminal (TC3),terminal,35.86602753,-5.53454856,MAPTM,MAPTM,Tanger,Morocco
+N035W006-00828,Molle De Commerce Container Terminal,terminal,35.785791,-5.803451,MATNG,MATNG,Tangier,Morocco
+N042E019-02527,Bar Barge Terminal,terminal,42.087857,19.084829,MEBAR,MEBAR,Bar,Montenegro
+S013E049-03362,Diego Suarez Commercial Port,terminal,-12.268533,49.288387,MGDIE,MGDIE,Antsiranana,Madagascar
+S026E046-04297,Terminal d'Ehoala,terminal,-25.0667273,46.9630766,MGEHL,MGEHL,Fort Dauphin,Madagascar
+S016E046-03909,Mahajanga Terminal,terminal,-15.72653521,46.31097513,MGMJN,MGMJN,Mahajanga,Madagascar
+S014E048-03906,Nosy Be Terminal Hellville,terminal,-13.40705811,48.27981974,MGNOS,MGNOS,Nosy Be,Madagascar
+S024E043-03717,Tulear Terminal,terminal,-23.37801859,43.66497251,MGTLE,MGTLE,Toliara,Madagascar
+S019E049-02204,Madagascar International Container Terminal (MICTSL),terminal,-18.15197966,49.4280694,MGTOA,MGTOA,Toamasina,Madagascar
+N016E096-03181,Ahlone International Port Terminal (AIPT),terminal,16.78564779,96.12059931,MMRGN,MMRGN,Yangon,Myanmar (Burma)
+N016E096-03180,Asia World Port Terminal (AWPT),terminal,16.79372247,96.12110301,MMRGN,MMRGN,Yangon,Myanmar (Burma)
+N016E096-03219,Multipurpose International Terminal Thilawa (MITT),terminal,16.63313931,96.26562141,MMRGN,MMRGN,Yangon,Myanmar (Burma)
+N016E096-03179,Myanmar Industrial Port (MIP),terminal,16.7740479,96.13195966,MMRGN,MMRGN,Yangon,Myanmar (Burma)
+N015E145-03931,Saipan Terminal,terminal,15.225386,145.732782,MPSPN,MPSPN,Saipan,Northern Mariana Islands
+N014W062-02278,Terminal de la Pointe des Grives,terminal,14.591199,-61.049749,MQFDF,MQFDF,Fort-de-France,Martinique
+N020W018-03488,Nouadhibou Port Terminal,terminal,20.89491978,-17.05324819,MRNDB,MRNDB,Nouadhibou,Mauritania
+N017W017-02685,Terminal a Conteneurs de Nouakchott (TCN),terminal,17.989584,-16.024554,MRNKC,MRNKC,Nouakchott,Mauritania
+N035E014-01663,Malta Freeport Marsaxlokk Terminal,terminal,35.817065,14.537337,MTMAR,MTMAR,Marsaxlokk,Malta
+N035E014-02225,Valletta Terminal,terminal,35.88460649,14.50792311,MTMLA,MTMLA,Valletta,Malta
+S021E057-02198,Mauritius Container Terminal,terminal,-20.14156414,57.4935749,MUPLU,MUPLU,Port Louis,Mauritius
+N004E073-02845,Maldives Port Authority Terminal,terminal,4.180596,73.505755,MVMLE,MVMLE,Male,Maldives
+N022W098-01076,Altamira Terminal Portuaria (ATP),terminal,22.47959823,-97.88347147,MXATM,MXATM,Altamira,Mexico
+N022W098-04298,Infraestructura Portuaria Mexicana (IPM),terminal,22.4755847,-97.88267926,MXATM,MXATM,Altamira,Mexico
+N031W117-01789,Ensenada International Terminal (EIT),terminal,31.851734,-116.629534,MXESE,MXESE,Ensenada,Mexico
+N027W111-04144,TPP Terminal Guaymas,terminal,27.92055556,-110.8675,MXGYM,MXGYM,Guaymas,Mexico
+N017W103-02826,APM Terminals Lazaro Cardenas Terminal II,terminal,17.97503,-102.174185,MXLZC,MXLZC,Lazaro Cardenas,Mexico
+N017W103-02896,Hutchison L.C. Multipurpose Terminal (LCMT),terminal,17.92497992,-102.18416687,MXLZC,MXLZC,Lazaro Cardenas,Mexico
+N017W103-01266,LC Terminal Portuaria de Contenedores (LCT),terminal,17.954414,-102.177992,MXLZC,MXLZC,Lazaro Cardenas,Mexico
+N023W107-03153,Mazatlan Port Terminal,terminal,23.18704143,-106.42130839,MXMZT,MXMZT,Mazatlan,Mexico
+N021W090-03256,APM Terminals Yucatan,terminal,21.34652522,-89.67699016,MXPGO,MXPGO,Progreso,Mexico
+N020W087-04157,Puerto Morelos Terminal,terminal,20.84177952,-86.87809742,MXPMS,MXPMS,Puerto Morelos,Mexico
+N019W097-03481,CICE Container Terminal,terminal,19.21120514,-96.1398474,MXVER,MXVER,Veracruz,Mexico
+N019W097-01124,Hutchison Ports ICAVE,terminal,19.21257292,-96.13301241,MXVER,MXVER,Veracruz,Mexico
+N019W097-04299,Hutchison Ports ICAVE TNG,terminal,19.23574391,-96.17086734,MXVER,MXVER,Veracruz,Mexico
+N019W105-01493,Contecon Manzanillo Container Terminal (CMSA),terminal,19.07987196,-104.30028545,MXZLO,MXZLO,Manzanillo,Mexico
+N019W105-02226,SSA Mexico Manzanillo Container Terminal (SSAMX),terminal,19.07179762,-104.2896344,MXZLO,MXZLO,Manzanillo,Mexico
+N019W105-01491,Terminal International de Manzanillo (TIMSA),terminal,19.05905442,-104.30019009,MXZLO,MXZLO,Manzanillo,Mexico
+N006E116-03491,Sapangar Bay Container Port (SBCP),terminal,6.06831107,116.12326228,MYBKI,MYBKI,Kota Kinabalu,Malaysia
+N003E113-02905,Bintulu International Container Terminal (BICT),terminal,3.264507,113.073221,MYBTU,MYBTU,Bintulu,Malaysia
+N001E110-03211,Kuching Sarawak Container Terminal,terminal,1.61569093,110.44903825,MYKCH,MYKCH,Kuching,Malaysia
+N003E103-02964,Kuantan Port Container Terminal (KPCT),terminal,3.97241598,103.41945885,MYKUA,MYKUA,Kuantan,Malaysia
+N005E100-02721,North Butterworth Container Terminal (NBCT) Penang,terminal,5.41404767,100.36657553,MYPEN,MYPEN,Penang,Malaysia
+N001E103-01425,Pasir Gudang Container Terminal (JPB),terminal,1.43839714,103.8902897,MYPGU,MYPGU,Pasir Gudang,Malaysia
+N003E101-02494,North Port Container Terminal (NPM),terminal,3.02299954,101.3604272,MYPKG,MYPKG,Port Klang,Malaysia
+N002E101-01377,Westport Kelang Multi Terminal (KMT),terminal,2.92550766,101.29293933,MYPKG,MYPKG,Port Klang,Malaysia
+N005E118-04300,Sandakan Terminal,terminal,5.80989085,118.07874508,MYSDK,MYSDK,Sandakan,Malaysia
+N001E103-01509,Tanjung Pelepas Terminal (PTP),terminal,1.349654,103.550892,MYTPP,MYTPP,Johor Bahru,Malaysia
+N004E117-04215,Tawau Terminal,terminal,4.24497047,117.87851306,MYTWU,MYTWU,Tawau,Malaysia
+S020E034-02351,Beira Terminal,terminal,-19.81991545,34.83552638,MZBEW,MZBEW,Beira,Mozambique
+S015E040-02353,Nacala Port Terminal,terminal,-14.54020062,40.66809319,MZMNC,MZMNC,Nacala,Mozambique
+S026E032-02806,DP World Maputo,terminal,-25.960879,32.545412,MZMPM,MZMPM,Maputo,Mozambique
+S023E014-01774,Walvis Bay New Container Terminal,terminal,-22.94936264,14.48379147,NAWVB,NAWVB,Walvis Bay,Namibia
+S023E014-03286,Walvis Bay Ocean Terminal,terminal,-22.95085679,14.49742831,NAWVB,NAWVB,Walvis Bay,Namibia
+S023E166-02328,Noumea Terminal,terminal,-22.265293,166.432568,NCNOU,NCNOU,Noumea,New Caledonia
+N006E004-00259,Lekki Freeport Terminal Lagos,terminal,6.427222,4.005278,NGLKK,NGLKK,Lagos,Nigeria
+N006E003-00250,APM Terminals Apapa,terminal,6.435573,3.391479,NGLOS,NGLOS,Lagos,Nigeria
+N006E003-04301,Five Star Logistics Terminal,terminal,6.43364925,3.34227121,NGLOS,NGLOS,Lagos,Nigeria
+N006E003-04302,Port & Cargo Handling Services Terminal (TCIPC),terminal,6.43570141,3.33510006,NGLOS,NGLOS,Lagos,Nigeria
+N006E003-02027,Tin Can Island Terminal (TICT),terminal,6.433477,3.352541,NGLOS,NGLOS,Lagos,Nigeria
+N004E007-01383,Onne Multipurpose Terminal (OMT),terminal,4.68173904,7.1555611,NGONN,NGONN,Port Harcourt,Nigeria
+N004E007-01382,West Africa Container Terminal (WACT),terminal,4.67248707,7.15262688,NGONN,NGONN,Port Harcourt,Nigeria
+N012W088-00998,Corinto Terminal,terminal,12.4827182,-87.1680861,NICIO,NICIO,Corinto,Nicaragua
+N051E004-04113,Moerdijk Container Terminals (MCT),terminal,51.676454,4.590289,NLMOE,NLMOE,Moerdijk,Netherlands
+N051E004-04303,APM Terminals Rotterdam Maasvlakte II (APMTII),terminal,51.95603329,4.01566673,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-03763,Barge Center Waalhaven (BCW),terminal,51.88264,4.43238,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-02435,Hutchison Ports Delta II,terminal,51.95611356,4.03576649,NLRTM,NLRTM,Rotterdam,Netherlands
+NLRTM-T001,Hutchison Ports ECT Delta,terminal,51.95310616,4.0297354,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-01578,Hutchison Ports ECT Euromax,terminal,51.977268,4.035333,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-04304,Kramer Delta,terminal,51.9482614,4.03000228,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-02059,Matrans Rotterdam Terminal B.V.,terminal,51.883062,4.400073,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-02058,Prins Willem Alexanderhaven,terminal,51.87920985,4.39970761,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-03487,Rhenus Deep Sea Terminal,terminal,51.96340567,4.04866827,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-04091,Rotterdam Shortsea Terminals (RST),terminal,51.877757,4.420627,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E003-04305,Rotterdam World Gateway (RWG),terminal,51.94131561,3.97800145,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E004-02066,Wiltonhaven,terminal,51.9007394,4.37713674,NLRTM,NLRTM,Rotterdam,Netherlands
+N051E003-02497,Lineage Kloosterboer Vlissingen,terminal,51.474808,3.707938,NLVLI,NLVLI,Vlissingen,Netherlands
+N062E006-04151, Skutvika Container Terminal Alesund,terminal,62.469299,6.137538,NOAES,NOAES,Alesund,Norway
+N062E006-03703,Flatholmen Terminal,terminal,62.479597,6.189401,NOAES,NOAES,Alesund,Norway
+N062E006-03726,Frigocare Terminal,terminal,62.475066,6.340397,NOAES,NOAES,Alesund,Norway
+N060E005-04016,Bergen Dokken Vest,terminal,60.38611111,5.31305556,NOBGO,NOBGO,Bergen,Norway
+N060E005-04306,Hurtigruten Terminal,terminal,60.391989,5.312158,NOBGO,NOBGO,Bergen,Norway
+N059E009-03824,North Sea Terminal Brevik (NST),terminal,59.066199,9.697752,NOBVK,NOBVK,Brevik,Norway
+N059E010-03839,Drammen Terminal,terminal,59.738708,10.237586,NODRM,NODRM,Drammen,Norway
+N058E005-03783,Egersund Terminal,terminal,58.427022,5.983445,NOEGE,NOEGE,Egersund,Norway
+N059E010-03828,Fredrikstad Container Terminal,terminal,59.18225,10.956985,NOFRK,NOFRK,Fredrikstad,Norway
+N061E005-03722,Florø Terminal,terminal,61.601539,5.024035,NOFRO,NOFRO,Floro,Norway
+N060E005-04214,Fusa Terminal,terminal,60.203365,5.599591,NOFUS,NOFUS,Fusa,Norway
+N062E007-03727,Hogset Terminal,terminal,62.969468,7.732642,NOGJM,NOGJM,Gjemnes,Norway
+N066E013-04024,Port of Glomfjord,terminal,66.809627,13.935471,NOGLO,NOGLO,Glomfjord,Norway
+N059E005-03651,Haugesund Container Terminal,terminal,59.411346,5.256904,NOHAU,NOHAU,Haugesund,Norway
+N059E005-04133,Karmsund Container Terminal (KCT),terminal,59.33920394,5.3114691,NOHAU,NOHAU,Haugesund,Norway
+N062E006-04028,Port of Ikornnes,terminal,62.386739,6.556832,NOIKR,NOIKR,Halsafjorden,Norway
+N058E007-03916,Kristiansand Container Terminal,terminal,58.141882,7.993766,NOKRS,NOKRS,Kristiansand,Norway
+N059E010-03912,Larvik Container Terminal (NOLCT),terminal,59.038485,10.043296,NOLAR,NOLAR,Larvik,Norway
+N061E005-04134,Bring Cargo,terminal,61.93956745,5.12204516,NOMAY,NOMAY,Maloy,Norway
+N061E005-03724,Maloy Cargo Terminal,terminal,61.938829,5.141237,NOMAY,NOMAY,Maloy,Norway
+N066E014-03697,Mo i Rana,terminal,66.31669479,14.12711723,NOMQN,NOMQN,Mo i Rana,Norway
+N059E010-03849,Moss Container Terminal,terminal,59.426831,10.65794,NOMSS,NOMSS,Moss,Norway
+N063E009-03673,Orkanger Terminal,terminal,63.316961,9.846533,NOORK,NOORK,Orkanger,Norway
+N059E010-03683,Yilport Oslo Container Terminal  (SCT),terminal,59.887397,10.755848,NOOSL,NOOSL,Oslo,Norway
+N059E005-03646,Mekjarvik Quay,terminal,59.022508,5.617556,NORDB,NORDB,Randaberg,Norway
+N067E015-04026,Elkem Salten,terminal,67.36472306,15.59044924,NOSAT,NOSAT,Bodo,Norway
+N068E014-03695,Port of Stokmarknes,terminal,68.570381,14.912831,NOSKN,NOSKN,Stokmarknes,Norway
+N063E011-03689,Port of Straumen,terminal,63.87056096,11.29558953,NOSTM,NOSTM,Straumen,Norway
+N061E005-03674,Svelgen Terminal,terminal,61.773717,5.294863,NOSVE,NOSVE,Svelgen,Norway
+N058E005-03768,Stavanger Rosenberg Quay,terminal,58.98827,5.724646,NOSVG,NOSVG,Stavanger,Norway
+N058E005-04014,Westport Risavika Terminal - Tananger,terminal,58.919326,5.587964,NOTAE,NOTAE,Tananger,Norway
+S037E174-01519,Fergusson Container Terminal (PAFW),terminal,-36.84356854,174.78601885,NZAKL,NZAKL,Auckland,New Zealand
+S037E174-04307,Freyberg Wharf,terminal,-36.84427747,174.78150144,NZAKL,NZAKL,Auckland,New Zealand
+S037E174-03866,"Jellicoe Wharf, Port Of Auckland",terminal,-36.84251248,174.77888002,NZAKL,NZAKL,Auckland,New Zealand
+S047E168-03284,Bluff Container Terminal,terminal,-46.594598,168.33425,NZBLU,NZBLU,Bluff,New Zealand
+S044E172-01529,Lyttelton Container Terminal,terminal,-43.60854326,172.72696597,NZLYT,NZLYT,Lyttelton,New Zealand
+S036E174-03024,Northport Terminal,terminal,-35.83569428,174.48887049,NZMAP,NZMAP,Whangarei,New Zealand
+S040E176-04308,Napier Container Terminal,terminal,-39.47497903,176.91436369,NZNPE,NZNPE,Napier,New Zealand
+S042E173-02580,Nelson Container Terminal,terminal,-41.26147649,173.27029428,NZNSN,NZNSN,Nelson,New Zealand
+S046E170-02576,Port Chalmers Container Terminal,terminal,-45.81221764,170.62472494,NZPOE,NZPOE,Dunedin,New Zealand
+S045E171-03496,Timaru Container Terminal,terminal,-44.388383,171.256053,NZTIU,NZTIU,Timaru,New Zealand
+S038E176-02691,Mount Maunganui Port (MMP),terminal,-37.64524254,176.18367928,NZTRG,NZTRG,Tauranga,New Zealand
+S038E176-01628,Tauranga Container Terminal (TRGCT),terminal,-37.66235613,176.17291355,NZTRG,NZTRG,Tauranga,New Zealand
+S042E174-01532,Centreport Wellington (CPW),terminal,-41.27916554,174.78826153,NZWLG,NZWLG,Wellington,New Zealand
+N019E057-02670,Asyad Container Terminal Duqm,terminal,19.666945,57.726395,OMDQM,OMDQM,Duqm,Oman
+N016E054-02522,Salalah Port Terminal,terminal,16.943364,53.999347,OMSLL,OMSLL,Salalah,Oman
+N024E056-01818,Hutchison Ports Sohar (OICT),terminal,24.510816,56.605841,OMSOH,OMSOH,Sohar,Oman
+N008W080-00573,PSA Panama International Terminal (PPIT),terminal,8.95533863,-79.57588765,PABLB,PABLB,Balboa,Panama
+N008W080-01002,Panama Ports Company Balboa Container Terminal (PPCBL),terminal,8.95755369,-79.56358815,PABLB,PABLB,Balboa,Panama
+N009W080-00269,Colon Container Terminal (CCT),terminal,9.37474624,-79.88648711,PACTB,PACTB,Colon,Panama
+PACTB-T001,Cristobal Port Terminal,terminal,9.35060332,-79.90299483,PACTB,PACTB,Colon,Panama
+N009W080-04309,Panama Ports Company - Port of Cristobal,terminal,9.353194,-79.905268,PACTB,PACTB,Colon,Panama
+N009W080-01506,Manzanillo International Container Terminal (MIT),terminal,9.36368626,-79.88184444,PAMIT,PAMIT,Colon,Panama
+S012W078-04310,Puerto Chancay Terminal,terminal,-11.59422629,-77.27737609,PECHY,PECHY,Chancay,Peru
+S013W078-00418,APM Terminals Callao,terminal,-12.04526296,-77.14417594,PECLL,PECLL,Callao,Peru
+S013W078-00419,DP World Callao,terminal,-12.05463511,-77.1488426,PECLL,PECLL,Callao,Peru
+S018W072-03627,Ilo Terminal,terminal,-17.6446822,-71.34764195,PEILQ,PEILQ,Ilo,Peru
+S018W072-04311,Southern Peru Copper Corporation,terminal,-17.650052,-71.349394,PEILQ,PEILQ,Ilo,Peru
+S017W073-03629,Terminal Internacional Del Sur (TISUR),terminal,-16.999684,-72.107242,PEMRI,PEMRI,Matarani,Peru
+S006W082-02860,Terminales Portuarios Euroandinos (TPE),terminal,-5.0823184,-81.10529009,PEPAI,PEPAI,Paita,Peru
+S014W077-03536,Terminal Portuario Paracas SA,terminal,-13.80143678,-76.29150794,PEPIO,PEPIO,Pisco,Peru
+S009W079-02858,Puerto de Salaverry,terminal,-8.22888101,-78.98220188,PESVY,PESVY,Salaverry,Peru
+S018W150-02321,Papeete Terminal,terminal,-17.537095,-149.576312,PFPPT,PFPPT,Papeete,French Polynesia
+S011E150-02780,Alotau Terminal,terminal,-10.31649451,150.4553724,PGGUR,PGGUR,Alotau,Papua New Guinea
+S006E150-02338,Port of Kimbe Terminal,terminal,-5.54908879,150.14819436,PGKIM,PGKIM,Kimbe,Papua New Guinea
+S007E146-02331,South Pacific International Container Terminal (SPICT),terminal,-6.73376383,146.97920225,PGLAE,PGLAE,Lae,Papua New Guinea
+S006E145-02776,Madang Bismark Terminal,terminal,-5.20845836,145.80049614,PGMAG,PGMAG,Madang,Papua New Guinea
+S010E147-02546,Motukea Iinternational Terminal (MIT),terminal,-9.42735741,147.11327778,PGPOM,PGPOM,Port Moresby,Papua New Guinea
+S005E152-02661,Rabaul Terminal,terminal,-4.20179726,152.16655361,PGRAB,PGRAB,Rabaul,Papua New Guinea
+S004E143-04219,Wewak Terminal,terminal,-3.57160625,143.64396462,PGWWK,PGWWK,Wewak,Papua New Guinea
+N010E122-04201,Bredco Port,terminal,10.68342528,122.93926306,PHBCD,PHBCD,Bacolod,Philippines
+N013E121-02460,Batangas Container Terminal (ATI),terminal,13.75968665,121.04348544,PHBTG,PHBTG,Batangas,Philippines
+N013E121-02461,"Batangas Ro-Ro, Ferry Terminal",terminal,13.75574276,121.04182202,PHBTG,PHBTG,Batangas,Philippines
+N010E123-02467,Cebu Container Terminal,terminal,10.30940458,123.92360709,PHCEB,PHCEB,Cebu,Philippines
+N008E124-03983,Cagayan de Oro Terminal,terminal,8.4946886,124.66228541,PHCGY,PHCGY,Cagayan de Oro,Philippines
+N008E124-03502,Mindanao Container Terminal (MCT),terminal,8.5226959,124.74892231,PHCGY,PHCGY,Cagayan de Oro,Philippines
+N007E125-04312,Container Terminal Corporation (KTC),terminal,7.20803097,125.64805393,PHDVO,PHDVO,Davao,Philippines
+N007E125-02239,Davao International Container Terminal (DICT),terminal,7.29695485,125.71549342,PHDVO,PHDVO,Davao,Philippines
+N007E125-04313,"Trans Ocean Container Services (Phils), Inc - Davao",terminal,7.29465434,125.71325562,PHDVO,PHDVO,Davao,Philippines
+N006E125-03480,General Santos Terminal,terminal,6.09527393,125.1588996,PHGES,PHGES,General Santos,Philippines
+N010E122-04204,Iloilo Commercial Port Complex,terminal,10.7064186,122.59354111,PHILO,PHILO,Iloilo,Philippines
+N014E120-02227,Asian Terminal Incorporated (ATI) Manila South,terminal,14.585795,120.964735,PHMNL,PHMNL,Manila,Philippines
+N014E120-02523,Manila International Container Terminal (MICT),terminal,14.59929727,120.94909597,PHMNL,PHMNL,Manila,Philippines
+N014E120-02036,Manila North Harbor Container Terminal (NHDP),terminal,14.615426,120.956967,PHMNL,PHMNL,Manila,Philippines
+N014E120-02454,Subic Bay International Terminal (SBIT),terminal,14.80214309,120.26413968,PHSFS,PHSFS,Subic,Philippines
+N006E122-01902,Zamboanga Terminal,terminal,6.90356034,122.07272297,PHZAM,PHZAM,Zamboanga,Philippines
+N024E067-02020,Qasim International Container Terminal (QICT),terminal,24.76671178,67.32667205,PKBQM,PKBQM,Karachi,Pakistan
+N024E066-01675,Karachi International Container Terminal (KICT),terminal,24.83557922,66.97572628,PKKHI,PKKHI,Karachi,Pakistan
+N024E066-01674,Pakistan International Container Terminal (PICT),terminal,24.82505351,66.97599068,PKKHI,PKKHI,Karachi,Pakistan
+N024E066-01815,South Asia Pakistan Terminals (SAPT),terminal,24.80130064,66.98482439,PKKHI,PKKHI,Karachi,Pakistan
+N054E018-01895,Baltic Hub (DCT Gdansk),terminal,54.382056,18.712167,PLGDN,PLGDN,Gdansk,Poland
+N054E018-01975,Ore Pier,terminal,54.39236864,18.71336466,PLGDN,PLGDN,Gdansk,Poland
+N054E018-03358,Baltic Container Terminal Gdynia (BCT),terminal,54.545335,18.513165,PLGDY,PLGDY,Gdynia,Poland
+N054E018-02909,Gdynia Container Terminal (GCT),terminal,54.542422,18.507929,PLGDY,PLGDY,Gdynia,Poland
+N053E014-03847,Finskie Containers and RoRo,terminal,53.42146717,14.5730241,PLSZZ,PLSZZ,Szczecin,Poland
+N053E014-04314,Szczecin DB Container Terminal (Ostrow Grabowski CT),terminal,53.418936,14.570401,PLSZZ,PLSZZ,Szczecin,Poland
+N018W067-03101,Luis A. Ayala Colon Container Terminal (LACS),terminal,18.430861,-66.099252,PRSJU,PRSJU,San Juan,Puerto Rico
+N032W017-03120,Canical Terminal,terminal,32.73729682,-16.73331356,PTCNL,PTCNL,Canical,Portugal
+N038W029-04055,Horta Terminal,terminal,38.52603763,-28.62250704,PTHOR,PTHOR,Horta,Portugal
+N041W009-03056,Leixoes Container Terminal North (TCLA),terminal,41.18606162,-8.70176688,PTLEI,PTLEI,Porto,Portugal
+N041W009-03059,Terminal de Contendores de Leixoes (TCL),terminal,41.192978,-8.684242,PTLEI,PTLEI,Porto,Portugal
+N038W010-03140,Liscont Container Terminal,terminal,38.7004905,-9.16587034,PTLIS,PTLIS,Lisbon,Portugal
+N038W010-03117,Terminal De Santa Apolonia (TSA),terminal,38.72001743,-9.11475298,PTLIS,PTLIS,Lisbon,Portugal
+N038W010-01611,Terminal de Contentores de Alcantara (TCA),terminal,38.69917302,-9.1719814,PTLIS,PTLIS,Lisbon,Portugal
+N037W026-04060,Ponta Delgada Terminal,terminal,37.734918,-25.665917,PTPDL,PTPDL,Ponta Delgada,Portugal
+N038W028-04047,Praia da Vitoria Terminal,terminal,38.7141,-27.049273,PTPRV,PTPRV,Praia da Vitoria,Portugal
+N038W009-03785,Sadoport Terminal,terminal,38.516105,-8.874244,PTSET,PTSET,Setubal,Portugal
+N037W009-02939,PSA Sines Container Terminal,terminal,37.93621,-8.846269,PTSIE,PTSIE,Sines,Portugal
+N038W029-04052,Velas Terminal,terminal,38.67857539,-28.20400953,PTVEL,PTVEL,Velas,Portugal
+S026W058-03046,Caacupemi Terminal,terminal,-25.226013,-57.571658,PYASU,PYASU,Asuncion,Paraguay
+S026W058-04315,Terminal Puerto Fenix,terminal,-25.22441934,-57.56698981,PYASU,PYASU,Asuncion,Paraguay
+S026W058-04316,Terminal San Jose - Asuncion,terminal,-25.2221576,-57.56570999,PYASU,PYASU,Asuncion,Paraguay
+S026W058-02868,Terport San Antonio,terminal,-25.445528,-57.550275,PYASU,PYASU,Asuncion,Paraguay
+S026W058-03069,ANNP Terminal Portuaria Villeta,terminal,-25.50805556,-57.57555556,PYVLL,PYVLL,Villeta,Paraguay
+S026W058-02963,Puerto Seguro Fluvial (PSF),terminal,-25.54760142,-57.55662553,PYVLL,PYVLL,Villeta,Paraguay
+N025E051-03512,Doha Terminal,terminal,25.3047821,51.55864136,QADOH,QADOH,Doha,Qatar
+N024E051-02749,APL Mesaieed Terminal,terminal,24.92672844,51.57429524,QAUMS,QAUMS,Mesaieed,Qatar
+N025E051-01591,Hamad Container Terminal (HCT),terminal,25.01970343,51.60808879,QAUMS,QAUMS,Mesaieed,Qatar
+N024E051-03171,Mesaieed Container Terminal,terminal,24.94416667,51.58611111,QAUMS,QAUMS,Mesaieed,Qatar
+S021E055-02202,Pointe des Galets Terminal,terminal,-20.9300802,55.31546017,REPDG,REPDG,Le Port,Réunion
+N044E028-04317,DP World Constanta South Container Terminal (CSCT),terminal,44.09377404,28.65872658,ROCND,ROCND,Constanta,Romania
+N044E028-03757,SOCEP Container Terminal,terminal,44.16237435,28.64159,ROCND,ROCND,Constanta,Romania
+N043E131-04152,Fish Port Terminal,terminal,43.09188621,131.88073848,RUFPT,RUFPT,Vladivostok,Russia
+N059E030-03357,Container Terminal Saint-Petersburg (CTSP),terminal,59.871752,30.20294,RULED,RULED,Saint Petersburg,Russia
+N044E037-03309,Nutep JSC Container Terminal,terminal,44.72474178,37.8156636,RUNVS,RUNVS,Novorossiysk,Russia
+N026E050-01598,Saudi Global Port Terminal 2 (SCT),terminal,26.5079578,50.19106934,SADMM,SADMM,Dammam,Saudi Arabia
+N026E050-01599,Saudi Global Ports Company (FCT),terminal,26.49955665,50.19739911,SADMM,SADMM,Dammam,Saudi Arabia
+N021E039-02839,DP World South Container Terminal Jeddah (SCT),terminal,21.4545058,39.16022349,SAJED,SAJED,Jeddah,Saudi Arabia
+N021E039-01979,Jeddah-Gulf Container Terminal (GCT),terminal,21.47978695,39.16616659,SAJED,SAJED,Jeddah,Saudi Arabia
+N021E039-01656,Red Sea Gateway Terminal (RSGT),terminal,21.48780812,39.15945697,SAJED,SAJED,Jeddah,Saudi Arabia
+N027E049-02021,Jubail Commercial Port (GSC),terminal,27.024119,49.679251,SAJUB,SAJUB,Jubail,Saudi Arabia
+N022E039-03277,King Abdullah National Container Terminals (NCT),terminal,22.52772791,39.08948881,SAKAC,SAKAC,Rabigh,Saudi Arabia
+N027E035-03036,Dhuba Port,terminal,27.56,35.550833,SANEO,SANEO,Neom,Saudi Arabia
+S010E159-03815,Honiara Terminal,terminal,-9.427446,159.959111,SBHIR,SBHIR,Honiara,Solomon Islands
+S009E157-04225,Port of Noro,terminal,-8.23428843,157.19756529,SBNOR,SBNOR,Noro,Solomon Islands
+S005E055-02669,Victoria Port Terminal,terminal,-4.626831,55.463437,SCPOV,SCPOV,Victoria,Seychelles
+N019E037-03950,Port Sudan Container Terminal,terminal,19.60083091,37.23348227,SDPZU,SDPZU,Port Sudan,Sudan
+N055E014-03970,Ahus Container Terminal,terminal,55.928445,14.325432,SEAHU,SEAHU,Ahus,Sweden
+N057E011-02564,APM Terminals Gothenborg (Ex Skandia) (CT1),terminal,57.69002,11.857896,SEGOT,SEGOT,Gothenburg,Sweden
+N060E017-03297,Gävle Container Terminal (GCT),terminal,60.692952,17.223129,SEGVX,SEGVX,Gavle,Sweden
+N056E012-03775,Halmstad Terminal,terminal,56.650476,12.848747,SEHAD,SEHAD,Halmstad,Sweden
+N056E012-03769,Helsingborg West Harbour (VESTHA),terminal,56.031449,12.694488,SEHEL,SEHEL,Helsingborg,Sweden
+N055E013-03872,Malmo Frihamnen,terminal,55.61626841,13.00011439,SEMMA,SEMMA,Malmo,Sweden
+N058E016-03337,Pampus Container Terminal (PCT),terminal,58.623,16.240541,SENRK,SENRK,Norrkoping,Sweden
+N058E017-03797,Oxelosund Hamn Terminal,terminal,58.663304,17.109854,SEOXE,SEOXE,Oxelosund,Sweden
+N065E021-02851,Shorelink Terminal - Pitea Hamn,terminal,65.236562,21.625781,SEPIT,SEPIT,Pitea,Sweden
+N064E021-02420,Skelleftea Hamn,terminal,64.68380112,21.25798849,SESKE,SESKE,Skelleftea,Sweden
+N059E017-03961,Soedertaelje Hamn Container Terminal,terminal,59.163271,17.661552,SESOE,SESOE,Sodertalje,Sweden
+N058E017-03290,Hutchison Ports Stockholm Norvik (NCS),terminal,58.93524619,17.97958041,SESTO,SESTO,Stockholm,Sweden
+N063E020-03869,Umeaa SCA Logistics Terminal,terminal,63.698261,20.345973,SEUME,SEUME,Umea,Sweden
+N001E103-00302,Brani Terminal - PSA Singapore,terminal,1.26152445,103.83475642,SGSIN,SGSIN,Singapore,Singapore
+N001E103-03170,Jurong Port Terminal,terminal,1.30632492,103.71934709,SGSIN,SGSIN,Singapore,Singapore
+N001E103-00220,Keppel Terminal - PSA Singapore,terminal,1.26848121,103.8353444,SGSIN,SGSIN,Singapore,Singapore
+N001E103-00397,PSA Tuas Megaport Terminal,terminal,1.25169168,103.62643287,SGSIN,SGSIN,Singapore,Singapore
+SGSIN-T001,Pasir Panjang Terminal - PSA Singapore,terminal,1.26612305,103.78712238,SGSIN,SGSIN,Singapore,Singapore
+N045E013-02101,Luka Koper Terminal,terminal,45.554809,13.736064,SIKOP,SIKOP,Koper,Slovenia
+N008W014-02821,Freetown Terminal,terminal,8.493826,-13.214796,SLFNA,SLFNA,Freetown,Sierra Leone
+N014W018-01487,DP World Dakar,terminal,14.687703,-17.426614,SNDKR,SNDKR,Dakar,Senegal
+N010E044-02705,Berbera Terminal,terminal,10.4337498,44.99359435,SOBBO,SOBBO,Berbera,Somalia
+S001E042-03952,Kismayu Terminal,terminal,-0.387152,42.546176,SOKMU,SOKMU,Kismayo,Somalia
+N002E045-02447,Mogadishu Container Terminal (EASC),terminal,2.02591895,45.33554435,SOMGQ,SOMGQ,Mogadishu,Somalia
+N005W056-02737,Paramaribo Port Terminal,terminal,5.81279731,-55.1665805,SRPBM,SRPBM,Paramaribo,Suriname
+N013W090-02057,Acajutla Comision Ejecutiva Portuaria Container Terminal (PUACA),terminal,13.57793866,-89.83192942,SVAQJ,SVAQJ,Acajutla,El Salvador
+N018W064-02690,Philipsburg Port Terminal,terminal,18.010264,-63.044095,SXPHI,SXPHI,Philipsburg,Sint Maarten
+N035E035-02423,Latakia International Container Terminal (LICT),terminal,35.532209,35.774786,SYLTK,SYLTK,Latakia,Syria
+N034E035-02744,Tartous Container Terminal,terminal,34.908069,35.867182,SYTTS,SYTTS,Tartus,Syria
+N006E001-01135,Lome Container Terminal (LCT),terminal,6.13839883,1.27776277,TGLFW,TGLFW,Lome,Togo
+N006E001-01136,Togo Terminal,terminal,6.143889,1.284444,TGLFW,TGLFW,Lome,Togo
+N013E100-02396,Bangkok Modern Terminal (BMT),terminal,13.60713344,100.575806,THBKK,THBKK,Bangkok,Thailand
+N013E100-03588,Bangkok Port - PAT Klong Toey,terminal,13.70468671,100.57288534,THBKK,THBKK,Bangkok,Thailand
+N013E100-02398,Sahathai Coastal Terminal (SHCT),terminal,13.65515444,100.54546955,THBKK,THBKK,Bangkok,Thailand
+N013E100-02400,Siam Container Transport & Terminal,terminal,13.69717771,100.58543032,THBKK,THBKK,Bangkok,Thailand
+N013E100-01343,Hutchison Ports Laem Chabang Terminal C1/C2,terminal,13.05664982,100.89972435,THLCH,THLCH,Si Racha,Thailand
+N013E100-04318,Hutchison Ports Laem Chabang Terminal D1/D2/D3,terminal,13.04841497,100.90197699,THLCH,THLCH,Si Racha,Thailand
+N013E100-04319,Kerry Siam Seaport Limited (KSP),terminal,13.12691646,100.90459044,THLCH,THLCH,Si Racha,Thailand
+N013E100-01285,Laem Chabang International Terminal C3,terminal,13.05452925,100.89095489,THLCH,THLCH,Si Racha,Thailand
+N013E100-03504,Laem Chabang Terminal A0,terminal,13.07057823,100.89886682,THLCH,THLCH,Si Racha,Thailand
+N013E100-03503,Laem Chabang Terminal B1 (LCB1),terminal,13.06660076,100.89891287,THLCH,THLCH,Si Racha,Thailand
+N013E100-04320,Laem Chabang Terminal B2 (LCHB2),terminal,13.06342136,100.8946981,THLCH,THLCH,Si Racha,Thailand
+THLCH-T001,Laem Chabang Terminal B3,terminal,13.06202415,100.89197436,THLCH,THLCH,Si Racha,Thailand
+N013E100-04321,Laem Chabang Terminal B4,terminal,13.06108999,100.88960316,THLCH,THLCH,Si Racha,Thailand
+N013E100-04322,Thai Laem Chabang Terminal A2,terminal,13.06990473,100.89078384,THLCH,THLCH,Si Racha,Thailand
+N013E100-04323,Thailand International Port Service,terminal,13.0750226,100.90805134,THLCH,THLCH,Si Racha,Thailand
+N007E100-03633,Chaophaya Terminal International,terminal,7.22973336,100.57249073,THSGK,THSGK,Songkhla,Thailand
+S009E125-03953,Tibar Bay Container Terminal,terminal,-8.57234253,125.474236,TLDIL,TLDIL,Dili,Timor-Leste
+N034E010-03990,Sfax Container Terminal,terminal,34.724593,10.770621,TNSFA,TNSFA,Sfax,Tunisia
+N036E010-03162,Rades Port Terminal (RAPO),terminal,36.805024,10.265501,TNTUN,TNTUN,Tunis,Tunisia
+S022W176-03465,Nukualofa Terminal,terminal,-21.137023,-175.179552,TOTBU,TOTBU,Nuku'alofa,Tonga
+N038E026-03281,Nemport Container Terminal (NEMPOR),terminal,38.767699,26.940002,TRALI,TRALI,Aliaga,Turkey
+N038E026-01828,SOCAR Terminal Aliaga,terminal,38.77629387,26.93061091,TRALI,TRALI,Aliaga,Turkey
+N038E026-02172,TCE EGE Container Terminal,terminal,38.760287,26.929647,TRALI,TRALI,Aliaga,Turkey
+N036E030-03273,Port Akdeniz Terminal - Antalya,terminal,36.83753,30.6119,TRAYT,TRAYT,Antalya,Turkey
+N040E029-01822,Safiport Derince Container Terminal,terminal,40.748333,29.840556,TRDRC,TRDRC,Derince,Turkey
+N040E029-03128,Beldeport,terminal,40.76957,29.513988,TRGEB,TRGEB,Gebze,Turkey
+N040E029-00875,DP World Evyap Körfez,terminal,40.775813,29.709156,TRGEB,TRGEB,Gebze,Turkey
+N040E029-00195,Yilport Gebze Container Terminal (YGCT),terminal,40.767436,29.535499,TRGEB,TRGEB,Gebze,Turkey
+N040E029-02724,Borusan Liman Container Terminal ,terminal,40.414542,29.08404,TRGEM,TRGEM,Gemlik,Turkey
+N040E029-01825,Gemport Container Terminal (GEMPOR),terminal,40.416919,29.116098,TRGEM,TRGEM,Gemlik,Turkey
+N040E029-04324,Roda Liman Container Terminal,terminal,40.411111,29.083214,TRGEM,TRGEM,Gemlik,Turkey
+N036E036-04326,Assan Port Iskenderun,terminal,36.68696767,36.2029952,TRISK,TRISK,Iskenderun,Turkey
+N036E036-02249,Limak Port Iskenderun,terminal,36.595167,36.192781,TRISK,TRISK,Iskenderun,Turkey
+TRIST-T001,Ambarli Port - Mardas Shipping Terminal,terminal,40.967067,28.675429,TRIST,TRIST,Istanbul,Turkey
+N041E029-03562,Haydarpasa Container Terminal,terminal,41.005885,29.009233,TRIST,TRIST,Istanbul,Turkey
+N040E028-04327,Kumport Terminal (KUMLI),terminal,40.96859,28.68251,TRIST,TRIST,Istanbul,Turkey
+N040E028-04328,Marport Terminal (MRP),terminal,40.964847,28.673154,TRIST,TRIST,Istanbul,Turkey
+N038E027-00178,Izmir Container Terminal (TCDD),terminal,38.444548,27.155414,TRIZM,TRIZM,Izmir,Turkey
+N036E034-00167,Mersin International Port (MIP),terminal,36.80255,34.641448,TRMER,TRMER,Mersin,Turkey
+N036E034-03538,Mersin Liman letmesi Yolcu Salonu,terminal,36.80602,34.651093,TRMER,TRMER,Mersin,Turkey
+N041E036-04148,Samsunport Terminal - Samsun,terminal,41.30771113,36.33816571,TRSSX,TRSSX,Samsun,Turkey
+N040E027-03236,Asyaport Terminal - Tekirdag,terminal,40.89804375,27.46805782,TRTEK,TRTEK,Tekirdag,Turkey
+N041E039-04115,Alport Terminal - Trabzon,terminal,41.00274646,39.73948515,TRTZX,TRTZX,Trabzon,Turkey
+TRYAL-T001,RoRo Terminal,terminal,40.68998961,29.43160033,TRYAL,TRYAL,Yalova,Turkey
+N040E029-02108,DP World Evyap Yarimca,terminal,40.761567,29.745891,TRYAR,TRYAR,Yarimca,Turkey
+N010W062-00907,Port of Spain Terminal (PPOS),terminal,10.65500597,-61.52388741,TTPOS,TTPOS,Port of Spain,Trinidad and Tobago
+N010W062-03583,Point Lisas Terminal,terminal,10.4091123,-61.49460831,TTPTS,TTPTS,Point Lisas,Trinidad and Tobago
+N025E121-01421,China Container Terminal Corporation (CCTC),terminal,25.14576919,121.75087246,TWKEL,TWKEL,Keelung,Taiwan
+N025E121-02438,Keelung Harbour Bureau Container Terminal,terminal,25.13823818,121.75172967,TWKEL,TWKEL,Keelung,Taiwan
+N025E121-03951,Keelung West Harbor,terminal,25.1533829,121.7471267,TWKEL,TWKEL,Keelung,Taiwan
+N025E121-01504,United Logistics International Corp (ULIC),terminal,25.14127837,121.75522507,TWKEL,TWKEL,Keelung,Taiwan
+N022E120-01809,"Kao Ming Container Terminal (KMCT) - Pier 108,109,110,111",terminal,22.54406622,120.325154,TWKHH,TWKHH,Kaohsiung,Taiwan
+TWKHH-T001,"Kaohsiung APL Terminal - Pier 68,69",terminal,22.56215033,120.32073914,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-03561,"Kaohsiung EMC Terminal - Pier 115,116,117",terminal,22.55730712,120.31360048,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-03035,"Kaohsiung Evergreen Terminal - Pier 79,80,81",terminal,22.55302997,120.33370689,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-04329,Kaohsiung Evergreen Terminal KCC7 (S01-S05),terminal,22.53445525,120.32019442,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-04330,"Kaohsiung HMM Terminal - Pier 76,77,78 ",terminal,22.5559454,120.3302753,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-03429,Kaohsiung Lien Hai Terminal - Pier 42 43,terminal,22.60893782,120.2839094,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-00818,"Kaohsiung NYK Terminal - Pier 120,121 ",terminal,22.56767751,120.30501735,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-04331,"Kaohsiung OOCL Terminal - Pier 65,66,67 ",terminal,22.5746706,120.30929647,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-03149,"Kaohsiung Wan Hai Terminal - Pier 63,64",terminal,22.57809417,120.30597793,TWKHH,TWKHH,Kaohsiung,Taiwan
+N022E120-04332,Kaohsiung Yang Ming Terminal - Pier 70,terminal,22.56028107,120.32239693,TWKHH,TWKHH,Kaohsiung,Taiwan
+N025E121-01908,Taipei Port Container Terminal (TPCT),terminal,25.16465979,121.38579352,TWTPE,TWTPE,Taipei,Taiwan
+N024E120-01293,China Container Terminal Corp (CCTC),terminal,24.27772949,120.52750215,TWTXG,TWTXG,Taichung,Taiwan
+N024E120-03778,Taichung Evergreen Container Terminal - No. 2,terminal,24.26856759,120.51565756,TWTXG,TWTXG,Taichung,Taiwan
+N024E120-04333,Taichung Wan Hai Container Terminal - No. 1,terminal,24.26451136,120.51398311,TWTXG,TWTXG,Taichung,Taiwan
+S007E039-00320,Tanzania International Container Terminal Services (TICTS),terminal,-6.84022871,39.29550962,TZDAR,TZDAR,Dar es Salaam,Tanzania
+S011E040-02409,Mtwara Terminal,terminal,-10.268466,40.199235,TZMYW,TZMYW,Mtwara,Tanzania
+S006E039-04217,Tanga Terminal,terminal,-5.066453,39.104504,TZTGT,TZTGT,Tanga,Tanzania
+S007E039-03820,Zanzibar Terminal,terminal,-6.15561634,39.1923749,TZZNZ,TZZNZ,Zanzibar,Tanzania
+N046E030-03068,Ilyichevsk Container Terminal,terminal,46.33103699,30.66357646,UAILK,UAILK,Chornomorsk,Ukraine
+N046E030-03974,Container Terminal Odessa (CTO),terminal,46.489449,30.757447,UAODS,UAODS,Odessa,Ukraine
+N057W153-03517,Kodiak Terminal,terminal,57.7816196,-152.43617124,USADQ,USADQ,Kodiak,United States
+N061W150-04334,TOTE Terminal - Anchorage,terminal,61.23971038,-149.8816487,USANC,USANC,Anchorage,United States
+N039W077-00951,Seagirt Marine Terminal Baltimore (SMT),terminal,39.25666815,-76.54874353,USBAL,USBAL,Baltimore,United States
+N042W072-01003,Paul W Conley Terminal (PWCMT),terminal,42.340662,-71.025154,USBOS,USBOS,Boston,United States
+N032W080-03308,Hugh K Leatherman Terminal (HLT),terminal,32.8401411,-79.93606103,USCHS,USCHS,Charleston,United States
+N032W080-02731,North Charleston Marine Terminal (NCMT),terminal,32.903952,-79.964566,USCHS,USCHS,Charleston,United States
+N032W080-04335,Wando Welch Marine Terminal (WWMT),terminal,32.836342,-79.875866,USCHS,USCHS,Charleston,United States
+N053W167-02802,APL Dutch Harbour Terminal,terminal,53.88388759,-166.53105786,USDUT,USDUT,Dutch Harbor,United States
+N021W158-03084,Honolulu Matson Terminal,terminal,21.30913514,-157.88178366,USHNL,USHNL,Honolulu,United States
+USHNL-T001,"Honolulu Terminal, Pier 1",terminal,21.29656129,-157.86799823,USHNL,USHNL,Honolulu,United States
+N021W158-02834,Pasha Hawaii Terminal,terminal,21.2974013,-157.86654182,USHNL,USHNL,Honolulu,United States
+N029W095-01086,Barbours Cut Container Terminal (BCMT),terminal,29.67943085,-94.99870689,USHOU,USHOU,Houston,United States
+N029W096-00366,Bayport Container Terminal (BPTM),terminal,29.60988486,-95.00529047,USHOU,USHOU,Houston,United States
+N034W078-03507,North Carolina State Port Authority (NCSPA),terminal,34.19205226,-77.95362872,USILM,USILM,Wilmington,United States
+N030W082-00945,Blount Island Marine Terminal (BLOJX),terminal,30.39279138,-81.53852559,USJAX,USJAX,Jacksonville,United States
+N030W082-02973,Dames Point TraPac Container Terminal,terminal,30.39659932,-81.56547852,USJAX,USJAX,Jacksonville,United States
+N033W119-01930,APM Terminals Los Angeles Pier 400,terminal,33.72121352,-118.25304607,USLAX,USLAX,Los Angeles,United States
+N033W119-03571,Everport Container Terminal Los Angeles (ETS),terminal,33.74407125,-118.26978709,USLAX,USLAX,Los Angeles,United States
+N033W119-01931,Fenix Marine Container Terminal (FMS),terminal,33.73959842,-118.25398653,USLAX,USLAX,Los Angeles,United States
+N033W119-01163,TraPac Container Terminal - Los Angeles,terminal,33.7655646,-118.2687843,USLAX,USLAX,Los Angeles,United States
+N033W119-01207,West Basin Container Terminal (WBCT),terminal,33.75747322,-118.28736865,USLAX,USLAX,Los Angeles,United States
+N033W119-01541,Yusen Container Terminal (YTI),terminal,33.75464949,-118.25982814,USLAX,USLAX,Los Angeles,United States
+N033W119-01618,Long Beach Container Terminal (ITS),terminal,33.74987859,-118.19814755,USLGB,USLGB,Long Beach,United States
+N033W119-01813,Long Beach Container Terminal Pier E (LBCT),terminal,33.76038381,-118.21125838,USLGB,USLGB,Long Beach,United States
+N033W119-03079,Long Beach SSA Terminal Pier A,terminal,33.77070952,-118.2342404,USLGB,USLGB,Long Beach,United States
+N033W119-03081,Matson SSA Terminals Pier C,terminal,33.77253606,-118.2145278,USLGB,USLGB,Long Beach,United States
+N033W119-04336,Pacific Container Terminal Pier J (PCT),terminal,33.74120991,-118.19047094,USLGB,USLGB,Long Beach,United States
+N033W119-03289,Total Terminals International Pier T (TTI),terminal,33.75807424,-118.22986603,USLGB,USLGB,Long Beach,United States
+USMIA-T001,Port of Miami (POMTOC),terminal,25.77439925,-80.1677979,USMIA,USMIA,Miami,United States
+N025W081-03299,South Florida Container Terminal (SFCT),terminal,25.77110769,-80.16134205,USMIA,USMIA,Miami,United States
+N030W089-00551,APM Terminals Mobile,terminal,30.66796467,-88.03779796,USMOB,USMOB,Mobile,United States
+N029W091-01845,Napoleon Avenue Container Terminal (NOLA),terminal,29.91343665,-90.10805273,USMSY,USMSY,New Orleans,United States
+N034W120-03498,Port of Hueneme Terminal,terminal,34.14744038,-119.20555086,USNTD,USNTD,Port Hueneme,United States
+N040W075-00883,APM Terminals Elizabeth NJ,terminal,40.66703563,-74.15325544,USNYC,USNYC,New York,United States
+N040W075-01990,Global Marine Terminal (GCT),terminal,40.67393762,-74.08129572,USNYC,USNYC,New York,United States
+USNYC-T001,Maher Container Terminal,terminal,40.6816256,-74.1620162,USNYC,USNYC,New York,United States
+N040W075-01537,New York Container Terminal (NYCT),terminal,40.64026677,-74.18760796,USNYC,USNYC,New York,United States
+N040W075-00367,Port Newark Container Terminal (PNCT),terminal,40.689204,-74.151291,USNYC,USNYC,New York,United States
+N037W123-03557,APL Eagle Marine Berth Berth 60-63,terminal,37.79461027,-122.29877729,USOAK,USOAK,Oakland,United States
+N037W123-01546,Everport Terminal Services Oakland,terminal,37.80711435,-122.33634812,USOAK,USOAK,Oakland,United States
+N037W123-02115,Oakland International Container Terminal (OICT) Berth 58,terminal,37.79789637,-122.31117253,USOAK,USOAK,Oakland,United States
+N037W123-04337,TraPac Container Terminal - Oakland,terminal,37.80846839,-122.32599446,USOAK,USOAK,Oakland,United States
+N036W077-01265,Norfolk International Terminal (NIT),terminal,36.91165998,-76.32456734,USORF,USORF,Norfolk,United States
+N036W077-04338,Portsmouth Marine Terminal (PMT),terminal,36.85536258,-76.32381049,USORF,USORF,Norfolk,United States
+N036W077-01263,Virginia International Gateway (VIG),terminal,36.872826,-76.357869,USORF,USORF,Norfolk,United States
+N045W123-03452,Portland Terminal 6,terminal,45.63921044,-122.74924471,USPDX,USPDX,Portland,United States
+USPEF-T001,Florida International Terminal (FIT),terminal,26.06832432,-80.1193062,USPEF,USPEF,Fort Lauderdale,United States
+N026W081-04339,Port Everglades Terminal (PET),terminal,26.07116322,-80.11968262,USPEF,USPEF,Fort Lauderdale,United States
+N039W076-00699,Packer Avenue Marine Terminal (PAMT),terminal,39.90082508,-75.13718805,USPHL,USPHL,Philadelphia,United States
+N032W082-00429,Garden City Marine Terminal (GCMT),terminal,32.12091722,-81.13984873,USSAV,USSAV,Savannah,United States
+N032W082-00428,Savannah Ocean Container Terminal (OCT),terminal,32.0887299,-81.10308164,USSAV,USSAV,Savannah,United States
+N047W123-01469,SSA Terminal Seattle T-18,terminal,47.58497655,-122.34803592,USSEA,USSEA,Seattle,United States
+N047W123-03263,SSA Terminal Seattle T-5,terminal,47.57831971,-122.36372751,USSEA,USSEA,Seattle,United States
+N047W123-03513,APM Terminals - Tacoma,terminal,47.2660031,-122.41940388,USTIW,USTIW,Tacoma,United States
+N047W123-01849,Husky Terminal - Tacoma,terminal,47.27304729,-122.41372998,USTIW,USTIW,Tacoma,United States
+N047W123-01854,Pierce County Terminal - Tacoma (PCT),terminal,47.25175178,-122.37791693,USTIW,USTIW,Tacoma,United States
+N047W123-01852,Washington United Terminals (WUT),terminal,47.26013155,-122.38879128,USTIW,USTIW,Tacoma,United States
+N027W083-00556,Port of Tampa Container Terminal,terminal,27.91159351,-82.43101313,USTPA,USTPA,Tampa,United States
+S035W057-01803,Montecon Container Terminal,terminal,-34.89782491,-56.1970204,UYMVD,UYMVD,Montevideo,Uruguay
+S035W057-00888,Terminal Cuenca del Plata (TCP),terminal,-34.90593473,-56.21931314,UYMVD,UYMVD,Montevideo,Uruguay
+N013W062-03735,Campden Park Container Port,terminal,13.16994191,-61.2481354,VCCRP,VCCRP,Kingstown,St Vincent and Grenadines
+N010W065-03957,El Guamache Port Terminal,terminal,10.86481846,-64.06141316,VEEGU,VEEGU,El Guamache,Venezuela
+N011W071-03580,Guaranao Terminal,terminal,11.67095391,-70.21162387,VEGUA,VEGUA,Puerto Cabello,Venezuela
+N010W065-03611,Puerto De Guanta,terminal,10.24486099,-64.5962575,VEGUT,VEGUT,Guanta,Venezuela
+N010W067-02762,Terminal Especializada De Contenedores (TEC),terminal,10.60205843,-66.94924748,VELAG,VELAG,La Guaira,Venezuela
+N010W072-03586,Bolivariana De Puertos Maracaibo Terminal,terminal,10.6404162,-71.60463441,VEMAR,VEMAR,Maracaibo,Venezuela
+N010W068-02814,Bolivariana De Puertos Puerto Cabello Terminal (BOPBL),terminal,10.46810067,-67.99716951,VEPBL,VEPBL,Puerto Cabello,Venezuela
+N018W065-04042,Spanish Town / Crowley Amr. Trans.,terminal,18.45247103,-64.4359015,VGOP9,VGOP9,Road Town,British Virgin Islands
+N018W065-03883,Roadtown / Crowley Amr. Transport,terminal,18.426091,-64.609206,VGRAD,VGRAD,Road Town,British Virgin Islands
+N018W065-03887,Amalie / Crowley Amr Transp,terminal,18.33563958,-64.95045647,VICHA,VICHA,Charlotte Amalie,U.S. Virgin Islands
+N017W065-03934,Christiansted / Crowley Amr Transp,terminal,17.696129,-64.754258,VICTD,VICTD,Christiansted,U.S. Virgin Islands
+N015E108-02344,Chu Lai Port,terminal,15.476999,108.627674,VNC8Q,VNC8Q,Chu Lai,Vietnam
+N016E108-02288,Tien Sa Container Terminal,terminal,16.11943933,108.21713712,VNDAD,VNDAD,Da Nang,Vietnam
+N020E106-03622,Chua Ve Terminal Haiphong,terminal,20.86113473,106.72581592,VNHPH,VNHPH,Haiphong,Vietnam
+N020E106-03624,Doan Xa Port,terminal,20.868825,106.717994,VNHPH,VNHPH,Haiphong,Vietnam
+N020E106-03625,Hai An Terminal,terminal,20.84757861,106.74997914,VNHPH,VNHPH,Haiphong,Vietnam
+N020E106-03047,Hateco Haiphong International Container Terminal (HHIT),terminal,20.79741312,106.90629836,VNHPH,VNHPH,Haiphong,Vietnam
+N020E106-02931,Nam Hai Dinh Vu Terminal,terminal,20.82966268,106.78552743,VNHPH,VNHPH,Haiphong,Vietnam
+N020E106-04341,Tan Vu Terminal,terminal,20.83786186,106.77301143,VNHPH,VNHPH,Haiphong,Vietnam
+N020E106-04342,VIP Greenport,terminal,20.8272827,106.78879914,VNHPH,VNHPH,Haiphong,Vietnam
+N019E105-02290,Nghi Son International Port,terminal,19.30811037,105.82075899,VNNGH,VNNGH,Thanh Hoa,Vietnam
+N010E106-04343,Tan Cang Nhon Trach ICD,terminal,10.72139922,106.83821194,VNNHT,VNNHT,Dong Nai,Vietnam
+N010E107-00118,Cai Mep International Terminal (CMIT),terminal,10.53741623,107.03287516,VNSGN,VNSGN,Ho Chi Minh City,Vietnam
+N010E106-00870,Cat Lai Container Terminal,terminal,10.76260055,106.79400969,VNSGN,VNSGN,Ho Chi Minh City,Vietnam
+N010E106-03344,SP International Container Terminal (ITC),terminal,10.78439571,106.81885373,VNSGN,VNSGN,Ho Chi Minh City,Vietnam
+N010E106-03051,Tan Cang - Hiep Phuoc (TCHP),terminal,10.64655964,106.74287535,VNSGN,VNSGN,Ho Chi Minh City,Vietnam
+N010E106-01340,Vietnam International Container Terminal (VICT),terminal,10.76922808,106.73809158,VNSGN,VNSGN,Ho Chi Minh City,Vietnam
+N013E109-03113,Qui Nhon Terminal,terminal,13.78006558,109.23743939,VNUIH,VNUIH,Quy Nhon,Vietnam
+N010E107-03325,Gemalink Container Terminal (GML),terminal,10.49787312,107.00270254,VNVUT,VNVUT,Vung Tau,Vietnam
+N010E107-02186,SP-SSA International Terminal (SSIT),terminal,10.5038955,107.00897077,VNVUT,VNVUT,Vung Tau,Vietnam
+N010E107-04344,Tan Cang Cai Mep Thi Vai Terminal (TCTT),terminal,10.50800924,107.01429569,VNVUT,VNVUT,Vung Tau,Vietnam
+S016E167-03477,Santo Terminal,terminal,-15.51491711,167.18853046,VUSAN,VUSAN,Luganville,Vanuatu
+S018E168-03459,Port Vila Terminal,terminal,-17.75549015,168.30479503,VUVLI,VUVLI,Port Vila,Vanuatu
+S014W177-03829,Mata Utu Terminal,terminal,-13.28528776,-176.16909721,WFMAU,WFMAU,Mata-Utu,Wallis and Futuna
+S015W179-03832,Leava Sigave Terminal,terminal,-14.29595769,-178.16028857,WFSIG,WFSIG,Sigave,Wallis and Futuna
+S014W172-03468,Apia Terminal,terminal,-13.825856,-171.762006,WSAPW,WSAPW,Apia,Samoa
+N012E044-02816,Aden Container Terminal (ACT),terminal,12.8054721,44.99535352,YEADE,YEADE,Aden,Yemen
+N014E049-04165,Mukalla Port,terminal,14.520318,49.151353,YEMKX,YEMKX,Mukalla,Yemen
+S013E045-02211,Manuport Terminal Longoni,terminal,-12.72440815,45.16453804,YTLON,YTLON,Longoni,Mayotte
+S034E018-00844,Cape Town Container Terminal (TNCT),terminal,-33.91132629,18.4514915,ZACPT,ZACPT,Cape Town,South Africa
+S034E018-03251,Cape Town MPT Terminal (TNCM),terminal,-33.9145057,18.43129242,ZACPT,ZACPT,Cape Town,South Africa
+S034E018-04345,Duncan Dock Berth E - L,terminal,-33.911563,18.42639251,ZACPT,ZACPT,Cape Town,South Africa
+S034E018-04346,Fresh Produce Terminals (FPT),terminal,-33.90677258,18.42767957,ZACPT,ZACPT,Cape Town,South Africa
+S030E031-01099,Durban Container Terminal Pier 1 (TNP1),terminal,-29.87938604,31.03046095,ZADUR,ZADUR,Durban,South Africa
+S030E031-00832,Durban Container Terminal Pier 2 (TNP2),terminal,-29.88068959,31.01845766,ZADUR,ZADUR,Durban,South Africa
+S030E031-02102,Durban Ro-Ro and MPT Terminal (TNDRT),terminal,-29.8698915,31.03969424,ZADUR,ZADUR,Durban,South Africa
+S034E027-04126,APM Terminals East London,terminal,-33.02584539,27.91344086,ZAELS,ZAELS,East London,South Africa
+S034E025-03352,Port Elizabeth Container Terminal (TNPE),terminal,-33.95717723,25.63247607,ZAPLZ,ZAPLZ,Port Elizabeth,South Africa
+S034E025-02732,Ngqura Container Terminal,terminal,-33.80432947,25.68245421,ZAZBA,ZAZBA,Coega,South Africa

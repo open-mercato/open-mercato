@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { FmsPort } from '../../../data/entities'
+import { FmsLocation } from '../../../data/entities'
 import { updatePortSchema } from '../../../data/validators'
 
 const updateBodySchema = updatePortSchema.omit({ updatedBy: true })
@@ -57,11 +57,12 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
   const scopeFilters = buildScopeFilters(auth, scope)
   const filters: Record<string, unknown> = {
     id: parse.data.id,
+    type: 'port',
     deletedAt: null,
     ...scopeFilters,
   }
 
-  const port = await em.findOne(FmsPort, filters, { populate: ['terminals'] })
+  const port = await em.findOne(FmsLocation, filters)
 
   if (!port) return NextResponse.json({ error: 'Port not found' }, { status: 404 })
 
@@ -88,11 +89,12 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
   const scopeFilters = buildScopeFilters(auth, scope)
   const filters: Record<string, unknown> = {
     id: parse.data.id,
+    type: 'port',
     deletedAt: null,
     ...scopeFilters,
   }
 
-  const port = await em.findOne(FmsPort, filters)
+  const port = await em.findOne(FmsLocation, filters)
 
   if (!port) return NextResponse.json({ error: 'Port not found' }, { status: 404 })
 
@@ -100,7 +102,11 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
 
   if (data.code !== undefined) port.code = data.code
   if (data.name !== undefined) port.name = data.name
-  if (data.quadrant !== undefined) port.quadrant = data.quadrant
+  if (data.locode !== undefined) port.locode = data.locode
+  if (data.lat !== undefined) port.lat = data.lat
+  if (data.lng !== undefined) port.lng = data.lng
+  if (data.city !== undefined) port.city = data.city
+  if (data.country !== undefined) port.country = data.country
 
   port.updatedAt = new Date()
 
@@ -123,11 +129,12 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {
   const scopeFilters = buildScopeFilters(auth, scope)
   const filters: Record<string, unknown> = {
     id: parse.data.id,
+    type: 'port',
     deletedAt: null,
     ...scopeFilters,
   }
 
-  const port = await em.findOne(FmsPort, filters)
+  const port = await em.findOne(FmsLocation, filters)
 
   if (!port) return NextResponse.json({ error: 'Port not found' }, { status: 404 })
 

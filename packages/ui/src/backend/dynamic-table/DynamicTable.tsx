@@ -80,6 +80,7 @@ export interface DynamicTableProps {
   tableRef: React.RefObject<HTMLDivElement | null>;
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
+  actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
   pagination?: PaginationProps;
 
   // NEW - Perspective management
@@ -479,14 +480,18 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
 
   // -------------------- RENDER --------------------
 
+  // Determine if we should fill available height
+  const shouldFillHeight = height === '100%' || height === 'fill'
+
   // Table content shared between normal and fullscreen modes
   const tableContent = (
     <div
-      className="hot-container"
+      className={`hot-container ${shouldFillHeight ? 'flex flex-col flex-1' : ''}`}
       style={{
-        height: isFullscreen ? '100%' : height,
+        height: isFullscreen ? '100%' : (shouldFillHeight ? '100%' : height),
         width: isFullscreen ? '100%' : width,
         position: 'relative',
+        ...(shouldFillHeight && { minHeight: 0 }),
       }}
     >
       {/* Combined Toolbar - Title, Perspective controls, Search, Add button */}
@@ -547,15 +552,16 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
       {/* Table Container */}
       <div
         ref={tableRef}
-        className="hot-virtual-container"
+        className={`hot-virtual-container ${shouldFillHeight ? 'flex-1' : ''}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onDoubleClick={handleDoubleClick}
         style={{
-          height: isFullscreen ? 'calc(100% - 90px)' : (typeof height === 'string' && height !== 'auto' ? height : '600px'),
+          height: isFullscreen ? 'calc(100% - 90px)' : (shouldFillHeight ? undefined : (typeof height === 'string' && height !== 'auto' ? height : '600px')),
           overflow: 'auto',
           position: 'relative',
+          ...(shouldFillHeight && { minHeight: 0 }),
         }}
       >
         {/* Column Headers */}

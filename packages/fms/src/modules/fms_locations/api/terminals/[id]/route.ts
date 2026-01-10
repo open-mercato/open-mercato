@@ -4,7 +4,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { FmsTerminal } from '../../../data/entities'
+import { FmsLocation } from '../../../data/entities'
 import { updateTerminalSchema } from '../../../data/validators'
 
 const updateBodySchema = updateTerminalSchema.omit({ updatedBy: true })
@@ -57,11 +57,12 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
   const scopeFilters = buildScopeFilters(auth, scope)
   const filters: Record<string, unknown> = {
     id: parse.data.id,
+    type: 'terminal',
     deletedAt: null,
     ...scopeFilters,
   }
 
-  const terminal = await em.findOne(FmsTerminal, filters, { populate: ['port'] })
+  const terminal = await em.findOne(FmsLocation, filters)
 
   if (!terminal) return NextResponse.json({ error: 'Terminal not found' }, { status: 404 })
 
@@ -88,11 +89,12 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
   const scopeFilters = buildScopeFilters(auth, scope)
   const filters: Record<string, unknown> = {
     id: parse.data.id,
+    type: 'terminal',
     deletedAt: null,
     ...scopeFilters,
   }
 
-  const terminal = await em.findOne(FmsTerminal, filters)
+  const terminal = await em.findOne(FmsLocation, filters)
 
   if (!terminal) return NextResponse.json({ error: 'Terminal not found' }, { status: 404 })
 
@@ -100,7 +102,11 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
 
   if (data.code !== undefined) terminal.code = data.code
   if (data.name !== undefined) terminal.name = data.name
-  if (data.quadrant !== undefined) terminal.quadrant = data.quadrant
+  if (data.portId !== undefined) terminal.portId = data.portId
+  if (data.lat !== undefined) terminal.lat = data.lat
+  if (data.lng !== undefined) terminal.lng = data.lng
+  if (data.city !== undefined) terminal.city = data.city
+  if (data.country !== undefined) terminal.country = data.country
 
   terminal.updatedAt = new Date()
 
@@ -123,11 +129,12 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {
   const scopeFilters = buildScopeFilters(auth, scope)
   const filters: Record<string, unknown> = {
     id: parse.data.id,
+    type: 'terminal',
     deletedAt: null,
     ...scopeFilters,
   }
 
-  const terminal = await em.findOne(FmsTerminal, filters)
+  const terminal = await em.findOne(FmsLocation, filters)
 
   if (!terminal) return NextResponse.json({ error: 'Terminal not found' }, { status: 404 })
 

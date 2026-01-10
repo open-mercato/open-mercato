@@ -1,31 +1,32 @@
 import {
-  Collection,
   Entity,
   Index,
-  ManyToOne,
-  OneToMany,
   OptionalProps,
   PrimaryKey,
   Property,
-  Unique,
 } from '@mikro-orm/core'
-import type { Quadrant } from './types.js'
+import type { LocationType } from './types'
 
-@Entity({
-  tableName: 'fms_locations',
-  discriminatorColumn: 'product_type',
-  abstract: true,
-})
+@Entity({ tableName: 'fms_locations' })
 @Index({
   name: 'fms_locations_scope_idx',
   properties: ['organizationId', 'tenantId'],
 })
-@Unique({
-  name: 'fms_locations_unique',
-  properties: ['organizationId', 'tenantId', 'code'],
+@Index({
+  name: 'fms_locations_type_idx',
+  properties: ['type'],
 })
-export abstract class FmsLocation {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
+export class FmsLocation {
+  [OptionalProps]?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+    | 'locode'
+    | 'portId'
+    | 'lat'
+    | 'lng'
+    | 'city'
+    | 'country'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -42,8 +43,26 @@ export abstract class FmsLocation {
   @Property({ type: 'text' })
   name!: string
 
-  @Property({ type: 'text' })
-  quadrant!: Quadrant
+  @Property({ name: 'product_type', type: 'text' })
+  type!: LocationType
+
+  @Property({ type: 'text', nullable: true })
+  locode?: string | null
+
+  @Property({ name: 'port_id', type: 'uuid', nullable: true })
+  portId?: string | null
+
+  @Property({ type: 'double', nullable: true })
+  lat?: number | null
+
+  @Property({ type: 'double', nullable: true })
+  lng?: number | null
+
+  @Property({ type: 'text', nullable: true })
+  city?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  country?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -59,24 +78,4 @@ export abstract class FmsLocation {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
-}
-
-@Entity({ discriminatorValue: 'port' })
-export class FmsPort extends FmsLocation {
-  @Property({ type: 'text' })
-  locode!: string
-
-  @OneToMany(()=> FmsTerminal, (terminal) => terminal.port)
-  terminals = new Collection<FmsTerminal>(this)
-}
-
-@Entity({ discriminatorValue: 'terminal' })
-export class FmsTerminal extends FmsLocation {
-
-  @ManyToOne(() => FmsPort, {
-    fieldName: 'port_id',
-    nullable: false,
-    deleteRule: 'restrict',
-  })
-  port!: FmsPort
 }

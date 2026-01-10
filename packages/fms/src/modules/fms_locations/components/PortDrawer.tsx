@@ -22,20 +22,16 @@ interface PortDrawerProps {
   onCreated: (portId: string) => void
 }
 
-const QUADRANT_OPTIONS = [
-  { value: 'NE', label: 'Northeast' },
-  { value: 'NW', label: 'Northwest' },
-  { value: 'SE', label: 'Southeast' },
-  { value: 'SW', label: 'Southwest' },
-]
-
 export function PortDrawer({ open, onOpenChange, onCreated }: PortDrawerProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     code: '',
     name: '',
     locode: '',
-    quadrant: 'NE' as string,
+    lat: '',
+    lng: '',
+    city: '',
+    country: '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,17 +39,25 @@ export function PortDrawer({ open, onOpenChange, onCreated }: PortDrawerProps) {
     setIsSubmitting(true)
 
     try {
+      const payload = {
+        ...formData,
+        lat: formData.lat ? parseFloat(formData.lat) : null,
+        lng: formData.lng ? parseFloat(formData.lng) : null,
+        city: formData.city || null,
+        country: formData.country || null,
+      }
+
       const response = await apiCall<{ id: string; error?: string }>('/api/fms_locations/ports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       })
 
       if (response.ok && response.result?.id) {
         flash('Port created successfully', 'success')
         onCreated(response.result.id)
         onOpenChange(false)
-        setFormData({ code: '', name: '', locode: '', quadrant: 'NE' })
+        setFormData({ code: '', name: '', locode: '', lat: '', lng: '', city: '', country: '' })
       } else {
         flash(response.result?.error || 'Failed to create port', 'error')
       }
@@ -76,7 +80,7 @@ export function PortDrawer({ open, onOpenChange, onCreated }: PortDrawerProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-[425px]" onKeyDown={handleKeyDown}>
+      <SheetContent className="sm:max-w-[425px] overflow-y-auto" onKeyDown={handleKeyDown}>
         <SheetHeader>
           <SheetTitle>Create New Port</SheetTitle>
           <SheetDescription>
@@ -114,20 +118,47 @@ export function PortDrawer({ open, onOpenChange, onCreated }: PortDrawerProps) {
               required
             />
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="lat">Latitude</Label>
+              <Input
+                id="lat"
+                type="number"
+                step="any"
+                placeholder="54.3520"
+                value={formData.lat}
+                onChange={(e) => setFormData({ ...formData, lat: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lng">Longitude</Label>
+              <Input
+                id="lng"
+                type="number"
+                step="any"
+                placeholder="18.6466"
+                value={formData.lng}
+                onChange={(e) => setFormData({ ...formData, lng: e.target.value })}
+              />
+            </div>
+          </div>
           <div className="space-y-2">
-            <Label htmlFor="quadrant">Quadrant</Label>
-            <select
-              id="quadrant"
-              value={formData.quadrant}
-              onChange={(e) => setFormData({ ...formData, quadrant: e.target.value })}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              {QUADRANT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="city">City</Label>
+            <Input
+              id="city"
+              placeholder="Gdansk"
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="country">Country</Label>
+            <Input
+              id="country"
+              placeholder="Poland"
+              value={formData.country}
+              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+            />
           </div>
           <SheetFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
