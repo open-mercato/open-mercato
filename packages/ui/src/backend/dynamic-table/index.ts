@@ -35,3 +35,14 @@ export {
   initializePerspectiveState,
 } from './handlers/perspectiveHandlers';
 export type { PerspectiveState, PerspectiveHandlersDeps } from './handlers/perspectiveHandlers';
+
+// Entity search editor for connected entities
+export {
+  EntitySearchEditor,
+  createEntitySearchEditor,
+} from './components/EntitySearchEditor';
+export type {
+  EntitySearchEditorConfig,
+  SearchResult as EntitySearchResult,
+  DynamicTableEditorFn,
+} from './components/EntitySearchEditor';
