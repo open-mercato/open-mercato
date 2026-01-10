@@ -2,9 +2,37 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { MeilisearchStrategy } from '@open-mercato/search/strategies/meilisearch.strategy'
+import type { SearchStrategy } from '@open-mercato/shared/modules/search'
 import type { SearchIndexer } from '@open-mercato/search/indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+
+/** Strategy with optional stats support */
+type StrategyWithStats = SearchStrategy & {
+  getIndexStats?: (tenantId: string) => Promise<Record<string, unknown> | null>
+  clearIndex?: (tenantId: string) => Promise<void>
+  recreateIndex?: (tenantId: string) => Promise<void>
+}
+
+/** Collect stats from all strategies that support it */
+async function collectStrategyStats(
+  strategies: StrategyWithStats[],
+  tenantId: string
+): Promise<Record<string, Record<string, unknown> | null>> {
+  const stats: Record<string, Record<string, unknown> | null> = {}
+  for (const strategy of strategies) {
+    if (typeof strategy.getIndexStats === 'function') {
+      try {
+        const isAvailable = await strategy.isAvailable()
+        if (isAvailable) {
+          stats[strategy.id] = await strategy.getIndexStats(tenantId)
+        }
+      } catch {
+        // Skip strategy if stats collection fails
+      }
+    }
+  }
+  return stats
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.reindex'] },
@@ -41,24 +69,26 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   try {
-    // Get the Meilisearch strategy
-    const searchStrategies = container.resolve('searchStrategies') as unknown[] | undefined
-    const meilisearchStrategy = searchStrategies?.find(
-      (s: unknown) => (s as { id?: string })?.id === 'meilisearch'
-    ) as MeilisearchStrategy | undefined
+    // Get all search strategies
+    const searchStrategies = (container.resolve('searchStrategies') as StrategyWithStats[] | undefined) ?? []
 
-    if (!meilisearchStrategy) {
+    // Find a strategy that supports index management (clear/recreate)
+    const indexableStrategy = searchStrategies.find(
+      (s) => typeof s.clearIndex === 'function' || typeof s.recreateIndex === 'function'
+    )
+
+    if (!indexableStrategy) {
       return toJson(
-        { error: t('search.api.errors.meilisearchUnavailable', 'Meilisearch is not configured') },
+        { error: t('search.api.errors.noIndexableStrategy', 'No indexable search strategy is configured') },
         { status: 503 }
       )
     }
 
-    // Check if Meilisearch is available
-    const isAvailable = await meilisearchStrategy.isAvailable()
+    // Check if strategy is available
+    const isAvailable = await indexableStrategy.isAvailable()
     if (!isAvailable) {
       return toJson(
-        { error: t('search.api.errors.meilisearchUnavailable', 'Meilisearch is not available') },
+        { error: t('search.api.errors.strategyUnavailable', 'Search strategy is not available') },
         { status: 503 }
       )
     }
@@ -126,8 +156,8 @@ export async function POST(req: Request) {
         })
       }
 
-      // Get updated stats
-      const stats = await meilisearchStrategy.getIndexStats(auth.tenantId)
+      // Get updated stats from all strategies
+      const stats = await collectStrategyStats(searchStrategies, auth.tenantId)
 
       return toJson({
         ok: result.success,
@@ -144,20 +174,24 @@ export async function POST(req: Request) {
       })
     } else if (entityId) {
       // Purge specific entity
-      await meilisearchStrategy.purge(entityId, auth.tenantId)
-      console.log('[search.reindex] Purged entity from Meilisearch', { entityId, tenantId: auth.tenantId })
+      await indexableStrategy.purge?.(entityId as EntityId, auth.tenantId)
+      console.log('[search.reindex] Purged entity', { strategyId: indexableStrategy.id, entityId, tenantId: auth.tenantId })
     } else if (action === 'clear') {
       // Clear all documents but keep index
-      await meilisearchStrategy.clearIndex(auth.tenantId)
-      console.log('[search.reindex] Cleared Meilisearch index', { tenantId: auth.tenantId })
+      if (indexableStrategy.clearIndex) {
+        await indexableStrategy.clearIndex(auth.tenantId)
+        console.log('[search.reindex] Cleared index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+      }
     } else {
       // Recreate the entire index
-      await meilisearchStrategy.recreateIndex(auth.tenantId)
-      console.log('[search.reindex] Recreated Meilisearch index', { tenantId: auth.tenantId })
+      if (indexableStrategy.recreateIndex) {
+        await indexableStrategy.recreateIndex(auth.tenantId)
+        console.log('[search.reindex] Recreated index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+      }
     }
 
-    // Get updated stats
-    const stats = await meilisearchStrategy.getIndexStats(auth.tenantId)
+    // Get updated stats from all strategies
+    const stats = await collectStrategyStats(searchStrategies, auth.tenantId)
 
     return toJson({
       ok: true,
