@@ -8,7 +8,7 @@ import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@/lib/i18n/context'
 import { TeamRoleForm, type TeamRoleFormValues, buildTeamRolePayload } from '../../TeamRoleForm'
-import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 
 type TeamRoleRecord = {
   id: string
@@ -43,7 +43,7 @@ export default function BookingTeamRoleEditPage({ params }: { params?: { id?: st
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
         if (!record) throw new Error(t('booking.teamRoles.errors.notFound', 'Team role not found.'))
-        const customFields = extractAllCustomFieldEntries(record)
+        const customFields = extractCustomFieldEntries(record)
         const appearanceIcon = typeof record.appearanceIcon === 'string'
           ? record.appearanceIcon
           : typeof record.appearance_icon === 'string'

@@ -6,6 +6,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
@@ -47,34 +48,6 @@ type UsersResponse = {
   items?: Array<{ id?: string; email?: string; organizationName?: string | null }>
 }
 
-const extractCustomFieldsFromRecord = (record: Record<string, unknown>): Record<string, unknown> => {
-  const customFields: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(record)) {
-    if (key.startsWith('cf_')) customFields[key] = value
-  }
-  const customValues = (record as any).customValues
-  if (customValues && typeof customValues === 'object' && !Array.isArray(customValues)) {
-    for (const [key, value] of Object.entries(customValues as Record<string, unknown>)) {
-      if (!key) continue
-      customFields[`cf_${key}`] = value
-    }
-  }
-  const customEntries = (record as any).customFields
-  if (Array.isArray(customEntries)) {
-    customEntries.forEach((entry) => {
-      const key = entry && typeof entry.key === 'string' ? entry.key : null
-      if (!key) return
-      customFields[`cf_${key}`] = (entry as any).value
-    })
-  } else if (customEntries && typeof customEntries === 'object') {
-    for (const [key, value] of Object.entries(customEntries as Record<string, unknown>)) {
-      if (!key) continue
-      customFields[`cf_${key}`] = value
-    }
-  }
-  return customFields
-}
-
 export default function BookingTeamMemberDetailPage({ params }: { params?: { id?: string } }) {
   const memberId = params?.id
   const t = useT()
@@ -101,7 +74,7 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
         if (!record) throw new Error(t('booking.teamMembers.form.errors.notFound', 'Team member not found.'))
-        const customFields = extractCustomFieldsFromRecord(record)
+        const customFields = extractCustomFieldEntries(record)
         if (!cancelled) {
           const user = record.user && typeof record.user === 'object'
             ? record.user as { id?: string; email?: string | null }

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { normalizeCustomFieldValues } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { AppearanceSelector } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
@@ -106,6 +106,11 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
     },
   ], [appearanceLabels, t])
 
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    { id: 'details', fields: ['name', 'description', 'appearance'] },
+    { id: 'custom', title: t('entities.customFields.title', 'Custom Attributes'), column: 2, kind: 'customFields' },
+  ], [t])
+
   return (
     <CrudForm<TeamRoleFormValues>
       title={title}
@@ -113,6 +118,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
       cancelHref={cancelHref}
       submitLabel={submitLabel}
       fields={fields}
+      groups={groups}
       entityId={E.booking.booking_team_role}
       initialValues={initialValues}
       onSubmit={onSubmit}
