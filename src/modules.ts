@@ -30,4 +30,5 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'contractors', from: '@open-mercato/fms' },
   { id: 'fms_quotes', from: '@open-mercato/fms' },
   { id: 'fms_locations', from: '@open-mercato/fms' },
+  { id: 'fms_products', from: '@open-mercato/fms' },
 ]

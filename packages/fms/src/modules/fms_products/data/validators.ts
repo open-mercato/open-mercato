@@ -54,24 +54,19 @@ export const chargeCodeFieldSchemaValidator = z.record(
 // ========================================
 // FmsChargeCode Validators
 // ========================================
-
 export const createChargeCodeSchema = z.object({
-  organizationId: z.string().uuid(),
-  tenantId: z.string().uuid(),
+  organizationId: z.uuid(),
+  tenantId: z.uuid(),
   code: z.string().min(1).max(50).regex(/^[A-Z_]+$/, 'Code must be uppercase letters and underscores only'),
-  name: z.string().min(1).max(255),
   description: z.string().max(1000).optional().nullable(),
   chargeUnit: chargeUnitSchema,
   fieldSchema: chargeCodeFieldSchemaValidator.optional().nullable(),
-  sortOrder: z.number().int().min(0).default(0),
-  isSystem: z.boolean().default(false),
-  isActive: z.boolean().default(true),
-  createdBy: z.string().uuid().optional().nullable(),
+  isActive: z.boolean().optional().default(true),
 })
 
 export const updateChargeCodeSchema = createChargeCodeSchema
   .partial()
-  .omit({ organizationId: true, tenantId: true, code: true, isSystem: true })
+  .omit({ organizationId: true, tenantId: true, code: true })
   .extend({
     updatedBy: z.string().uuid().optional().nullable(),
   })
@@ -283,3 +278,15 @@ export const priceFilterSchema = z.object({
 
 export type ProductFilter = z.infer<typeof productFilterSchema>
 export type PriceFilter = z.infer<typeof priceFilterSchema>
+
+// ========================================
+// CSV Import Validators
+// ========================================
+
+export const csvImportChargeCodeSchema = z.object({
+  code: z.string().min(1, 'Code is required'),
+  description: z.string().optional().nullable(),
+  charge_unit: chargeUnitSchema,
+})
+
+export type CsvImportChargeCode = z.infer<typeof csvImportChargeCodeSchema>

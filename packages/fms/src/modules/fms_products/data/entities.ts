@@ -9,7 +9,9 @@ import {
   Property,
   Unique,
 } from '@mikro-orm/core'
-import type { ChargeCodeFieldSchema, ChargeUnit, ContractType } from './types.js'
+import type { ChargeCodeFieldSchema, ChargeUnit, ContractType } from './types'
+import { Contractor } from '../../contractors/data/entities'
+import { FmsLocation } from '../../fms_locations/data/entities'
 
 /**
  * FmsChargeCode - Dictionary of freight charge types (system-defined and custom)
@@ -40,9 +42,6 @@ export class FmsChargeCode {
   @Property({ type: 'text' })
   code!: string
 
-  @Property({ type: 'text' })
-  name!: string
-
   @Property({ type: 'text', nullable: true })
   description?: string | null
 
@@ -51,12 +50,6 @@ export class FmsChargeCode {
 
   @Property({ name: 'field_schema', type: 'jsonb', nullable: true })
   fieldSchema?: ChargeCodeFieldSchema | null
-
-  @Property({ name: 'sort_order', type: 'int', default: 0 })
-  sortOrder: number = 0
-
-  @Property({ name: 'is_system', type: 'boolean', default: false })
-  isSystem: boolean = false
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
@@ -102,7 +95,7 @@ export class FmsChargeCode {
 })
 @Index({
   name: 'fms_products_contractor_idx',
-  properties: ['contractorId'],
+  properties: ['serviceProvider'],
 })
 @Index({
   name: 'fms_products_active_idx',
@@ -125,13 +118,15 @@ export abstract class FmsProduct {
 
   @ManyToOne(() => FmsChargeCode, {
     fieldName: 'charge_code_id',
-    nullable: false,
     deleteRule: 'restrict',
   })
   chargeCode!: FmsChargeCode
 
-  @Property({ name: 'contractor_id', type: 'uuid', nullable: true })
-  contractorId?: string | null
+  @ManyToOne(() => Contractor, {
+    fieldName: 'service_provider_id',
+    deleteRule: 'restrict',
+  })
+  serviceProvider!: Contractor
 
   @Property({ type: 'text', nullable: true })
   description?: string | null
@@ -170,11 +165,11 @@ export class FreightProduct extends FmsProduct {
   @Property({ type: 'text' })
   loop!: string
 
-  @Property({ type: 'text' })
-  source!: string
+  @ManyToOne(() => FmsLocation)
+  source!: FmsLocation
 
-  @Property({ type: 'text' })
-  destination!: string
+  @ManyToOne(() => FmsLocation)
+  destination!: FmsLocation
 
   @Property({ name: 'transit_time', type: 'int', nullable: true })
   transitTime?: number | null
@@ -186,11 +181,8 @@ export class FreightProduct extends FmsProduct {
  */
 @Entity({ discriminatorValue: 'GTHC' })
 export class THCProduct extends FmsProduct {
-  @Property({ type: 'text' })
-  location!: string
-
-  @Property({ name: 'charge_type', type: 'text', nullable: true })
-  chargeType?: 'origin' | 'destination' | null
+  @ManyToOne(() => FmsLocation)
+  location!: FmsLocation
 }
 
 /**
@@ -199,11 +191,7 @@ export class THCProduct extends FmsProduct {
  */
 @Entity({ discriminatorValue: 'GCUS' })
 export class CustomsProduct extends FmsProduct {
-  @Property({ type: 'text' })
-  location!: string
-
-  @Property({ name: 'service_type', type: 'text', nullable: true })
-  serviceType?: 'import' | 'export' | 'transit' | null
+  // No additional fields beyond base
 }
 
 /**
@@ -263,10 +251,6 @@ export class CustomProduct extends FmsProduct {
   name: 'fms_product_variants_product_idx',
   properties: ['product'],
 })
-@Index({
-  name: 'fms_product_variants_provider_idx',
-  properties: ['providerContractorId'],
-})
 export abstract class FmsProductVariant {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -279,15 +263,11 @@ export abstract class FmsProductVariant {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @ManyToOne(() => FmsProduct, {
-    fieldName: 'product_id',
-    nullable: false,
-    deleteRule: 'cascade',
-  })
+  @ManyToOne(() => FmsProduct, { deleteRule: 'cascade' })
   product!: FmsProduct
 
-  @Property({ name: 'provider_contractor_id', type: 'uuid', nullable: true })
-  providerContractorId?: string | null
+  @ManyToOne(() => Contractor, { deleteRule: 'restrict' })
+  provider?: Contractor | null
 
   @Property({ type: 'text', nullable: true })
   name?: string | null
