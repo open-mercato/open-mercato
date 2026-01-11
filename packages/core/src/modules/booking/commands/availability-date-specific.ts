@@ -135,6 +135,8 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
       exdates: snapshot.exdates ?? [],
       kind: snapshot.kind ?? 'availability',
       note: snapshot.note ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
       deletedAt: snapshot.deletedAt ?? null,
     })
     em.persist(record)
@@ -270,6 +272,8 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<BookingAvailability
       resourceId: null,
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
       payload: {
         undo: {
           before,

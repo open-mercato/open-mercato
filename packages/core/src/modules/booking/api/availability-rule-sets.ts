@@ -22,11 +22,20 @@ const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
+    ids: z.string().optional(),
     search: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
+
+const parseIds = (value?: string) => {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -59,6 +68,10 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
+      const ids = parseIds(query.ids)
+      if (ids.length) {
+        filters.id = { $in: ids }
+      }
       if (query.search) {
         const term = query.search.trim()
         if (term.length) {

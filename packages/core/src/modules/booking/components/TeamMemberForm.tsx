@@ -64,7 +64,7 @@ type TeamMemberTagsSectionConfig = {
   onChange: (next: TagOption[]) => void
   loadOptions: (query?: string) => Promise<TagOption[]>
   createTag: (label: string) => Promise<TagOption>
-  onSave: (payload: { next: TagOption[] }) => Promise<void>
+  onSave: (payload: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => Promise<void>
   labels: TagsSectionLabels
 }
 

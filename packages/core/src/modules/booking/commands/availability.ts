@@ -65,6 +65,8 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
       exdates: snapshot.exdates ?? [],
       kind: snapshot.kind ?? 'availability',
       note: snapshot.note ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     })
     em.persist(record)
   } else {

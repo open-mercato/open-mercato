@@ -177,19 +177,48 @@ export default function BookingTeamMemberDetailPage({ params }: { params?: { id?
     [translate],
   )
 
+  const assignTag = React.useCallback(async (tag: string) => {
+    if (!memberId) return
+    await apiCallOrThrow(
+      '/api/booking/team-members/tags/assign',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ memberId, tag }),
+      },
+      { errorMessage: translate('booking.teamMembers.tags.updateError', 'Failed to update tags.') },
+    )
+  }, [memberId, translate])
+
+  const unassignTag = React.useCallback(async (tag: string) => {
+    if (!memberId) return
+    await apiCallOrThrow(
+      '/api/booking/team-members/tags/unassign',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ memberId, tag }),
+      },
+      { errorMessage: translate('booking.teamMembers.tags.updateError', 'Failed to update tags.') },
+    )
+  }, [memberId, translate])
+
   const handleTagsSave = React.useCallback(
-    async ({ next }: { next: TagOption[] }) => {
+    async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!memberId) return
-      const nextLabels = Array.from(
-        new Set(next.map((tag) => tag.label.trim()).filter((tag) => tag.length > 0)),
-      )
-      await updateCrud('booking/team-members', { id: memberId, tags: nextLabels }, {
-        errorMessage: translate('booking.teamMembers.tags.updateError', 'Failed to update tags.'),
-      })
+      for (const tag of added) {
+        await assignTag(tag.label)
+      }
+      for (const tag of removed) {
+        await unassignTag(tag.label)
+      }
+      const nextLabels = next
+        .map((tag) => tag.label.trim())
+        .filter((tag) => tag.length > 0)
       setTags(nextLabels.map((tag) => ({ id: tag, label: tag })))
       flash(translate('booking.teamMembers.tags.success', 'Tags updated.'), 'success')
     },
-    [memberId, translate],
+    [assignTag, memberId, translate, unassignTag],
   )
 
   const tagsSection = React.useMemo(

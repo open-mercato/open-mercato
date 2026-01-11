@@ -461,6 +461,18 @@ export const bookingResourceTagUpdateSchema = z
   })
   .merge(bookingResourceTagCreateSchema.partial())
 
+export const bookingResourceTagAssignmentSchema = z.object({
+  ...scopedCreateFields,
+  tagId: z.string().uuid(),
+  resourceId: z.string().uuid(),
+})
+
+export const bookingTeamMemberTagAssignmentSchema = z.object({
+  ...scopedCreateFields,
+  memberId: z.string().uuid(),
+  tag: z.string().trim().min(1),
+})
+
 export type BookingServiceCreateInput = z.infer<typeof bookingServiceCreateSchema>
 export type BookingServiceUpdateInput = z.infer<typeof bookingServiceUpdateSchema>
 export type BookingTeamRoleCreateInput = z.infer<typeof bookingTeamRoleCreateSchema>
@@ -493,3 +505,5 @@ export type BookingServiceVariantLinkCreateInput = z.infer<typeof bookingService
 export type BookingServiceVariantLinkUpdateInput = z.infer<typeof bookingServiceVariantLinkUpdateSchema>
 export type BookingResourceTagCreateInput = z.infer<typeof bookingResourceTagCreateSchema>
 export type BookingResourceTagUpdateInput = z.infer<typeof bookingResourceTagUpdateSchema>
+export type BookingResourceTagAssignmentInput = z.infer<typeof bookingResourceTagAssignmentSchema>
+export type BookingTeamMemberTagAssignmentInput = z.infer<typeof bookingTeamMemberTagAssignmentSchema>

@@ -10,10 +10,11 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Pencil } from 'lucide-react'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -58,6 +59,10 @@ type TeamRolesResponse = {
   totalPages?: number
 }
 
+type TeamsResponse = {
+  items?: Array<{ id?: string; name?: string }>
+}
+
 export default function BookingTeamRolesPage() {
   const t = useT()
   const router = useRouter()
@@ -70,6 +75,8 @@ export default function BookingTeamRolesPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [teamFilterOptions, setTeamFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
 
   React.useEffect(() => {
     void loadMarkdownPlugins().then((plugins) => setMarkdownPlugins(plugins))
@@ -87,6 +94,9 @@ export default function BookingTeamRolesPage() {
     },
     groups: {
       unassigned: t('booking.teamRoles.group.unassigned', 'Unassigned'),
+    },
+    filters: {
+      team: t('booking.teamRoles.filters.team', 'Team'),
     },
     actions: {
       add: t('booking.teamRoles.actions.add', 'Add team role'),
@@ -184,6 +194,9 @@ export default function BookingTeamRolesPage() {
         pageSize: String(PAGE_SIZE),
       })
       if (search.trim()) params.set('search', search.trim())
+      if (typeof filterValues.teamId === 'string' && filterValues.teamId.trim()) {
+        params.set('teamId', filterValues.teamId)
+      }
       const payload = await readApiResultOrThrow<TeamRolesResponse>(
         `/api/booking/team-roles?${params.toString()}`,
         undefined,
@@ -199,7 +212,7 @@ export default function BookingTeamRolesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [labels.errors.load, labels.groups, page, search])
+  }, [filterValues.teamId, labels.errors.load, labels.groups, page, search])
 
   React.useEffect(() => {
     void loadTeamRoles()

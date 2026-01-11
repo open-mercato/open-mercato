@@ -239,17 +239,45 @@ export default function BookingResourceDetailPage({ params }: { params?: { id?: 
     [t],
   )
 
+  const assignTag = React.useCallback(async (tagId: string) => {
+    if (!resourceId) return
+    await apiCallOrThrow(
+      '/api/booking/resources/tags/assign',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tagId, resourceId }),
+      },
+      { errorMessage: t('booking.resources.tags.updateError', 'Failed to update tags.') },
+    )
+  }, [resourceId, t])
+
+  const unassignTag = React.useCallback(async (tagId: string) => {
+    if (!resourceId) return
+    await apiCallOrThrow(
+      '/api/booking/resources/tags/unassign',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ tagId, resourceId }),
+      },
+      { errorMessage: t('booking.resources.tags.updateError', 'Failed to update tags.') },
+    )
+  }, [resourceId, t])
+
   const handleTagsSave = React.useCallback(
-    async ({ next }: { next: TagOption[] }) => {
+    async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!resourceId) return
-      const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
-      await updateCrud('booking/resources', { id: resourceId, tags: tagIds }, {
-        errorMessage: t('booking.resources.tags.updateError', 'Failed to update tags.'),
-      })
+      for (const tag of added) {
+        await assignTag(tag.id)
+      }
+      for (const tag of removed) {
+        await unassignTag(tag.id)
+      }
       setTags(next)
       flash(t('booking.resources.tags.success', 'Tags updated.'), 'success')
     },
-    [resourceId, t],
+    [assignTag, resourceId, t, unassignTag],
   )
 
   const tagsSection = React.useMemo(

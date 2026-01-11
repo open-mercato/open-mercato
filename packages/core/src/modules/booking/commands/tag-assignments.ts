@@ -345,7 +345,7 @@ const unassignTeamMemberTagCommand: CommandHandler<BookingTeamMemberTagAssignmen
     if (!member) throw new CrudHttpError(404, { error: 'Team member not found.' })
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
-    const currentTags = Array.isArray(member.tags) ? member.tags : []
+    const currentTags = normalizeTagList(Array.isArray(member.tags) ? member.tags : [])
     if (!currentTags.includes(tagValue)) {
       throw new CrudHttpError(404, { error: 'Tag assignment not found.' })
     }
