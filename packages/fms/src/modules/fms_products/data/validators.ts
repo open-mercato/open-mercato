@@ -278,3 +278,15 @@ export const priceFilterSchema = z.object({
 
 export type ProductFilter = z.infer<typeof productFilterSchema>
 export type PriceFilter = z.infer<typeof priceFilterSchema>
+
+// ========================================
+// CSV Import Validators
+// ========================================
+
+export const csvImportChargeCodeSchema = z.object({
+  code: z.string().min(1, 'Code is required'),
+  description: z.string().optional().nullable(),
+  charge_unit: chargeUnitSchema,
+})
+
+export type CsvImportChargeCode = z.infer<typeof csvImportChargeCodeSchema>

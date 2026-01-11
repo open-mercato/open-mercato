@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Upload } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -45,6 +45,7 @@ import type {
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTableConfig } from '../../components/useTableConfig'
+import { ImportDialog } from '../../components/ImportDialog'
 
 interface FmsChargeCodeRow {
   id: string
@@ -144,6 +145,7 @@ export default function ChargeCodesPage() {
   const tableRef = useRef<HTMLDivElement>(null)
   const queryClient = useQueryClient()
 
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [chargeCodeToDelete, setChargeCodeToDelete] = useState<FmsChargeCodeRow | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
   const [page, setPage] = useState(1)
@@ -210,7 +212,11 @@ export default function ChargeCodesPage() {
         setActivePerspectiveId(perspectivesData.defaultPerspectiveId)
       }
     }
-  }, [perspectivesData, columns])
+  }, [perspectivesData, columns, activePerspectiveId])
+
+  const handleChargeCodeCreated = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['fms_charge_codes'] })
+  }, [queryClient])
 
   const handleConfirmDelete = useCallback(async () => {
     if (!chargeCodeToDelete) return
@@ -456,6 +462,13 @@ export default function ChargeCodesPage() {
     )
   }
 
+  const importButton = (
+    <Button onClick={() => setIsImportDialogOpen(true)} size="sm" variant="outline">
+      <Upload className="h-4 w-4 mr-1" />
+      Import
+    </Button>
+  )
+
   return (
     <div>
       <DynamicTable
@@ -472,6 +485,7 @@ export default function ChargeCodesPage() {
         actionsRenderer={actionsRenderer}
         uiConfig={{
           hideAddRowButton: false,
+          topBarEnd: importButton,
         }}
         pagination={{
           currentPage: page,
@@ -485,6 +499,11 @@ export default function ChargeCodesPage() {
           },
         }}
         debug={process.env.NODE_ENV === 'development'}
+      />
+      <ImportDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
+        onImported={handleChargeCodeCreated}
       />
       <Dialog open={!!chargeCodeToDelete} onOpenChange={(open) => !open && setChargeCodeToDelete(null)}>
         <DialogContent>
