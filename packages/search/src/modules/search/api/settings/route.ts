@@ -3,7 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
-import type { MeilisearchStrategy } from '@open-mercato/search/strategies/meilisearch.strategy'
+import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -16,7 +16,7 @@ type StrategyStatus = {
   available: boolean
 }
 
-type MeilisearchStats = {
+type FulltextStats = {
   numberOfDocuments: number
   isIndexing: boolean
   fieldDistribution: Record<string, number>
@@ -24,8 +24,8 @@ type MeilisearchStats = {
 
 type SearchSettings = {
   strategies: StrategyStatus[]
-  meilisearchConfigured: boolean
-  meilisearchStats: MeilisearchStats | null
+  fulltextConfigured: boolean
+  fulltextStats: FulltextStats | null
   vectorConfigured: boolean
   tokensEnabled: boolean
   defaultStrategies: string[]
@@ -50,7 +50,7 @@ export async function GET(req: Request) {
   try {
     const strategies: StrategyStatus[] = []
     let defaultStrategies: string[] = []
-    let meilisearchStats: MeilisearchStats | null = null
+    let fulltextStats: FulltextStats | null = null
 
     try {
       const searchService = container.resolve('searchService') as SearchService | undefined
@@ -68,17 +68,17 @@ export async function GET(req: Request) {
           })
         }
 
-        // Get Meilisearch stats if available and tenant is set
+        // Get fulltext stats if available and tenant is set
         if (auth.tenantId) {
-          const meilisearchStrategy = searchStrategies.find(
-            (s: unknown) => (s as { id?: string })?.id === 'meilisearch'
-          ) as MeilisearchStrategy | undefined
+          const fulltextStrategy = searchStrategies.find(
+            (s: unknown) => (s as { id?: string })?.id === 'fulltext'
+          ) as FullTextSearchStrategy | undefined
 
-          if (meilisearchStrategy) {
+          if (fulltextStrategy) {
             try {
-              const stats = await meilisearchStrategy.getIndexStats(auth.tenantId)
+              const stats = await fulltextStrategy.getIndexStats(auth.tenantId)
               if (stats) {
-                meilisearchStats = stats
+                fulltextStats = stats
               }
             } catch {
               // Stats not available
@@ -94,7 +94,7 @@ export async function GET(req: Request) {
       // Search service may not be available
     }
 
-    const meilisearchConfigured = Boolean(
+    const fulltextConfigured = Boolean(
       process.env.MEILISEARCH_HOST && process.env.MEILISEARCH_HOST.trim().length > 0
     )
 
@@ -112,8 +112,8 @@ export async function GET(req: Request) {
     return toJson({
       settings: {
         strategies,
-        meilisearchConfigured,
-        meilisearchStats,
+        fulltextConfigured,
+        fulltextStats,
         vectorConfigured,
         tokensEnabled,
         defaultStrategies,

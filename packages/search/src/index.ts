@@ -4,7 +4,7 @@
  * Pluggable search module with multiple strategy support:
  * - TokenSearchStrategy: Hash-based search for encrypted data
  * - VectorSearchStrategy: Semantic AI-powered search
- * - MeilisearchStrategy: Full-text fuzzy search
+ * - FullTextSearchStrategy: Full-text fuzzy search with pluggable drivers (Meilisearch, Algolia, etc.)
  *
  * @example
  * ```typescript

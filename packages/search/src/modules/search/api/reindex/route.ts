@@ -3,7 +3,7 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchStrategy } from '@open-mercato/shared/modules/search'
-import type { SearchIndexer } from '@open-mercato/search/indexer'
+import type { SearchIndexer, ReindexProgress } from '@open-mercato/search/indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
@@ -129,7 +129,7 @@ export async function POST(req: Request) {
       await recordIndexerLog(
         { em },
         {
-          source: 'meilisearch',
+          source: 'fulltext',
           handler: 'api:search.reindex',
           message: entityId
             ? `Starting Meilisearch reindex for ${entityId}`
@@ -143,7 +143,7 @@ export async function POST(req: Request) {
 
       if (entityId) {
         // Reindex specific entity
-        result = await searchIndexer.reindexEntityToMeilisearch({
+        result = await searchIndexer.reindexEntityToFulltext({
           entityId: entityId as EntityId,
           tenantId: auth.tenantId,
           organizationId: orgId,
@@ -165,7 +165,7 @@ export async function POST(req: Request) {
         await recordIndexerLog(
           { em },
           {
-            source: 'meilisearch',
+            source: 'fulltext',
             handler: 'api:search.reindex',
             message: useQueue
               ? `Enqueued ${result.jobsEnqueued ?? 0} jobs for Meilisearch reindex of ${entityId}`
@@ -187,7 +187,7 @@ export async function POST(req: Request) {
           await recordIndexerError(
             { em },
             {
-              source: 'meilisearch',
+              source: 'fulltext',
               handler: 'api:search.reindex',
               error: new Error(err.error),
               entityType: err.entityId,
@@ -199,7 +199,7 @@ export async function POST(req: Request) {
         }
       } else {
         // Reindex all entities
-        result = await searchIndexer.reindexAllToMeilisearch({
+        result = await searchIndexer.reindexAllToFulltext({
           tenantId: auth.tenantId,
           organizationId: orgId,
           recreateIndex: true,
@@ -220,7 +220,7 @@ export async function POST(req: Request) {
         await recordIndexerLog(
           { em },
           {
-            source: 'meilisearch',
+            source: 'fulltext',
             handler: 'api:search.reindex',
             message: useQueue
               ? `Enqueued ${result.jobsEnqueued ?? 0} jobs for Meilisearch reindex of all entities`
@@ -242,7 +242,7 @@ export async function POST(req: Request) {
           await recordIndexerError(
             { em },
             {
-              source: 'meilisearch',
+              source: 'fulltext',
               handler: 'api:search.reindex',
               error: new Error(err.error),
               entityType: err.entityId,
@@ -278,7 +278,7 @@ export async function POST(req: Request) {
       await recordIndexerLog(
         { em },
         {
-          source: 'meilisearch',
+          source: 'fulltext',
           handler: 'api:search.reindex',
           message: `Purged entity ${entityId} from Meilisearch`,
           entityType: entityId,
@@ -295,7 +295,7 @@ export async function POST(req: Request) {
         await recordIndexerLog(
           { em },
           {
-            source: 'meilisearch',
+            source: 'fulltext',
             handler: 'api:search.reindex',
             message: 'Cleared all documents from Meilisearch index',
             tenantId: auth.tenantId,
@@ -312,7 +312,7 @@ export async function POST(req: Request) {
         await recordIndexerLog(
           { em },
           {
-            source: 'meilisearch',
+            source: 'fulltext',
             handler: 'api:search.reindex',
             message: 'Recreated Meilisearch index',
             tenantId: auth.tenantId,
@@ -343,7 +343,7 @@ export async function POST(req: Request) {
     await recordIndexerError(
       { em },
       {
-        source: 'meilisearch',
+        source: 'fulltext',
         handler: 'api:search.reindex',
         error,
         entityType: entityId ?? null,

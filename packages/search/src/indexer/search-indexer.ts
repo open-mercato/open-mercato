@@ -7,11 +7,11 @@ import type {
   SearchResultPresenter,
   SearchResultLink,
 } from '../types'
-import type { MeilisearchStrategy } from '../strategies/meilisearch.strategy'
+import type { FullTextSearchStrategy } from '../strategies/fulltext.strategy'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
-import type { MeilisearchIndexJobPayload } from '../queue/meilisearch-indexing'
+import type { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 import { searchDebug, searchDebugWarn, searchError } from '../lib/debug'
 
 /**
@@ -50,7 +50,7 @@ export type PurgeEntityParams = {
 }
 
 /**
- * Parameters for reindexing an entity to Meilisearch.
+ * Parameters for reindexing an entity to fulltext search.
  */
 export type ReindexEntityParams = {
   entityId: EntityId
@@ -65,7 +65,7 @@ export type ReindexEntityParams = {
 }
 
 /**
- * Parameters for reindexing all entities to Meilisearch.
+ * Parameters for reindexing all entities to fulltext search.
  */
 export type ReindexAllParams = {
   tenantId: string
@@ -107,8 +107,8 @@ export type ReindexResult = {
  */
 export type SearchIndexerOptions = {
   queryEngine?: QueryEngine
-  /** Queue for Meilisearch batch indexing */
-  meilisearchQueue?: Queue<MeilisearchIndexJobPayload>
+  /** Queue for fulltext batch indexing */
+  fulltextQueue?: Queue<FulltextIndexJobPayload>
 }
 
 /**
@@ -118,7 +118,7 @@ export type SearchIndexerOptions = {
 export class SearchIndexer {
   private readonly entityConfigMap: Map<EntityId, SearchEntityConfig>
   private readonly queryEngine?: QueryEngine
-  private readonly meilisearchQueue?: Queue<MeilisearchIndexJobPayload>
+  private readonly fulltextQueue?: Queue<FulltextIndexJobPayload>
 
   constructor(
     private readonly searchService: SearchService,
@@ -127,7 +127,7 @@ export class SearchIndexer {
   ) {
     this.entityConfigMap = new Map()
     this.queryEngine = options?.queryEngine
-    this.meilisearchQueue = options?.meilisearchQueue
+    this.fulltextQueue = options?.fulltextQueue
     for (const moduleConfig of moduleConfigs) {
       for (const entityConfig of moduleConfig.entities) {
         if (entityConfig.enabled !== false) {
@@ -546,23 +546,23 @@ export class SearchIndexer {
   }
 
   /**
-   * Get the Meilisearch strategy from the search service.
+   * Get the fulltext strategy from the search service.
    */
-  private getMeilisearchStrategy(): MeilisearchStrategy | undefined {
-    const strategy = this.searchService.getStrategy('meilisearch')
+  private getFulltextStrategy(): FullTextSearchStrategy | undefined {
+    const strategy = this.searchService.getStrategy('fulltext')
     if (!strategy) return undefined
-    return strategy as unknown as MeilisearchStrategy
+    return strategy as FullTextSearchStrategy
   }
 
   /**
-   * Reindex a single entity type to Meilisearch.
-   * This fetches all records from the database and re-indexes them to Meilisearch only.
+   * Reindex a single entity type to fulltext search.
+   * This fetches all records from the database and re-indexes them to fulltext only.
    *
    * When `useQueue` is true, batches are enqueued for background processing by workers.
    * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
-  async reindexEntityToMeilisearch(params: ReindexEntityParams): Promise<ReindexResult> {
-    searchDebug('SearchIndexer', 'reindexEntityToMeilisearch called', {
+  async reindexEntityToFulltext(params: ReindexEntityParams): Promise<ReindexResult> {
+    searchDebug('SearchIndexer', 'reindexEntityToFulltext called', {
       entityId: params.entityId,
       tenantId: params.tenantId,
       organizationId: params.organizationId,
@@ -579,17 +579,17 @@ export class SearchIndexer {
       errors: [],
     }
 
-    const meilisearch = this.getMeilisearchStrategy()
-    if (!meilisearch) {
+    const fulltext = this.getFulltextStrategy()
+    if (!fulltext) {
       result.success = false
-      result.errors.push({ entityId: params.entityId, error: 'Meilisearch strategy not available' })
+      result.errors.push({ entityId: params.entityId, error: 'Fulltext strategy not available' })
       return result
     }
 
     // If useQueue is requested but no queue is available, return error
-    if (params.useQueue && !this.meilisearchQueue) {
+    if (params.useQueue && !this.fulltextQueue) {
       result.success = false
-      result.errors.push({ entityId: params.entityId, error: 'Meilisearch queue not configured for queue-based reindexing' })
+      result.errors.push({ entityId: params.entityId, error: 'Fulltext queue not configured for queue-based reindexing' })
       return result
     }
 
@@ -615,7 +615,7 @@ export class SearchIndexer {
 
       // Recreate index if requested (default: true)
       if (params.recreateIndex !== false) {
-        await meilisearch.recreateIndex(params.tenantId)
+        await fulltext.recreateIndex(params.tenantId)
       }
 
       // Fetch and index records with pagination
@@ -656,18 +656,18 @@ export class SearchIndexer {
         )
         result.recordsDropped = (result.recordsDropped ?? 0) + dropped
 
-        // Index to Meilisearch - either via queue or directly
+        // Index to fulltext - either via queue or directly
         if (indexableRecords.length > 0) {
-          if (params.useQueue && this.meilisearchQueue) {
+          if (params.useQueue && this.fulltextQueue) {
             // Enqueue batch for background processing
-            await this.meilisearchQueue.enqueue({
+            await this.fulltextQueue.enqueue({
               jobType: 'batch-index',
               tenantId: params.tenantId,
               records: indexableRecords,
             })
             jobsEnqueued += 1
             totalProcessed += indexableRecords.length
-            searchDebug('SearchIndexer', 'Enqueued batch for Meilisearch indexing', {
+            searchDebug('SearchIndexer', 'Enqueued batch for fulltext indexing', {
               entityId: params.entityId,
               batchSize: indexableRecords.length,
               jobsEnqueued,
@@ -681,9 +681,9 @@ export class SearchIndexer {
               useQueue: params.useQueue,
             })
             try {
-              await meilisearch.bulkIndex(indexableRecords)
+              await fulltext.bulkIndex(indexableRecords)
               totalProcessed += indexableRecords.length
-              searchDebug('SearchIndexer', 'Indexed batch to Meilisearch', {
+              searchDebug('SearchIndexer', 'Indexed batch to fulltext', {
                 entityId: params.entityId,
                 batchSize: indexableRecords.length,
                 totalProcessed,
@@ -691,7 +691,7 @@ export class SearchIndexer {
             } catch (indexError) {
               // Log error but continue with remaining batches
               const errorMsg = indexError instanceof Error ? indexError.message : String(indexError)
-              searchError('SearchIndexer', 'Failed to index batch to Meilisearch, continuing', {
+              searchError('SearchIndexer', 'Failed to index batch to fulltext, continuing', {
                 entityId: params.entityId,
                 page,
                 batchSize: indexableRecords.length,
@@ -741,12 +741,12 @@ export class SearchIndexer {
   }
 
   /**
-   * Reindex all enabled entities to Meilisearch.
+   * Reindex all enabled entities to fulltext search.
    *
    * When `useQueue` is true, batches are enqueued for background processing by workers.
    * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
-  async reindexAllToMeilisearch(params: ReindexAllParams): Promise<ReindexResult> {
+  async reindexAllToFulltext(params: ReindexAllParams): Promise<ReindexResult> {
     const result: ReindexResult = {
       success: true,
       entitiesProcessed: 0,
@@ -756,21 +756,21 @@ export class SearchIndexer {
       errors: [],
     }
 
-    const meilisearch = this.getMeilisearchStrategy()
-    if (!meilisearch) {
+    const fulltext = this.getFulltextStrategy()
+    if (!fulltext) {
       result.success = false
-      result.errors.push({ entityId: 'all' as EntityId, error: 'Meilisearch strategy not available' })
+      result.errors.push({ entityId: 'all' as EntityId, error: 'Fulltext strategy not available' })
       return result
     }
 
     // Recreate index once before processing all entities
     if (params.recreateIndex !== false) {
-      await meilisearch.recreateIndex(params.tenantId)
+      await fulltext.recreateIndex(params.tenantId)
     }
 
     const entities = this.listEnabledEntities()
     for (const entityId of entities) {
-      const entityResult = await this.reindexEntityToMeilisearch({
+      const entityResult = await this.reindexEntityToFulltext({
         entityId,
         tenantId: params.tenantId,
         organizationId: params.organizationId,

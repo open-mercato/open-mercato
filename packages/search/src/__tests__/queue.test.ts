@@ -4,10 +4,10 @@ import {
   VectorIndexJobPayload,
 } from '../queue/vector-indexing'
 import {
-  createMeilisearchIndexingQueue,
-  MEILISEARCH_INDEXING_QUEUE_NAME,
-  MeilisearchIndexJobPayload,
-} from '../queue/meilisearch-indexing'
+  createFulltextIndexingQueue,
+  FULLTEXT_INDEXING_QUEUE_NAME,
+  FulltextIndexJobPayload,
+} from '../queue/fulltext-indexing'
 
 describe('Queue definitions', () => {
   describe('Vector Indexing Queue', () => {
@@ -47,26 +47,26 @@ describe('Queue definitions', () => {
     })
   })
 
-  describe('Meilisearch Indexing Queue', () => {
+  describe('Fulltext Indexing Queue', () => {
     it('should export correct queue name', () => {
-      expect(MEILISEARCH_INDEXING_QUEUE_NAME).toBe('meilisearch-indexing')
+      expect(FULLTEXT_INDEXING_QUEUE_NAME).toBe('fulltext-indexing')
     })
 
     it('should create local queue by default', () => {
-      const queue = createMeilisearchIndexingQueue()
+      const queue = createFulltextIndexingQueue()
 
-      expect(queue.name).toBe(MEILISEARCH_INDEXING_QUEUE_NAME)
+      expect(queue.name).toBe(FULLTEXT_INDEXING_QUEUE_NAME)
       expect(queue.strategy).toBe('local')
     })
 
     it('should create local queue when explicitly specified', () => {
-      const queue = createMeilisearchIndexingQueue('local')
+      const queue = createFulltextIndexingQueue('local')
 
       expect(queue.strategy).toBe('local')
     })
 
     it('should create async queue when specified', () => {
-      const queue = createMeilisearchIndexingQueue('async', {
+      const queue = createFulltextIndexingQueue('async', {
         connection: { url: 'redis://localhost:6379' },
       })
 
@@ -74,7 +74,7 @@ describe('Queue definitions', () => {
     })
 
     it('should have required queue methods', () => {
-      const queue = createMeilisearchIndexingQueue()
+      const queue = createFulltextIndexingQueue()
 
       expect(typeof queue.enqueue).toBe('function')
       expect(typeof queue.process).toBe('function')
@@ -109,8 +109,8 @@ describe('Queue definitions', () => {
       expect(deletePayload.jobType).toBe('delete')
     })
 
-    it('should accept valid meilisearch batch index payload', () => {
-      const batchPayload: MeilisearchIndexJobPayload = {
+    it('should accept valid fulltext batch index payload', () => {
+      const batchPayload: FulltextIndexJobPayload = {
         jobType: 'batch-index',
         tenantId: 'tenant-123',
         records: [
@@ -126,8 +126,8 @@ describe('Queue definitions', () => {
       expect(batchPayload.jobType).toBe('batch-index')
     })
 
-    it('should accept valid meilisearch delete payload', () => {
-      const deletePayload: MeilisearchIndexJobPayload = {
+    it('should accept valid fulltext delete payload', () => {
+      const deletePayload: FulltextIndexJobPayload = {
         jobType: 'delete',
         tenantId: 'tenant-123',
         entityId: 'test:entity',
@@ -137,8 +137,8 @@ describe('Queue definitions', () => {
       expect(deletePayload.jobType).toBe('delete')
     })
 
-    it('should accept valid meilisearch purge payload', () => {
-      const purgePayload: MeilisearchIndexJobPayload = {
+    it('should accept valid fulltext purge payload', () => {
+      const purgePayload: FulltextIndexJobPayload = {
         jobType: 'purge',
         tenantId: 'tenant-123',
         entityId: 'test:entity',

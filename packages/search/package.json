@@ -6,9 +6,13 @@
   "exports": {
     "./modules/*": "./src/modules/*",
     "./strategies/*": "./src/strategies/*",
+    "./strategies": "./src/strategies/index.ts",
     "./lib/*": "./src/lib/*",
     "./indexer/*": "./src/indexer/*",
     "./vector/*": "./src/vector/*",
+    "./fulltext/*": "./src/fulltext/*",
+    "./fulltext": "./src/fulltext/index.ts",
+    "./queue/*": "./src/queue/*",
     "./types": "./src/types.ts",
     ".": "./src/index.ts"
   },

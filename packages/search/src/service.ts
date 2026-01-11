@@ -30,11 +30,11 @@ const DEFAULT_MERGE_CONFIG: ResultMergeConfig = {
  * @example
  * ```typescript
  * const service = new SearchService({
- *   strategies: [tokenStrategy, vectorStrategy, meilisearchStrategy],
- *   defaultStrategies: ['meilisearch', 'vector', 'tokens'],
+ *   strategies: [tokenStrategy, vectorStrategy, fulltextStrategy],
+ *   defaultStrategies: ['fulltext', 'vector', 'tokens'],
  *   mergeConfig: {
  *     duplicateHandling: 'highest_score',
- *     strategyWeights: { meilisearch: 1.2, vector: 1.0, tokens: 0.8 },
+ *     strategyWeights: { fulltext: 1.2, vector: 1.0, tokens: 0.8 },
  *   },
  * })
  *
@@ -112,12 +112,12 @@ export class SearchService {
     // Merge and rank results
     const merged = mergeAndRankResults(allResults, this.mergeConfig)
 
-    // Enrich results missing presenter data from Meilisearch if available
+    // Enrich results missing presenter data from fulltext strategy if available
     return this.enrichResultsWithPresenter(merged, options.tenantId)
   }
 
   /**
-   * Enrich results that are missing presenter data by looking them up in Meilisearch.
+   * Enrich results that are missing presenter data by looking them up in fulltext strategy.
    * This ensures token-only results get proper titles/subtitles for display.
    */
   private async enrichResultsWithPresenter(
@@ -128,16 +128,16 @@ export class SearchService {
     const missingPresenter = results.filter((r) => !r.presenter?.title)
     if (missingPresenter.length === 0) return results
 
-    // Try to get Meilisearch strategy for lookup
-    const meilisearch = this.strategies.get('meilisearch')
-    if (!meilisearch) return results
+    // Try to get fulltext strategy for lookup
+    const fulltext = this.strategies.get('fulltext')
+    if (!fulltext) return results
 
     try {
-      const isAvailable = await meilisearch.isAvailable()
+      const isAvailable = await fulltext.isAvailable()
       if (!isAvailable) return results
 
-      // Look up documents by ID in Meilisearch
-      const lookupMethod = (meilisearch as unknown as { getDocuments?: (ids: Array<{ entityId: string; recordId: string }>, tenantId: string) => Promise<Map<string, SearchResult>> }).getDocuments
+      // Look up documents by ID in fulltext strategy
+      const lookupMethod = (fulltext as unknown as { getDocuments?: (ids: Array<{ entityId: string; recordId: string }>, tenantId: string) => Promise<Map<string, SearchResult>> }).getDocuments
       if (typeof lookupMethod !== 'function') return results
 
       const lookupIds = missingPresenter.map((r) => ({
@@ -145,7 +145,7 @@ export class SearchService {
         recordId: r.recordId,
       }))
 
-      const presenterMap = await lookupMethod.call(meilisearch, lookupIds, tenantId)
+      const presenterMap = await lookupMethod.call(fulltext, lookupIds, tenantId)
 
       // Enrich results with presenter data
       return results.map((result) => {

@@ -9,7 +9,7 @@ import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/
 import type { SearchService } from '../../service'
 import type { SearchIndexer } from '../../indexer/search-indexer'
 import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../queue/vector-indexing'
-import { MEILISEARCH_INDEXING_QUEUE_NAME, type MeilisearchIndexJobPayload } from '../../queue/meilisearch-indexing'
+import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 
@@ -718,18 +718,18 @@ async function workerCommand(rest: string[]): Promise<void> {
   const args = parseArgs(rest)
   const concurrency = toPositiveInt(numberOpt(args, 'concurrency')) ?? 1
 
-  const validQueues = [VECTOR_INDEXING_QUEUE_NAME, MEILISEARCH_INDEXING_QUEUE_NAME]
+  const validQueues = [VECTOR_INDEXING_QUEUE_NAME, FULLTEXT_INDEXING_QUEUE_NAME]
 
   if (!queueName || !validQueues.includes(queueName)) {
     console.error('\nUsage: yarn mercato search worker <queue-name> [options]\n')
     console.error('Available queues:')
     console.error(`  ${VECTOR_INDEXING_QUEUE_NAME}        Process vector embedding indexing jobs`)
-    console.error(`  ${MEILISEARCH_INDEXING_QUEUE_NAME}   Process Meilisearch indexing jobs`)
+    console.error(`  ${FULLTEXT_INDEXING_QUEUE_NAME}   Process fulltext indexing jobs`)
     console.error('\nOptions:')
     console.error('  --concurrency <n>   Number of concurrent jobs to process (default: 1)')
     console.error('\nExamples:')
     console.error(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
-    console.error(`  yarn mercato search worker ${MEILISEARCH_INDEXING_QUEUE_NAME} --concurrency=5`)
+    console.error(`  yarn mercato search worker ${FULLTEXT_INDEXING_QUEUE_NAME} --concurrency=5`)
     return
   }
 
@@ -768,14 +768,14 @@ async function workerCommand(rest: string[]): Promise<void> {
       connection: { url: redisUrl },
       concurrency,
     })
-  } else if (queueName === MEILISEARCH_INDEXING_QUEUE_NAME) {
-    const { handleMeilisearchIndexJob } = await import('./workers/meilisearch-index.worker')
+  } else if (queueName === FULLTEXT_INDEXING_QUEUE_NAME) {
+    const { handleFulltextIndexJob } = await import('./workers/fulltext-index.worker')
     const container = await createRequestContainer()
 
-    await runWorker<MeilisearchIndexJobPayload>({
-      queueName: MEILISEARCH_INDEXING_QUEUE_NAME,
-      handler: async (job: QueuedJob<MeilisearchIndexJobPayload>, ctx: JobContext) => {
-        await handleMeilisearchIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
+    await runWorker<FulltextIndexJobPayload>({
+      queueName: FULLTEXT_INDEXING_QUEUE_NAME,
+      handler: async (job: QueuedJob<FulltextIndexJobPayload>, ctx: JobContext) => {
+        await handleFulltextIndexJob(job, ctx, { resolve: container.resolve.bind(container) })
       },
       connection: { url: redisUrl },
       concurrency,
@@ -810,7 +810,7 @@ const helpCli: ModuleCli = {
     console.log('  yarn mercato search reindex --tenant tenant-123 --entity customers:customer_person_profile')
     console.log('  yarn mercato search test-meilisearch')
     console.log(`  yarn mercato search worker ${VECTOR_INDEXING_QUEUE_NAME} --concurrency=10`)
-    console.log(`  yarn mercato search worker ${MEILISEARCH_INDEXING_QUEUE_NAME} --concurrency=5`)
+    console.log(`  yarn mercato search worker ${FULLTEXT_INDEXING_QUEUE_NAME} --concurrency=5`)
   },
 }
 

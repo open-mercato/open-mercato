@@ -1,6 +1,6 @@
 import { QueuedJob, JobContext } from '@open-mercato/queue'
 import { VectorIndexJobPayload } from '../queue/vector-indexing'
-import { MeilisearchIndexJobPayload } from '../queue/meilisearch-indexing'
+import { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -27,7 +27,7 @@ jest.mock('../modules/search/lib/embedding-config', () => ({
 }))
 
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
-import { handleMeilisearchIndexJob } from '../modules/search/workers/meilisearch-index.worker'
+import { handleFulltextIndexJob } from '../modules/search/workers/fulltext-index.worker'
 
 /**
  * Create a mock job context
@@ -146,9 +146,9 @@ describe('Vector Index Worker', () => {
   })
 })
 
-describe('Meilisearch Index Worker', () => {
-  const mockMeilisearchStrategy = {
-    id: 'meilisearch',
+describe('Fulltext Index Worker', () => {
+  const mockFulltextStrategy = {
+    id: 'fulltext',
     isAvailable: jest.fn().mockResolvedValue(true),
     bulkIndex: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
@@ -158,7 +158,7 @@ describe('Meilisearch Index Worker', () => {
   const mockContainer: HandlerContext = {
     resolve: jest.fn((name: string) => {
       if (name === 'searchStrategies') {
-        return [mockMeilisearchStrategy]
+        return [mockFulltextStrategy]
       }
       throw new Error(`Unknown service: ${name}`)
     }) as HandlerContext['resolve'],
@@ -169,16 +169,16 @@ describe('Meilisearch Index Worker', () => {
   })
 
   it('should skip job with missing tenantId', async () => {
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: '',
       records: [],
     })
     const ctx = createMockJobContext()
 
-    await handleMeilisearchIndexJob(job, ctx, mockContainer)
+    await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    expect(mockMeilisearchStrategy.bulkIndex).not.toHaveBeenCalled()
+    expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
   })
 
   it('should bulk index records when jobType is batch-index', async () => {
@@ -186,33 +186,33 @@ describe('Meilisearch Index Worker', () => {
       { entityId: 'test:entity', recordId: 'rec-1', tenantId: 'tenant-123', fields: { name: 'Test 1' } },
       { entityId: 'test:entity', recordId: 'rec-2', tenantId: 'tenant-123', fields: { name: 'Test 2' } },
     ]
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
       records,
     })
     const ctx = createMockJobContext()
 
-    await handleMeilisearchIndexJob(job, ctx, mockContainer)
+    await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    expect(mockMeilisearchStrategy.bulkIndex).toHaveBeenCalledWith(records)
+    expect(mockFulltextStrategy.bulkIndex).toHaveBeenCalledWith(records)
   })
 
   it('should skip batch-index with empty records', async () => {
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
       records: [],
     })
     const ctx = createMockJobContext()
 
-    await handleMeilisearchIndexJob(job, ctx, mockContainer)
+    await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    expect(mockMeilisearchStrategy.bulkIndex).not.toHaveBeenCalled()
+    expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
   })
 
   it('should delete record when jobType is delete', async () => {
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'delete',
       tenantId: 'tenant-123',
       entityId: 'test:entity',
@@ -220,51 +220,51 @@ describe('Meilisearch Index Worker', () => {
     })
     const ctx = createMockJobContext()
 
-    await handleMeilisearchIndexJob(job, ctx, mockContainer)
+    await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    expect(mockMeilisearchStrategy.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
+    expect(mockFulltextStrategy.delete).toHaveBeenCalledWith('test:entity', 'rec-123', 'tenant-123')
   })
 
   it('should purge entity when jobType is purge', async () => {
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'purge',
       tenantId: 'tenant-123',
       entityId: 'test:entity',
     })
     const ctx = createMockJobContext()
 
-    await handleMeilisearchIndexJob(job, ctx, mockContainer)
+    await handleFulltextIndexJob(job, ctx, mockContainer)
 
-    expect(mockMeilisearchStrategy.purge).toHaveBeenCalledWith('test:entity', 'tenant-123')
+    expect(mockFulltextStrategy.purge).toHaveBeenCalledWith('test:entity', 'tenant-123')
   })
 
-  it('should skip when Meilisearch strategy not configured', async () => {
+  it('should skip when fulltext strategy not configured', async () => {
     const containerWithoutStrategy: HandlerContext = {
       resolve: jest.fn(() => []) as HandlerContext['resolve'],
     }
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
       records: [{ entityId: 'test', recordId: '1', tenantId: 'tenant-123', fields: {} }],
     })
     const ctx = createMockJobContext()
 
-    await handleMeilisearchIndexJob(job, ctx, containerWithoutStrategy)
+    await handleFulltextIndexJob(job, ctx, containerWithoutStrategy)
 
-    expect(mockMeilisearchStrategy.bulkIndex).not.toHaveBeenCalled()
+    expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
   })
 
-  it('should throw when Meilisearch is not available', async () => {
-    mockMeilisearchStrategy.isAvailable.mockResolvedValueOnce(false)
-    const job = createMockJob<MeilisearchIndexJobPayload>({
+  it('should throw when fulltext search is not available', async () => {
+    mockFulltextStrategy.isAvailable.mockResolvedValueOnce(false)
+    const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
       records: [{ entityId: 'test', recordId: '1', tenantId: 'tenant-123', fields: {} }],
     })
     const ctx = createMockJobContext()
 
-    await expect(handleMeilisearchIndexJob(job, ctx, mockContainer)).rejects.toThrow(
-      'Meilisearch is not available'
+    await expect(handleFulltextIndexJob(job, ctx, mockContainer)).rejects.toThrow(
+      'Fulltext search is not available'
     )
   })
 })

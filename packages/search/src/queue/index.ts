@@ -1,2 +1,2 @@
 export * from './vector-indexing'
-export * from './meilisearch-indexing'
+export * from './fulltext-indexing'

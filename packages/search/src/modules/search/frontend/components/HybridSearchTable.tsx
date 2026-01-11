@@ -25,7 +25,7 @@ type Row = {
 }
 
 const MIN_QUERY_LENGTH = 2
-const ALL_STRATEGIES: SearchStrategyId[] = ['meilisearch', 'vector', 'tokens']
+const ALL_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']
 
 type Translator = (
   key: string,
@@ -109,7 +109,7 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
 
 function getStrategyColorClass(strategy: string): string {
   switch (strategy) {
-    case 'meilisearch':
+    case 'fulltext':
       return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
     case 'vector':
       return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'

@@ -4,11 +4,52 @@ The search module provides unified search capabilities across all entities in Op
 
 ## Features
 
-- **Multi-strategy search**: Combines Meilisearch full-text search with vector-based semantic search
+- **Multi-strategy search**: Combines full-text search (Meilisearch), vector-based semantic search, and token matching
 - **Automatic indexing**: Subscribes to entity events for real-time index updates
 - **Queue-based processing**: Supports async batch processing via Redis/BullMQ for high-volume indexing
 - **Configurable embeddings**: Supports OpenAI, Ollama, and other embedding providers
 - **Tenant-scoped**: All indexes are scoped by tenant and optionally by organization
+- **Admin-configurable**: Global search (Cmd+K) strategies can be configured per-tenant
+
+## Global Search Settings
+
+The global search dialog (Cmd+K) can be configured by administrators to control which search strategies are used. This configuration is stored per-tenant.
+
+### Admin Configuration
+
+Navigate to **Settings > Search** to configure which search methods are enabled for Cmd+K:
+
+- **Full-Text Search**: Fast, typo-tolerant search powered by Meilisearch
+- **Semantic Search (AI)**: AI-powered search that understands meaning (requires embedding provider)
+- **Keyword Search**: Exact word matching in the database
+
+### API Endpoint
+
+**`GET /api/search/settings/global-search`**
+
+Returns the currently enabled strategies for global search.
+
+**Response:**
+```json
+{
+  "enabledStrategies": ["fulltext", "vector", "tokens"]
+}
+```
+
+**`POST /api/search/settings/global-search`**
+
+Updates the enabled strategies.
+
+**Request:**
+```json
+{
+  "enabledStrategies": ["fulltext", "vector"]
+}
+```
+
+**Permissions:**
+- GET requires `search.view`
+- POST requires `search.manage`
 
 ## Programmatic Integration (DI)
 
@@ -29,7 +70,7 @@ const results = await searchService.search('john doe', {
   tenantId: 'tenant-123',
   organizationId: 'org-456', // optional
   limit: 20,
-  strategies: ['meilisearch', 'vector'], // optional - defaults to all available
+  strategies: ['fulltext', 'vector'], // optional - defaults to all available
 })
 
 // Index a record
@@ -53,7 +94,7 @@ await searchService.delete('customers:customer_person_profile', 'rec-123', 'tena
 await searchService.purge('customers:customer_person_profile', 'tenant-123')
 
 // Check strategy availability
-const isAvailable = await searchService.isStrategyAvailable('meilisearch')
+const isAvailable = await searchService.isStrategyAvailable('fulltext')
 ```
 
 ### SearchIndexer (Higher-Level API)
@@ -136,7 +177,7 @@ Execute a search query via HTTP.
 |-----------|------|----------|-------------|
 | `q` | string | Yes | Search query |
 | `limit` | number | No | Max results (default: 50, max: 100) |
-| `strategies` | string | No | Comma-separated strategy IDs (e.g., `meilisearch,vector`) |
+| `strategies` | string | No | Comma-separated strategy IDs (e.g., `fulltext,vector`) |
 
 **Headers:**
 - Requires authentication (session cookie or bearer token)
@@ -158,7 +199,7 @@ curl -X GET "https://your-app.com/api/search?q=john%20doe&limit=20" \
       "entityId": "customers:customer_person_profile",
       "recordId": "rec-123",
       "score": 0.95,
-      "source": "meilisearch",
+      "source": "fulltext",
       "presenter": {
         "title": "John Doe",
         "subtitle": "Customer",
@@ -170,7 +211,7 @@ curl -X GET "https://your-app.com/api/search?q=john%20doe&limit=20" \
       ]
     }
   ],
-  "strategiesUsed": ["meilisearch", "vector"],
+  "strategiesUsed": ["fulltext", "vector"],
   "timing": 45,
   "query": "john doe",
   "limit": 20
@@ -189,7 +230,9 @@ curl -X GET "https://your-app.com/api/search?q=john%20doe&limit=20" \
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/search/reindex` | POST | Trigger Meilisearch reindex |
+| `/api/search/settings/global-search` | GET | Get global search strategy configuration |
+| `/api/search/settings/global-search` | POST | Update global search strategy configuration |
+| `/api/search/reindex` | POST | Trigger full-text search reindex |
 | `/api/search/embeddings/reindex` | POST | Trigger vector embeddings reindex |
 | `/api/search/embeddings/status` | GET | Get vector indexing status |
 | `/api/search/embeddings/config` | POST | Update embedding configuration |
@@ -205,7 +248,7 @@ interface SearchOptions {
   tenantId: string
   organizationId?: string | null
   limit?: number
-  strategies?: SearchStrategyId[]  // 'meilisearch' | 'vector' | 'tokens'
+  strategies?: SearchStrategyId[]  // 'fulltext' | 'vector' | 'tokens'
   entityTypes?: string[]           // Filter by entity types
 }
 ```
@@ -275,7 +318,7 @@ Options:
 - `--tenant` - Tenant ID (required)
 - `--org` - Organization ID (optional)
 - `--entity` - Entity types to search (comma-separated)
-- `--strategy` - Strategies to use (comma-separated: meilisearch, vector, tokens)
+- `--strategy` - Strategies to use (comma-separated: fulltext, vector, tokens)
 - `--limit` - Max results (default: 20)
 
 ### Index
@@ -518,8 +561,8 @@ export default searchConfig
 
 ### Search Strategies Comparison
 
-| Aspect | Meilisearch | Vector Search | Token Search |
-|--------|-------------|---------------|--------------|
+| Aspect | Full-Text (fulltext) | Vector Search (vector) | Token Search (tokens) |
+|--------|----------------------|------------------------|----------------------|
 | **Configuration** | `fieldPolicy` | `buildSource` | Automatic |
 | **Search Type** | Full-text with typo tolerance | Semantic similarity | Exact token matching |
 | **Good For** | Exact matches, filters, facets | Natural language, "find similar" | Simple lookups |
@@ -533,7 +576,7 @@ You can control which strategies are used at multiple levels:
 #### Per Entity
 
 ```typescript
-// Meilisearch only (no vector search)
+// Full-text only (no vector search)
 {
   entityId: 'your_module:your_entity',
   enabled: true,
@@ -543,12 +586,12 @@ You can control which strategies are used at multiple levels:
   },
 }
 
-// Vector only (no Meilisearch)
+// Vector only (no full-text)
 {
   entityId: 'your_module:your_entity',
   enabled: true,
   buildSource: async (ctx) => ({ text: [...], presenter: {...} }),
-  // NO fieldPolicy = no Meilisearch
+  // NO fieldPolicy = no full-text search
 }
 
 // Both strategies
@@ -569,19 +612,19 @@ import { registerSearchModule } from '@open-mercato/search'
 
 registerSearchModule(container, {
   moduleConfigs: searchModuleConfigs,
-  skipVector: true,      // Disable vector search globally
-  skipMeilisearch: true, // Disable Meilisearch globally
-  skipTokens: true,      // Disable token search globally
+  skipVector: true,    // Disable vector search globally
+  skipFulltext: true,  // Disable full-text search globally
+  skipTokens: true,    // Disable token search globally
 })
 ```
 
 #### Per Query
 
 ```typescript
-// Only use Meilisearch for this search
+// Only use full-text search for this query
 const results = await searchService.search('query', {
   tenantId: '...',
-  strategies: ['meilisearch'],
+  strategies: ['fulltext'],
 })
 
 // Only use vector search
@@ -602,9 +645,9 @@ Strategies automatically become unavailable if their backend is not configured:
 
 | Strategy | Required Environment |
 |----------|---------------------|
-| Meilisearch | `MEILISEARCH_HOST` |
-| Vector | `OPENAI_API_KEY` (or other embedding provider) |
-| Tokens | Database connection (always available) |
+| fulltext | `MEILISEARCH_HOST` |
+| vector | `OPENAI_API_KEY` (or other embedding provider) |
+| tokens | Database connection (always available) |
 
 ### SearchBuildContext
 

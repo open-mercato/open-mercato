@@ -3,14 +3,15 @@ import type { Knex } from 'knex'
 import { SearchService } from './service'
 import { TokenSearchStrategy } from './strategies/token.strategy'
 import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector.strategy'
-import { MeilisearchStrategy } from './strategies/meilisearch.strategy'
+import { FullTextSearchStrategy } from './strategies/fulltext.strategy'
+import { createFulltextDriver } from './fulltext/drivers'
 import { SearchIndexer } from './indexer/search-indexer'
 import type { SearchStrategy, ResultMergeConfig, SearchModuleConfig, SearchFieldPolicy, SearchEntityConfig } from './types'
 import type { VectorDriver } from './vector/types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Queue } from '@open-mercato/queue'
-import type { MeilisearchIndexJobPayload } from './queue/meilisearch-indexing'
+import type { FulltextIndexJobPayload } from './queue/fulltext-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
 
 /**
@@ -85,8 +86,8 @@ export type SearchModuleOptions = {
   skipTokens?: boolean
   /** Skip vector strategy registration */
   skipVector?: boolean
-  /** Skip meilisearch strategy registration */
-  skipMeilisearch?: boolean
+  /** Skip fulltext strategy registration */
+  skipFulltext?: boolean
   /** Module configurations (from generated/search.generated.ts) */
   moduleConfigs?: SearchModuleConfig[]
 }
@@ -145,8 +146,8 @@ export function registerSearchModule(
     }
   }
 
-  // Meilisearch strategy (requires host configuration)
-  if (!options?.skipMeilisearch && process.env.MEILISEARCH_HOST) {
+  // Fulltext strategy (requires driver configuration, e.g., MEILISEARCH_HOST)
+  if (!options?.skipFulltext) {
     // Build encryption map resolver if SEARCH_EXCLUDE_ENCRYPTED_FIELDS is enabled
     let encryptionMapResolver: ((entityId: EntityId) => Promise<EncryptionMapEntry[]>) | undefined
     if (shouldExcludeEncryptedFields()) {
@@ -159,13 +160,17 @@ export function registerSearchModule(
       }
     }
 
-    strategies.push(new MeilisearchStrategy({
+    const fulltextDriver = createFulltextDriver({
       fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
         const config = entityConfigMap.get(entityId)
         return config?.fieldPolicy
       },
       encryptionMapResolver,
-    }))
+    })
+
+    if (fulltextDriver) {
+      strategies.push(new FullTextSearchStrategy(fulltextDriver))
+    }
   }
 
   // Determine default strategies based on what's available
@@ -179,7 +184,7 @@ export function registerSearchModule(
     mergeConfig: options?.mergeConfig ?? {
       duplicateHandling: 'highest_score',
       strategyWeights: {
-        meilisearch: 1.2,
+        fulltext: 1.2,
         vector: 1.0,
         tokens: 0.8,
       },
@@ -197,17 +202,17 @@ export function registerSearchModule(
     // QueryEngine not available, reindex will be disabled
   }
 
-  // Try to resolve meilisearchIndexQueue for queue-based reindexing
-  let meilisearchQueue: Queue<MeilisearchIndexJobPayload> | undefined
+  // Try to resolve fulltextIndexQueue for queue-based reindexing
+  let fulltextQueue: Queue<FulltextIndexJobPayload> | undefined
   try {
-    meilisearchQueue = container.resolve<Queue<MeilisearchIndexJobPayload>>('meilisearchIndexQueue')
+    fulltextQueue = container.resolve<Queue<FulltextIndexJobPayload>>('fulltextIndexQueue')
   } catch {
     // Queue not available, queue-based reindex will be disabled
   }
 
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
     queryEngine,
-    meilisearchQueue,
+    fulltextQueue,
   })
 
   // Register in container
@@ -220,13 +225,13 @@ export function registerSearchModule(
 
 /**
  * Determine default strategy order based on available strategies.
- * Prefers meilisearch > vector > tokens.
+ * Prefers fulltext > vector > tokens.
  */
 function determineDefaultStrategies(strategies: SearchStrategy[]): string[] {
   const available = new Set(strategies.map((s) => s.id))
   const defaults: string[] = []
 
-  if (available.has('meilisearch')) defaults.push('meilisearch')
+  if (available.has('fulltext')) defaults.push('fulltext')
   if (available.has('vector')) defaults.push('vector')
   if (available.has('tokens')) defaults.push('tokens')
 

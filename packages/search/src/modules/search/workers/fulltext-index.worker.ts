@@ -1,6 +1,6 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import type { MeilisearchIndexJobPayload } from '../../../queue/meilisearch-indexing'
-import type { MeilisearchStrategy } from '../../../strategies/meilisearch.strategy'
+import type { FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
+import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
@@ -8,24 +8,24 @@ import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
 /**
- * Process a Meilisearch indexing job.
+ * Process a fulltext indexing job.
  *
  * This handler processes batch indexing, deletion, and purge operations
- * for the Meilisearch search strategy.
+ * for the fulltext search strategy.
  *
  * @param job - The queued job containing payload
  * @param jobCtx - Queue job context with job ID and attempt info
  * @param ctx - DI container context for resolving services
  */
-export async function handleMeilisearchIndexJob(
-  job: QueuedJob<MeilisearchIndexJobPayload>,
+export async function handleFulltextIndexJob(
+  job: QueuedJob<FulltextIndexJobPayload>,
   jobCtx: JobContext,
   ctx: HandlerContext,
 ): Promise<void> {
   const { jobType, tenantId } = job.payload
 
   if (!tenantId) {
-    searchDebugWarn('meilisearch-index.worker', 'Skipping job with missing tenantId', {
+    searchDebugWarn('fulltext-index.worker', 'Skipping job with missing tenantId', {
       jobId: jobCtx.jobId,
       jobType,
     })
@@ -41,43 +41,43 @@ export async function handleMeilisearchIndexJob(
     em = null
   }
 
-  // Resolve Meilisearch strategy
-  let meilisearchStrategy: MeilisearchStrategy | undefined
+  // Resolve fulltext strategy
+  let fulltextStrategy: FullTextSearchStrategy | undefined
   try {
     const searchStrategies = ctx.resolve<unknown[]>('searchStrategies')
-    meilisearchStrategy = searchStrategies?.find(
-      (s: unknown) => (s as { id?: string })?.id === 'meilisearch',
-    ) as MeilisearchStrategy | undefined
+    fulltextStrategy = searchStrategies?.find(
+      (s: unknown) => (s as { id?: string })?.id === 'fulltext',
+    ) as FullTextSearchStrategy | undefined
   } catch {
-    searchDebugWarn('meilisearch-index.worker', 'searchStrategies not available')
+    searchDebugWarn('fulltext-index.worker', 'searchStrategies not available')
     return
   }
 
-  if (!meilisearchStrategy) {
-    searchDebugWarn('meilisearch-index.worker', 'Meilisearch strategy not configured')
+  if (!fulltextStrategy) {
+    searchDebugWarn('fulltext-index.worker', 'Fulltext strategy not configured')
     return
   }
 
-  // Check if Meilisearch is available
-  const isAvailable = await meilisearchStrategy.isAvailable()
+  // Check if fulltext is available
+  const isAvailable = await fulltextStrategy.isAvailable()
   if (!isAvailable) {
-    searchDebugWarn('meilisearch-index.worker', 'Meilisearch is not available')
-    throw new Error('Meilisearch is not available') // Will trigger retry
+    searchDebugWarn('fulltext-index.worker', 'Fulltext search is not available')
+    throw new Error('Fulltext search is not available') // Will trigger retry
   }
 
   try {
     if (jobType === 'batch-index') {
       const { records } = job.payload
       if (!records || records.length === 0) {
-        searchDebugWarn('meilisearch-index.worker', 'Skipping batch-index with no records', {
+        searchDebugWarn('fulltext-index.worker', 'Skipping batch-index with no records', {
           jobId: jobCtx.jobId,
         })
         return
       }
 
-      await meilisearchStrategy.bulkIndex(records)
+      await fulltextStrategy.bulkIndex(records)
 
-      searchDebug('meilisearch-index.worker', 'Batch indexed to Meilisearch', {
+      searchDebug('fulltext-index.worker', 'Batch indexed to fulltext', {
         jobId: jobCtx.jobId,
         tenantId,
         recordCount: records.length,
@@ -87,9 +87,9 @@ export async function handleMeilisearchIndexJob(
       await recordIndexerLog(
         { em: em ?? undefined },
         {
-          source: 'meilisearch',
-          handler: 'worker:meilisearch:batch-index',
-          message: `Indexed ${records.length} records to Meilisearch`,
+          source: 'fulltext',
+          handler: 'worker:fulltext:batch-index',
+          message: `Indexed ${records.length} records to fulltext`,
           tenantId,
           details: { jobId: jobCtx.jobId, recordCount: records.length },
         },
@@ -97,7 +97,7 @@ export async function handleMeilisearchIndexJob(
     } else if (jobType === 'delete') {
       const { entityId, recordId } = job.payload
       if (!entityId || !recordId) {
-        searchDebugWarn('meilisearch-index.worker', 'Skipping delete with missing fields', {
+        searchDebugWarn('fulltext-index.worker', 'Skipping delete with missing fields', {
           jobId: jobCtx.jobId,
           entityId,
           recordId,
@@ -105,9 +105,9 @@ export async function handleMeilisearchIndexJob(
         return
       }
 
-      await meilisearchStrategy.delete(entityId, recordId, tenantId)
+      await fulltextStrategy.delete(entityId, recordId, tenantId)
 
-      searchDebug('meilisearch-index.worker', 'Deleted from Meilisearch', {
+      searchDebug('fulltext-index.worker', 'Deleted from fulltext', {
         jobId: jobCtx.jobId,
         tenantId,
         entityId,
@@ -117,9 +117,9 @@ export async function handleMeilisearchIndexJob(
       await recordIndexerLog(
         { em: em ?? undefined },
         {
-          source: 'meilisearch',
-          handler: 'worker:meilisearch:delete',
-          message: `Deleted record from Meilisearch`,
+          source: 'fulltext',
+          handler: 'worker:fulltext:delete',
+          message: `Deleted record from fulltext`,
           entityType: entityId,
           recordId,
           tenantId,
@@ -129,15 +129,15 @@ export async function handleMeilisearchIndexJob(
     } else if (jobType === 'purge') {
       const { entityId } = job.payload
       if (!entityId) {
-        searchDebugWarn('meilisearch-index.worker', 'Skipping purge with missing entityId', {
+        searchDebugWarn('fulltext-index.worker', 'Skipping purge with missing entityId', {
           jobId: jobCtx.jobId,
         })
         return
       }
 
-      await meilisearchStrategy.purge(entityId, tenantId)
+      await fulltextStrategy.purge(entityId, tenantId)
 
-      searchDebug('meilisearch-index.worker', 'Purged entity from Meilisearch', {
+      searchDebug('fulltext-index.worker', 'Purged entity from fulltext', {
         jobId: jobCtx.jobId,
         tenantId,
         entityId,
@@ -146,9 +146,9 @@ export async function handleMeilisearchIndexJob(
       await recordIndexerLog(
         { em: em ?? undefined },
         {
-          source: 'meilisearch',
-          handler: 'worker:meilisearch:purge',
-          message: `Purged entity from Meilisearch`,
+          source: 'fulltext',
+          handler: 'worker:fulltext:purge',
+          message: `Purged entity from fulltext`,
           entityType: entityId,
           tenantId,
           details: { jobId: jobCtx.jobId },
@@ -156,7 +156,7 @@ export async function handleMeilisearchIndexJob(
       )
     }
   } catch (error) {
-    searchError('meilisearch-index.worker', `Failed to ${jobType}`, {
+    searchError('fulltext-index.worker', `Failed to ${jobType}`, {
       jobId: jobCtx.jobId,
       tenantId,
       error: error instanceof Error ? error.message : error,
@@ -169,8 +169,8 @@ export async function handleMeilisearchIndexJob(
     await recordIndexerError(
       { em: em ?? undefined },
       {
-        source: 'meilisearch',
-        handler: `worker:meilisearch:${jobType}`,
+        source: 'fulltext',
+        handler: `worker:fulltext:${jobType}`,
         error,
         entityType: entityId,
         recordId,

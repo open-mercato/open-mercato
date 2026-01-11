@@ -5,7 +5,7 @@ import { E as AllEntities } from '@/generated/entities.ids.generated'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { VectorIndexService } from '@open-mercato/search/vector'
-import type { MeilisearchStrategy } from '@open-mercato/search/strategies/meilisearch.strategy'
+import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -84,24 +84,24 @@ export async function GET(req: Request) {
     } catch {}
   }
 
-  // Resolve Meilisearch strategy for entity counts
-  let meilisearchStrategy: MeilisearchStrategy | null = null
+  // Resolve fulltext strategy for entity counts
+  let fulltextStrategy: FullTextSearchStrategy | null = null
   try {
     const searchStrategies = container.resolve('searchStrategies') as unknown[]
-    meilisearchStrategy = (searchStrategies?.find(
-      (s: unknown) => (s as { id?: string })?.id === 'meilisearch',
-    ) as MeilisearchStrategy) ?? null
+    fulltextStrategy = (searchStrategies?.find(
+      (s: unknown) => (s as { id?: string })?.id === 'fulltext',
+    ) as FullTextSearchStrategy) ?? null
   } catch {
-    meilisearchStrategy = null
+    fulltextStrategy = null
   }
 
-  // Fetch Meilisearch entity counts
-  let meilisearchEntityCounts: Record<string, number> | null = null
-  if (meilisearchStrategy) {
+  // Fetch fulltext entity counts
+  let fulltextEntityCounts: Record<string, number> | null = null
+  if (fulltextStrategy) {
     try {
-      meilisearchEntityCounts = await meilisearchStrategy.getEntityCounts(tenantId)
+      fulltextEntityCounts = await fulltextStrategy.getEntityCounts(tenantId)
     } catch {
-      meilisearchEntityCounts = null
+      fulltextEntityCounts = null
     }
   }
 
@@ -323,8 +323,8 @@ export async function GET(req: Request) {
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
     const vectorEnabled = vectorEnabledEntities.has(eid)
     const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
-    const meilisearchEnabled = meilisearchEntityCounts !== null
-    const meilisearchCountNumber = meilisearchEnabled ? (meilisearchEntityCounts?.[eid] ?? 0) : null
+    const fulltextEnabled = fulltextEntityCounts !== null
+    const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false
       if (baseCountNumber !== indexCountNumber) return false
@@ -338,8 +338,8 @@ export async function GET(req: Request) {
       indexCount: indexCountNumber,
       vectorCount: vectorEnabled ? vectorCountNumber : null,
       vectorEnabled,
-      meilisearchCount: meilisearchCountNumber,
-      meilisearchEnabled,
+      fulltextCount: fulltextCountNumber,
+      fulltextEnabled,
       ok,
       job,
       refreshedAt: refreshedAt ?? null,

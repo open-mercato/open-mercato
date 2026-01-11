@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Loader2, Settings2 } from 'lucide-react'
+import { Search, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -13,17 +13,8 @@ import { fetchGlobalSearchResults } from '../utils'
 
 const MIN_QUERY_LENGTH = 2
 
-type StrategyOption = {
-  id: SearchStrategyId
-  label: string
-  description: string
-  className: string
-}
-
-const STRATEGY_OPTIONS: StrategyOption[] = [
-  { id: 'meilisearch', label: 'Fuzzy', description: 'Typo-tolerant full-text search', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200 border-purple-300 dark:border-purple-700' },
-  { id: 'vector', label: 'Semantic', description: 'AI-powered meaning-based search', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 border-blue-300 dark:border-blue-700' },
-]
+/** Default strategies used when none are configured */
+const DEFAULT_STRATEGIES: SearchStrategyId[] = ['fulltext', 'vector', 'tokens']
 
 function normalizeLinks(links?: SearchResultLink[] | null): SearchResultLink[] {
   if (!Array.isArray(links)) return []
@@ -52,20 +43,20 @@ function formatEntityId(entityId: string): string {
   return `${humanizeSegment(module)} · ${humanizeSegment(entity)}`
 }
 
-function getStrategyBadge(source: string): { label: string; className: string } {
-  switch (source) {
-    case 'meilisearch':
-      return { label: 'Fuzzy', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200' }
-    case 'vector':
-      return { label: 'Semantic', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200' }
-    case 'tokens':
-      return { label: 'Exact', className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200' }
-    default:
-      return { label: source, className: 'bg-gray-100 text-gray-700 dark:bg-gray-900/40 dark:text-gray-200' }
-  }
+export type GlobalSearchDialogProps = {
+  /** Whether embedding provider is configured for vector search */
+  embeddingConfigured: boolean
+  /** Message to show when embedding is not configured */
+  missingConfigMessage: string
+  /** Enabled strategies from tenant configuration (optional - uses defaults if not provided) */
+  enabledStrategies?: SearchStrategyId[]
 }
 
-export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }: { embeddingConfigured: boolean; missingConfigMessage: string }) {
+export function GlobalSearchDialog({
+  embeddingConfigured,
+  missingConfigMessage,
+  enabledStrategies: propStrategies,
+}: GlobalSearchDialogProps) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
@@ -73,26 +64,17 @@ export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [selectedIndex, setSelectedIndex] = React.useState(0)
-  const [showStrategyOptions, setShowStrategyOptions] = React.useState(false)
-  const [enabledStrategies, setEnabledStrategies] = React.useState<Set<SearchStrategyId>>(() => new Set(['meilisearch', 'vector']))
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
   const t = useT()
 
-  const toggleStrategy = React.useCallback((strategyId: SearchStrategyId) => {
-    setEnabledStrategies((prev) => {
-      const next = new Set(prev)
-      if (next.has(strategyId)) {
-        // Don't allow disabling all strategies
-        if (next.size > 1) {
-          next.delete(strategyId)
-        }
-      } else {
-        next.add(strategyId)
-      }
-      return next
-    })
-  }, [])
+  // Use configured strategies or fall back to defaults
+  const enabledStrategies = React.useMemo(() => {
+    if (propStrategies && propStrategies.length > 0) {
+      return propStrategies
+    }
+    return DEFAULT_STRATEGIES
+  }, [propStrategies])
 
   const resetState = React.useCallback(() => {
     setQuery('')
@@ -150,8 +132,11 @@ export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }
 
     const handle = setTimeout(async () => {
       try {
-        const strategies = Array.from(enabledStrategies) as SearchStrategyId[]
-        const data = await fetchGlobalSearchResults(query, { limit: 10, strategies, signal: controller.signal })
+        const data = await fetchGlobalSearchResults(query, {
+          limit: 10,
+          strategies: enabledStrategies,
+          signal: controller.signal,
+        })
         setResults(data.results)
         setError(data.error ?? null)
         setSelectedIndex(0)
@@ -212,6 +197,9 @@ export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }
     }
   }, [results, selectedIndex, openResult])
 
+  // Check if vector search is enabled but not configured
+  const showVectorWarning = !embeddingConfigured && enabledStrategies.includes('vector') && !error
+
   return (
     <>
       <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)} className="hidden sm:inline-flex items-center gap-2">
@@ -247,52 +235,12 @@ export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }
                 autoFocus
               />
               {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-              <button
-                type="button"
-                onClick={() => setShowStrategyOptions((prev) => !prev)}
-                className={cn(
-                  'rounded p-1.5 transition-colors hover:bg-muted',
-                  showStrategyOptions && 'bg-muted'
-                )}
-                title={t('search.dialog.strategies.toggle', 'Search options')}
-              >
-                <Settings2 className="h-4 w-4 text-muted-foreground" />
-              </button>
             </div>
-
-            {/* Strategy Selection */}
-            {showStrategyOptions && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-muted-foreground mr-1">{t('search.dialog.strategies.label', 'Search with:')}</span>
-                {STRATEGY_OPTIONS.map((strategy) => {
-                  const isEnabled = enabledStrategies.has(strategy.id)
-                  const isOnlyEnabled = isEnabled && enabledStrategies.size === 1
-                  return (
-                    <button
-                      key={strategy.id}
-                      type="button"
-                      onClick={() => toggleStrategy(strategy.id)}
-                      disabled={isOnlyEnabled}
-                      title={strategy.description}
-                      className={cn(
-                        'rounded-full border px-2.5 py-1 text-xs font-medium transition-all',
-                        isEnabled
-                          ? strategy.className
-                          : 'border-muted-foreground/30 bg-transparent text-muted-foreground opacity-50 hover:opacity-75',
-                        isOnlyEnabled && 'cursor-not-allowed'
-                      )}
-                    >
-                      {strategy.label}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
 
             {error ? (
               <p className="rounded bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
             ) : null}
-            {!embeddingConfigured && enabledStrategies.has('vector') && !error ? (
+            {showVectorWarning ? (
               <p className="rounded bg-amber-100 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">{missingConfigMessage}</p>
             ) : null}
           </div>
@@ -308,7 +256,6 @@ export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }
               {results.map((result, index) => {
                 const presenter = result.presenter
                 const isActive = index === selectedIndex
-                const strategyBadge = getStrategyBadge(result.source)
                 return (
                   <li key={`${result.entityId}:${result.recordId}`}>
                     <button
@@ -351,14 +298,11 @@ export function GlobalSearchDialog({ embeddingConfigured, missingConfigMessage }
                             </div>
                           ) : null}
                         </div>
-                        <div className="flex flex-col items-end gap-2 text-xs text-muted-foreground">
-                          <span className={cn('rounded px-2 py-0.5 text-xs font-medium', strategyBadge.className)}>
-                            {strategyBadge.label}
-                          </span>
-                          {presenter?.icon ? (
+                        {presenter?.icon ? (
+                          <div className="flex flex-col items-end gap-2 text-xs text-muted-foreground">
                             <span className="text-muted-foreground/80">{humanizeSegment(presenter.icon)}</span>
-                          ) : null}
-                        </div>
+                          </div>
+                        ) : null}
                       </div>
                     </button>
                   </li>

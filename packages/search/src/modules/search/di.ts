@@ -2,7 +2,7 @@ import { asValue } from 'awilix'
 import type { AppContainer } from '@/lib/di/container'
 import { EmbeddingService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
 import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
-import { createMeilisearchIndexingQueue, type MeilisearchIndexJobPayload } from '../../queue/meilisearch-indexing'
+import { createFulltextIndexingQueue, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
 import type { Queue } from '@open-mercato/queue'
 
 /**
@@ -12,7 +12,7 @@ import type { Queue } from '@open-mercato/queue'
  * - vectorEmbeddingService: EmbeddingService for creating embeddings
  * - vectorDrivers: Array of vector database drivers (pgvector, chromadb, qdrant)
  * - vectorIndexQueue: Queue for vector indexing jobs
- * - meilisearchIndexQueue: Queue for Meilisearch indexing jobs
+ * - fulltextIndexQueue: Queue for fulltext indexing jobs
  *
  * Note: VectorIndexService is no longer registered here. Use SearchIndexer instead,
  * which is registered in the main search module DI (packages/search/src/di.ts).
@@ -36,7 +36,7 @@ export function register(container: AppContainer) {
     queueConnection,
   )
 
-  const meilisearchIndexQueue: Queue<MeilisearchIndexJobPayload> = createMeilisearchIndexingQueue(
+  const fulltextIndexQueue: Queue<FulltextIndexJobPayload> = createFulltextIndexingQueue(
     queueStrategy,
     queueConnection,
   )
@@ -45,6 +45,6 @@ export function register(container: AppContainer) {
     vectorEmbeddingService: asValue(embeddingService),
     vectorDrivers: asValue(drivers),
     vectorIndexQueue: asValue(vectorIndexQueue),
-    meilisearchIndexQueue: asValue(meilisearchIndexQueue),
+    fulltextIndexQueue: asValue(fulltextIndexQueue),
   })
 }

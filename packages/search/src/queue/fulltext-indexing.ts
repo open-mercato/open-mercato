@@ -2,14 +2,14 @@ import { createQueue, type Queue } from '@open-mercato/queue'
 import type { IndexableRecord } from '../types'
 
 /**
- * Job types for Meilisearch indexing queue.
+ * Job types for fulltext indexing queue.
  */
-export type MeilisearchIndexJobType = 'batch-index' | 'delete' | 'purge'
+export type FulltextIndexJobType = 'batch-index' | 'delete' | 'purge'
 
 /**
  * Payload for batch indexing jobs.
  */
-export type MeilisearchBatchIndexPayload = {
+export type FulltextBatchIndexPayload = {
   jobType: 'batch-index'
   tenantId: string
   records: IndexableRecord[]
@@ -18,7 +18,7 @@ export type MeilisearchBatchIndexPayload = {
 /**
  * Payload for delete jobs.
  */
-export type MeilisearchDeletePayload = {
+export type FulltextDeletePayload = {
   jobType: 'delete'
   tenantId: string
   entityId: string
@@ -28,36 +28,36 @@ export type MeilisearchDeletePayload = {
 /**
  * Payload for purge jobs (delete all records of an entity type).
  */
-export type MeilisearchPurgePayload = {
+export type FulltextPurgePayload = {
   jobType: 'purge'
   tenantId: string
   entityId: string
 }
 
 /**
- * Union type for all Meilisearch indexing job payloads.
+ * Union type for all fulltext indexing job payloads.
  */
-export type MeilisearchIndexJobPayload =
-  | MeilisearchBatchIndexPayload
-  | MeilisearchDeletePayload
-  | MeilisearchPurgePayload
+export type FulltextIndexJobPayload =
+  | FulltextBatchIndexPayload
+  | FulltextDeletePayload
+  | FulltextPurgePayload
 
-export const MEILISEARCH_INDEXING_QUEUE_NAME = 'meilisearch-indexing'
+export const FULLTEXT_INDEXING_QUEUE_NAME = 'fulltext-indexing'
 
 /**
- * Create a Meilisearch indexing queue.
+ * Create a fulltext indexing queue.
  *
  * @param strategy - Queue strategy ('local' for development, 'async' for production with Redis)
  * @param options - Optional connection configuration for async strategy
  */
-export function createMeilisearchIndexingQueue(
+export function createFulltextIndexingQueue(
   strategy: 'local' | 'async' = 'local',
   options?: { connection?: { url?: string; host?: string; port?: number } },
-): Queue<MeilisearchIndexJobPayload> {
+): Queue<FulltextIndexJobPayload> {
   if (strategy === 'async') {
-    return createQueue<MeilisearchIndexJobPayload>(MEILISEARCH_INDEXING_QUEUE_NAME, 'async', {
+    return createQueue<FulltextIndexJobPayload>(FULLTEXT_INDEXING_QUEUE_NAME, 'async', {
       connection: options?.connection,
     })
   }
-  return createQueue<MeilisearchIndexJobPayload>(MEILISEARCH_INDEXING_QUEUE_NAME, 'local')
+  return createQueue<FulltextIndexJobPayload>(FULLTEXT_INDEXING_QUEUE_NAME, 'local')
 }

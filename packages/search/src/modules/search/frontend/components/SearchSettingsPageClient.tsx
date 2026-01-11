@@ -190,6 +190,13 @@ export function SearchSettingsPageClient() {
   const [vectorReindexing, setVectorReindexing] = React.useState(false)
   const [showVectorReindexDialog, setShowVectorReindexDialog] = React.useState(false)
 
+  // Global search settings state
+  const [globalSearchStrategies, setGlobalSearchStrategies] = React.useState<Set<string>>(() => new Set(['fulltext', 'vector', 'tokens']))
+  const [globalSearchInitial, setGlobalSearchInitial] = React.useState<Set<string>>(() => new Set(['fulltext', 'vector', 'tokens']))
+  const [globalSearchLoading, setGlobalSearchLoading] = React.useState(true)
+  const [globalSearchSaving, setGlobalSearchSaving] = React.useState(false)
+  const [globalSearchDirty, setGlobalSearchDirty] = React.useState(false)
+
   const fetchSettings = React.useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -261,6 +268,30 @@ export function SearchSettingsPageClient() {
   React.useEffect(() => {
     fetchEmbeddingSettings()
   }, [fetchEmbeddingSettings])
+
+  // Fetch global search settings
+  const fetchGlobalSearchSettings = React.useCallback(async () => {
+    setGlobalSearchLoading(true)
+    try {
+      const response = await fetch('/api/search/settings/global-search')
+      if (response.ok) {
+        const body = await response.json() as { enabledStrategies?: string[] }
+        if (body.enabledStrategies && Array.isArray(body.enabledStrategies) && body.enabledStrategies.length > 0) {
+          const strategies = new Set(body.enabledStrategies)
+          setGlobalSearchStrategies(strategies)
+          setGlobalSearchInitial(new Set(strategies))
+        }
+      }
+    } catch {
+      // Silently use defaults if fetch fails
+    } finally {
+      setGlobalSearchLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    fetchGlobalSearchSettings()
+  }, [fetchGlobalSearchSettings])
 
   // Update auto-indexing
   const updateAutoIndexing = React.useCallback(async (nextValue: boolean) => {
@@ -535,9 +566,53 @@ export function SearchSettingsPageClient() {
     }
   }
 
+  // Global search settings handlers
+  const toggleGlobalSearchStrategy = React.useCallback((strategyId: string) => {
+    setGlobalSearchStrategies((prev) => {
+      const next = new Set(prev)
+      if (next.has(strategyId)) {
+        // Don't allow disabling all strategies
+        if (next.size > 1) {
+          next.delete(strategyId)
+        }
+      } else {
+        next.add(strategyId)
+      }
+      // Compute dirty by comparing with initial
+      const isDirty = next.size !== globalSearchInitial.size ||
+        Array.from(next).some((s) => !globalSearchInitial.has(s))
+      setGlobalSearchDirty(isDirty)
+      return next
+    })
+  }, [globalSearchInitial])
+
+  const saveGlobalSearchSettings = React.useCallback(async () => {
+    setGlobalSearchSaving(true)
+    try {
+      const response = await fetch('/api/search/settings/global-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabledStrategies: Array.from(globalSearchStrategies) }),
+      })
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || t('search.settings.globalSearch.saveError', 'Failed to save settings'))
+      }
+
+      flash(t('search.settings.globalSearch.saveSuccess', 'Global search settings saved'), 'success')
+      setGlobalSearchInitial(new Set(globalSearchStrategies))
+      setGlobalSearchDirty(false)
+    } catch (err) {
+      flash(normalizeErrorMessage(err, t('search.settings.globalSearch.saveError', 'Failed to save settings')), 'error')
+    } finally {
+      setGlobalSearchSaving(false)
+    }
+  }, [globalSearchStrategies, t])
+
   const getStrategyIcon = (strategyId: string) => {
     switch (strategyId) {
-      case 'meilisearch':
+      case 'fulltext':
         return (
           <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -584,7 +659,7 @@ export function SearchSettingsPageClient() {
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-3">
-            {/* Meilisearch */}
+            {/* Full-Text Search */}
             <div className="rounded-md border border-border p-4">
               <div className="flex items-center gap-3 mb-2">
                 <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
@@ -592,10 +667,10 @@ export function SearchSettingsPageClient() {
                     ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
                     : 'bg-muted text-muted-foreground'
                 }`}>
-                  {getStrategyIcon('meilisearch')}
+                  {getStrategyIcon('fulltext')}
                 </div>
                 <div>
-                  <p className="font-medium">{t('search.settings.meilisearchLabel', 'Meilisearch')}</p>
+                  <p className="font-medium">{t('search.settings.fulltextLabel', 'Full-Text Search')}</p>
                   <p className={`text-xs ${
                     settings?.meilisearchConfigured
                       ? 'text-emerald-600 dark:text-emerald-400'
@@ -605,7 +680,7 @@ export function SearchSettingsPageClient() {
                   </p>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{t('search.settings.meilisearchHint', 'Set MEILISEARCH_HOST environment variable to enable.')}</p>
+              <p className="text-xs text-muted-foreground">{t('search.settings.fulltextHint', 'Fast, typo-tolerant search. Powered by Meilisearch.')}</p>
             </div>
 
             {/* Vector Search */}
@@ -659,11 +734,102 @@ export function SearchSettingsPageClient() {
         )}
       </div>
 
-      {/* Meilisearch Index Management Card */}
+      {/* Global Search Settings Card */}
+      <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-lg font-semibold mb-2">{t('search.settings.globalSearch.title', 'Global Search (Cmd+K)')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.globalSearch.description', 'Configure which search methods are used when searching with Cmd+K.')}</p>
+
+        {globalSearchLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Spinner size="sm" />
+            <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
+          </div>
+        ) : (
+          <>
+          <div className="space-y-3">
+          {/* Full-Text Search Toggle */}
+          <label className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={globalSearchStrategies.has('fulltext')}
+              onChange={() => toggleGlobalSearchStrategy('fulltext')}
+              disabled={globalSearchStrategies.has('fulltext') && globalSearchStrategies.size === 1}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{t('search.settings.globalSearch.fulltext', 'Full-Text Search')}</span>
+                {!settings?.meilisearchConfigured && (
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.fulltextDescription', 'Fast, typo-tolerant search across all text fields.')}</p>
+            </div>
+          </label>
+
+          {/* Semantic Search Toggle */}
+          <label className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={globalSearchStrategies.has('vector')}
+              onChange={() => toggleGlobalSearchStrategy('vector')}
+              disabled={globalSearchStrategies.has('vector') && globalSearchStrategies.size === 1}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{t('search.settings.globalSearch.vector', 'Semantic Search (AI)')}</span>
+                {!settings?.vectorConfigured && (
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.vectorDescription', 'AI-powered search that understands meaning and finds related content.')}</p>
+            </div>
+          </label>
+
+          {/* Keyword Search Toggle */}
+          <label className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={globalSearchStrategies.has('tokens')}
+              onChange={() => toggleGlobalSearchStrategy('tokens')}
+              disabled={globalSearchStrategies.has('tokens') && globalSearchStrategies.size === 1}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1">
+              <span className="font-medium">{t('search.settings.globalSearch.tokens', 'Keyword Search')}</span>
+              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.tokensDescription', 'Exact word matching in the database.')}</p>
+            </div>
+          </label>
+        </div>
+
+        {/* Save Button */}
+        <div className="flex justify-end mt-4 pt-4 border-t border-border">
+          <Button
+            type="button"
+            size="sm"
+            onClick={saveGlobalSearchSettings}
+            disabled={globalSearchSaving || !globalSearchDirty}
+          >
+            {globalSearchSaving ? (
+              <>
+                <Spinner size="sm" className="mr-2" />
+                {t('search.settings.globalSearch.saving', 'Saving...')}
+              </>
+            ) : (
+              t('search.settings.globalSearch.save', 'Save Changes')
+            )}
+          </Button>
+        </div>
+        </>
+        )}
+      </div>
+
+      {/* Full-Text Search Index Management Card */}
       {settings?.meilisearchConfigured && (
         <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-lg font-semibold mb-2">{t('search.settings.meilisearchIndexTitle', 'Meilisearch Index')}</h2>
-          <p className="text-sm text-muted-foreground mb-4">{t('search.settings.meilisearchIndexDescription', 'Manage the Meilisearch index for this tenant.')}</p>
+          <h2 className="text-lg font-semibold mb-2">{t('search.settings.fulltextIndexTitle', 'Full-Text Search Index')}</h2>
+          <p className="text-sm text-muted-foreground mb-4">{t('search.settings.fulltextIndexDescription', 'Manage the full-text search index for this tenant.')}</p>
 
           {loading ? (
             <div className="flex items-center gap-2 text-muted-foreground">
