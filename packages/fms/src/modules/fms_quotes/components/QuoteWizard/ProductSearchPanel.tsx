@@ -97,7 +97,7 @@ export function ProductSearchPanel({
       params.set('limit', '50')
 
       const response = await apiCall<ProductSearchResponse>(
-        `/api/products/search?${params.toString()}`
+        `/api/fms_products/search?${params.toString()}`
       )
       if (!response.ok) throw new Error('Failed to search products')
       return response.result ?? { items: [], total: 0, page: 1, limit: 50, totalPages: 0 }
@@ -169,7 +169,11 @@ export function ProductSearchPanel({
             </TableHeader>
             <TableBody>
               {products.map((product) => (
-                <TableRow key={`${product.variantId}-${product.priceId}`}>
+                <TableRow
+                  key={`${product.variantId}-${product.priceId}`}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => onSelect(product)}
+                >
                   <TableCell>
                     <Badge variant="outline" className="font-mono text-xs">
                       {product.chargeCode}
@@ -217,13 +221,7 @@ export function ProductSearchPanel({
                     {product.transitTime ? `${product.transitTime}d` : '-'}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onSelect(product)}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
+                    <Plus className="h-4 w-4 text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ))}

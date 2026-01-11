@@ -226,7 +226,7 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
       {/* Add product modal */}
       <AddProductModal
         product={selectedProduct}
-        defaultQuantity={quote.containerCount || 1}
+        defaultQuantity={1}
         defaultMarginPercent={10}
         onConfirm={handleConfirmAddProduct}
         onCancel={() => setSelectedProduct(null)}

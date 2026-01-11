@@ -158,10 +158,13 @@ export function AddProductModal({
               <Label htmlFor="quantity">Quantity</Label>
               <Input
                 id="quantity"
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
                 value={quantity}
-                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value) || 0
+                  setQuantity(Math.max(1, val))
+                }}
                 autoFocus
               />
             </div>
@@ -169,11 +172,13 @@ export function AddProductModal({
               <Label htmlFor="margin">Margin %</Label>
               <Input
                 id="margin"
-                type="number"
-                min={0}
-                max={99}
+                type="text"
+                inputMode="decimal"
                 value={marginPercent}
-                onChange={(e) => setMarginPercent(Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)))}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value) || 0
+                  setMarginPercent(Math.min(99, Math.max(0, val)))
+                }}
               />
             </div>
           </div>

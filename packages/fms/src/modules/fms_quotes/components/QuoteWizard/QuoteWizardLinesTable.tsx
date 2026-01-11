@@ -41,67 +41,67 @@ export function QuoteWizardLinesTable({
     {
       data: 'lineNumber',
       title: '#',
-      width: 50,
+      width: 60,
       type: 'numeric',
       readOnly: true,
     },
     {
       data: 'chargeCode',
       title: 'Charge',
-      width: 70,
+      width: 80,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'productName',
       title: 'Product',
-      width: 200,
+      width: 280,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'providerName',
       title: 'Provider',
-      width: 130,
+      width: 180,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'containerSize',
       title: 'Type',
-      width: 70,
+      width: 80,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'quantity',
       title: 'Qty',
-      width: 70,
+      width: 100,
       type: 'numeric',
     },
     {
       data: 'unitCost',
       title: 'Cost',
-      width: 90,
+      width: 120,
       type: 'numeric',
       readOnly: true,
     },
     {
       data: 'marginPercent',
       title: 'Margin%',
-      width: 80,
+      width: 100,
       type: 'numeric',
     },
     {
       data: 'unitSales',
       title: 'Sales',
-      width: 90,
+      width: 120,
       type: 'numeric',
     },
     {
       data: 'currencyCode',
       title: 'Ccy',
-      width: 50,
+      width: 70,
       type: 'text',
       readOnly: true,
     },
@@ -196,6 +196,7 @@ export function QuoteWizardLinesTable({
             columns={columns}
             tableName="Quote Lines"
             idColumnName="id"
+            width="100%"
             height="100%"
             colHeaders={true}
             rowHeaders={false}

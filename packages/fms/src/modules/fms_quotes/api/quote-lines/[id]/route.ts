@@ -5,7 +5,12 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FmsQuoteLine } from '../../../data/entities'
-import { fmsQuoteLineUpdateSchema } from '../../../data/validators'
+import { fmsQuoteLineCreateSchema } from '../../../data/validators'
+
+// Body schema for PUT - id comes from URL, scope from auth
+const updateBodySchema = fmsQuoteLineCreateSchema
+  .omit({ quoteId: true, organizationId: true, tenantId: true })
+  .partial()
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -60,7 +65,7 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
   if (!parse.success) return NextResponse.json({ error: 'Invalid line id' }, { status: 400 })
 
   const body = await req.json()
-  const validation = fmsQuoteLineUpdateSchema.safeParse(body)
+  const validation = updateBodySchema.safeParse(body)
   if (!validation.success) {
     return NextResponse.json({ error: 'Invalid input', details: validation.error }, { status: 400 })
   }

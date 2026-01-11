@@ -11,7 +11,24 @@ import {
   FmsChargeCode,
   ContainerVariant,
   FreightProduct,
+  THCProduct,
+  BAFProduct,
+  BAFPieceProduct,
+  BOLProduct,
+  CustomsProduct,
+  CustomProduct,
 } from '../../data/entities'
+
+function getProductType(product: FmsProduct): string {
+  if (product instanceof FreightProduct) return 'GFRT'
+  if (product instanceof THCProduct) return 'GTHC'
+  if (product instanceof BAFProduct) return 'GBAF'
+  if (product instanceof BAFPieceProduct) return 'GBAF_PIECE'
+  if (product instanceof BOLProduct) return 'GBOL'
+  if (product instanceof CustomsProduct) return 'GCUS'
+  if (product instanceof CustomProduct) return 'CUSTOM'
+  return 'CUSTOM'
+}
 
 const searchSchema = z.object({
   q: z.string().optional(),
@@ -93,9 +110,9 @@ export async function GET(req: Request) {
     productFilters.organizationId = { $in: [...allowedOrgIds] }
   }
 
-  // Fetch products with charge codes
+  // Fetch products with charge codes, variants, prices, and related entities
   const products = await em.find(FmsProduct, productFilters, {
-    populate: ['chargeCode', 'variants', 'variants.prices'],
+    populate: ['chargeCode', 'variants', 'variants.prices', 'variants.provider', 'serviceProvider'],
     orderBy: { name: 'ASC' },
   })
 
@@ -118,7 +135,7 @@ export async function GET(req: Request) {
     }
 
     // Get product type-specific fields
-    const productType = (product as unknown as { __entity: string }).__entity || 'CUSTOM'
+    const productType = getProductType(product)
     let loop: string | null = null
     let source: string | null = null
     let destination: string | null = null
@@ -126,8 +143,9 @@ export async function GET(req: Request) {
 
     if (product instanceof FreightProduct) {
       loop = product.loop
-      source = product.source
-      destination = product.destination
+      // source and destination are FmsLocation relations - get code if populated
+      source = (product.source as unknown as { code?: string })?.code ?? null
+      destination = (product.destination as unknown as { code?: string })?.code ?? null
       transitTime = product.transitTime ?? null
     }
 
@@ -163,7 +181,7 @@ export async function GET(req: Request) {
           productName: product.name,
           productType,
           chargeCode: product.chargeCode.code,
-          chargeCodeName: product.chargeCode.name,
+          chargeCodeName: product.chargeCode.description || product.chargeCode.code,
           variantId: variant.id,
           variantName: variant.name,
           containerSize,
@@ -174,7 +192,7 @@ export async function GET(req: Request) {
           contractNumber: price.contractNumber,
           validityStart: validityStart.toISOString().split('T')[0],
           validityEnd: validityEnd?.toISOString().split('T')[0] ?? null,
-          providerContractorId: variant.providerContractorId,
+          providerContractorId: variant.provider?.id ?? null,
           loop,
           source,
           destination,
