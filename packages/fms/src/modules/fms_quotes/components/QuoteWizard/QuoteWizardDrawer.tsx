@@ -24,7 +24,7 @@ export function QuoteWizardDrawer({ quoteId, open, onClose }: QuoteWizardDrawerP
     <Sheet open={open} onOpenChange={(isOpen: boolean) => !isOpen && onClose()}>
       <SheetContent
         side="right"
-        className="w-full max-w-full sm:max-w-full p-0 flex flex-col"
+        className="w-full max-w-full sm:max-w-full p-0 flex flex-col [&>button:first-child]:hidden"
         onInteractOutside={(e: Event) => e.preventDefault()}
       >
         <SheetHeader className="sr-only">

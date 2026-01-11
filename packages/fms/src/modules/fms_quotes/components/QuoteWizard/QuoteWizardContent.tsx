@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Loader2, X, PanelRightClose, PanelRight, Save, Check, AlertCircle } from 'lucide-react'
@@ -12,6 +13,8 @@ import { QuoteWizardTotals } from './QuoteWizardTotals'
 import { QuoteWizardContextPanel } from './QuoteWizardContextPanel'
 import { ProductSearchPanel } from './ProductSearchPanel'
 import { AddProductModal } from './AddProductModal'
+import { CreateOfferDrawer } from './CreateOfferDrawer'
+import { QuoteOffersSection } from '../QuoteOffersSection'
 
 type QuoteWizardContentProps = {
   quoteId: string
@@ -19,9 +22,11 @@ type QuoteWizardContentProps = {
 }
 
 export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps) {
+  const queryClient = useQueryClient()
   const [contextPanelOpen, setContextPanelOpen] = useState(true)
   const [selectedProduct, setSelectedProduct] = useState<unknown | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showCreateOfferDrawer, setShowCreateOfferDrawer] = useState(false)
 
   const {
     quote,
@@ -117,14 +122,14 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
           <h1 className="text-lg font-semibold">
             Quote {quote.quoteNumber || quote.id.slice(0, 8)}
           </h1>
+          <Badge variant={quote.status === 'draft' ? 'secondary' : 'default'}>
+            {quote.status.toUpperCase()}
+          </Badge>
           {quote.originPortCode && quote.destinationPortCode && (
             <span className="text-muted-foreground">
               {quote.originPortCode} → {quote.destinationPortCode}
             </span>
           )}
-          <Badge variant={quote.status === 'draft' ? 'secondary' : 'default'}>
-            {quote.status.toUpperCase()}
-          </Badge>
         </div>
         <div className="flex items-center gap-2">
           {/* Save status indicator */}
@@ -183,12 +188,12 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
       {/* Main content area */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left panel - main content */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 overflow-auto">
           {/* Quote header form */}
           <QuoteWizardHeader quote={quote} onChange={updateQuote} />
 
           {/* Product search or lines table */}
-          <div className="flex-1 min-h-0 overflow-auto p-4">
+          <div className="p-4">
             {showProductSearch ? (
               <ProductSearchPanel
                 onSelect={handleAddProduct}
@@ -196,21 +201,30 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
                 defaultContainerSize={undefined}
               />
             ) : (
-              <QuoteWizardLinesTable
-                lines={lines}
-                isLoading={isLoadingLines}
-                onLineUpdate={updateLine}
-                onRemoveLine={removeLine}
-                onAddProduct={openProductSearch}
-              />
+              <>
+                <QuoteWizardLinesTable
+                  lines={lines}
+                  isLoading={isLoadingLines}
+                  onLineUpdate={updateLine}
+                  onRemoveLine={removeLine}
+                  onAddProduct={openProductSearch}
+                />
+
+                {/* Totals bar - under lines */}
+                <QuoteWizardTotals
+                  totals={totals}
+                  currency={quote.currencyCode}
+                  onCreateOffer={() => setShowCreateOfferDrawer(true)}
+                />
+
+                {/* Offers section */}
+                <QuoteOffersSection
+                  quoteId={quoteId}
+                  onCreateOffer={() => setShowCreateOfferDrawer(true)}
+                />
+              </>
             )}
           </div>
-
-          {/* Totals footer */}
-          <QuoteWizardTotals
-            totals={totals}
-            currency={quote.currencyCode}
-          />
         </div>
 
         {/* Right panel - context */}
@@ -230,6 +244,20 @@ export function QuoteWizardContent({ quoteId, onClose }: QuoteWizardContentProps
         defaultMarginPercent={10}
         onConfirm={handleConfirmAddProduct}
         onCancel={() => setSelectedProduct(null)}
+      />
+
+      {/* Create offer drawer */}
+      <CreateOfferDrawer
+        open={showCreateOfferDrawer}
+        onClose={() => setShowCreateOfferDrawer(false)}
+        quoteId={quoteId}
+        quoteNumber={quote.quoteNumber}
+        lines={lines}
+        currency={quote.currencyCode}
+        onSuccess={() => {
+          setShowCreateOfferDrawer(false)
+          queryClient.invalidateQueries({ queryKey: ['fms_offers', quoteId] })
+        }}
       />
     </div>
   )

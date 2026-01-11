@@ -181,7 +181,7 @@ export default function QuoteDetailPage({ params: propsParams }: QuoteDetailPage
               </Button>
             }
           >
-            <QuoteOffersSection quoteId={quote.id} />
+            <QuoteOffersSection quoteId={quote.id} onCreateOffer={() => setIsOfferDialogOpen(true)} />
           </CollapsibleSection>
 
           <OfferDialog

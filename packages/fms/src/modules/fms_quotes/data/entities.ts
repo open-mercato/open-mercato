@@ -106,6 +106,9 @@ export class FmsOffer {
   @Property({ name: 'offer_number', type: 'text' })
   offerNumber!: string
 
+  @Property({ name: 'version', type: 'integer', default: 1 })
+  version: number = 1
+
   @Property({ name: 'status', type: 'text', default: 'draft' })
   status: FmsOfferStatus = 'draft'
 
@@ -124,8 +127,20 @@ export class FmsOffer {
   @Property({ name: 'total_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   totalAmount: string = '0'
 
+  @Property({ name: 'payment_terms', type: 'text', nullable: true })
+  paymentTerms?: string | null
+
+  @Property({ name: 'special_terms', type: 'text', nullable: true })
+  specialTerms?: string | null
+
+  @Property({ name: 'customer_notes', type: 'text', nullable: true })
+  customerNotes?: string | null
+
   @Property({ name: 'notes', type: 'text', nullable: true })
   notes?: string | null
+
+  @Property({ name: 'superseded_by_id', type: 'uuid', nullable: true })
+  supersededById?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -159,14 +174,25 @@ export class FmsOfferLine {
   @Property({ name: 'line_number', type: 'integer', default: 0 })
   lineNumber: number = 0
 
-  @Property({ name: 'charge_name', type: 'text' })
-  chargeName!: string
+  // Snapshot fields from quote line
+  @Property({ name: 'product_name', type: 'text', nullable: true })
+  productName?: string | null
 
-  @Property({ name: 'charge_category', type: 'text' })
-  chargeCategory!: FmsChargeCategory
+  @Property({ name: 'charge_code', type: 'text', nullable: true })
+  chargeCode?: string | null
 
-  @Property({ name: 'charge_unit', type: 'text' })
-  chargeUnit!: FmsChargeUnit
+  @Property({ name: 'container_size', type: 'text', nullable: true })
+  containerSize?: string | null
+
+  // Legacy charge fields (for backward compatibility)
+  @Property({ name: 'charge_name', type: 'text', nullable: true })
+  chargeName?: string | null
+
+  @Property({ name: 'charge_category', type: 'text', nullable: true })
+  chargeCategory?: FmsChargeCategory | null
+
+  @Property({ name: 'charge_unit', type: 'text', nullable: true })
+  chargeUnit?: FmsChargeUnit | null
 
   @Property({ name: 'container_type', type: 'text', nullable: true })
   containerType?: FmsContainerType | null

@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { FileText } from 'lucide-react'
 
 type QuoteWizardTotalsProps = {
   totals: {
@@ -12,6 +14,7 @@ type QuoteWizardTotalsProps = {
     averageMargin: number
   }
   currency: string
+  onCreateOffer?: () => void
 }
 
 function formatCurrency(value: number, currency: string): string {
@@ -27,12 +30,12 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
-export function QuoteWizardTotals({ totals, currency }: QuoteWizardTotalsProps) {
+export function QuoteWizardTotals({ totals, currency, onCreateOffer }: QuoteWizardTotalsProps) {
   const isLowMargin = totals.averageMargin < 5 && totals.averageMargin >= 0
   const isNegativeMargin = totals.averageMargin < 0
 
   return (
-    <div className="px-4 py-3 border-t bg-muted/30">
+    <div className="py-3 mt-3 border-t bg-muted/20 rounded-b-lg">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-6">
           <div className="text-sm">
@@ -76,6 +79,16 @@ export function QuoteWizardTotals({ totals, currency }: QuoteWizardTotalsProps) 
               {formatCurrency(totals.totalSales, currency)}
             </span>
           </div>
+          {onCreateOffer && (
+            <Button
+              onClick={onCreateOffer}
+              disabled={totals.lineCount === 0}
+              size="sm"
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              Create Offer
+            </Button>
+          )}
         </div>
       </div>
     </div>

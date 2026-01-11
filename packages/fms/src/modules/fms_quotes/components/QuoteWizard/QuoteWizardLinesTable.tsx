@@ -41,69 +41,73 @@ export function QuoteWizardLinesTable({
     {
       data: 'lineNumber',
       title: '#',
-      width: 60,
+      width: 40,
       type: 'numeric',
       readOnly: true,
     },
     {
       data: 'chargeCode',
       title: 'Charge',
-      width: 80,
+      width: 70,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'productName',
       title: 'Product',
-      width: 280,
+      width: 150,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'providerName',
       title: 'Provider',
-      width: 180,
+      width: 120,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'containerSize',
       title: 'Type',
-      width: 80,
+      width: 60,
       type: 'text',
       readOnly: true,
     },
     {
       data: 'quantity',
       title: 'Qty',
-      width: 100,
+      width: 60,
       type: 'numeric',
     },
     {
       data: 'unitCost',
       title: 'Cost',
-      width: 120,
+      width: 90,
       type: 'numeric',
       readOnly: true,
+      sticky: 'right',
     },
     {
       data: 'marginPercent',
       title: 'Margin%',
-      width: 100,
+      width: 80,
       type: 'numeric',
+      sticky: 'right',
     },
     {
       data: 'unitSales',
       title: 'Sales',
-      width: 120,
+      width: 90,
       type: 'numeric',
+      sticky: 'right',
     },
     {
       data: 'currencyCode',
       title: 'Ccy',
-      width: 70,
+      width: 50,
       type: 'text',
       readOnly: true,
+      sticky: 'right',
     },
   ], [])
 
@@ -164,35 +168,25 @@ export function QuoteWizardLinesTable({
     return <TableSkeleton rows={5} columns={10} />
   }
 
-  return (
-    <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Quote Lines ({lines.length})
-        </h2>
-        <Button onClick={onAddProduct} size="sm" variant="outline">
-          <Plus className="h-4 w-4 mr-1" />
-          Add Product
-        </Button>
-      </div>
+  // Calculate a reasonable table height based on line count
+  const tableHeight = Math.min(Math.max(lines.length * 40 + 100, 200), 400)
 
-      {/* Table */}
-      {lines.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center border rounded-lg bg-muted/20 p-8">
-          <p className="text-muted-foreground mb-4">
-            No products added yet. Click "Add Product" to search and add products to this quote.
-          </p>
-          <Button onClick={onAddProduct} variant="default">
-            <Plus className="h-4 w-4 mr-1" />
-            Add Product
-          </Button>
-        </div>
-      ) : (
-        <div className="flex-1 min-h-0">
+  // Add Product button for toolbar
+  const addProductButton = (
+    <Button onClick={onAddProduct} size="sm" variant="outline">
+      <Plus className="h-4 w-4 mr-1" />
+      Add Product
+    </Button>
+  )
+
+  // Empty state
+  if (lines.length === 0) {
+    return (
+      <div className="flex flex-col">
+        <div style={{ height: tableHeight }}>
           <DynamicTable
             tableRef={tableRef}
-            data={tableData}
+            data={[]}
             columns={columns}
             tableName="Quote Lines"
             idColumnName="id"
@@ -202,24 +196,59 @@ export function QuoteWizardLinesTable({
             rowHeaders={false}
             stretchColumns={true}
             uiConfig={{
-              hideToolbar: true,
               hideSearch: true,
               hideFilterButton: true,
               hideAddRowButton: true,
               hideBottomBar: true,
+              enableFullscreen: true,
+              topBarEnd: addProductButton,
             }}
-            actionsRenderer={(rowData: Record<string, unknown>) => (
-              <button
-                onClick={() => handleRemoveLine(rowData.id as string)}
-                className="p-1 text-muted-foreground hover:text-red-600 transition-colors"
-                title="Remove line"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
           />
         </div>
-      )}
+        <div className="flex flex-col items-center justify-center border rounded-lg bg-muted/20 p-8 mt-2">
+          <p className="text-muted-foreground mb-4">
+            No products added yet. Click "Add Product" to search and add products to this quote.
+          </p>
+          <Button onClick={onAddProduct} variant="default">
+            <Plus className="h-4 w-4 mr-1" />
+            Add Product
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ height: tableHeight }}>
+      <DynamicTable
+        tableRef={tableRef}
+        data={tableData}
+        columns={columns}
+        tableName="Quote Lines"
+        idColumnName="id"
+        width="100%"
+        height="100%"
+        colHeaders={true}
+        rowHeaders={false}
+        stretchColumns={true}
+        uiConfig={{
+          hideSearch: true,
+          hideFilterButton: true,
+          hideAddRowButton: true,
+          hideBottomBar: true,
+          enableFullscreen: true,
+          topBarEnd: addProductButton,
+        }}
+        actionsRenderer={(rowData: Record<string, unknown>) => (
+          <button
+            onClick={() => handleRemoveLine(rowData.id as string)}
+            className="p-1 text-muted-foreground hover:text-red-600 transition-colors"
+            title="Remove line"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
+      />
     </div>
   )
 }

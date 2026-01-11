@@ -59,13 +59,18 @@ export type FmsQuoteUpdateInput = z.infer<typeof fmsQuoteUpdateSchema>
 export const fmsOfferCreateSchema = scoped.extend({
   quoteId: uuid(),
   offerNumber: z.string().trim().min(1).max(50),
+  version: z.coerce.number().int().min(1).optional(),
   status: z.enum(FMS_OFFER_STATUSES).optional(),
   contractType: z.enum(FMS_CONTRACT_TYPES).optional(),
   carrierName: z.string().trim().max(255).optional(),
   validUntil: z.coerce.date().optional(),
   currencyCode: currencyCode.optional(),
   totalAmount: decimal({ min: 0 }).optional(),
+  paymentTerms: z.string().trim().max(255).optional().nullable(),
+  specialTerms: z.string().trim().max(2000).optional().nullable(),
+  customerNotes: z.string().trim().max(2000).optional().nullable(),
   notes: z.string().trim().max(2000).optional(),
+  supersededById: uuid().optional().nullable(),
 })
 
 export const fmsOfferUpdateSchema = z
@@ -81,10 +86,16 @@ export type FmsOfferUpdateInput = z.infer<typeof fmsOfferUpdateSchema>
 export const fmsOfferLineCreateSchema = scoped.extend({
   offerId: uuid(),
   lineNumber: z.coerce.number().int().min(0).optional(),
-  chargeName: z.string().trim().min(1).max(255),
-  chargeCategory: z.enum(FMS_CHARGE_CATEGORIES),
-  chargeUnit: z.enum(FMS_CHARGE_UNITS),
-  containerType: z.enum(FMS_CONTAINER_TYPES).optional(),
+  // Snapshot fields from quote line
+  productName: z.string().trim().max(255).optional().nullable(),
+  chargeCode: z.string().trim().max(20).optional().nullable(),
+  containerSize: z.string().trim().max(20).optional().nullable(),
+  // Legacy charge fields (optional for backward compatibility)
+  chargeName: z.string().trim().max(255).optional().nullable(),
+  chargeCategory: z.enum(FMS_CHARGE_CATEGORIES).optional().nullable(),
+  chargeUnit: z.enum(FMS_CHARGE_UNITS).optional().nullable(),
+  containerType: z.enum(FMS_CONTAINER_TYPES).optional().nullable(),
+  // Pricing
   quantity: decimal({ min: 0 }).optional(),
   currencyCode: currencyCode,
   unitPrice: decimal({ min: 0 }).optional(),
