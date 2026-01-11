@@ -472,6 +472,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      indexer: teamRoleCrudIndexer,
     })
   },
 }

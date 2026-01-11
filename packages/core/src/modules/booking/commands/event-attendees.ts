@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { BookingEvent, BookingEventAttendee } from '../data/entities'
 import {
   bookingEventAttendeeCreateSchema,
@@ -16,6 +17,10 @@ import {
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import { E } from '@/generated/entities.ids.generated'
+
+const attendeeCrudIndexer: CrudIndexerConfig<BookingEventAttendee> = {
+  entityType: E.booking.booking_event_attendee,
+}
 
 type AttendeeSnapshot = {
   id: string
@@ -188,6 +193,7 @@ const createAttendeeCommand: CommandHandler<BookingEventAttendeeCreateInput, { a
         organizationId: attendee.organizationId,
         tenantId: attendee.tenantId,
       },
+      indexer: attendeeCrudIndexer,
     })
 
     return { attendeeId: attendee.id }
@@ -221,6 +227,19 @@ const createAttendeeCommand: CommandHandler<BookingEventAttendeeCreateInput, { a
     attendee.deletedAt = new Date()
     attendee.updatedAt = new Date()
     await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: attendee,
+      identifiers: {
+        id: attendee.id,
+        organizationId: attendee.organizationId,
+        tenantId: attendee.tenantId,
+      },
+      indexer: attendeeCrudIndexer,
+    })
   },
 }
 
@@ -298,6 +317,7 @@ const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { a
         organizationId: attendee.organizationId,
         tenantId: attendee.tenantId,
       },
+      indexer: attendeeCrudIndexer,
     })
 
     return { attendeeId: attendee.id }
@@ -378,6 +398,7 @@ const updateAttendeeCommand: CommandHandler<BookingEventAttendeeUpdateInput, { a
         organizationId: attendee.organizationId,
         tenantId: attendee.tenantId,
       },
+      indexer: attendeeCrudIndexer,
     })
   },
 }

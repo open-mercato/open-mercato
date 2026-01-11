@@ -7,6 +7,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { BookingTeam, BookingTeamMember, BookingTeamRole } from '../data/entities'
 import {
@@ -17,6 +18,10 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '@/generated/entities.ids.generated'
+
+const teamMemberCrudIndexer: CrudIndexerConfig<BookingTeamMember> = {
+  entityType: E.booking.booking_team_member,
+}
 
 type TeamMemberSnapshot = {
   id: string
@@ -179,6 +184,7 @@ const createTeamMemberCommand: CommandHandler<BookingTeamMemberCreateInput, { me
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      indexer: teamMemberCrudIndexer,
     })
 
     return { memberId: member.id }
@@ -220,6 +226,19 @@ const createTeamMemberCommand: CommandHandler<BookingTeamMemberCreateInput, { me
     if (member) {
       member.deletedAt = new Date()
       await em.flush()
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'deleted',
+        entity: member,
+        identifiers: {
+          id: member.id,
+          organizationId: member.organizationId,
+          tenantId: member.tenantId,
+        },
+        indexer: teamMemberCrudIndexer,
+      })
     }
   },
 }
@@ -292,6 +311,7 @@ const updateTeamMemberCommand: CommandHandler<BookingTeamMemberUpdateInput, { me
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      indexer: teamMemberCrudIndexer,
     })
 
     return { memberId: member.id }
@@ -378,6 +398,7 @@ const updateTeamMemberCommand: CommandHandler<BookingTeamMemberUpdateInput, { me
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      indexer: teamMemberCrudIndexer,
     })
   },
 }
@@ -421,6 +442,7 @@ const deleteTeamMemberCommand: CommandHandler<{ id?: string }, { memberId: strin
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      indexer: teamMemberCrudIndexer,
     })
 
     return { memberId: member.id }
@@ -503,6 +525,7 @@ const deleteTeamMemberCommand: CommandHandler<{ id?: string }, { memberId: strin
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      indexer: teamMemberCrudIndexer,
     })
   },
 }
