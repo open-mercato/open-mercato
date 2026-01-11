@@ -52,23 +52,22 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "default_state": {
-          "name": "default_state",
-          "type": "boolean",
+        "default_value": {
+          "name": "default_value",
+          "type": "jsonb",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "mappedType": "boolean"
+          "mappedType": "json"
         },
-        "fail_mode": {
-          "name": "fail_mode",
+        "type": {
+          "name": "type",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "'fail_closed'",
           "mappedType": "text"
         },
         "created_at": {
@@ -180,15 +179,6 @@
           "nullable": false,
           "mappedType": "uuid"
         },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -208,6 +198,15 @@
           "nullable": false,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "value": {
+          "name": "value",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "json"
         }
       },
       "name": "feature_toggle_overrides",

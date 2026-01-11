@@ -1,21 +1,19 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { FeatureToggle, FeatureToggleOverrideState } from '../data/entities'
+import type { EntityManager, JsonType } from '@mikro-orm/postgresql'
+import { FeatureToggle } from '../data/entities'
 import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema } from '../data/validators'
 import { FeatureToggleOverride } from '../data/entities'
 import { buildChanges } from '@/lib/commands/helpers'
 import { extractUndoPayload } from '../../customers/commands/shared'
-import { invalidateIsEnabledCacheByKey } from '../lib/feature-flag-check'
+import { FeatureTogglesService } from '../lib/feature-flag-check'
 import { resolveTranslations } from '@/lib/i18n/server'
-
-type OverrideState = 'enabled' | 'disabled' | 'inherit'
 
 type OverrideSnapshot = {
   id: string | null
   toggleId: string
   tenantId: string
-  state: OverrideState
+  value?: any
 }
 
 type OverrideUndoPayload = {
@@ -30,7 +28,7 @@ async function loadOverrideSnapshot(em: EntityManager, toggleId: string, tenantI
       id: null,
       toggleId: toggleId,
       tenantId: tenantId,
-      state: 'inherit',
+      value: undefined,
     }
   }
 
@@ -38,7 +36,7 @@ async function loadOverrideSnapshot(em: EntityManager, toggleId: string, tenantI
     id: record.id ?? null,
     toggleId: record.toggle.id,
     tenantId: record.tenantId,
-    state: record.state,
+    value: record.value,
   }
 }
 
@@ -54,27 +52,34 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
   async execute(rawInput, ctx) {
     const input = processedChangeOverrideStateSchema.parse(rawInput)
     const em = ctx.container.resolve('em') as EntityManager
-    if (input.state === 'inherit') {
+    if (!input.isOverride) {
       await em.nativeDelete(FeatureToggleOverride, { toggle: input.toggleId, tenantId: input.tenantId })
       await em.flush()
       const toggle = await em.findOne(FeatureToggle, { id: input.toggleId })
       if (toggle) {
-        await invalidateIsEnabledCacheByKey(toggle.identifier, input.tenantId)
+        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+        await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, input.tenantId)
       }
       return { overrideToggleId: null }
     }
 
     let override = await em.findOne(FeatureToggleOverride, { toggle: input.toggleId, tenantId: input.tenantId })
     if (override) {
-      override.state = input.state as FeatureToggleOverrideState
+      override.value = input.overrideValue as JsonType
       await em.flush()
-      await invalidateIsEnabledCacheByKey(override.toggle.identifier, input.tenantId)
+      const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+      await featureTogglesService.invalidateIsEnabledCacheByKey(override.toggle.identifier, input.tenantId)
       return { overrideToggleId: override.id }
     }
 
-    override = await em.create(FeatureToggleOverride, { toggle: input.toggleId, tenantId: input.tenantId, state: input.state })
+    override = await em.create(FeatureToggleOverride, {
+      toggle: input.toggleId,
+      tenantId: input.tenantId,
+      value: input.overrideValue as JsonType
+    })
     await em.flush()
-    await invalidateIsEnabledCacheByKey(override.toggle.identifier, input.tenantId)
+    const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+    await featureTogglesService.invalidateIsEnabledCacheByKey(override.toggle.identifier, input.tenantId)
     return { overrideToggleId: override.id }
   },
   buildLog: async ({ snapshots, ctx }) => {
@@ -95,7 +100,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
       changes: buildChanges(
         before as unknown as Record<string, unknown>,
         after as unknown as Record<string, unknown>,
-        ['state'],
+        ['value'],
       ),
       payload: {
         undo: {
@@ -113,27 +118,29 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    if (before.state === 'inherit') {
+    if (!before.id) {
       await em.nativeDelete(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
       await em.flush()
       const toggle = await em.findOne(FeatureToggle, { id: before.toggleId })
       if (toggle) {
-        await invalidateIsEnabledCacheByKey(toggle.identifier, before.tenantId)
+        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+        await featureTogglesService.invalidateIsEnabledCacheByKey(toggle.identifier, before.tenantId)
       }
     } else {
       const existing = await em.findOne(FeatureToggleOverride, { toggle: before.toggleId, tenantId: before.tenantId })
       if (existing) {
-        existing.state = before.state as FeatureToggleOverrideState
         await em.flush()
-        await invalidateIsEnabledCacheByKey(existing.toggle.identifier, existing.tenantId)
+        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+        await featureTogglesService.invalidateIsEnabledCacheByKey(existing.toggle.identifier, existing.tenantId)
       } else {
         const override = em.create(FeatureToggleOverride, {
           toggle: before.toggleId,
           tenantId: before.tenantId,
-          state: before.state as FeatureToggleOverrideState,
+          value: before.value ?? {},
         })
         await em.flush()
-        await invalidateIsEnabledCacheByKey(override.toggle.identifier, override.tenantId)
+        const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
+        await featureTogglesService.invalidateIsEnabledCacheByKey(override.toggle.identifier, override.tenantId)
       }
     }
   },

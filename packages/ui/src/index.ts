@@ -10,6 +10,7 @@ export * from './backend/UserMenu'
 export * from './backend/RowActions'
 export * from './backend/utils/nav'
 export * from './backend/CrudForm'
+export * from './backend/JsonBuilder'
 export * from './backend/detail'
 export * from './backend/schedule'
 

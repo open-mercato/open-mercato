@@ -10,7 +10,7 @@ description: Manage feature availability across the application using global fla
 > [!IMPORTANT]
 > **Required Role:** Super Admin only.
 
-The **feature_toggles** module allows administrators to enable or disable features, modules, or specific functionality at runtime without code deployment. This provides operational flexibility for controlled rollouts, client-specific customizations, and emergency kill switches.
+The **feature_toggles** module allows administrators to enable or disable features, modules, or specific functionality at runtime without code deployment. It also supports **runtime configuration**, allowing you to change application behavior (strings, numbers, JSON config) dynamically. This provides operational flexibility for controlled rollouts, client-specific customizations, and emergency kill switches.
 
 ## Key Capabilities
 
@@ -32,10 +32,9 @@ Defines the global state and behavior of a feature flag.
 -   **`name`** (`string`): Human-readable name.
 -   **`description`** (`string?`): Optional description of the feature.
 -   **`category`** (`string?`): Optional grouping category.
--   **`defaultState`** (`boolean`): The global fallback state (enabled/disabled) used if no specific override matches.
--   **`failMode`** (`enum`): Determines behavior if the toggle cannot be retrieved from the database or cache.
-    -   `fail_closed` (default): Defaults to disabled on error.
-    -   `fail_open`: Defaults to enabled on error.
+-   **`type`** (`enum`): The data type of the toggle (`boolean`, `string`, `number`, `json`).
+-   **`defaultValue`** (`jsonb`): The global default value used if no specific override matches.
+
 
 ### FeatureToggleOverride
 
@@ -44,9 +43,9 @@ Allows granular control over a feature toggle for specific contexts.
 -   **`id`** (`uuid`): Unique identifier for the override.
 -   **`toggle`** (`relation`): Reference to the parent `FeatureToggle`.
 -   **`tenantId`** (`uuid`): The tenant this override applies to.
--   **`state`** (`enum`): The specific state for this context (`enabled` or `disabled`).
+-   **`value`** (`jsonb`): The specific value for this context.
 
-> If no `FeatureToggleOverride` entity exists for a specific tenant, the system **inherits** the state from the `FeatureToggle.defaultState`.
+> If no `FeatureToggleOverride` entity exists for a specific tenant, the system **inherits** the value from the `FeatureToggle.defaultValue`.
 
 ## Caching Strategy
 
@@ -66,14 +65,6 @@ Cache entries are tagged to allow for precise invalidation when toggles or overr
 -   `feature_toggles:toggle:{identifier}`
 -   `feature_toggles:tenant:{tenantId}`
 
-### Configuration
-
-The caching behavior is controlled by environment variables:
-
--   **`FEATURE_TOGGLES_CACHE_TTL_MS`**: Duration in milliseconds to cache valid resolution results (default: `60000` / 1 minute).
--   **`FEATURE_TOGGLES_ERROR_CACHE_TTL_MS`**: Duration in milliseconds to cache error states to prevent cascading failures (default: `10000` / 10 seconds).
--   **`FEATURE_TOGGLES_MISSING_TOGGLE_DEFAULT`**: Default boolean value returned when a toggle is completely missing from the system (default: `false`).
-
 ## Audit Logs
 
 All modifications to feature toggles and overrides are audited to ensure accountability and traceability.
@@ -81,62 +72,120 @@ All modifications to feature toggles and overrides are audited to ensure account
 -   **Action Logs**: Creation, updates, deletions, and state changes are logged. The system supports **undo** operations for these actions, allowing you to revert changes quickly.
 -   **Access Logs**: Read access to toggle overrides via the API is logged (`read:list`) to track who is verifying feature configurations.
 
-## Using Feature Flags in the Frontend
+## Usage Reference
 
-### Component Wrapper
+The system supports strict typing for different feature toggle kinds. Choose the appropriate method for your data type.
 
-You can wrap components to conditionally render them based on feature availability using the `FeatureGuard` component.
+### Boolean Flags
+
+Use for simple on/off switches.
+
+**React Component (`FeatureGuard`)**
+
+Wrapper for conditional rendering. **Designed strictly for boolean toggles.**
 
 ```tsx
 import { FeatureGuard } from '@open-mercato/core/modules/feature_toggles/components/FeatureGuard';
 
 <FeatureGuard
-  id="my.feature.key"
+  id="checkout_flow_v2"
   fallback={<div className="alert">Feature disabled</div>}
-  loadingFallback={<span>Loading...</span>}
 >
-  <MyFeatureComponent />
+  <CheckoutComponent />
 </FeatureGuard>
 ```
 
-### useFeatureFlag Hook
-
-For more logic-based control, use the `useFeatureFlag` hook.
+**Frontend Hook**
 
 ```tsx
-import { useFeatureFlag } from '@open-mercato/core/modules/feature_toggles/components/hooks/useFeatureFlag';
-
-const MyComponent = () => {
-  const { enabled, isLoading } = useFeatureFlag({ id: 'my_feature_key' });
-
-  if (isLoading) return <div>Loading...</div>;
-  if (!enabled) return null;
-
-  return <div>Feature usage</div>;
-};
+const { enabled, isLoading } = useFeatureFlagBoolean({ id: 'checkout_flow_v2' });
 ```
 
-## Server-Side Checks
-
-In the backend, verify feature flags by resolving the `isFeatureEnabled` function from the dependency injection container. This ensures that all context (like database connections and extensive caching) is handled correctly.
+**Backend Service**
 
 ```ts
-import { createRequestContainer } from "@/lib/di/container";
-import { IsFeatureEnabledFunction } from "@open-mercato/core/modules/feature_toggles/lib/feature-flag-check";
-
-export async function GET(req: Request) {
-    // ... authentication and context resolution ...
-
-    const container = await createRequestContainer();
-    const isFeatureEnabled = container.resolve('isFeatureEnabled') as IsFeatureEnabledFunction;
-    
-    const { enabled } = await isFeatureEnabled('my_feature_key', tenantId);
-
-    if (enabled) {
-        // Execute feature logic
-    }
+const result = await service.getBoolConfig('checkout_flow_v2', tenantId);
+if (result.ok && result.value) {
+  // Feature is enabled
 }
 ```
+
+### String Configuration
+
+Use for dynamic text, labels, or string keys.
+
+**Frontend Hook**
+
+```tsx
+const { value: title } = useFeatureFlagString({ id: 'home_page_title' });
+```
+
+**Backend Service**
+
+```ts
+const result = await service.getStringConfig('home_page_title', tenantId);
+```
+
+### Number Configuration
+
+Use for numeric limits, timeouts, or counts.
+
+**Frontend Hook**
+
+```tsx
+const { value: limit } = useFeatureFlagNumber({ id: 'max_items_per_order' });
+```
+
+**Backend Service**
+
+```ts
+const result = await service.getNumberConfig('max_items_per_order', tenantId);
+```
+
+### JSON Configuration
+
+Use for complex configuration objects.
+
+**Frontend Hook**
+
+```tsx
+// Pass a generic type for type safety
+const { value: config } = useFeatureFlagJson<PaymentConfig>({ id: 'payment_provider_config' });
+```
+
+**Backend Service**
+
+```ts
+const result = await service.getJsonConfig<PaymentConfig>('payment_provider_config', tenantId);
+```
+
+## Error Handling
+
+All check operations return a standardized `Result<T>` structure (backend) or expose error states (frontend).
+
+### Result Structure
+
+```ts
+type Result<T> = 
+  | { ok: true; value: T; resolution: ResolutionMetadata }
+  | { ok: false; error: ToggleError; resolution: ResolutionMetadata }
+```
+
+### Error Codes
+
+- **`TYPE_MISMATCH`**: The toggle exists but is not of the requested type (e.g., requested String but found Boolean).
+- **`MISSING_TOGGLE`**: The identifier does not exist in the system.
+
+- **`INVALID_VALUE`**: The stored value could not be parsed.
+
+### API Status Codes
+
+When interacting with the API directly:
+
+- **`200 OK`**: Successful check.
+- **`400 Bad Request`**: Type mismatch or missing parameters.
+- **`401 Unauthorized`**: Missing authentication.
+- **`404 Not Found`**: Toggle identifier does not exist or tenant context is missing.
 
 ## Managing Feature Flags in the Admin
 
