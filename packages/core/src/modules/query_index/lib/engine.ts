@@ -9,6 +9,7 @@ import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -20,19 +21,10 @@ import {
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 
-function parseBooleanToken(value: string | null | undefined, defaultValue: boolean): boolean {
-  if (value == null) return defaultValue
-  const token = value.trim().toLowerCase()
-  if (!token.length) return defaultValue
-  if (['1', 'true', 'yes', 'on'].includes(token)) return true
-  if (['0', 'false', 'no', 'off'].includes(token)) return false
-  return defaultValue
-}
-
 function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boolean {
   for (const name of names) {
     const raw = process.env[name]
-    if (raw !== undefined) return parseBooleanToken(raw, defaultValue)
+    if (raw !== undefined) return parseBooleanWithDefault(raw, defaultValue)
   }
   return defaultValue
 }
@@ -1523,7 +1515,8 @@ export class HybridQueryEngine implements QueryEngine {
       this.autoReindexEnabled = true
       return true
     }
-    this.autoReindexEnabled = !['0', 'false', 'no', 'off'].includes(raw)
+    const parsed = parseBooleanToken(raw)
+    this.autoReindexEnabled = parsed === null ? true : parsed
     return this.autoReindexEnabled
   }
 
@@ -1534,7 +1527,7 @@ export class HybridQueryEngine implements QueryEngine {
       this.coverageOptimizationEnabled = false
       return false
     }
-    this.coverageOptimizationEnabled = ['1', 'true', 'yes', 'on'].includes(raw)
+    this.coverageOptimizationEnabled = parseBooleanToken(raw) === true
     return this.coverageOptimizationEnabled
   }
 

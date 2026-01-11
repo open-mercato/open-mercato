@@ -22,6 +22,7 @@ export function getCliModules(): Module[] {
   }
   return _cliModules
 }
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 let envLoaded = false
 
@@ -241,6 +242,12 @@ export async function run(argv = process.argv) {
       }
       
       if (orgId && tenantId) {
+        if (reinstall) {
+          console.log('🧩 Reinstalling custom field definitions...')
+          runCommand(`yarn mercato entities reinstall --tenant ${tenantId}`)
+          console.log('🧩 ✅ Custom field definitions reinstalled\n')
+        }
+
         console.log('📚 Seeding customer dictionaries...')
         runCommand(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`)
         console.log('📚 ✅ Customer dictionaries seeded\n')
@@ -249,8 +256,16 @@ export async function run(argv = process.argv) {
         runCommand(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`)
         console.log('📏 ✅ Catalog units seeded\n')
 
-        const encryptionEnv = String(process.env.TENANT_DATA_ENCRYPTION ?? 'yes').toLowerCase()
-        const encryptionEnabled = encryptionEnv === 'yes' || encryptionEnv === 'true' || encryptionEnv === '1' || encryptionEnv === ''
+        console.log('📐 Seeding booking capacity units...')
+        runCommand(`yarn mercato booking seed-capacity-units --tenant ${tenantId} --org ${orgId}`)
+        console.log('📐 ✅ Booking capacity units seeded\n')
+
+        console.log('🗓️  Seeding booking availability schedules...')
+        runCommand(`yarn mercato booking seed-availability-rulesets --tenant ${tenantId} --org ${orgId}`)
+        console.log('🗓️  ✅ Booking availability schedules seeded\n')
+
+        const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
+        const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {
           console.log('🔒 Seeding encryption defaults...')
           runCommand(`yarn mercato entities seed-encryption --tenant ${tenantId} --org ${orgId}`)
@@ -286,6 +301,10 @@ export async function run(argv = process.argv) {
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
+          console.log('🪑 Seeding booking resource examples...')
+          runCommand(`yarn mercato booking seed-examples --tenant ${tenantId} --org ${orgId}`)
+          console.log('🪑 ✅ Booking resource examples seeded\n')
+
           console.log('🛍️  Seeding catalog examples...')
           runCommand(`yarn mercato catalog seed-examples --tenant ${tenantId} --org ${orgId}`)
           console.log('🛍️ ✅ Catalog examples seeded\n')

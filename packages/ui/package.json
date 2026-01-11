@@ -8,6 +8,8 @@
     "./*": "./src/*"
   },
   "dependencies": {
-    "@radix-ui/react-tooltip": "^1.2.8"
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "date-fns": "^4.1.0",
+    "react-big-calendar": "^1.19.4"
   }
 }

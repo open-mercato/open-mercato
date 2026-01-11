@@ -6,6 +6,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import fs from 'node:fs'
 import path from 'node:path'
 import { toggleCreateSchemaList } from './data/validators'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -50,9 +51,10 @@ function booleanOption(args: ParsedArgs, ...keys: string[]): boolean | undefined
     if (raw === true) return true
     if (raw === false) return false
     if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase()
-      if (normalized === 'true' || normalized === '1' || normalized === '') return true
-      if (normalized === 'false' || normalized === '0') return false
+      const trimmed = raw.trim()
+      if (!trimmed) return true
+      const parsed = parseBooleanToken(trimmed)
+      if (parsed !== null) return parsed
     }
   }
   return undefined

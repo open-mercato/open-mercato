@@ -7,6 +7,7 @@ import type { VectorIndexService } from '@open-mercato/vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { writeCoverageCounts } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type CliProgressBar = {
   update(completed: number): void
@@ -63,10 +64,10 @@ function flagOpt(args: ParsedArgs, ...keys: string[]): boolean | undefined {
     if (raw === true) return true
     if (raw === false) return false
     if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase()
-      if (['1', 'true', 'yes', 'y', ''].includes(normalized)) return true
-      if (['0', 'false', 'no', 'n'].includes(normalized)) return false
-      return true
+      const trimmed = raw.trim()
+      if (!trimmed) return true
+      const parsed = parseBooleanToken(trimmed)
+      return parsed === null ? true : parsed
     }
   }
   return undefined

@@ -13,6 +13,7 @@ import {
   defaultDeleteRequestSchema,
 } from '../openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -76,8 +77,8 @@ function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown
   if (query.currency && query.currency.trim().length > 0) {
     filters.currency_code = query.currency.trim().toUpperCase()
   }
-  if (query.isActive === 'true') filters.is_active = true
-  if (query.isActive === 'false') filters.is_active = false
+  const isActive = parseBooleanToken(query.isActive)
+  if (isActive !== null) filters.is_active = isActive
   return filters
 }
 

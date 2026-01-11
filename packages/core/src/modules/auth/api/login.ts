@@ -7,6 +7,7 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 import { signJwt } from '@/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EventBus } from '@open-mercato/events/types'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 // validation comes from userLoginSchema
 
@@ -15,7 +16,7 @@ export async function POST(req: Request) {
   const form = await req.formData()
   const email = String(form.get('email') ?? '')
   const password = String(form.get('password') ?? '')
-  const remember = String(form.get('remember') ?? '').toLowerCase() === 'on' || String(form.get('remember') ?? '') === '1' || String(form.get('remember') ?? '') === 'true'
+  const remember = parseBooleanToken(form.get('remember')?.toString()) === true
   const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
   const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
   const parsed = userLoginSchema.pick({ email: true, password: true }).safeParse({ email, password })

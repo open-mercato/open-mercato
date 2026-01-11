@@ -87,7 +87,7 @@ export const entities = [
   if (shouldWrite) {
     fs.writeFileSync(outFile, output)
     fs.writeFileSync(checksumFile, newChecksum)
-    console.log('Generated', path.relative(process.cwd(), outFile))
+  console.log('✅ Generated', path.relative(process.cwd(), outFile))
   }
 }
 
