@@ -80,6 +80,9 @@ export class FmsQuote {
 
   @OneToMany(() => FmsOffer, (offer) => offer.quote)
   offers = new Collection<FmsOffer>(this)
+
+  @OneToMany(() => FmsQuoteLine, (line) => line.quote)
+  lines = new Collection<FmsQuoteLine>(this)
 }
 
 @Entity({ tableName: 'fms_offers' })
@@ -180,6 +183,81 @@ export class FmsOfferLine {
   @Property({ name: 'amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   amount: string = '0'
 
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'fms_quote_lines' })
+@Index({ name: 'fms_quote_lines_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'fms_quote_lines_quote_idx', properties: ['quote', 'organizationId', 'tenantId'] })
+export class FmsQuoteLine {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => FmsQuote, { fieldName: 'quote_id' })
+  quote!: FmsQuote
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'line_number', type: 'integer', default: 0 })
+  lineNumber: number = 0
+
+  // Product references (module-isomorphic UUIDs, no @ManyToOne)
+  @Property({ name: 'product_id', type: 'uuid', nullable: true })
+  productId?: string | null
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'price_id', type: 'uuid', nullable: true })
+  priceId?: string | null
+
+  // Snapshot fields (copied from product at time of adding)
+  @Property({ name: 'product_name', type: 'text' })
+  productName!: string
+
+  @Property({ name: 'charge_code', type: 'text', nullable: true })
+  chargeCode?: string | null
+
+  @Property({ name: 'product_type', type: 'text', nullable: true })
+  productType?: string | null
+
+  @Property({ name: 'provider_name', type: 'text', nullable: true })
+  providerName?: string | null
+
+  @Property({ name: 'container_size', type: 'text', nullable: true })
+  containerSize?: string | null
+
+  @Property({ name: 'contract_type', type: 'text', nullable: true })
+  contractType?: string | null
+
+  // Pricing
+  @Property({ name: 'quantity', type: 'numeric', precision: 18, scale: 4, default: '1' })
+  quantity: string = '1'
+
+  @Property({ name: 'currency_code', type: 'text', default: 'USD' })
+  currencyCode: string = 'USD'
+
+  @Property({ name: 'unit_cost', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  unitCost: string = '0'
+
+  @Property({ name: 'margin_percent', type: 'numeric', precision: 8, scale: 4, default: '0' })
+  marginPercent: string = '0'
+
+  @Property({ name: 'unit_sales', type: 'numeric', precision: 18, scale: 4, default: '0' })
+  unitSales: string = '0'
+
+  // Timestamps
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

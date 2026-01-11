@@ -99,3 +99,35 @@ export const fmsOfferLineUpdateSchema = z
 
 export type FmsOfferLineCreateInput = z.infer<typeof fmsOfferLineCreateSchema>
 export type FmsOfferLineUpdateInput = z.infer<typeof fmsOfferLineUpdateSchema>
+
+// Quote Line schemas (for quote wizard - linked to products module)
+export const fmsQuoteLineCreateSchema = scoped.extend({
+  quoteId: uuid(),
+  lineNumber: z.coerce.number().int().min(0).optional(),
+  // Product references (from products module)
+  productId: uuid().optional().nullable(),
+  variantId: uuid().optional().nullable(),
+  priceId: uuid().optional().nullable(),
+  // Snapshot fields
+  productName: z.string().trim().min(1).max(255),
+  chargeCode: z.string().trim().max(20).optional().nullable(),
+  productType: z.string().trim().max(20).optional().nullable(),
+  providerName: z.string().trim().max(255).optional().nullable(),
+  containerSize: z.string().trim().max(20).optional().nullable(),
+  contractType: z.enum(['SPOT', 'NAC', 'BASKET']).optional().nullable(),
+  // Pricing
+  quantity: decimal({ min: 0 }).optional(),
+  currencyCode: currencyCode.optional(),
+  unitCost: decimal({ min: 0 }).optional(),
+  marginPercent: decimal().optional(),
+  unitSales: decimal({ min: 0 }).optional(),
+})
+
+export const fmsQuoteLineUpdateSchema = z
+  .object({
+    id: uuid(),
+  })
+  .merge(fmsQuoteLineCreateSchema.omit({ quoteId: true }).partial())
+
+export type FmsQuoteLineCreateInput = z.infer<typeof fmsQuoteLineCreateSchema>
+export type FmsQuoteLineUpdateInput = z.infer<typeof fmsQuoteLineUpdateSchema>

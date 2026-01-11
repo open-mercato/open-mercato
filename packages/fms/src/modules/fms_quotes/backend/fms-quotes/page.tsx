@@ -41,6 +41,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTableConfig } from '../../components/useTableConfig'
 import { QuoteDrawer } from '../../components/QuoteDrawer'
 import { QuotePreviewDrawer } from '../../components/QuotePreviewDrawer'
+import { QuoteWizardDrawer } from '../../components/QuoteWizard'
 
 interface FmsQuoteRow {
   id: string
@@ -160,6 +161,7 @@ export default function FmsQuotesPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [previewQuoteId, setPreviewQuoteId] = useState<string | null>(null)
+  const [wizardQuoteId, setWizardQuoteId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [sortField, setSortField] = useState('createdAt')
@@ -172,11 +174,10 @@ export default function FmsQuotesPage() {
 
   const { data: tableConfig, isLoading: configLoading } = useTableConfig('fms_quotes')
 
-  // Register the quote click handler for the renderer
+  // Register the quote click handler for the renderer - opens wizard
   useEffect(() => {
     setQuoteClickHandler((quoteId: string) => {
-      setPreviewQuoteId(quoteId)
-      setIsPreviewOpen(true)
+      setWizardQuoteId(quoteId)
     })
     return () => setQuoteClickHandler(null)
   }, [])
@@ -491,6 +492,14 @@ export default function FmsQuotesPage() {
           quoteId={previewQuoteId}
           open={isPreviewOpen}
           onOpenChange={setIsPreviewOpen}
+        />
+        <QuoteWizardDrawer
+          quoteId={wizardQuoteId}
+          open={!!wizardQuoteId}
+          onClose={() => {
+            setWizardQuoteId(null)
+            queryClient.invalidateQueries({ queryKey: ['fms_quotes'] })
+          }}
         />
       </PageBody>
     </Page>
