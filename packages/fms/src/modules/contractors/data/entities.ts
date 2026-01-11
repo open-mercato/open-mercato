@@ -22,12 +22,8 @@ export type PaymentMethod = 'bank_transfer' | 'card' | 'cash'
   expression: `create index "idx_contractors_tenant_org_id" on "contractors" ("tenant_id", "organization_id", "id") where deleted_at is null`,
 })
 @Index({ name: 'contractors_parent_idx', properties: ['parentId'] })
-@Unique({
-  name: 'contractors_code_unique',
-  expression: `create unique index "contractors_code_unique" on "contractors" ("tenant_id", "organization_id", "code") where deleted_at is null and code is not null`,
-})
 export class Contractor {
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'roleTypeIds'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -44,20 +40,11 @@ export class Contractor {
   @Property({ name: 'short_name', type: 'text', nullable: true })
   shortName?: string | null
 
-  @Property({ type: 'text', nullable: true })
-  code?: string | null
-
   @Property({ name: 'parent_id', type: 'uuid', nullable: true })
   parentId?: string | null
 
   @Property({ name: 'tax_id', type: 'text', nullable: true })
   taxId?: string | null
-
-  @Property({ name: 'legal_name', type: 'text', nullable: true })
-  legalName?: string | null
-
-  @Property({ name: 'registration_number', type: 'text', nullable: true })
-  registrationNumber?: string | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
@@ -71,14 +58,14 @@ export class Contractor {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
+  @Property({ name: 'role_type_ids', type: 'json', nullable: true })
+  roleTypeIds?: string[] | null
+
   @OneToMany(() => ContractorAddress, (address) => address.contractor)
   addresses = new Collection<ContractorAddress>(this)
 
   @OneToMany(() => ContractorContact, (contact) => contact.contractor)
   contacts = new Collection<ContractorContact>(this)
-
-  @OneToMany(() => ContractorRole, (role) => role.contractor)
-  roles = new Collection<ContractorRole>(this)
 
   @OneToOne(() => ContractorPaymentTerms, (pt) => pt.contractor, { nullable: true, mappedBy: 'contractor' })
   paymentTerms?: ContractorPaymentTerms | null
@@ -107,11 +94,8 @@ export class ContractorAddress {
   @Property({ type: 'text', nullable: true })
   label?: string | null
 
-  @Property({ name: 'address_line1', type: 'text' })
-  addressLine1!: string
-
-  @Property({ name: 'address_line2', type: 'text', nullable: true })
-  addressLine2?: string | null
+  @Property({ name: 'address_line', type: 'text' })
+  addressLine!: string
 
   @Property({ type: 'text' })
   city!: string
@@ -161,29 +145,17 @@ export class ContractorContact {
   @Property({ name: 'last_name', type: 'text' })
   lastName!: string
 
-  @Property({ name: 'job_title', type: 'text', nullable: true })
-  jobTitle?: string | null
-
-  @Property({ type: 'text', nullable: true })
-  department?: string | null
-
   @Property({ type: 'text', nullable: true })
   email?: string | null
 
   @Property({ type: 'text', nullable: true })
   phone?: string | null
 
-  @Property({ type: 'text', nullable: true })
-  mobile?: string | null
-
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
-
-  @Property({ type: 'text', nullable: true })
-  notes?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -249,53 +221,6 @@ export class ContractorRoleType {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
-
-  @OneToMany(() => ContractorRole, (role) => role.roleType)
-  roles = new Collection<ContractorRole>(this)
-}
-
-@Entity({ tableName: 'contractor_roles' })
-@Index({ name: 'contractor_roles_contractor_idx', properties: ['contractor'] })
-@Index({
-  name: 'idx_contractor_roles_role_type',
-  expression: `create index "idx_contractor_roles_role_type" on "contractor_roles" ("tenant_id", "organization_id", "role_type_id") where is_active = true`,
-})
-@Unique({ name: 'contractor_roles_unique', properties: ['contractor', 'roleType'] })
-export class ContractorRole {
-  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ type: 'json', nullable: true })
-  settings?: Record<string, unknown> | null
-
-  @Property({ name: 'is_active', type: 'boolean', default: true })
-  isActive: boolean = true
-
-  @Property({ name: 'effective_from', type: Date, nullable: true })
-  effectiveFrom?: Date | null
-
-  @Property({ name: 'effective_to', type: Date, nullable: true })
-  effectiveTo?: Date | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-
-  @ManyToOne(() => Contractor, { fieldName: 'contractor_id' })
-  contractor!: Contractor
-
-  @ManyToOne(() => ContractorRoleType, { fieldName: 'role_type_id' })
-  roleType!: ContractorRoleType
 }
 
 @Entity({ tableName: 'contractor_payment_terms' })
@@ -357,7 +282,7 @@ export class ContractorPaymentTerms {
 @Index({ name: 'contractor_credit_limits_contractor_idx', properties: ['contractor'] })
 @Unique({ name: 'contractor_credit_limits_contractor_unique', properties: ['contractor'] })
 export class ContractorCreditLimit {
-  [OptionalProps]?: 'isUnlimited' | 'currentExposure' | 'currencyCode' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'isUnlimited' | 'currencyCode' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -376,21 +301,6 @@ export class ContractorCreditLimit {
 
   @Property({ name: 'is_unlimited', type: 'boolean', default: false })
   isUnlimited: boolean = false
-
-  @Property({ name: 'current_exposure', type: 'numeric', precision: 18, scale: 2, default: '0' })
-  currentExposure: string = '0'
-
-  @Property({ name: 'last_calculated_at', type: Date, nullable: true })
-  lastCalculatedAt?: Date | null
-
-  @Property({ name: 'requires_approval_above', type: 'numeric', precision: 18, scale: 2, nullable: true })
-  requiresApprovalAbove?: string | null
-
-  @Property({ name: 'approved_by_id', type: 'uuid', nullable: true })
-  approvedById?: string | null
-
-  @Property({ name: 'approved_at', type: Date, nullable: true })
-  approvedAt?: Date | null
 
   @Property({ type: 'text', nullable: true })
   notes?: string | null

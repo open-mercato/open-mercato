@@ -41,14 +41,10 @@ const createContactCommand: CommandHandler<ContactCreateInput, { contactId: stri
       contractor,
       firstName: parsed.firstName,
       lastName: parsed.lastName,
-      jobTitle: parsed.jobTitle ?? null,
-      department: parsed.department ?? null,
       email: parsed.email ?? null,
       phone: parsed.phone ?? null,
-      mobile: parsed.mobile ?? null,
       isPrimary: parsed.isPrimary ?? false,
       isActive: parsed.isActive ?? true,
-      notes: parsed.notes ?? null,
     })
 
     em.persist(contact)
@@ -77,14 +73,10 @@ const updateContactCommand: CommandHandler<ContactUpdateInput, { contactId: stri
 
     if (parsed.firstName !== undefined) contact.firstName = parsed.firstName
     if (parsed.lastName !== undefined) contact.lastName = parsed.lastName
-    if (parsed.jobTitle !== undefined) contact.jobTitle = parsed.jobTitle ?? null
-    if (parsed.department !== undefined) contact.department = parsed.department ?? null
     if (parsed.email !== undefined) contact.email = parsed.email ?? null
     if (parsed.phone !== undefined) contact.phone = parsed.phone ?? null
-    if (parsed.mobile !== undefined) contact.mobile = parsed.mobile ?? null
     if (parsed.isPrimary !== undefined) contact.isPrimary = parsed.isPrimary
     if (parsed.isActive !== undefined) contact.isActive = parsed.isActive
-    if (parsed.notes !== undefined) contact.notes = parsed.notes ?? null
 
     await em.flush()
 

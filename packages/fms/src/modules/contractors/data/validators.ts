@@ -12,12 +12,10 @@ export const paymentMethods = ['bank_transfer', 'card', 'cash'] as const
 export const contractorCreateSchema = z.object({
   name: z.string().min(1).max(255),
   shortName: z.string().max(50).optional().nullable(),
-  code: z.string().max(50).optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   taxId: z.string().max(50).optional().nullable(),
-  legalName: z.string().max(255).optional().nullable(),
-  registrationNumber: z.string().max(100).optional().nullable(),
   isActive: z.boolean().optional().default(true),
+  roleTypeIds: z.array(z.string().uuid()).optional().nullable(),
 })
 export type ContractorCreateInput = z.infer<typeof contractorCreateSchema>
 
@@ -35,8 +33,7 @@ const emptyToNull = (val: unknown) => (val === '' ? null : val)
 export const contractorAddressCreateSchema = z.object({
   purpose: z.enum(contractorAddressPurposes),
   label: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
-  addressLine1: z.string().min(1).max(255),
-  addressLine2: z.preprocess(emptyToNull, z.string().max(255).nullable().optional()),
+  addressLine: z.string().min(1).max(255),
   city: z.string().min(1).max(100),
   state: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   postalCode: z.preprocess(emptyToNull, z.string().max(20).nullable().optional()),
@@ -52,14 +49,10 @@ export type ContractorAddressUpdateInput = z.infer<typeof contractorAddressUpdat
 export const contractorContactCreateSchema = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  jobTitle: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
-  department: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   email: z.preprocess(emptyToNull, z.string().email().max(255).nullable().optional()),
   phone: z.preprocess(emptyToNull, z.string().max(50).nullable().optional()),
-  mobile: z.preprocess(emptyToNull, z.string().max(50).nullable().optional()),
   isPrimary: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
-  notes: z.preprocess(emptyToNull, z.string().max(1000).nullable().optional()),
 })
 export type ContractorContactCreateInput = z.infer<typeof contractorContactCreateSchema>
 
@@ -83,18 +76,6 @@ export type ContractorRoleTypeCreateInput = z.infer<typeof contractorRoleTypeCre
 export const contractorRoleTypeUpdateSchema = contractorRoleTypeCreateSchema.partial().omit({ code: true })
 export type ContractorRoleTypeUpdateInput = z.infer<typeof contractorRoleTypeUpdateSchema>
 
-export const contractorRoleAssignSchema = z.object({
-  roleTypeId: z.string().uuid(),
-  settings: z.record(z.unknown()).optional().nullable(),
-  isActive: z.boolean().optional().default(true),
-  effectiveFrom: z.coerce.date().optional().nullable(),
-  effectiveTo: z.coerce.date().optional().nullable(),
-})
-export type ContractorRoleAssignInput = z.infer<typeof contractorRoleAssignSchema>
-
-export const contractorRoleUpdateSchema = contractorRoleAssignSchema.partial().omit({ roleTypeId: true })
-export type ContractorRoleUpdateInput = z.infer<typeof contractorRoleUpdateSchema>
-
 export const contractorPaymentTermsUpsertSchema = z.object({
   paymentDays: z.number().int().min(0).max(365).optional().default(30),
   paymentMethod: z.enum(paymentMethods).optional().nullable(),
@@ -112,7 +93,6 @@ export const contractorCreditLimitUpsertSchema = z.object({
   creditLimit: z.string().regex(/^\d+(\.\d{1,2})?$/),
   currencyCode: z.string().length(3).optional().default('USD'),
   isUnlimited: z.boolean().optional().default(false),
-  requiresApprovalAbove: z.string().regex(/^\d+(\.\d{1,2})?$/).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
 })
 export type ContractorCreditLimitUpsertInput = z.infer<typeof contractorCreditLimitUpsertSchema>

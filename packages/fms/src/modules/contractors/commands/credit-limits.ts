@@ -36,7 +36,6 @@ const upsertCreditLimitCommand: CommandHandler<CreditLimitUpsertInput, { creditL
       if (parsed.creditLimit !== undefined) creditLimit.creditLimit = parsed.creditLimit
       if (parsed.currencyCode !== undefined) creditLimit.currencyCode = parsed.currencyCode
       if (parsed.isUnlimited !== undefined) creditLimit.isUnlimited = parsed.isUnlimited
-      if (parsed.requiresApprovalAbove !== undefined) creditLimit.requiresApprovalAbove = parsed.requiresApprovalAbove ?? null
       if (parsed.notes !== undefined) creditLimit.notes = parsed.notes ?? null
     } else {
       // Create new
@@ -47,8 +46,6 @@ const upsertCreditLimitCommand: CommandHandler<CreditLimitUpsertInput, { creditL
         creditLimit: parsed.creditLimit,
         currencyCode: parsed.currencyCode ?? 'USD',
         isUnlimited: parsed.isUnlimited ?? false,
-        currentExposure: '0',
-        requiresApprovalAbove: parsed.requiresApprovalAbove ?? null,
         notes: parsed.notes ?? null,
       })
       em.persist(creditLimit)

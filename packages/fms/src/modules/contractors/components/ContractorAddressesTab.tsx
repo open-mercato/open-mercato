@@ -19,8 +19,7 @@ type ContractorAddress = {
   id: string
   purpose: string
   label?: string | null
-  addressLine1: string
-  addressLine2?: string | null
+  addressLine: string
   city: string
   state?: string | null
   postalCode?: string | null
@@ -33,7 +32,6 @@ type ContractorAddressesTabProps = {
   contractorId: string
   addresses: ContractorAddress[]
   onUpdated: () => void
-  autoFocusFirstCell?: boolean
 }
 
 const PURPOSE_OPTIONS = [
@@ -61,29 +59,9 @@ const DeleteButton = ({ id, onDelete }: { id: string; onDelete: (id: string) => 
   )
 }
 
-export function ContractorAddressesTab({ contractorId, addresses, onUpdated, autoFocusFirstCell = false }: ContractorAddressesTabProps) {
+export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: ContractorAddressesTabProps) {
   const tableRef = React.useRef<HTMLDivElement>(null)
   const t = useT()
-
-  // Auto-focus first cell when requested
-  React.useEffect(() => {
-    if (autoFocusFirstCell && tableRef.current) {
-      // Small delay to ensure the table is rendered
-      const timer = setTimeout(() => {
-        const firstCell = tableRef.current?.querySelector('td[data-row="0"][data-col="0"]') as HTMLElement
-        if (firstCell) {
-          // Simulate double-click to start editing
-          const dblClickEvent = new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-          })
-          firstCell.dispatchEvent(dblClickEvent)
-        }
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [autoFocusFirstCell])
 
   const handleDelete = React.useCallback(async (id: string) => {
     if (!confirm(t('contractors.drawer.confirmDeleteAddress', 'Are you sure you want to delete this address?'))) {
@@ -109,8 +87,7 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated, aut
   const columns: ColumnDef[] = React.useMemo(() => [
     { data: 'purpose', title: 'Purpose', type: 'dropdown', source: PURPOSE_OPTIONS, width: 130 },
     { data: 'label', title: 'Label', type: 'text', width: 100 },
-    { data: 'addressLine1', title: 'Address Line 1', type: 'text', width: 200 },
-    { data: 'addressLine2', title: 'Address Line 2', type: 'text', width: 150 },
+    { data: 'addressLine', title: 'Address', type: 'text', width: 250 },
     { data: 'city', title: 'City', type: 'text', width: 120 },
     { data: 'state', title: 'State', type: 'text', width: 100 },
     { data: 'postalCode', title: 'Postal Code', type: 'text', width: 100 },
@@ -130,8 +107,7 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated, aut
         id: '',
         purpose: '',
         label: '',
-        addressLine1: '',
-        addressLine2: '',
+        addressLine: '',
         city: '',
         state: '',
         postalCode: '',
@@ -144,8 +120,7 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated, aut
       id: addr.id,
       purpose: addr.purpose,
       label: addr.label ?? '',
-      addressLine1: addr.addressLine1,
-      addressLine2: addr.addressLine2 ?? '',
+      addressLine: addr.addressLine,
       city: addr.city,
       state: addr.state ?? '',
       postalCode: addr.postalCode ?? '',

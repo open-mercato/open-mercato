@@ -19,21 +19,16 @@ type ContractorContact = {
   id: string
   firstName: string
   lastName: string
-  jobTitle?: string | null
-  department?: string | null
   email?: string | null
   phone?: string | null
-  mobile?: string | null
   isPrimary: boolean
   isActive: boolean
-  notes?: string | null
 }
 
 type ContractorContactsTabProps = {
   contractorId: string
   contacts: ContractorContact[]
   onUpdated: () => void
-  autoFocusFirstCell?: boolean
 }
 
 const DeleteButton = ({ id, onDelete }: { id: string; onDelete: (id: string) => void }) => {
@@ -53,29 +48,9 @@ const DeleteButton = ({ id, onDelete }: { id: string; onDelete: (id: string) => 
   )
 }
 
-export function ContractorContactsTab({ contractorId, contacts, onUpdated, autoFocusFirstCell = false }: ContractorContactsTabProps) {
+export function ContractorContactsTab({ contractorId, contacts, onUpdated }: ContractorContactsTabProps) {
   const tableRef = React.useRef<HTMLDivElement>(null)
   const t = useT()
-
-  // Auto-focus first cell when requested
-  React.useEffect(() => {
-    if (autoFocusFirstCell && tableRef.current) {
-      // Small delay to ensure the table is rendered
-      const timer = setTimeout(() => {
-        const firstCell = tableRef.current?.querySelector('td[data-row="0"][data-col="0"]') as HTMLElement
-        if (firstCell) {
-          // Simulate double-click to start editing
-          const dblClickEvent = new MouseEvent('dblclick', {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-          })
-          firstCell.dispatchEvent(dblClickEvent)
-        }
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [autoFocusFirstCell])
 
   const handleDelete = React.useCallback(async (id: string) => {
     if (!confirm(t('contractors.drawer.confirmDeleteContact', 'Are you sure you want to delete this contact?'))) {
@@ -101,11 +76,8 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated, autoF
   const columns: ColumnDef[] = React.useMemo(() => [
     { data: 'firstName', title: 'First Name', type: 'text', width: 140 },
     { data: 'lastName', title: 'Last Name', type: 'text', width: 140 },
-    { data: 'jobTitle', title: 'Job Title', type: 'text', width: 130 },
-    { data: 'department', title: 'Department', type: 'text', width: 120 },
     { data: 'email', title: 'Email', type: 'text', width: 200 },
     { data: 'phone', title: 'Phone', type: 'text', width: 120 },
-    { data: 'mobile', title: 'Mobile', type: 'text', width: 120 },
     { data: 'isPrimary', title: 'Primary', type: 'boolean', width: 70 },
     { data: 'isActive', title: 'Active', type: 'boolean', width: 70 },
   ], [])
@@ -121,11 +93,8 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated, autoF
         id: '',
         firstName: '',
         lastName: '',
-        jobTitle: '',
-        department: '',
         email: '',
         phone: '',
-        mobile: '',
         isPrimary: false,
         isActive: true,
       }]
@@ -134,11 +103,8 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated, autoF
       id: contact.id,
       firstName: contact.firstName,
       lastName: contact.lastName,
-      jobTitle: contact.jobTitle ?? '',
-      department: contact.department ?? '',
       email: contact.email ?? '',
       phone: contact.phone ?? '',
-      mobile: contact.mobile ?? '',
       isPrimary: contact.isPrimary,
       isActive: contact.isActive,
     }))

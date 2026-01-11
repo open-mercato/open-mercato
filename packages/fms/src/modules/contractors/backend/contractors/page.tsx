@@ -2,10 +2,11 @@
 
 import * as React from 'react'
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import ReactDOM from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { ExternalLink, Trash2 } from 'lucide-react'
+import { Trash2, Check } from 'lucide-react'
 import {
   DynamicTable,
   TableSkeleton,
@@ -18,54 +19,47 @@ import type {
   NewRowSaveEvent,
   FilterRow,
   ColumnDef,
+  PerspectiveConfig,
+  PerspectiveSaveEvent,
+  PerspectiveSelectEvent,
+  PerspectiveRenameEvent,
+  PerspectiveDeleteEvent,
+  PerspectiveChangeEvent,
+  SortRule,
 } from '@open-mercato/ui/backend/dynamic-table'
+import type {
+  PerspectivesIndexResponse,
+  PerspectiveDto,
+  PerspectiveSettings,
+} from '@open-mercato/shared/modules/perspectives/types'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { ContractorDrawer, type TabId } from '../../components/ContractorDrawer'
+import { ContractorDrawer } from '../../components/ContractorDrawer'
 import { ConfirmDeleteDialog } from '../../components/ConfirmDeleteDialog'
 
-type ContractorRole = {
-  id: string
-  roleTypeId: string
-  roleTypeName: string
-  roleTypeCode: string
-  roleTypeColor?: string | null
-  roleTypeCategory: string
-  isActive: boolean
-}
-
-type ContractorCreditLimit = {
-  creditLimit: string
-  currencyCode: string
-  isUnlimited: boolean
-}
-
-type ContractorPaymentTerms = {
-  paymentDays: number
-  paymentMethod?: string | null
-  currencyCode: string
-}
-
 type PrimaryAddress = {
-  addressLine1: string
+  addressLine: string
   city: string
   countryCode: string
+}
+
+type RoleType = {
+  id: string
+  name: string
+  code: string
+  color?: string | null
+  category: string
 }
 
 type ContractorRow = {
   id: string
   name: string
   shortName?: string | null
-  code?: string | null
   taxId?: string | null
-  legalName?: string | null
-  registrationNumber?: string | null
   isActive: boolean
   createdAt?: string
-  roles?: ContractorRole[]
-  creditLimit?: ContractorCreditLimit | null
-  paymentTerms?: ContractorPaymentTerms | null
+  roleTypeIds?: string[]
   primaryContactEmail?: string | null
   primaryAddress?: PrimaryAddress | null
 }
@@ -77,6 +71,149 @@ type ContractorsResponse = {
   totalPages?: number
 }
 
+type RoleOption = {
+  value: string
+  label: string
+  color?: string | null
+}
+
+// Multi-select dropdown editor for roles
+const MultiSelectEditor = ({
+  value,
+  options,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  value: string[]
+  options: RoleOption[]
+  onChange: (val: string[]) => void
+  onSave: (val: string[]) => void
+  onCancel: () => void
+}) => {
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    Array.isArray(value) ? value : []
+  )
+  const [showDropdown, setShowDropdown] = useState(true)
+  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 })
+  const cellRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (cellRef.current) {
+      const rect = cellRef.current.getBoundingClientRect()
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop
+      const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft
+      setPosition({
+        top: rect.bottom + scrollTop + 2,
+        left: rect.left + scrollLeft,
+        width: Math.max(rect.width, 200),
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const isOutsideCell = cellRef.current && !cellRef.current.contains(e.target as Node)
+      const isOutsideDropdown = !dropdownRef.current || !dropdownRef.current.contains(e.target as Node)
+
+      if (isOutsideCell && isOutsideDropdown) {
+        setShowDropdown(false)
+        onSave(selectedIds)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [onSave, selectedIds])
+
+  const handleToggle = (optionValue: string) => {
+    const newIds = selectedIds.includes(optionValue)
+      ? selectedIds.filter((id) => id !== optionValue)
+      : [...selectedIds, optionValue]
+    setSelectedIds(newIds)
+    onChange(newIds)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      setShowDropdown(false)
+      onSave(selectedIds)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setShowDropdown(false)
+      onCancel()
+    }
+  }
+
+  const selectedLabels = options
+    .filter((opt) => selectedIds.includes(opt.value))
+    .map((opt) => opt.label)
+    .join(', ')
+
+  return (
+    <>
+      <div
+        ref={cellRef}
+        className="hot-cell-editor flex items-center min-h-[28px] px-1 cursor-pointer"
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+      >
+        <span className="truncate text-sm">
+          {selectedLabels || 'Select roles...'}
+        </span>
+      </div>
+
+      {showDropdown && ReactDOM.createPortal(
+        <div
+          ref={dropdownRef}
+          className="bg-white border border-gray-200 rounded-md shadow-lg"
+          style={{
+            position: 'absolute',
+            top: `${position.top}px`,
+            left: `${position.left}px`,
+            width: `${position.width}px`,
+            maxHeight: '250px',
+            overflowY: 'auto',
+            zIndex: 10000,
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {options.map((option) => {
+            const isSelected = selectedIds.includes(option.value)
+            return (
+              <div
+                key={option.value}
+                className={`flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 ${
+                  isSelected ? 'bg-blue-50' : ''
+                }`}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  handleToggle(option.value)
+                }}
+              >
+                <div
+                  className={`w-4 h-4 border rounded flex items-center justify-center ${
+                    isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+                  }`}
+                >
+                  {isSelected && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <span className="text-sm">{option.label}</span>
+              </div>
+            )
+          })}
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-sm text-gray-500">No roles available</div>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
 function mapApiItem(item: Record<string, unknown>): ContractorRow | null {
   const id = typeof item.id === 'string' ? item.id : null
   if (!id) return null
@@ -84,78 +221,61 @@ function mapApiItem(item: Record<string, unknown>): ContractorRow | null {
     id,
     name: typeof item.name === 'string' ? item.name : '',
     shortName: typeof item.shortName === 'string' ? item.shortName : null,
-    code: typeof item.code === 'string' ? item.code : null,
     taxId: typeof item.taxId === 'string' ? item.taxId : null,
-    legalName: typeof item.legalName === 'string' ? item.legalName : null,
-    registrationNumber: typeof item.registrationNumber === 'string' ? item.registrationNumber : null,
     isActive: item.isActive === true,
     createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
-    roles: Array.isArray(item.roles) ? item.roles as ContractorRole[] : [],
-    creditLimit: item.creditLimit as ContractorCreditLimit | null ?? null,
-    paymentTerms: item.paymentTerms as ContractorPaymentTerms | null ?? null,
+    roleTypeIds: Array.isArray(item.roleTypeIds) ? item.roleTypeIds as string[] : [],
     primaryContactEmail: typeof item.primaryContactEmail === 'string' ? item.primaryContactEmail : null,
     primaryAddress: item.primaryAddress as PrimaryAddress | null ?? null,
   }
 }
 
-// Global ref to store the contractor click handler
-let onContractorClickHandler: ((contractorId: string, tab?: TabId, autoFocus?: boolean) => void) | null = null
+// Transform API perspective format to DynamicTable format
+function apiToDynamicTable(dto: PerspectiveDto, allColumns: string[]): PerspectiveConfig {
+  const { columnOrder = [], columnVisibility = {} } = dto.settings
 
-export function setContractorClickHandler(handler: ((contractorId: string, tab?: TabId, autoFocus?: boolean) => void) | null) {
-  onContractorClickHandler = handler
+  const visible = columnOrder.length > 0
+    ? columnOrder.filter(col => columnVisibility[col] !== false)
+    : allColumns
+  const hidden = allColumns.filter(col => !visible.includes(col))
+
+  const apiFilters = dto.settings.filters as Record<string, unknown> | undefined
+  const filters: FilterRow[] = Array.isArray(apiFilters)
+    ? apiFilters as FilterRow[]
+    : (apiFilters?.rows as FilterRow[]) ?? []
+  const color = apiFilters?._color as PerspectiveConfig['color']
+
+  const sorting: SortRule[] = (dto.settings.sorting ?? []).map(s => ({
+    id: s.id,
+    field: s.id,
+    direction: (s.desc ? 'desc' : 'asc') as 'asc' | 'desc'
+  }))
+
+  return { id: dto.id, name: dto.name, color, columns: { visible, hidden }, filters, sorting }
 }
 
-const CellWithDrawerAction = ({
-  children,
-  rowData,
-  tab,
-  autoFocus = false,
-}: {
-  children: React.ReactNode
-  rowData: { id: string }
-  tab?: TabId
-  autoFocus?: boolean
-}) => {
-  // Check if this is an unsaved row (no valid ID)
-  const isUnsavedRow = !rowData.id || rowData.id === ''
+// Transform DynamicTable perspective format to API format
+function dynamicTableToApi(config: PerspectiveConfig): PerspectiveSettings {
+  const columnVisibility: Record<string, boolean> = {}
+  config.columns.visible.forEach(col => columnVisibility[col] = true)
+  config.columns.hidden.forEach(col => columnVisibility[col] = false)
 
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isUnsavedRow) return
-    if (onContractorClickHandler && rowData.id) {
-      onContractorClickHandler(rowData.id, tab, true)
-    }
+  return {
+    columnOrder: config.columns.visible,
+    columnVisibility,
+    filters: { rows: config.filters, _color: config.color },
+    sorting: config.sorting.map(s => ({
+      id: s.field,
+      desc: s.direction === 'desc'
+    })),
   }
+}
 
-  const handleButtonClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isUnsavedRow) return
-    if (onContractorClickHandler && rowData.id) {
-      onContractorClickHandler(rowData.id, tab, autoFocus)
-    }
-  }
+// Global ref to store the contractor click handler
+let onContractorClickHandler: ((contractorId: string) => void) | null = null
 
-  // For unsaved rows, just render children without interactive elements
-  if (isUnsavedRow) {
-    return <span className="truncate">{children}</span>
-  }
-
-  return (
-    <div
-      className="group flex items-center justify-between gap-2 w-full h-full cursor-pointer"
-      onDoubleClick={handleDoubleClick}
-    >
-      <span className="truncate">{children}</span>
-      <button
-        type="button"
-        onClick={handleButtonClick}
-        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-opacity flex-shrink-0"
-        title="Open details"
-      >
-        <ExternalLink className="w-3.5 h-3.5" />
-      </button>
-    </div>
-  )
+export function setContractorClickHandler(handler: ((contractorId: string) => void) | null) {
+  onContractorClickHandler = handler
 }
 
 // Global ref to store the contractor delete handler
@@ -185,10 +305,26 @@ const DeleteButton = ({ id }: { id: string }) => {
 }
 
 const ContractorNameRenderer = ({ value, rowData }: { value: string; rowData: { id: string } }) => {
+  const isUnsavedRow = !rowData.id || rowData.id === ''
+  const displayValue = value || '-'
+
+  if (isUnsavedRow) {
+    return <span className="font-medium">{displayValue}</span>
+  }
+
   return (
-    <CellWithDrawerAction rowData={rowData} tab="details">
-      <span className="font-medium">{value || '-'}</span>
-    </CellWithDrawerAction>
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        if (onContractorClickHandler && rowData.id) {
+          onContractorClickHandler(rowData.id)
+        }
+      }}
+      className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-left"
+    >
+      {displayValue}
+    </button>
   )
 }
 
@@ -197,79 +333,6 @@ const StatusBadgeRenderer = ({ value }: { value: boolean }) => {
     <Badge variant={value ? 'default' : 'secondary'}>
       {value ? 'Active' : 'Inactive'}
     </Badge>
-  )
-}
-
-const RolesRenderer = ({ value, rowData }: { value?: ContractorRole[]; rowData: { id: string } }) => {
-  if (!value || value.length === 0) {
-    return (
-      <CellWithDrawerAction rowData={rowData} tab="roles" autoFocus>
-        <span className="text-gray-400">-</span>
-      </CellWithDrawerAction>
-    )
-  }
-  return (
-    <CellWithDrawerAction rowData={rowData} tab="roles">
-      <span className="flex flex-wrap gap-1">
-        {value.filter(r => r.isActive).map((role) => (
-          <Badge
-            key={role.id}
-            variant="outline"
-            style={role.roleTypeColor ? { borderColor: role.roleTypeColor, color: role.roleTypeColor } : undefined}
-          >
-            {role.roleTypeName}
-          </Badge>
-        ))}
-      </span>
-    </CellWithDrawerAction>
-  )
-}
-
-const CreditLimitRenderer = ({ value }: { value?: ContractorCreditLimit | null }) => {
-  if (!value) return <span className="text-gray-400">-</span>
-  if (value.isUnlimited) return <Badge variant="default">Unlimited</Badge>
-  const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: value.currencyCode || 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(parseFloat(value.creditLimit))
-  return <span>{formatted}</span>
-}
-
-const PaymentTermsRenderer = ({ value }: { value?: ContractorPaymentTerms | null }) => {
-  if (!value) return <span className="text-gray-400">-</span>
-  const method = value.paymentMethod ? ` (${value.paymentMethod.replace('_', ' ')})` : ''
-  return <span>{value.paymentDays} days{method}</span>
-}
-
-const PrimaryAddressRenderer = ({ value, rowData }: { value?: PrimaryAddress | null; rowData: { id: string } }) => {
-  if (!value) {
-    return (
-      <CellWithDrawerAction rowData={rowData} tab="addresses" autoFocus>
-        <span className="text-gray-400">-</span>
-      </CellWithDrawerAction>
-    )
-  }
-  return (
-    <CellWithDrawerAction rowData={rowData} tab="addresses">
-      {value.addressLine1}, {value.city}, {value.countryCode}
-    </CellWithDrawerAction>
-  )
-}
-
-const EmailRenderer = ({ value, rowData }: { value?: string | null; rowData: { id: string } }) => {
-  if (!value) {
-    return (
-      <CellWithDrawerAction rowData={rowData} tab="contacts" autoFocus>
-        <span className="text-gray-400">-</span>
-      </CellWithDrawerAction>
-    )
-  }
-  return (
-    <CellWithDrawerAction rowData={rowData} tab="contacts">
-      {value}
-    </CellWithDrawerAction>
   )
 }
 
@@ -282,45 +345,14 @@ const COLUMNS: ColumnDef[] = [
     width: 220,
     renderer: (value: string, rowData: { id: string }) => <ContractorNameRenderer value={value} rowData={rowData} />,
   },
-  { data: 'code', title: 'Code', type: 'text', width: 100 },
+  { data: 'shortName', title: 'Short Name', type: 'text', width: 120 },
   { data: 'taxId', title: 'Tax ID', type: 'text', width: 120 },
   {
-    data: 'primaryContactEmail',
-    title: 'Contact Email',
-    type: 'text',
-    width: 180,
-    readOnly: true,
-    renderer: (value: string | null, rowData: { id: string }) => <EmailRenderer value={value} rowData={rowData} />,
-  },
-  {
-    data: 'primaryAddress',
-    title: 'Address',
-    type: 'text',
-    width: 220,
-    readOnly: true,
-    renderer: (value: PrimaryAddress | null, rowData: { id: string }) => <PrimaryAddressRenderer value={value} rowData={rowData} />,
-  },
-  {
-    data: 'roles',
+    data: 'roleTypeIds',
     title: 'Roles',
     type: 'text',
-    width: 150,
-    readOnly: true,
-    renderer: (value: ContractorRole[], rowData: { id: string }) => <RolesRenderer value={value} rowData={rowData} />,
-  },
-  {
-    data: 'creditLimitValue',
-    title: 'Credit Limit',
-    type: 'numeric',
-    width: 120,
-    renderer: (value: string | number | null, rowData: ContractorRow) => <CreditLimitRenderer value={rowData.creditLimit} />,
-  },
-  {
-    data: 'paymentDays',
-    title: 'Payment Days',
-    type: 'numeric',
-    width: 120,
-    renderer: (value: number | null, rowData: ContractorRow) => <PaymentTermsRenderer value={rowData.paymentTerms} />,
+    width: 200,
+    // editor and renderer are added dynamically in the component to access roleTypesMap
   },
   {
     data: 'isActive',
@@ -338,8 +370,6 @@ export default function ContractorsPage() {
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [selectedContractorId, setSelectedContractorId] = useState<string | null>(null)
-  const [initialTab, setInitialTab] = useState<TabId>('details')
-  const [autoFocusTab, setAutoFocusTab] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [sortField, setSortField] = useState('createdAt')
@@ -348,13 +378,16 @@ export default function ContractorsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [contractorToDelete, setContractorToDelete] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [filters, setFilters] = useState<FilterRow[]>([])
+
+  // Perspective state
+  const [savedPerspectives, setSavedPerspectives] = useState<PerspectiveConfig[]>([])
+  const [activePerspectiveId, setActivePerspectiveId] = useState<string | null>(null)
 
   // Register the contractor click handler for the renderer
   useEffect(() => {
-    setContractorClickHandler((contractorId: string, tab?: TabId, autoFocus?: boolean) => {
+    setContractorClickHandler((contractorId: string) => {
       setSelectedContractorId(contractorId)
-      setInitialTab(tab ?? 'details')
-      setAutoFocusTab(autoFocus ?? false)
       setIsDrawerOpen(true)
     })
     return () => setContractorClickHandler(null)
@@ -407,10 +440,11 @@ export default function ContractorsPage() {
     params.set('sortField', sortField)
     params.set('sortDir', sortDir)
     if (search) params.set('search', search)
+    if (filters.length) params.set('filters', JSON.stringify(filters))
     return params.toString()
-  }, [page, limit, sortField, sortDir, search])
+  }, [page, limit, sortField, sortDir, search, filters])
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: ['contractors', queryParams, scopeVersion],
     queryFn: async () => {
       const call = await apiCall<ContractorsResponse>(`/api/contractors/contractors?${queryParams}`)
@@ -423,21 +457,118 @@ export default function ContractorsPage() {
         totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
       }
     },
+    placeholderData: (previousData) => previousData, // Keep previous data while loading new data
   })
+
+  // Fetch role types for dropdown
+  const { data: roleTypesData } = useQuery({
+    queryKey: ['contractor-role-types'],
+    queryFn: async () => {
+      const response = await apiCall<{ items: RoleType[] }>('/api/contractors/role-types')
+      if (!response.ok) throw new Error('Failed to load role types')
+      return response.result?.items ?? []
+    },
+  })
+
+  // Fetch perspectives
+  const { data: perspectivesData } = useQuery({
+    queryKey: ['perspectives', 'contractors'],
+    queryFn: async () => {
+      const response = await apiCall<PerspectivesIndexResponse>('/api/perspectives/contractors')
+      return response.ok ? response.result : null
+    }
+  })
+
+  const roleTypesMap = useMemo(() => {
+    const map = new Map<string, RoleType>()
+    ;(roleTypesData ?? []).forEach((rt) => map.set(rt.id, rt))
+    return map
+  }, [roleTypesData])
+
+  // Role type options with colors for the editor
+  const roleOptionsWithColor = useMemo(() =>
+    (roleTypesData ?? []).map((rt) => ({
+      value: rt.id,
+      label: rt.name,
+      color: rt.color,
+    })),
+    [roleTypesData]
+  )
+
+  // Create dynamic columns with role type options, custom editor and renderer
+  const columns = useMemo(() => {
+    return COLUMNS.map((col) => {
+      if (col.data === 'roleTypeIds') {
+        return {
+          ...col,
+          editor: (
+            value: unknown,
+            onChange: (val: unknown) => void,
+            onSave: (val?: unknown) => void,
+            onCancel: () => void,
+          ) => {
+            const currentValue = Array.isArray(value) ? value : []
+            return (
+              <MultiSelectEditor
+                value={currentValue}
+                options={roleOptionsWithColor}
+                onChange={(val) => onChange(val)}
+                onSave={(val) => onSave(val)}
+                onCancel={onCancel}
+              />
+            )
+          },
+          renderer: (value: unknown, rowData: Record<string, unknown>) => {
+            // Get roleTypeIds from rowData since value might be transformed
+            const ids = rowData?.roleTypeIds
+            const roleTypeIds = Array.isArray(ids) ? ids : (Array.isArray(value) ? value : [])
+
+            if (roleTypeIds.length === 0) {
+              return <span className="text-gray-400">-</span>
+            }
+            return (
+              <span className="flex flex-wrap gap-1">
+                {roleTypeIds.map((roleTypeId: string) => {
+                  const roleType = roleTypesMap.get(roleTypeId)
+                  if (!roleType) return null
+                  return (
+                    <Badge
+                      key={roleTypeId}
+                      variant="outline"
+                      style={roleType.color ? { borderColor: roleType.color, color: roleType.color } : undefined}
+                    >
+                      {roleType.name}
+                    </Badge>
+                  )
+                })}
+              </span>
+            )
+          },
+        }
+      }
+      return col
+    })
+  }, [roleOptionsWithColor, roleTypesMap])
+
+  // Transform API perspectives to DynamicTable format
+  useEffect(() => {
+    if (perspectivesData?.perspectives && columns.length > 0) {
+      const allCols = columns.map(c => c.data)
+      const transformed = perspectivesData.perspectives.map(p => apiToDynamicTable(p, allCols))
+      setSavedPerspectives(transformed)
+      if (perspectivesData.defaultPerspectiveId && !activePerspectiveId) {
+        setActivePerspectiveId(perspectivesData.defaultPerspectiveId)
+      }
+    }
+  }, [perspectivesData, columns])
 
   const tableData = useMemo(() => {
     return (data?.items ?? []).map((contractor) => ({
       id: contractor.id,
       name: contractor.name,
-      code: contractor.code ?? '',
+      shortName: contractor.shortName ?? '',
       taxId: contractor.taxId ?? '',
-      primaryContactEmail: contractor.primaryContactEmail ?? null,
-      primaryAddress: contractor.primaryAddress ?? null,
-      roles: contractor.roles ?? [],
-      creditLimit: contractor.creditLimit ?? null,
-      creditLimitValue: contractor.creditLimit?.creditLimit ?? '',
-      paymentTerms: contractor.paymentTerms ?? null,
-      paymentDays: contractor.paymentTerms?.paymentDays ?? '',
+      roleTypeIds: contractor.roleTypeIds ?? [],
       isActive: contractor.isActive,
     }))
   }, [data?.items])
@@ -457,28 +588,13 @@ export default function ContractorsPage() {
         try {
           let response: { ok: boolean; result?: { error?: string } | null }
 
-          // Handle special financial fields
-          if (payload.prop === 'creditLimitValue') {
-            // Update credit limit via upsert API
-            const creditLimitValue = payload.newValue === '' ? '0' : String(payload.newValue)
-            response = await apiCall<{ error?: string }>('/api/contractors/credit-limits', {
-              method: 'POST',
+          if (payload.prop === 'roleTypeIds') {
+            // Update role type IDs
+            const roleTypeIds = Array.isArray(payload.newValue) ? payload.newValue : []
+            response = await apiCall<{ error?: string }>(`/api/contractors/contractors/${payload.id}`, {
+              method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contractorId: payload.id,
-                creditLimit: creditLimitValue,
-              }),
-            })
-          } else if (payload.prop === 'paymentDays') {
-            // Update payment terms via upsert API
-            const paymentDays = payload.newValue === '' ? 30 : Number(payload.newValue)
-            response = await apiCall<{ error?: string }>('/api/contractors/payment-terms', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contractorId: payload.id,
-                paymentDays,
-              }),
+              body: JSON.stringify({ roleTypeIds }),
             })
           } else {
             // Regular contractor field update
@@ -517,11 +633,10 @@ export default function ContractorsPage() {
       },
 
       [TableEvents.NEW_ROW_SAVE]: async (payload: NewRowSaveEvent) => {
-        // Extract financial fields that need separate API calls
-        const { creditLimitValue, paymentDays, creditLimit, paymentTerms, ...restRowData } = payload.rowData as Record<string, unknown>
+        const rowData = payload.rowData as Record<string, unknown>
 
         const filteredRowData = Object.fromEntries(
-          Object.entries(restRowData).filter(([_, value]) => value !== '')
+          Object.entries(rowData).filter(([_, value]) => value !== '')
         )
 
         if (!filteredRowData.name) {
@@ -541,38 +656,12 @@ export default function ContractorsPage() {
           })
 
           if (response.ok && response.result) {
-            const contractorId = response.result.id
-
-            // Create credit limit if provided
-            if (creditLimitValue && creditLimitValue !== '') {
-              await apiCall('/api/contractors/credit-limits', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contractorId,
-                  creditLimit: String(creditLimitValue),
-                }),
-              })
-            }
-
-            // Create payment terms if provided
-            if (paymentDays && paymentDays !== '') {
-              await apiCall('/api/contractors/payment-terms', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contractorId,
-                  paymentDays: Number(paymentDays),
-                }),
-              })
-            }
-
             flash('Contractor created', 'success')
             dispatch(tableRef.current as HTMLElement, TableEvents.NEW_ROW_SAVE_SUCCESS, {
               rowIndex: payload.rowIndex,
               savedRowData: {
                 ...payload.rowData,
-                id: contractorId,
+                id: response.result.id,
               },
             })
             queryClient.invalidateQueries({ queryKey: ['contractors'] })
@@ -604,11 +693,108 @@ export default function ContractorsPage() {
         setSearch(payload.query)
         setPage(1)
       },
+
+      [TableEvents.FILTER_CHANGE]: (payload: { filters: FilterRow[] }) => {
+        setFilters(payload.filters)
+        setPage(1)
+      },
+
+      [TableEvents.PERSPECTIVE_CHANGE]: (payload: PerspectiveChangeEvent) => {
+        // Handle sort rules change from Sort popover
+        if (payload.config.sorting) {
+          if (payload.config.sorting.length > 0) {
+            const firstSort = payload.config.sorting[0]
+            setSortField(firstSort.field)
+            setSortDir(firstSort.direction)
+          } else {
+            // Reset to default when all sorts removed
+            setSortField('createdAt')
+            setSortDir('desc')
+          }
+          setPage(1)
+        }
+      },
+
+      // Perspective event handlers
+      [TableEvents.PERSPECTIVE_SAVE]: async (payload: PerspectiveSaveEvent) => {
+        const settings = dynamicTableToApi(payload.perspective)
+        const existingPerspective = savedPerspectives.find(p => p.name === payload.perspective.name)
+        const response = await apiCall('/api/perspectives/contractors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: existingPerspective?.id,
+            name: payload.perspective.name,
+            settings
+          })
+        })
+        if (response.ok) {
+          flash('Perspective saved', 'success')
+          queryClient.invalidateQueries({ queryKey: ['perspectives', 'contractors'] })
+        } else {
+          flash('Failed to save perspective', 'error')
+        }
+      },
+
+      [TableEvents.PERSPECTIVE_SELECT]: (payload: PerspectiveSelectEvent) => {
+        setActivePerspectiveId(payload.id)
+        if (payload.config) {
+          setFilters(payload.config.filters)
+          if (payload.config.sorting.length > 0) {
+            setSortField(payload.config.sorting[0].field)
+            setSortDir(payload.config.sorting[0].direction)
+          }
+          setPage(1)
+        } else {
+          // Reset to default when "All" is selected
+          setFilters([])
+          setSortField('createdAt')
+          setSortDir('desc')
+          setPage(1)
+        }
+      },
+
+      [TableEvents.PERSPECTIVE_RENAME]: async (payload: PerspectiveRenameEvent) => {
+        const perspective = savedPerspectives.find(p => p.id === payload.id)
+        if (perspective) {
+          const settings = dynamicTableToApi(perspective)
+          const response = await apiCall('/api/perspectives/contractors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: payload.id, name: payload.newName, settings })
+          })
+          if (response.ok) {
+            flash('Perspective renamed', 'success')
+            queryClient.invalidateQueries({ queryKey: ['perspectives', 'contractors'] })
+          } else {
+            flash('Failed to rename perspective', 'error')
+          }
+        }
+      },
+
+      [TableEvents.PERSPECTIVE_DELETE]: async (payload: PerspectiveDeleteEvent) => {
+        const response = await apiCall(`/api/perspectives/contractors/${payload.id}`, {
+          method: 'DELETE'
+        })
+        if (response.ok) {
+          flash('Perspective deleted', 'success')
+          queryClient.invalidateQueries({ queryKey: ['perspectives', 'contractors'] })
+          if (activePerspectiveId === payload.id) {
+            setActivePerspectiveId(null)
+            setFilters([])
+            setSortField('createdAt')
+            setSortDir('desc')
+          }
+        } else {
+          flash('Failed to delete perspective', 'error')
+        }
+      },
     },
     tableRef as React.RefObject<HTMLElement>
   )
 
-  if (isLoading) {
+  // Only show skeleton on initial load, not during refetches (e.g., when filters change)
+  if (isLoading && !data) {
     return (
       <Page>
         <PageBody>
@@ -627,7 +813,7 @@ export default function ContractorsPage() {
         <DynamicTable
           tableRef={tableRef}
           data={tableData}
-          columns={COLUMNS}
+          columns={columns}
           tableName="Contractors"
           idColumnName="id"
           height={600}
@@ -635,6 +821,8 @@ export default function ContractorsPage() {
           rowHeaders={true}
           actionsRenderer={actionsRenderer}
           uiConfig={{ hideAddRowButton: false }}
+          savedPerspectives={savedPerspectives}
+          activePerspectiveId={activePerspectiveId}
           pagination={{
             currentPage: page,
             totalPages: Math.ceil((data?.total || 0) / limit),
@@ -650,13 +838,8 @@ export default function ContractorsPage() {
         <ContractorDrawer
           contractorId={selectedContractorId}
           open={isDrawerOpen}
-          onOpenChange={(open) => {
-            setIsDrawerOpen(open)
-            if (!open) setAutoFocusTab(false)
-          }}
+          onOpenChange={setIsDrawerOpen}
           onContractorUpdated={handleContractorUpdated}
-          initialTab={initialTab}
-          autoFocusFirstCell={autoFocusTab}
         />
         <ConfirmDeleteDialog
           open={deleteDialogOpen}
