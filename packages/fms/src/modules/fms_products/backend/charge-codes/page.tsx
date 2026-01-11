@@ -480,6 +480,7 @@ export default function ChargeCodesPage() {
         height="calc(100vh - 110px)"
         colHeaders={true}
         rowHeaders={true}
+        stretchColumns={true}
         savedPerspectives={savedPerspectives}
         activePerspectiveId={activePerspectiveId}
         actionsRenderer={actionsRenderer}

@@ -200,6 +200,7 @@ export function QuoteWizardLinesTable({
             height="100%"
             colHeaders={true}
             rowHeaders={false}
+            stretchColumns={true}
             uiConfig={{
               hideToolbar: true,
               hideSearch: true,
