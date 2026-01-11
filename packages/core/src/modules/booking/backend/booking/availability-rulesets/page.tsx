@@ -4,6 +4,9 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { PluggableList } from 'unified'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -16,6 +19,9 @@ import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope
 import { useT } from '@/lib/i18n/context'
 
 const PAGE_SIZE = 50
+const MARKDOWN_PLUGINS: PluggableList = [remarkGfm]
+const MARKDOWN_SUBTEXT_CLASSNAME =
+  'line-clamp-2 text-xs text-muted-foreground [&>p]:m-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5'
 
 type RuleSetRow = {
   id: string
@@ -136,7 +142,9 @@ export default function BookingAvailabilityRuleSetsPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <span className="text-xs text-muted-foreground line-clamp-2">{row.original.description}</span>
+            <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_SUBTEXT_CLASSNAME}>
+              {row.original.description}
+            </ReactMarkdown>
           ) : null}
         </div>
       ),

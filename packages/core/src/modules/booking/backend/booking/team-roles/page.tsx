@@ -180,7 +180,7 @@ export default function BookingTeamRolesPage() {
     },
     {
       accessorKey: 'memberCount',
-      header: <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
+      header: () => <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
       meta: { priority: 3, maxWidth: '250px', truncate: true },
       enableSorting: false,
       cell: ({ row }) => row.original.kind === 'role'

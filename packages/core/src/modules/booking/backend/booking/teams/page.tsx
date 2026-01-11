@@ -146,7 +146,7 @@ export default function BookingTeamsPage() {
     },
     {
       accessorKey: 'memberCount',
-      header: <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
+      header: () => <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
       meta: { priority: 3 },
       enableSorting: false,
       cell: ({ row }) => (

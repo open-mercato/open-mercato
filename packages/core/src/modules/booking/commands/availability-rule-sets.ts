@@ -227,7 +227,7 @@ const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
     ])
     const customChanges = diffCustomFieldChanges(before.custom, after.custom)
     if (Object.keys(customChanges).length) {
-      changes.custom = customChanges
+      changes.customFields = { from: before.custom ?? null, to: after.custom ?? null }
     }
     const { translate } = await resolveTranslations()
     return {
