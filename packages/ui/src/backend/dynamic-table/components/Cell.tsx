@@ -10,10 +10,11 @@ export interface CellProps {
   colConfig: ColumnDef;
   stickyLeft?: number;
   stickyRight?: number;
+  stretchColumns?: boolean;
   onCellSave: (row: number, col: number, newValue: any) => void;
 }
 
-const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, onCellSave }) => {
+const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, stretchColumns = false, onCellSave }) => {
   const store = useCellStore();
   const state = useCellState(row, col);
   const inputRef = useRef<any>(null);
@@ -60,8 +61,8 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   const style: React.CSSProperties = {
     width: colConfig.width || 100,
     flexBasis: colConfig.width || 100,
-    flexShrink: 0,
-    flexGrow: 0,
+    flexShrink: stretchColumns ? 1 : 0,
+    flexGrow: stretchColumns ? 1 : 0,
     position: 'relative',
   };
 

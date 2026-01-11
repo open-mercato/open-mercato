@@ -82,6 +82,8 @@ export interface DynamicTableProps {
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
   actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
   pagination?: PaginationProps;
+  /** When true, columns stretch proportionally to fill container width */
+  stretchColumns?: boolean;
 
   // NEW - Perspective management
   savedPerspectives?: PerspectiveConfig[];
@@ -127,6 +129,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   hiddenColumns: deprecatedHiddenColumns = [],
   debug = false,
   uiConfig = {},
+  stretchColumns = false,
 }) => {
   // -------------------- BACKWARD COMPATIBILITY --------------------
   // Convert deprecated savedFilters to savedPerspectives format
@@ -575,6 +578,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
             sortState={sortState}
             actionsColumnWidth={actionsColumnWidth}
             showActionsColumn={showActionsColumn}
+            stretchColumns={stretchColumns}
             onSort={handleColumnSort}
             onResizeStart={handleResizeStart}
             onDoubleClick={handleColumnHeaderDoubleClick}
@@ -584,7 +588,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
         )}
 
         {/* Virtual Body */}
-        <table className="hot-table" style={{ width: `${totalWidth}px` }}>
+        <table className="hot-table" style={{ width: stretchColumns ? '100%' : `${totalWidth}px` }}>
           <tbody
             style={{
               display: 'block',
@@ -603,6 +607,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
                 rightOffsets={rightOffsets}
                 actionsColumnWidth={actionsColumnWidth}
                 showActionsColumn={showActionsColumn}
+                stretchColumns={stretchColumns}
                 storeRevision={storeRevision}
                 onSaveNewRow={handleSaveNewRow}
                 onCancelNewRow={handleCancelNewRow}

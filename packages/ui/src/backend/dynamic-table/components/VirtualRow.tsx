@@ -14,6 +14,7 @@ export interface VirtualRowProps {
   rightOffsets: (number | undefined)[];
   actionsColumnWidth: number;
   showActionsColumn?: boolean;
+  stretchColumns?: boolean;
   storeRevision: number;
   onSaveNewRow: (rowIndex: number) => void;
   onCancelNewRow: (rowIndex: number) => void;
@@ -32,6 +33,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
     rightOffsets,
     actionsColumnWidth,
     showActionsColumn = true,
+    stretchColumns = false,
     storeRevision: _storeRevision, // Used to invalidate memo when column widths change
     onSaveNewRow,
     onCancelNewRow,
@@ -96,6 +98,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
             colConfig={{ ...col, width: store.getColumnWidth(colIndex) }}
             stickyLeft={leftOffsets[colIndex]}
             stickyRight={rightOffsets[colIndex]}
+            stretchColumns={stretchColumns}
             onCellSave={onCellSave}
           />
         ))}
