@@ -664,8 +664,8 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const product =
-      typeof record.product === 'string' ? await requireProduct(em, record.product) : record.product
+    const product = await requireProduct(em, record.product.id)
+
     if (!product) throw new CrudHttpError(400, { error: 'Variant product missing' })
 
     const taxRateProvided = parsed.taxRateId !== undefined || parsed.taxRate !== undefined
