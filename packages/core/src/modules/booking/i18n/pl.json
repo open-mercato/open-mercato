@@ -303,6 +303,8 @@
   "booking.audit.availability.create": "Utwórz regułę dostępności",
   "booking.audit.availability.update": "Zaktualizuj regułę dostępności",
   "booking.audit.availability.delete": "Usuń regułę dostępności",
+  "booking.audit.availability.weekly.replace": "Zastąp tygodniową dostępność",
+  "booking.audit.availability.dateSpecific.replace": "Zastąp dostępność dla dat",
   "booking.audit.availabilityRuleSets.create": "Utwórz harmonogram dostępności",
   "booking.audit.availabilityRuleSets.update": "Zaktualizuj harmonogram dostępności",
   "booking.audit.availabilityRuleSets.delete": "Usuń harmonogram dostępności",
@@ -489,5 +491,6 @@
   "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Dodaj datę",
   "booking.availability.errors.unauthorized": "Brak autoryzacji",
   "booking.availability.errors.organizationRequired": "Wymagany jest kontekst organizacji.",
-  "booking.availability.errors.updateWeekly": "Nie udało się zapisać tygodniowej dostępności."
+  "booking.availability.errors.updateWeekly": "Nie udało się zapisać tygodniowej dostępności.",
+  "booking.availability.errors.updateDateSpecific": "Nie udało się zapisać dostępności dla dat."
 }

@@ -19,6 +19,15 @@ const systemEntities: CustomEntitySpec[] = [
         listVisible: true,
       },
       {
+        key: 'currency_code',
+        kind: 'text',
+        label: 'Currency code',
+        description: 'ISO 4217 currency code for rates.',
+        filterable: true,
+        formEditable: true,
+        listVisible: true,
+      },
+      {
         key: 'years_of_experience',
         kind: 'integer',
         label: 'Years of experience',

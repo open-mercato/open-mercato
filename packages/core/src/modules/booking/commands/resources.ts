@@ -3,7 +3,8 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -14,7 +15,7 @@ import {
   type BookingResourceCreateInput,
   type BookingResourceUpdateInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope } from './shared'
+import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
 import { E } from '@/generated/entities.ids.generated'
 
@@ -23,6 +24,33 @@ type CapacityUnitSnapshot = {
   name: string
   color: string | null
   icon: string | null
+}
+
+type ResourceSnapshot = {
+  id: string
+  tenantId: string
+  organizationId: string
+  name: string
+  description: string | null
+  resourceTypeId: string | null
+  capacity: number | null
+  capacityUnitValue: string | null
+  capacityUnitName: string | null
+  capacityUnitColor: string | null
+  capacityUnitIcon: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  isActive: boolean
+  availabilityRuleSetId: string | null
+  tags: string[]
+  deletedAt: string | null
+}
+
+type ResourceUndoPayload = {
+  before?: ResourceSnapshot | null
+  after?: ResourceSnapshot | null
+  customBefore?: CustomFieldSnapshot | null
+  customAfter?: CustomFieldSnapshot | null
 }
 
 async function resolveCapacityUnit(
@@ -81,6 +109,54 @@ function normalizeTagIds(tags?: Array<string | null | undefined>): string[] {
     if (typeof id === 'string' && id.trim().length > 0) set.add(id.trim())
   })
   return Array.from(set)
+}
+
+async function loadResourceSnapshot(em: EntityManager, id: string): Promise<ResourceSnapshot | null> {
+  const resource = await findOneWithDecryption(
+    em,
+    BookingResource,
+    { id },
+    undefined,
+    { tenantId: null, organizationId: null },
+  )
+  if (!resource) return null
+  const assignments = await em.find(
+    BookingResourceTagAssignment,
+    { resource: resource.id },
+    { populate: ['tag'] },
+  )
+  const tags = assignments
+    .map((assignment) => (assignment.tag as BookingResourceTag | undefined)?.id ?? null)
+    .filter((tagId): tagId is string => typeof tagId === 'string' && tagId.length > 0)
+    .sort()
+  return {
+    id: resource.id,
+    tenantId: resource.tenantId,
+    organizationId: resource.organizationId,
+    name: resource.name,
+    description: resource.description ?? null,
+    resourceTypeId: resource.resourceTypeId ?? null,
+    capacity: resource.capacity ?? null,
+    capacityUnitValue: resource.capacityUnitValue ?? null,
+    capacityUnitName: resource.capacityUnitName ?? null,
+    capacityUnitColor: resource.capacityUnitColor ?? null,
+    capacityUnitIcon: resource.capacityUnitIcon ?? null,
+    appearanceIcon: resource.appearanceIcon ?? null,
+    appearanceColor: resource.appearanceColor ?? null,
+    isActive: resource.isActive,
+    availabilityRuleSetId: resource.availabilityRuleSetId ?? null,
+    tags,
+    deletedAt: resource.deletedAt ? resource.deletedAt.toISOString() : null,
+  }
+}
+
+async function loadResourceCustomSnapshot(em: EntityManager, snapshot: ResourceSnapshot): Promise<CustomFieldSnapshot> {
+  return loadCustomFieldSnapshot(em, {
+    entityId: E.booking.booking_resource,
+    recordId: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+  })
 }
 
 async function syncBookingResourceTags(em: EntityManager, params: {
@@ -171,22 +247,70 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       tagIds: parsed.tags,
     })
     await em.flush()
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
     return { resourceId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadResourceSnapshot(em, result.resourceId)
+    if (!snapshot) return null
+    const custom = await loadResourceCustomSnapshot(em, snapshot)
+    return { snapshot, custom }
+  },
+  buildLog: async ({ result, ctx }) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadResourceSnapshot(em, result?.resourceId ?? '')
+    if (!snapshot) return null
+    const custom = await loadResourceCustomSnapshot(em, snapshot)
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.resources.create', 'Create resource'),
       resourceKind: 'booking.resource',
-      resourceId: result?.resourceId ?? null,
-      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
-      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      resourceId: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      snapshotAfter: snapshot,
+      payload: {
+        undo: {
+          after: snapshot,
+          customAfter: custom,
+        } satisfies ResourceUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(BookingResource, { id: after.id })
+    if (record) {
+      record.deletedAt = new Date()
+      record.updatedAt = new Date()
+      await em.flush()
     }
   },
 }
 
 const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resourceId: string }> = {
   id: 'booking.resources.update',
+  async prepare(rawInput, ctx) {
+    const { parsed } = parseWithCustomFields(bookingResourceUpdateSchema, rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadResourceSnapshot(em, parsed.id)
+    if (!snapshot) return {}
+    const custom = await loadResourceCustomSnapshot(em, snapshot)
+    return { before: snapshot, customBefore: custom }
+  },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(bookingResourceUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -228,6 +352,7 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (parsed.appearanceIcon !== undefined) record.appearanceIcon = parsed.appearanceIcon ?? null
     if (parsed.appearanceColor !== undefined) record.appearanceColor = parsed.appearanceColor ?? null
     if (parsed.availabilityRuleSetId !== undefined) record.availabilityRuleSetId = parsed.availabilityRuleSetId ?? null
+    record.updatedAt = new Date()
     await syncBookingResourceTags(em, {
       resourceId: record.id,
       organizationId: record.organizationId,
@@ -246,22 +371,134 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
       organizationId: record.organizationId,
       values: custom,
     })
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
     return { resourceId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ snapshots, ctx }) => {
+    const before = snapshots.before as ResourceSnapshot | undefined
+    if (!before) return null
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const after = await loadResourceSnapshot(em, before.id)
+    if (!after) return null
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
+    const customAfter = await loadResourceCustomSnapshot(em, after)
+    const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
+      'name',
+      'description',
+      'resourceTypeId',
+      'capacity',
+      'capacityUnitValue',
+      'capacityUnitName',
+      'capacityUnitColor',
+      'capacityUnitIcon',
+      'appearanceIcon',
+      'appearanceColor',
+      'isActive',
+      'availabilityRuleSetId',
+      'deletedAt',
+    ])
+    if (before.tags.join(',') !== after.tags.join(',')) {
+      changes.tags = { from: before.tags, to: after.tags }
+    }
+    const customChanges = diffCustomFieldChanges(customBefore, customAfter)
+    if (Object.keys(customChanges).length) {
+      changes.customFields = { from: customBefore ?? null, to: customAfter ?? null }
+    }
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.resources.update', 'Update resource'),
       resourceKind: 'booking.resource',
-      resourceId: result?.resourceId ?? input?.id ?? null,
-      tenantId: ctx.auth?.tenantId ?? null,
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      changes,
+      payload: {
+        undo: {
+          before,
+          after,
+          customBefore: customBefore ?? null,
+          customAfter,
+        } satisfies ResourceUndoPayload,
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(BookingResource, { id: before.id })
+    if (!record) return
+    record.name = before.name
+    record.description = before.description ?? null
+    record.resourceTypeId = before.resourceTypeId ?? null
+    record.capacity = before.capacity ?? null
+    record.capacityUnitValue = before.capacityUnitValue ?? null
+    record.capacityUnitName = before.capacityUnitName ?? null
+    record.capacityUnitColor = before.capacityUnitColor ?? null
+    record.capacityUnitIcon = before.capacityUnitIcon ?? null
+    record.appearanceIcon = before.appearanceIcon ?? null
+    record.appearanceColor = before.appearanceColor ?? null
+    record.isActive = before.isActive
+    record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
+    record.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
+    record.updatedAt = new Date()
+    await syncBookingResourceTags(em, {
+      resourceId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      tagIds: before.tags,
+    })
+    await em.flush()
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    if (payload.customBefore || payload.customAfter) {
+      const reset = buildCustomFieldResetMap(payload.customBefore ?? undefined, payload.customAfter ?? undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.booking.booking_resource,
+        recordId: record.id,
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
   },
 }
 
 const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: string }> = {
   id: 'booking.resources.delete',
+  async prepare(input, ctx) {
+    const id = input?.id
+    if (!id) throw new CrudHttpError(400, { error: 'Resource id is required.' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadResourceSnapshot(em, id)
+    if (!snapshot) return {}
+    const custom = await loadResourceCustomSnapshot(em, snapshot)
+    return { before: snapshot, customBefore: custom }
+  },
   async execute(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Resource id is required.' })
@@ -277,18 +514,117 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     record.deletedAt = new Date()
+    record.updatedAt = new Date()
     await em.flush()
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
     return { resourceId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ snapshots }) => {
+    const before = snapshots.before as ResourceSnapshot | undefined
+    if (!before) return null
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.resources.delete', 'Delete resource'),
       resourceKind: 'booking.resource',
-      resourceId: result?.resourceId ?? input?.id ?? null,
-      tenantId: ctx.auth?.tenantId ?? null,
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: {
+          before,
+          customBefore: customBefore ?? null,
+        } satisfies ResourceUndoPayload,
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let record = await em.findOne(BookingResource, { id: before.id })
+    if (!record) {
+      record = em.create(BookingResource, {
+        id: before.id,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        name: before.name,
+        description: before.description ?? null,
+        resourceTypeId: before.resourceTypeId ?? null,
+        capacity: before.capacity ?? null,
+        capacityUnitValue: before.capacityUnitValue ?? null,
+        capacityUnitName: before.capacityUnitName ?? null,
+        capacityUnitColor: before.capacityUnitColor ?? null,
+        capacityUnitIcon: before.capacityUnitIcon ?? null,
+        appearanceIcon: before.appearanceIcon ?? null,
+        appearanceColor: before.appearanceColor ?? null,
+        isActive: before.isActive,
+        availabilityRuleSetId: before.availabilityRuleSetId ?? null,
+        deletedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(record)
+    } else {
+      record.name = before.name
+      record.description = before.description ?? null
+      record.resourceTypeId = before.resourceTypeId ?? null
+      record.capacity = before.capacity ?? null
+      record.capacityUnitValue = before.capacityUnitValue ?? null
+      record.capacityUnitName = before.capacityUnitName ?? null
+      record.capacityUnitColor = before.capacityUnitColor ?? null
+      record.capacityUnitIcon = before.capacityUnitIcon ?? null
+      record.appearanceIcon = before.appearanceIcon ?? null
+      record.appearanceColor = before.appearanceColor ?? null
+      record.isActive = before.isActive
+      record.availabilityRuleSetId = before.availabilityRuleSetId ?? null
+      record.deletedAt = null
+      record.updatedAt = new Date()
+    }
+    await em.flush()
+    await syncBookingResourceTags(em, {
+      resourceId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      tagIds: before.tags,
+    })
+    await em.flush()
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    if (payload.customBefore) {
+      const reset = buildCustomFieldResetMap(payload.customBefore, undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.booking.booking_resource,
+        recordId: record.id,
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
   },
 }
 

@@ -314,6 +314,8 @@
   "booking.audit.availability.create": "Create availability rule",
   "booking.audit.availability.update": "Update availability rule",
   "booking.audit.availability.delete": "Delete availability rule",
+  "booking.audit.availability.weekly.replace": "Replace weekly availability",
+  "booking.audit.availability.dateSpecific.replace": "Replace date-specific availability",
   "booking.audit.availabilityRuleSets.create": "Create availability schedule",
   "booking.audit.availabilityRuleSets.update": "Update availability schedule",
   "booking.audit.availabilityRuleSets.delete": "Delete availability schedule",
@@ -500,5 +502,6 @@
   "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Add date",
   "booking.availability.errors.unauthorized": "Unauthorized",
   "booking.availability.errors.organizationRequired": "Organization context is required.",
-  "booking.availability.errors.updateWeekly": "Failed to save weekly availability."
+  "booking.availability.errors.updateWeekly": "Failed to save weekly availability.",
+  "booking.availability.errors.updateDateSpecific": "Failed to save date-specific availability."
 }

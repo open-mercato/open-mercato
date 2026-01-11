@@ -259,7 +259,13 @@ const updateResourceTypeCommand: CommandHandler<BookingResourceTypeUpdateInput, 
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
     if (payload.customBefore || payload.customAfter) {
-      const reset = buildCustomFieldResetMap(payload.customBefore ?? undefined, payload.customAfter ?? undefined)
+      const currentCustom = await loadCustomFieldSnapshot(em, {
+        entityId: E.booking.booking_resource_type,
+        recordId: resourceType.id,
+        tenantId: resourceType.tenantId,
+        organizationId: resourceType.organizationId,
+      })
+      const reset = buildCustomFieldResetMap(payload.customBefore ?? undefined, currentCustom ?? undefined)
       await setCustomFieldsIfAny({
         dataEngine,
         entityId: E.booking.booking_resource_type,

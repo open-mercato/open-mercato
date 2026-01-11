@@ -40,6 +40,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Reuse the shared custom-field helpers from `packages/shared` (e.g., `splitCustomFieldPayload`, `normalizeCustomFieldValues`, `normalizeCustomFieldResponse`) instead of re-implementing cf_* parsing or normalization.
 - When submitting CRUD forms, collect custom-field payloads via `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues` instead of ad-hoc loops. Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`) and always reuse this helper for both `cf_` and `cf:` prefixed keys so forms stay consistent.
 - Custom entities CRUD: follow the customers module API patterns (CRUD factory + query engine). Always wire custom field helpers for create/update/response normalization, and set `indexer: { entityType }` in `makeCrudRoute` so custom entities stay indexed and custom fields remain queryable.
+- New admin pages and entities must use CRUD factory API routes and undoable commands, with custom fields fully supported in create/update/response flows. See customers examples: `packages/core/src/modules/customers/api/people/route.ts`, `packages/core/src/modules/customers/commands/people.ts`, `packages/core/src/modules/customers/backend/customers/people/page.tsx`.
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)

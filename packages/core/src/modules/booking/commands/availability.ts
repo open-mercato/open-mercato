@@ -11,6 +11,73 @@ import {
   type BookingAvailabilityRuleUpdateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from './shared'
+import type { BookingAvailabilityKind, BookingAvailabilitySubjectType } from '../data/entities'
+import { extractUndoPayload } from './shared'
+
+type AvailabilityRuleSnapshot = {
+  id: string
+  tenantId: string
+  organizationId: string
+  subjectType: BookingAvailabilitySubjectType
+  subjectId: string
+  timezone: string
+  rrule: string
+  exdates: string[]
+  kind: BookingAvailabilityKind
+  note: string | null
+  deletedAt: Date | null
+}
+
+type AvailabilityRuleUndoPayload = {
+  before?: AvailabilityRuleSnapshot | null
+  after?: AvailabilityRuleSnapshot | null
+}
+
+async function loadAvailabilityRuleSnapshot(em: EntityManager, id: string): Promise<AvailabilityRuleSnapshot | null> {
+  const record = await em.findOne(BookingAvailabilityRule, { id })
+  if (!record) return null
+  return {
+    id: record.id,
+    tenantId: record.tenantId,
+    organizationId: record.organizationId,
+    subjectType: record.subjectType,
+    subjectId: record.subjectId,
+    timezone: record.timezone,
+    rrule: record.rrule,
+    exdates: [...(record.exdates ?? [])],
+    kind: record.kind,
+    note: record.note ?? null,
+    deletedAt: record.deletedAt ?? null,
+  }
+}
+
+async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: AvailabilityRuleSnapshot): Promise<void> {
+  let record = await em.findOne(BookingAvailabilityRule, { id: snapshot.id })
+  if (!record) {
+    record = em.create(BookingAvailabilityRule, {
+      id: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      subjectType: snapshot.subjectType,
+      subjectId: snapshot.subjectId,
+      timezone: snapshot.timezone,
+      rrule: snapshot.rrule,
+      exdates: snapshot.exdates ?? [],
+      kind: snapshot.kind ?? 'availability',
+      note: snapshot.note ?? null,
+    })
+    em.persist(record)
+  } else {
+    record.subjectType = snapshot.subjectType
+    record.subjectId = snapshot.subjectId
+    record.timezone = snapshot.timezone
+    record.rrule = snapshot.rrule
+    record.exdates = snapshot.exdates ?? []
+    record.kind = snapshot.kind ?? 'availability'
+    record.note = snapshot.note ?? null
+    record.deletedAt = snapshot.deletedAt ?? null
+  }
+}
 
 const createAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleCreateInput, { ruleId: string }> = {
   id: 'booking.availability.create',
@@ -38,7 +105,13 @@ const createAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleCreat
     await em.flush()
     return { ruleId: record.id }
   },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    return loadAvailabilityRuleSnapshot(em, result.ruleId)
+  },
   buildLog: async ({ input, result, ctx }) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSnapshot(em, result?.ruleId ?? '')
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.availability.create', 'Create availability rule'),
@@ -46,12 +119,34 @@ const createAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleCreat
       resourceId: result?.ruleId ?? null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      snapshotAfter: snapshot ?? null,
+      payload: {
+        undo: {
+          after: snapshot,
+        } satisfies AvailabilityRuleUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const ruleId = logEntry?.resourceId ?? null
+    if (!ruleId) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await em.findOne(BookingAvailabilityRule, { id: ruleId })
+    if (record) {
+      record.deletedAt = new Date()
+      await em.flush()
     }
   },
 }
 
 const updateAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleUpdateInput, { ruleId: string }> = {
   id: 'booking.availability.update',
+  async prepare(input, ctx) {
+    const parsed = bookingAvailabilityRuleUpdateSchema.parse(input)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSnapshot(em, parsed.id)
+    return snapshot ? { before: snapshot } : {}
+  },
   async execute(input, ctx) {
     const parsed = bookingAvailabilityRuleUpdateSchema.parse(input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -71,7 +166,10 @@ const updateAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleUpdat
     await em.flush()
     return { ruleId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ snapshots, input, result, ctx }) => {
+    const before = snapshots.before as AvailabilityRuleSnapshot | undefined
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const afterSnapshot = before ? await loadAvailabilityRuleSnapshot(em, before.id) : null
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.availability.update', 'Update availability rule'),
@@ -79,12 +177,35 @@ const updateAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleUpdat
       resourceId: result?.ruleId ?? input?.id ?? null,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      snapshotBefore: before ?? null,
+      snapshotAfter: afterSnapshot ?? null,
+      payload: {
+        undo: {
+          before: before ?? null,
+          after: afterSnapshot ?? null,
+        } satisfies AvailabilityRuleUndoPayload,
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<AvailabilityRuleUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreAvailabilityRuleFromSnapshot(em, before)
+    await em.flush()
   },
 }
 
 const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: string }> = {
   id: 'booking.availability.delete',
+  async prepare(input, ctx) {
+    const id = input?.id
+    if (!id) return {}
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSnapshot(em, id)
+    return snapshot ? { before: snapshot } : {}
+  },
   async execute(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Availability rule id is required.' })
@@ -97,7 +218,8 @@ const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: s
     await em.flush()
     return { ruleId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ snapshots, input, result, ctx }) => {
+    const before = snapshots.before as AvailabilityRuleSnapshot | undefined
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.availability.delete', 'Delete availability rule'),
@@ -105,7 +227,21 @@ const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: s
       resourceId: result?.ruleId ?? input?.id ?? null,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      snapshotBefore: before ?? null,
+      payload: {
+        undo: {
+          before: before ?? null,
+        } satisfies AvailabilityRuleUndoPayload,
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<AvailabilityRuleUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreAvailabilityRuleFromSnapshot(em, { ...before, deletedAt: null })
+    await em.flush()
   },
 }
 

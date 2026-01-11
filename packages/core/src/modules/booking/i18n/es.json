@@ -314,6 +314,8 @@
   "booking.audit.availability.create": "Crear regla de disponibilidad",
   "booking.audit.availability.update": "Actualizar regla de disponibilidad",
   "booking.audit.availability.delete": "Eliminar regla de disponibilidad",
+  "booking.audit.availability.weekly.replace": "Reemplazar disponibilidad semanal",
+  "booking.audit.availability.dateSpecific.replace": "Reemplazar disponibilidad por fecha",
   "booking.audit.availabilityRuleSets.create": "Crear horario de disponibilidad",
   "booking.audit.availabilityRuleSets.update": "Actualizar horario de disponibilidad",
   "booking.audit.availabilityRuleSets.delete": "Eliminar horario de disponibilidad",
@@ -500,5 +502,6 @@
   "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Agregar fecha",
   "booking.availability.errors.unauthorized": "No autorizado",
   "booking.availability.errors.organizationRequired": "Se requiere el contexto de la organización.",
-  "booking.availability.errors.updateWeekly": "No se pudo guardar la disponibilidad semanal."
+  "booking.availability.errors.updateWeekly": "No se pudo guardar la disponibilidad semanal.",
+  "booking.availability.errors.updateDateSpecific": "No se pudo guardar la disponibilidad por fecha."
 }

@@ -242,6 +242,13 @@ const weeklyWindowSchema = z.object({
   end: z.string().regex(/^\d{2}:\d{2}$/),
 })
 
+const dateSpecificWindowSchema = z.object({
+  start: z.string().regex(/^\d{2}:\d{2}$/),
+  end: z.string().regex(/^\d{2}:\d{2}$/),
+})
+
+const dateSpecificDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
 export const bookingAvailabilityWeeklyReplaceSchema = z.object({
   ...scopedCreateFields,
   subjectType: availabilitySubjectSchema,
@@ -251,6 +258,19 @@ export const bookingAvailabilityWeeklyReplaceSchema = z.object({
 })
 
 export type BookingAvailabilityWeeklyReplaceInput = z.infer<typeof bookingAvailabilityWeeklyReplaceSchema>
+
+export const bookingAvailabilityDateSpecificReplaceSchema = z.object({
+  ...scopedCreateFields,
+  subjectType: availabilitySubjectSchema,
+  subjectId: z.string().uuid(),
+  timezone: z.string().min(1),
+  dates: z.array(dateSpecificDateSchema).default([]),
+  windows: z.array(dateSpecificWindowSchema).default([]),
+  kind: availabilityKindSchema.optional().default('availability'),
+  note: z.string().trim().max(200).optional().nullable(),
+})
+
+export type BookingAvailabilityDateSpecificReplaceInput = z.infer<typeof bookingAvailabilityDateSpecificReplaceSchema>
 
 export const bookingAvailabilityRuleSetCreateSchema = z.object({
   ...scopedCreateFields,

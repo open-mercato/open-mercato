@@ -1,17 +1,15 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/booking/lib/resourceSchedule'
 import { BookingAvailabilityRule } from '../data/entities'
 import {
-  bookingAvailabilityWeeklyReplaceSchema,
-  type BookingAvailabilityWeeklyReplaceInput,
+  bookingAvailabilityDateSpecificReplaceSchema,
+  type BookingAvailabilityDateSpecificReplaceInput,
 } from '../data/validators'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { BookingAvailabilityKind, BookingAvailabilitySubjectType } from '../data/entities'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
-
-const DAY_CODES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+import type { BookingAvailabilityKind, BookingAvailabilitySubjectType } from '../data/entities'
 
 type AvailabilityRuleSnapshot = {
   id: string
@@ -27,7 +25,7 @@ type AvailabilityRuleSnapshot = {
   deletedAt: Date | null
 }
 
-type WeeklyUndoPayload = {
+type DateSpecificUndoPayload = {
   before: AvailabilityRuleSnapshot[]
   after: AvailabilityRuleSnapshot[]
 }
@@ -39,15 +37,15 @@ function parseTimeInput(value: string): { hours: number; minutes: number } | nul
   return { hours, minutes }
 }
 
-function toDateForWeekday(weekday: number, time: string): Date | null {
+function toDateForDay(value: string, time: string): Date | null {
+  if (!value) return null
   const parsed = parseTimeInput(time)
   if (!parsed) return null
-  const now = new Date()
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const diff = (weekday - base.getDay() + 7) % 7
-  const target = new Date(base.getTime() + diff * 24 * 60 * 60 * 1000)
-  target.setHours(parsed.hours, parsed.minutes, 0, 0)
-  return target
+  const parts = value.split('-').map((part) => Number(part))
+  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return null
+  const [year, month, day] = parts
+  const date = new Date(year, month - 1, day, parsed.hours, parsed.minutes, 0, 0)
+  return Number.isNaN(date.getTime()) ? null : date
 }
 
 function formatDuration(minutes: number): string {
@@ -59,12 +57,25 @@ function formatDuration(minutes: number): string {
   return `PT${mins}M`
 }
 
-function buildWeeklyRrule(start: Date, end: Date): string {
+function buildAvailabilityRrule(start: Date, end: Date): string {
   const dtStart = start.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
   const durationMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000))
   const duration = formatDuration(durationMinutes)
-  const dayCode = DAY_CODES[start.getDay()] ?? 'MO'
-  return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:FREQ=WEEKLY;BYDAY=${dayCode}`
+  return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:FREQ=DAILY;COUNT=1`
+}
+
+function buildFullDayRrule(date: string): string | null {
+  const start = toDateForDay(date, '00:00')
+  if (!start) return null
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  return buildAvailabilityRrule(start, end)
+}
+
+function formatDateKey(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function toAvailabilityRuleSnapshot(record: BookingAvailabilityRule): AvailabilityRuleSnapshot {
@@ -83,15 +94,17 @@ function toAvailabilityRuleSnapshot(record: BookingAvailabilityRule): Availabili
   }
 }
 
-async function loadWeeklySnapshots(
+async function loadDateSpecificSnapshots(
   em: EntityManager,
   params: {
     tenantId: string
     organizationId: string
     subjectType: BookingAvailabilitySubjectType
     subjectId: string
+    dates: Set<string>
   }
 ): Promise<AvailabilityRuleSnapshot[]> {
+  if (!params.dates.size) return []
   const existing = await em.find(BookingAvailabilityRule, {
     tenantId: params.tenantId,
     organizationId: params.organizationId,
@@ -101,8 +114,9 @@ async function loadWeeklySnapshots(
   })
   return existing
     .filter((rule) => {
-      const repeat = parseAvailabilityRuleWindow(rule).repeat
-      return repeat === 'weekly' || repeat === 'daily'
+      const window = parseAvailabilityRuleWindow(rule)
+      if (window.repeat !== 'once') return false
+      return params.dates.has(formatDateKey(window.startAt))
     })
     .map(toAvailabilityRuleSnapshot)
 }
@@ -136,91 +150,122 @@ async function restoreAvailabilityRuleFromSnapshot(em: EntityManager, snapshot: 
   }
 }
 
-const replaceWeeklyAvailabilityCommand: CommandHandler<BookingAvailabilityWeeklyReplaceInput, { ok: true }> = {
-  id: 'booking.availability.weekly.replace',
+const replaceDateSpecificAvailabilityCommand: CommandHandler<BookingAvailabilityDateSpecificReplaceInput, { ok: true }> = {
+  id: 'booking.availability.date-specific.replace',
   async prepare(input, ctx) {
-    const parsed = bookingAvailabilityWeeklyReplaceSchema.parse(input)
+    const parsed = bookingAvailabilityDateSpecificReplaceSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const dates = new Set(parsed.dates.filter((value) => value && value.length))
     const em = (ctx.container.resolve('em') as EntityManager)
-    const before = await loadWeeklySnapshots(em, {
+    const before = await loadDateSpecificSnapshots(em, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       subjectType: parsed.subjectType,
       subjectId: parsed.subjectId,
+      dates,
     })
     return { before }
   },
   async execute(input, ctx) {
-    const parsed = bookingAvailabilityWeeklyReplaceSchema.parse(input)
+    const parsed = bookingAvailabilityDateSpecificReplaceSchema.parse(input)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const dates = new Set(parsed.dates.filter((value) => value && value.length))
+    const windows = parsed.windows ?? []
+    const kind = parsed.kind ?? 'availability'
+    const note = parsed.note?.trim() ?? null
     const now = new Date()
 
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (trx) => {
-      const existing = await trx.find(BookingAvailabilityRule, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        subjectType: parsed.subjectType,
-        subjectId: parsed.subjectId,
-        deletedAt: null,
-      })
-
-      const toDelete = existing.filter((rule) => {
-        const repeat = parseAvailabilityRuleWindow(rule).repeat
-        return repeat === 'weekly' || repeat === 'daily'
-      })
-
-      toDelete.forEach((rule) => {
-        rule.deletedAt = now
-        rule.updatedAt = now
-      })
-
-      if (toDelete.length) {
-        trx.persist(toDelete)
-      }
-
-      parsed.windows.forEach((window) => {
-        const start = toDateForWeekday(window.weekday, window.start)
-        const end = toDateForWeekday(window.weekday, window.end)
-        if (!start || !end || start >= end) return
-        const rrule = buildWeeklyRrule(start, end)
-        const record = trx.create(BookingAvailabilityRule, {
+      if (dates.size) {
+        const existing = await trx.find(BookingAvailabilityRule, {
           tenantId: parsed.tenantId,
           organizationId: parsed.organizationId,
           subjectType: parsed.subjectType,
           subjectId: parsed.subjectId,
-          timezone: parsed.timezone,
-          rrule,
-          exdates: [],
-          kind: 'availability',
-          note: null,
-          createdAt: now,
-          updatedAt: now,
+          deletedAt: null,
         })
-        trx.persist(record)
-      })
+        const toDelete = existing.filter((rule) => {
+          const window = parseAvailabilityRuleWindow(rule)
+          if (window.repeat !== 'once') return false
+          return dates.has(formatDateKey(window.startAt))
+        })
+        toDelete.forEach((rule) => {
+          rule.deletedAt = now
+          rule.updatedAt = now
+        })
+        if (toDelete.length) {
+          trx.persist(toDelete)
+        }
+      }
+
+      if (!dates.size) return
+
+      if (kind === 'unavailability') {
+        dates.forEach((date) => {
+          const rrule = buildFullDayRrule(date)
+          if (!rrule) return
+          const record = trx.create(BookingAvailabilityRule, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            subjectType: parsed.subjectType,
+            subjectId: parsed.subjectId,
+            timezone: parsed.timezone,
+            rrule,
+            exdates: [],
+            kind: 'unavailability',
+            note: note && note.length ? note : null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          trx.persist(record)
+        })
+      } else {
+        dates.forEach((date) => {
+          windows.forEach((window) => {
+            const start = toDateForDay(date, window.start)
+            const end = toDateForDay(date, window.end)
+            if (!start || !end || start >= end) return
+            const rrule = buildAvailabilityRrule(start, end)
+            const record = trx.create(BookingAvailabilityRule, {
+              tenantId: parsed.tenantId,
+              organizationId: parsed.organizationId,
+              subjectType: parsed.subjectType,
+              subjectId: parsed.subjectId,
+              timezone: parsed.timezone,
+              rrule,
+              exdates: [],
+              kind: 'availability',
+              note: null,
+              createdAt: now,
+              updatedAt: now,
+            })
+            trx.persist(record)
+          })
+        })
+      }
 
       await trx.flush()
     })
-
     return { ok: true }
   },
   buildLog: async ({ input, snapshots, ctx }) => {
-    const parsed = bookingAvailabilityWeeklyReplaceSchema.parse(input)
+    const parsed = bookingAvailabilityDateSpecificReplaceSchema.parse(input)
+    const dates = new Set(parsed.dates.filter((value) => value && value.length))
     const em = (ctx.container.resolve('em') as EntityManager)
-    const after = await loadWeeklySnapshots(em, {
+    const after = await loadDateSpecificSnapshots(em, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
       subjectType: parsed.subjectType,
       subjectId: parsed.subjectId,
+      dates,
     })
     const before = (snapshots.before as AvailabilityRuleSnapshot[] | undefined) ?? []
     const { translate } = await resolveTranslations()
     return {
-      actionLabel: translate('booking.audit.availability.weekly.replace', 'Replace weekly availability'),
+      actionLabel: translate('booking.audit.availability.dateSpecific.replace', 'Replace date-specific availability'),
       resourceKind: 'booking.availability',
       resourceId: null,
       tenantId: parsed.tenantId,
@@ -229,15 +274,16 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<BookingAvailabilityWeekly
         undo: {
           before,
           after,
-        } satisfies WeeklyUndoPayload,
+        } satisfies DateSpecificUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<WeeklyUndoPayload>(logEntry)
+    const payload = extractUndoPayload<DateSpecificUndoPayload>(logEntry)
     const before = payload?.before ?? []
     const after = payload?.after ?? []
     if (!before.length && !after.length) return
+
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (trx) => {
       if (after.length) {
@@ -258,4 +304,4 @@ const replaceWeeklyAvailabilityCommand: CommandHandler<BookingAvailabilityWeekly
   },
 }
 
-registerCommand(replaceWeeklyAvailabilityCommand)
+registerCommand(replaceDateSpecificAvailabilityCommand)

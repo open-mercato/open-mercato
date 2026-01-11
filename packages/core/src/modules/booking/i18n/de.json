@@ -303,6 +303,8 @@
   "booking.audit.availability.create": "Verfügbarkeitsregel erstellen",
   "booking.audit.availability.update": "Verfügbarkeitsregel aktualisieren",
   "booking.audit.availability.delete": "Verfügbarkeitsregel löschen",
+  "booking.audit.availability.weekly.replace": "Wöchentliche Verfügbarkeit ersetzen",
+  "booking.audit.availability.dateSpecific.replace": "Datumsspezifische Verfügbarkeit ersetzen",
   "booking.audit.availabilityRuleSets.create": "Verfügbarkeitszeitplan erstellen",
   "booking.audit.availabilityRuleSets.update": "Verfügbarkeitszeitplan aktualisieren",
   "booking.audit.availabilityRuleSets.delete": "Verfügbarkeitszeitplan löschen",
@@ -489,5 +491,6 @@
   "booking.availabilityRuleSets.availability.dateSpecific.addDate": "Datum hinzufügen",
   "booking.availability.errors.unauthorized": "Nicht autorisiert",
   "booking.availability.errors.organizationRequired": "Organisationskontext ist erforderlich.",
-  "booking.availability.errors.updateWeekly": "Wöchentliche Verfügbarkeit konnte nicht gespeichert werden."
+  "booking.availability.errors.updateWeekly": "Wöchentliche Verfügbarkeit konnte nicht gespeichert werden.",
+  "booking.availability.errors.updateDateSpecific": "Datumsspezifische Verfügbarkeit konnte nicht gespeichert werden."
 }

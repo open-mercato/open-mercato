@@ -34,11 +34,28 @@ import {
 
 export type BookingSeedScope = { tenantId: string; organizationId: string }
 
-const DEFAULT_AVAILABILITY_RULESET_NAME = 'Default working hours'
-const DEFAULT_AVAILABILITY_RULESET_DESCRIPTION = 'Standard working hours: Monday-Friday, 09:00-17:00.'
+type WorkingHours = { startHour: number; startMinute: number; endHour: number; endMinute: number }
+
 const DEFAULT_AVAILABILITY_RULESET_TIMEZONE = 'UTC'
-const DEFAULT_AVAILABILITY_RULESET_WEEKDAYS = [1, 2, 3, 4, 5]
-const DEFAULT_WORKING_HOURS = { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 }
+const DEFAULT_WORKING_HOURS: WorkingHours = { startHour: 9, startMinute: 0, endHour: 17, endMinute: 0 }
+const WEEKEND_WORKING_HOURS: WorkingHours = { startHour: 10, startMinute: 0, endHour: 14, endMinute: 0 }
+
+const AVAILABILITY_RULESET_SEEDS = [
+  {
+    name: 'Normal working hours',
+    description: 'Standard working hours: Monday-Friday, 09:00-17:00.',
+    timezone: DEFAULT_AVAILABILITY_RULESET_TIMEZONE,
+    weekdays: [1, 2, 3, 4, 5],
+    hours: DEFAULT_WORKING_HOURS,
+  },
+  {
+    name: 'Weekends',
+    description: 'Weekend availability: Saturday-Sunday, 10:00-14:00.',
+    timezone: DEFAULT_AVAILABILITY_RULESET_TIMEZONE,
+    weekdays: [0, 6],
+    hours: WEEKEND_WORKING_HOURS,
+  },
+] as const
 
 async function ensureResourceFieldsetConfig(em: EntityManager, scope: BookingSeedScope) {
   const now = new Date()
@@ -150,13 +167,13 @@ function weekdayCodeForIndex(index: number): string {
   return codes[index] ?? 'MO'
 }
 
-function buildWeeklyRuleForWeekday(weekdayIndex: number): string {
+function buildWeeklyRuleForWeekday(weekdayIndex: number, hours: WorkingHours): string {
   const baseMonday = Date.UTC(2025, 0, 6, 0, 0, 0)
   const offsetDays = (weekdayIndex - 1 + 7) % 7
   const start = new Date(baseMonday + offsetDays * 24 * 60 * 60 * 1000)
-  start.setUTCHours(DEFAULT_WORKING_HOURS.startHour, DEFAULT_WORKING_HOURS.startMinute, 0, 0)
+  start.setUTCHours(hours.startHour, hours.startMinute, 0, 0)
   const end = new Date(baseMonday + offsetDays * 24 * 60 * 60 * 1000)
-  end.setUTCHours(DEFAULT_WORKING_HOURS.endHour, DEFAULT_WORKING_HOURS.endMinute, 0, 0)
+  end.setUTCHours(hours.endHour, hours.endMinute, 0, 0)
   return buildAvailabilityRrule(start, end, weekdayCodeForIndex(weekdayIndex))
 }
 
@@ -165,65 +182,67 @@ export async function seedBookingAvailabilityRuleSetDefaults(
   scope: BookingSeedScope,
 ) {
   const now = new Date()
-  const existing = await findWithDecryption(
-    em,
-    BookingAvailabilityRuleSet,
-    {
+  for (const seed of AVAILABILITY_RULESET_SEEDS) {
+    const existing = await findWithDecryption(
+      em,
+      BookingAvailabilityRuleSet,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        name: seed.name,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
+    const ruleSet = existing[0] ?? em.create(BookingAvailabilityRuleSet, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      name: DEFAULT_AVAILABILITY_RULESET_NAME,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
-  const ruleSet = existing[0] ?? em.create(BookingAvailabilityRuleSet, {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    name: DEFAULT_AVAILABILITY_RULESET_NAME,
-    description: DEFAULT_AVAILABILITY_RULESET_DESCRIPTION,
-    timezone: DEFAULT_AVAILABILITY_RULESET_TIMEZONE,
-    createdAt: now,
-    updatedAt: now,
-  })
-  if (!existing[0]) {
-    em.persist(ruleSet)
-    await em.flush()
-  }
-
-  const rules = await findWithDecryption(
-    em,
-    BookingAvailabilityRule,
-    {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      subjectType: 'ruleset',
-      subjectId: ruleSet.id,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
-  const existingByRrule = new Set(rules.map((rule) => rule.rrule))
-  for (const weekday of DEFAULT_AVAILABILITY_RULESET_WEEKDAYS) {
-    const rrule = buildWeeklyRuleForWeekday(weekday)
-    if (existingByRrule.has(rrule)) continue
-    const rule = em.create(BookingAvailabilityRule, {
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      subjectType: 'ruleset',
-      subjectId: ruleSet.id,
-      timezone: DEFAULT_AVAILABILITY_RULESET_TIMEZONE,
-      rrule,
-      exdates: [],
-      kind: 'availability',
-      note: null,
+      name: seed.name,
+      description: seed.description,
+      timezone: seed.timezone,
       createdAt: now,
       updatedAt: now,
     })
-    em.persist(rule)
+    if (!existing[0]) {
+      em.persist(ruleSet)
+      await em.flush()
+    }
+
+    const rules = await findWithDecryption(
+      em,
+      BookingAvailabilityRule,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        subjectType: 'ruleset',
+        subjectId: ruleSet.id,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
+    const existingByRrule = new Set(rules.map((rule) => rule.rrule))
+    for (const weekday of seed.weekdays) {
+      const rrule = buildWeeklyRuleForWeekday(weekday, seed.hours)
+      if (existingByRrule.has(rrule)) continue
+      const rule = em.create(BookingAvailabilityRule, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        subjectType: 'ruleset',
+        subjectId: ruleSet.id,
+        timezone: seed.timezone,
+        rrule,
+        exdates: [],
+        kind: 'availability',
+        note: null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      em.persist(rule)
+    }
+    await em.flush()
   }
-  await em.flush()
 }
 
 type BookingResourceTypeSeed = {
@@ -278,6 +297,7 @@ type BookingTeamMemberSeed = {
   roleKeys: string[]
   tags?: string[]
   userIndex?: number
+  customFields?: Record<string, string | number | boolean | null>
 }
 
 type BookingTeamSeed = {
@@ -391,36 +411,36 @@ async function fillMissingResourceCustomFields(
 const RESOURCE_TYPE_SEEDS: BookingResourceTypeSeed[] = [
   {
     key: 'room',
-    name: 'Room',
-    description: 'Private room for appointments.',
+    name: 'Consultation room',
+    description: 'Private room for client consultations.',
     appearanceIcon: 'lucide:building',
     appearanceColor: '#2563eb',
   },
   {
     key: 'laptop',
-    name: 'Laptop',
-    description: 'Portable computer for sessions.',
+    name: 'Engineering laptop',
+    description: 'Portable computer for software teams.',
     appearanceIcon: 'lucide:cpu',
     appearanceColor: '#0ea5e9',
   },
   {
     key: 'client_seat',
-    name: 'Client seat',
-    description: 'Seat for client services.',
+    name: 'Salon seat',
+    description: 'Seat for salon services.',
     appearanceIcon: 'lucide:users',
     appearanceColor: '#16a34a',
   },
   {
     key: 'hair_kit',
-    name: 'Hairdressing kit',
-    description: 'Tools and supplies for hairdressing.',
+    name: 'Hair kit',
+    description: 'Tools and supplies for hair services.',
     appearanceIcon: 'lucide:wand',
     appearanceColor: '#ea580c',
   },
   {
     key: 'dental_chair',
     name: 'Dental chair',
-    description: 'Patient dental chair.',
+    description: 'Chair for dental treatments.',
     appearanceIcon: 'lucide:heart',
     appearanceColor: '#0f766e',
   },
@@ -436,26 +456,28 @@ const TAG_SEEDS: BookingResourceTagSeed[] = [
 ]
 
 const RESOURCE_SEEDS: BookingResourceSeed[] = [
-  { key: 'therapy-room-1', name: 'Therapy Room 1', typeKey: 'room', tagKeys: ['room'] },
-  { key: 'therapy-room-2', name: 'Therapy Room 2', typeKey: 'room', tagKeys: ['room'] },
-  { key: 'consult-room-a', name: 'Consultation Room A', typeKey: 'room', tagKeys: ['room'] },
-  { key: 'laptop-1', name: 'Laptop 1', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
-  { key: 'hair-station-1', name: 'Hair Station 1', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
-  { key: 'hair-station-2', name: 'Hair Station 2', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
-  { key: 'hair-kit-a', name: 'Hair Kit A', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
+  { key: 'dental-room-1', name: 'Dental Room 1', typeKey: 'room', tagKeys: ['room', 'dental'] },
+  { key: 'dental-room-2', name: 'Dental Room 2', typeKey: 'room', tagKeys: ['room', 'dental'] },
   { key: 'dental-chair-1', name: 'Dental Chair 1', typeKey: 'dental_chair', tagKeys: ['seat', 'dental'] },
   { key: 'dental-chair-2', name: 'Dental Chair 2', typeKey: 'dental_chair', tagKeys: ['seat', 'dental'] },
+  { key: 'software-room-a', name: 'Software Room A', typeKey: 'room', tagKeys: ['room', 'tech'] },
+  { key: 'engineer-laptop-1', name: 'Engineer Laptop 1', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
+  { key: 'engineer-laptop-2', name: 'Engineer Laptop 2', typeKey: 'laptop', tagKeys: ['tech', 'equipment'] },
+  { key: 'salon-seat-1', name: 'Salon Seat 1', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
+  { key: 'salon-seat-2', name: 'Salon Seat 2', typeKey: 'client_seat', tagKeys: ['seat', 'hair'] },
+  { key: 'hair-kit-a', name: 'Hair Kit A', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
+  { key: 'hair-kit-b', name: 'Hair Kit B', typeKey: 'hair_kit', tagKeys: ['hair', 'equipment'] },
 ]
 
 const SERVICE_SEEDS: BookingServiceSeed[] = [
   {
-    key: 'speech-therapy',
-    name: 'Speech Therapy Session',
-    description: 'Private speech therapy session.',
-    durationMinutes: 45,
+    key: 'software-consultation',
+    name: 'Software Consultation',
+    description: 'Advisory session for software teams.',
+    durationMinutes: 60,
     capacityModel: 'one_to_one',
     maxAttendees: 1,
-    tagLabels: ['therapy', 'speech'],
+    tagLabels: ['software', 'consulting'],
     requiredResourceTypes: [
       { typeKey: 'room', qty: 1 },
       { typeKey: 'laptop', qty: 1 },
@@ -491,73 +513,164 @@ const SERVICE_SEEDS: BookingServiceSeed[] = [
 
 const TEAM_ROLE_SEEDS: BookingTeamRoleSeed[] = [
   {
-    key: 'lead_provider',
-    name: 'Lead provider',
-    teamKey: 'providers',
-    description: 'Primary service provider for client appointments.',
-    appearanceIcon: 'lucide:badge-check',
-    appearanceColor: '#16a34a',
+    key: 'dentist',
+    name: 'Dentist',
+    teamKey: 'dental',
+    description: 'Primary dental care provider.',
+    appearanceIcon: 'lucide:stethoscope',
+    appearanceColor: '#0f766e',
   },
   {
-    key: 'assistant',
-    name: 'Assistant',
-    teamKey: 'providers',
-    description: 'Supports service delivery and preparation.',
-    appearanceIcon: 'lucide:user-round',
+    key: 'dental_assistant',
+    name: 'Dental assistant',
+    teamKey: 'dental',
+    description: 'Supports dental treatments and room prep.',
+    appearanceIcon: 'lucide:clipboard',
     appearanceColor: '#2563eb',
   },
   {
-    key: 'coordinator',
-    name: 'Coordinator',
-    teamKey: 'operations',
-    description: 'Handles scheduling and client check-ins.',
-    appearanceIcon: 'lucide:clipboard-list',
+    key: 'software_engineer',
+    name: 'Software engineer',
+    teamKey: 'software',
+    description: 'Leads technical sessions and delivery.',
+    appearanceIcon: 'lucide:code',
+    appearanceColor: '#0ea5e9',
+  },
+  {
+    key: 'product_lead',
+    name: 'Product lead',
+    teamKey: 'software',
+    description: 'Coordinates software delivery and client needs.',
+    appearanceIcon: 'lucide:layout-grid',
+    appearanceColor: '#14b8a6',
+  },
+  {
+    key: 'hair_stylist',
+    name: 'Hair stylist',
+    teamKey: 'hair',
+    description: 'Delivers salon services and styling.',
+    appearanceIcon: 'lucide:scissors',
     appearanceColor: '#ea580c',
+  },
+  {
+    key: 'color_specialist',
+    name: 'Color specialist',
+    teamKey: 'hair',
+    description: 'Handles color and treatment services.',
+    appearanceIcon: 'lucide:palette',
+    appearanceColor: '#b45309',
   },
 ]
 
 const TEAM_SEEDS: BookingTeamSeed[] = [
   {
-    key: 'providers',
-    name: 'Service providers',
-    description: 'Core delivery team for booked services.',
+    key: 'dental',
+    name: 'Dental clinic',
+    description: 'Dental care providers and assistants.',
   },
   {
-    key: 'operations',
-    name: 'Operations',
-    description: 'Scheduling and front desk support.',
+    key: 'software',
+    name: 'Software studio',
+    description: 'Software delivery and consulting team.',
+  },
+  {
+    key: 'hair',
+    name: 'Hair salon',
+    description: 'Salon stylists and color specialists.',
   },
 ]
 
 const TEAM_MEMBER_SEEDS: BookingTeamMemberSeed[] = [
   {
-    key: 'alex_morgan',
-    displayName: 'Alex Morgan',
-    teamKey: 'providers',
-    description: 'Lead provider focused on quality sessions.',
-    roleKeys: ['lead_provider'],
-    tags: ['lead', 'experience'],
+    key: 'dr_aria_santos',
+    displayName: 'Dr. Aria Santos',
+    teamKey: 'dental',
+    description: 'Leads dental consults and treatment plans.',
+    roleKeys: ['dentist'],
+    tags: ['dental', 'lead'],
     userIndex: 0,
+    customFields: { years_of_experience: 12, hourly_rate: 180, currency_code: 'USD' },
   },
   {
-    key: 'riley_park',
-    displayName: 'Riley Park',
-    teamKey: 'providers',
-    description: 'Assistant supporting daily appointments.',
-    roleKeys: ['assistant'],
-    tags: ['support'],
+    key: 'mia_keller',
+    displayName: 'Mia Keller',
+    teamKey: 'dental',
+    description: 'Assists with dental prep and hygiene.',
+    roleKeys: ['dental_assistant'],
+    tags: ['dental', 'support'],
     userIndex: 1,
+    customFields: { years_of_experience: 6, hourly_rate: 95, currency_code: 'USD' },
   },
   {
-    key: 'jordan_lee',
-    displayName: 'Jordan Lee',
-    teamKey: 'operations',
-    description: 'Coordinates client prep and follow-ups.',
-    roleKeys: ['coordinator'],
-    tags: ['operations'],
+    key: 'rohan_desai',
+    displayName: 'Rohan Desai',
+    teamKey: 'software',
+    description: 'Leads architecture workshops and delivery.',
+    roleKeys: ['software_engineer'],
+    tags: ['software', 'lead'],
     userIndex: 2,
+    customFields: { years_of_experience: 9, hourly_rate: 160, currency_code: 'USD' },
+  },
+  {
+    key: 'claire_hudson',
+    displayName: 'Claire Hudson',
+    teamKey: 'software',
+    description: 'Coordinates product scope and client needs.',
+    roleKeys: ['product_lead'],
+    tags: ['software', 'product'],
+    customFields: { years_of_experience: 7, hourly_rate: 140, currency_code: 'USD' },
+  },
+  {
+    key: 'kiara_jones',
+    displayName: 'Kiara Jones',
+    teamKey: 'hair',
+    description: 'Specializes in modern cuts and styling.',
+    roleKeys: ['hair_stylist'],
+    tags: ['hair', 'stylist'],
+    customFields: { years_of_experience: 8, hourly_rate: 110, currency_code: 'USD' },
+  },
+  {
+    key: 'noah_bennett',
+    displayName: 'Noah Bennett',
+    teamKey: 'hair',
+    description: 'Focuses on color treatments and care.',
+    roleKeys: ['color_specialist'],
+    tags: ['hair', 'color'],
+    customFields: { years_of_experience: 5, hourly_rate: 100, currency_code: 'USD' },
   },
 ]
+
+async function fillMissingTeamMemberCustomFields(
+  em: EntityManager,
+  scope: BookingSeedScope,
+  member: BookingTeamMember,
+  customValues: Record<string, string | number | boolean | null>,
+) {
+  const keys = Object.keys(customValues)
+  if (!keys.length) return
+  const existingValues = await em.find(CustomFieldValue, {
+    entityId: E.booking.booking_team_member,
+    recordId: member.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    fieldKey: { $in: keys },
+  })
+  const existingKeys = new Set(existingValues.map((value) => value.fieldKey))
+  const missingValues: Record<string, string | number | boolean | null> = {}
+  for (const key of keys) {
+    if (!existingKeys.has(key)) {
+      missingValues[key] = customValues[key] ?? null
+    }
+  }
+  if (Object.keys(missingValues).length === 0) return
+  await setRecordCustomFields(em, {
+    entityId: E.booking.booking_team_member,
+    recordId: member.id,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    values: missingValues,
+  })
+}
 
 async function seedBookingTeamExamples(
   em: EntityManager,
@@ -753,6 +866,24 @@ async function seedBookingTeamExamples(
     em.persist(record)
   }
   await em.flush()
+
+  const memberSeedsByName = new Map(TEAM_MEMBER_SEEDS.map((seed) => [seed.displayName.toLowerCase(), seed]))
+  const membersInScope = await findWithDecryption(
+    em,
+    BookingTeamMember,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  for (const member of membersInScope) {
+    const seed = member.displayName ? memberSeedsByName.get(member.displayName.toLowerCase()) : null
+    if (!seed?.customFields) continue
+    await fillMissingTeamMemberCustomFields(em, scope, member, seed.customFields)
+  }
 }
 
 export async function seedBookingResourceExamples(

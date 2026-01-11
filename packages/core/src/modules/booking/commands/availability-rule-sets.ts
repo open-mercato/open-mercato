@@ -3,7 +3,9 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { BookingAvailabilityRuleSet, BookingResource, BookingTeamMember } from '../data/entities'
 import {
@@ -12,8 +14,60 @@ import {
   type BookingAvailabilityRuleSetCreateInput,
   type BookingAvailabilityRuleSetUpdateInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope } from './shared'
+import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '@/generated/entities.ids.generated'
+
+type AvailabilityRuleSetSnapshot = {
+  id: string
+  tenantId: string
+  organizationId: string
+  name: string
+  description: string | null
+  timezone: string
+  deletedAt: string | null
+}
+
+type AvailabilityRuleSetUndoPayload = {
+  before?: AvailabilityRuleSetSnapshot | null
+  after?: AvailabilityRuleSetSnapshot | null
+  customBefore?: CustomFieldSnapshot | null
+  customAfter?: CustomFieldSnapshot | null
+}
+
+async function loadAvailabilityRuleSetSnapshot(
+  em: EntityManager,
+  id: string,
+): Promise<AvailabilityRuleSetSnapshot | null> {
+  const ruleSet = await findOneWithDecryption(
+    em,
+    BookingAvailabilityRuleSet,
+    { id },
+    undefined,
+    { tenantId: null, organizationId: null },
+  )
+  if (!ruleSet) return null
+  return {
+    id: ruleSet.id,
+    tenantId: ruleSet.tenantId,
+    organizationId: ruleSet.organizationId,
+    name: ruleSet.name,
+    description: ruleSet.description ?? null,
+    timezone: ruleSet.timezone,
+    deletedAt: ruleSet.deletedAt ? ruleSet.deletedAt.toISOString() : null,
+  }
+}
+
+async function loadAvailabilityRuleSetCustomSnapshot(
+  em: EntityManager,
+  snapshot: AvailabilityRuleSetSnapshot,
+): Promise<CustomFieldSnapshot> {
+  return loadCustomFieldSnapshot(em, {
+    entityId: E.booking.booking_availability_rule_set,
+    recordId: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+  })
+}
 
 const createAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSetCreateInput, { ruleSetId: string }> = {
   id: 'booking.availability-rule-sets.create',
@@ -45,26 +99,80 @@ const createAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
       organizationId: record.organizationId,
       values: custom,
     })
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
     return { ruleSetId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSetSnapshot(em, result.ruleSetId)
+    if (!snapshot) return null
+    const custom = await loadAvailabilityRuleSetCustomSnapshot(em, snapshot)
+    return { snapshot, custom }
+  },
+  buildLog: async ({ result, ctx }) => {
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSetSnapshot(em, result.ruleSetId)
+    if (!snapshot) return null
+    const custom = await loadAvailabilityRuleSetCustomSnapshot(em, snapshot)
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.availabilityRuleSets.create', 'Create availability schedule'),
       resourceKind: 'booking.availabilityRuleSet',
-      resourceId: result?.ruleSetId ?? null,
-      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
-      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      resourceId: snapshot.id,
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      snapshotAfter: snapshot,
+      payload: {
+        undo: {
+          after: snapshot,
+          customAfter: custom,
+        } satisfies AvailabilityRuleSetUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<AvailabilityRuleSetUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const ruleSet = await em.findOne(BookingAvailabilityRuleSet, { id: after.id })
+    if (ruleSet) {
+      ruleSet.deletedAt = new Date()
+      ruleSet.updatedAt = new Date()
+      await em.flush()
     }
   },
 }
 
 const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSetUpdateInput, { ruleSetId: string }> = {
   id: 'booking.availability-rule-sets.update',
+  async prepare(input, ctx) {
+    const { parsed } = parseWithCustomFields(bookingAvailabilityRuleSetUpdateSchema, input)
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSetSnapshot(em, parsed.id)
+    if (!snapshot) return {}
+    const custom = await loadAvailabilityRuleSetCustomSnapshot(em, snapshot)
+    return { before: snapshot, customBefore: custom }
+  },
   async execute(input, ctx) {
     const { parsed, custom } = parseWithCustomFields(bookingAvailabilityRuleSetUpdateSchema, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(BookingAvailabilityRuleSet, { id: parsed.id, deletedAt: null })
+    const record = await findOneWithDecryption(
+      em,
+      BookingAvailabilityRuleSet,
+      { id: parsed.id, deletedAt: null },
+      undefined,
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+    )
     if (!record) throw new CrudHttpError(404, { error: 'Booking availability rule set not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -83,27 +191,118 @@ const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
       organizationId: record.organizationId,
       values: custom,
     })
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
     return { ruleSetId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ snapshots, ctx }) => {
+    const before = snapshots.before as AvailabilityRuleSetSnapshot | undefined
+    if (!before) return null
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const after = await loadAvailabilityRuleSetSnapshot(em, before.id)
+    if (!after) return null
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
+    const customAfter = await loadAvailabilityRuleSetCustomSnapshot(em, after)
+    const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
+      'name',
+      'description',
+      'timezone',
+      'deletedAt',
+    ])
+    const customChanges = diffCustomFieldChanges(customBefore, customAfter)
+    if (Object.keys(customChanges).length) {
+      changes.customFields = { from: customBefore ?? null, to: customAfter ?? null }
+    }
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.availabilityRuleSets.update', 'Update availability schedule'),
       resourceKind: 'booking.availabilityRuleSet',
-      resourceId: result?.ruleSetId ?? input?.id ?? null,
-      tenantId: ctx.auth?.tenantId ?? null,
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      changes,
+      payload: {
+        undo: {
+          before,
+          after,
+          customBefore: customBefore ?? null,
+          customAfter,
+        } satisfies AvailabilityRuleSetUndoPayload,
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<AvailabilityRuleSetUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const ruleSet = await em.findOne(BookingAvailabilityRuleSet, { id: before.id })
+    if (!ruleSet) return
+    ruleSet.name = before.name
+    ruleSet.description = before.description ?? null
+    ruleSet.timezone = before.timezone
+    ruleSet.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
+    ruleSet.updatedAt = new Date()
+    await em.flush()
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    if (payload.customBefore || payload.customAfter) {
+      const reset = buildCustomFieldResetMap(payload.customBefore ?? undefined, payload.customAfter ?? undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.booking.booking_availability_rule_set,
+        recordId: ruleSet.id,
+        tenantId: ruleSet.tenantId,
+        organizationId: ruleSet.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: ruleSet,
+      identifiers: {
+        id: ruleSet.id,
+        organizationId: ruleSet.organizationId,
+        tenantId: ruleSet.tenantId,
+      },
+    })
   },
 }
 
 const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSetId: string }> = {
   id: 'booking.availability-rule-sets.delete',
+  async prepare(input, ctx) {
+    const id = input?.id
+    if (!id) throw new CrudHttpError(400, { error: 'Availability rule set id is required.' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const snapshot = await loadAvailabilityRuleSetSnapshot(em, id)
+    if (!snapshot) return {}
+    const custom = await loadAvailabilityRuleSetCustomSnapshot(em, snapshot)
+    return { before: snapshot, customBefore: custom }
+  },
   async execute(input, ctx) {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Availability rule set id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(BookingAvailabilityRuleSet, { id, deletedAt: null })
+    const record = await findOneWithDecryption(
+      em,
+      BookingAvailabilityRuleSet,
+      { id, deletedAt: null },
+      undefined,
+      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+    )
     if (!record) throw new CrudHttpError(404, { error: 'Booking availability rule set not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -131,18 +330,93 @@ const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSe
     }
 
     record.deletedAt = new Date()
+    record.updatedAt = new Date()
     await em.flush()
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+    })
     return { ruleSetId: record.id }
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ snapshots }) => {
+    const before = snapshots.before as AvailabilityRuleSetSnapshot | undefined
+    if (!before) return null
+    const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.availabilityRuleSets.delete', 'Delete availability schedule'),
       resourceKind: 'booking.availabilityRuleSet',
-      resourceId: result?.ruleSetId ?? input?.id ?? null,
-      tenantId: ctx.auth?.tenantId ?? null,
-      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      resourceId: before.id,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: {
+          before,
+          customBefore: customBefore ?? null,
+        } satisfies AvailabilityRuleSetUndoPayload,
+      },
     }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<AvailabilityRuleSetUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let ruleSet = await em.findOne(BookingAvailabilityRuleSet, { id: before.id })
+    if (!ruleSet) {
+      ruleSet = em.create(BookingAvailabilityRuleSet, {
+        id: before.id,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        name: before.name,
+        description: before.description ?? null,
+        timezone: before.timezone,
+        deletedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(ruleSet)
+    } else {
+      ruleSet.name = before.name
+      ruleSet.description = before.description ?? null
+      ruleSet.timezone = before.timezone
+      ruleSet.deletedAt = null
+      ruleSet.updatedAt = new Date()
+    }
+    await em.flush()
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    if (payload.customBefore) {
+      const reset = buildCustomFieldResetMap(payload.customBefore, undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.booking.booking_availability_rule_set,
+        recordId: ruleSet.id,
+        tenantId: ruleSet.tenantId,
+        organizationId: ruleSet.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: ruleSet,
+      identifiers: {
+        id: ruleSet.id,
+        organizationId: ruleSet.organizationId,
+        tenantId: ruleSet.tenantId,
+      },
+    })
   },
 }
 

@@ -17,6 +17,7 @@ import type { TagOption } from '@open-mercato/ui/backend/detail'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { Pencil } from 'lucide-react'
 
 const PAGE_SIZE = 20
 
@@ -336,11 +337,26 @@ export default function BookingResourcesPage() {
         const depth = row.original.depth ?? 0
         const indent = depth > 0 ? 18 : 0
         const isGroup = row.original.rowKind === 'group'
+        const showEdit = isGroup && canManage && row.original.resourceTypeId
         return (
-          <div className="flex items-center gap-2">
+          <div className={isGroup ? 'flex items-center justify-between gap-3' : 'flex items-center gap-2'}>
             <span style={{ marginLeft: indent }} className={isGroup ? 'text-sm font-semibold text-foreground' : 'text-sm font-medium text-foreground'}>
               {row.original.name}
             </span>
+            {showEdit ? (
+              <Button
+                asChild
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                title={t('booking.resourceTypes.actions.edit', 'Edit')}
+                aria-label={t('booking.resourceTypes.actions.edit', 'Edit')}
+              >
+                <Link href={`/backend/booking/resource-types/${encodeURIComponent(row.original.resourceTypeId ?? '')}/edit`}>
+                  <Pencil className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : null}
           </div>
         )
       },
@@ -414,7 +430,7 @@ export default function BookingResourcesPage() {
       meta: { priority: 6 },
       cell: ({ row }) => row.original.rowKind === 'group' ? null : <BooleanIcon value={row.original.isActive} />,
     },
-  ], [resourceTypes, t])
+  ], [canManage, resourceTypes, t])
 
   return (
     <Page>

@@ -220,13 +220,6 @@ function buildAvailabilityRrule(start: Date, end: Date, repeat: AvailabilityRepe
   return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:${rule}`
 }
 
-function buildFullDayRrule(date: string): string | null {
-  const start = toDateForDay(date, '00:00')
-  if (!start) return null
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
-  return buildAvailabilityRrule(start, end, 'once')
-}
-
 function groupRulesByDate(rules: AvailabilityRule[]): Map<string, AvailabilityRule[]> {
   const map = new Map<string, AvailabilityRule[]>()
   rules.forEach((rule) => {
@@ -1007,20 +1000,30 @@ export function AvailabilityRulesEditor({
     const validWindows = editorWindows
 
     try {
-      const rulesToDelete = editorScope === 'date'
-        ? activeRules.filter((rule) => {
-          const window = parseAvailabilityRuleWindow(rule)
-          if (window.repeat !== 'once') return false
-          return editorDates.some((date) => formatDateInput(window.startAt) === date)
-        })
-        : editorRules
-      const uniqueRuleIds = Array.from(new Set(rulesToDelete.map((rule) => rule.id)))
-      await Promise.all(
-        uniqueRuleIds.map((id) => deleteCrud('booking/availability', id, { errorMessage: listLabels.saveDateError })),
-      )
+      const dates = Array.from(new Set(editorDates.filter((value) => value && value.length)))
+      if (editorScope === 'date') {
+        const trimmedNote = editorNote.trim()
+        await apiCallOrThrow('/api/booking/availability-date-specific', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subjectType: subjectForRules,
+            subjectId: subjectIdForRules,
+            timezone,
+            dates,
+            windows: editorUnavailable ? [] : validWindows,
+            kind: editorUnavailable ? 'unavailability' : 'availability',
+            note: editorUnavailable && trimmedNote.length ? trimmedNote : null,
+          }),
+        }, { errorMessage: listLabels.saveDateError })
+      } else {
+        const rulesToDelete = editorRules
+        const uniqueRuleIds = Array.from(new Set(rulesToDelete.map((rule) => rule.id)))
+        await Promise.all(
+          uniqueRuleIds.map((id) => deleteCrud('booking/availability', id, { errorMessage: listLabels.saveDateError })),
+        )
 
-      const creations: Array<Promise<unknown>> = []
-      if (editorScope === 'weekday') {
+        const creations: Array<Promise<unknown>> = []
         validWindows.forEach((window) => {
           const start = toDateForWeekday(editorWeekday, window.start)
           const end = toDateForWeekday(editorWeekday, window.end)
@@ -1036,44 +1039,8 @@ export function AvailabilityRulesEditor({
             note: null,
           }, { errorMessage: listLabels.saveDateError }))
         })
-      } else {
-        const dates = Array.from(new Set(editorDates.filter((value) => value && value.length)))
-        if (editorUnavailable) {
-          const trimmedNote = editorNote.trim()
-          dates.forEach((date) => {
-            const rrule = buildFullDayRrule(date)
-            if (!rrule) return
-            creations.push(createCrud('booking/availability', {
-              subjectType: subjectForRules,
-              subjectId: subjectIdForRules,
-              timezone,
-              rrule,
-              exdates: [],
-              kind: 'unavailability',
-              note: trimmedNote.length ? trimmedNote : null,
-            }, { errorMessage: listLabels.saveDateError }))
-          })
-        } else {
-          dates.forEach((date) => {
-            validWindows.forEach((window) => {
-              const start = toDateForDay(date, window.start)
-              const end = toDateForDay(date, window.end)
-              if (!start || !end) return
-              const rrule = buildAvailabilityRrule(start, end, 'once')
-              creations.push(createCrud('booking/availability', {
-                subjectType: subjectForRules,
-                subjectId: subjectIdForRules,
-                timezone,
-                rrule,
-                exdates: [],
-                kind: 'availability',
-                note: null,
-              }, { errorMessage: listLabels.saveDateError }))
-            })
-          })
-        }
+        await Promise.all(creations)
       }
-      await Promise.all(creations)
       flash(listLabels.saveDateSuccess, 'success')
       setEditorOpen(false)
       setEditorRules([])
