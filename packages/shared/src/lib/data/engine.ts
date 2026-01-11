@@ -12,6 +12,7 @@ import type {
 } from '../crud/types'
 import { CrudHttpError } from '../crud/errors'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
+import { parseBooleanToken } from '../boolean'
 
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const coverageRefreshTracker = new Map<string, number>()
@@ -167,8 +168,7 @@ export class DefaultDataEngine implements DataEngine {
 
   private backcompatEavEnabled(): boolean {
     try {
-      const v = String(process.env.ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM || '').toLowerCase().trim()
-      return v === '1' || v === 'true' || v === 'yes'
+      return parseBooleanToken(process.env.ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM ?? '') === true
     } catch { return false }
   }
 

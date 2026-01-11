@@ -11,6 +11,7 @@ import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import { VectorSearchDialog } from '@open-mercato/vector/modules/vector/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { createRequestContainer } from '@/lib/di/container'
 import {
   applySidebarPreference,
@@ -93,7 +94,7 @@ export default async function BackendLayout({ children, params }: { children: Re
     : undefined
   const ctx = { auth: ctxAuth, path }
 
-  const { translate, locale } = await resolveTranslations()
+  const { translate, locale, dict } = await resolveTranslations()
   const vectorApiKeyAvailable = Boolean(process.env.OPENAI_API_KEY)
   const vectorMissingKeyMessage = translate('vector.messages.missingKey', 'Vector search requires configuring OPENAI_API_KEY.')
 
@@ -303,22 +304,24 @@ export default async function BackendLayout({ children, params }: { children: Re
   return (
     <>
       <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
-      <AppShell
-        key={path}
-        productName={productName}
-        email={auth?.email}
-        groups={groups}
-        currentTitle={currentTitle}
-        breadcrumb={breadcrumb}
-        sidebarCollapsedDefault={initialCollapsed}
-        rightHeaderSlot={rightHeaderContent}
-        adminNavApi="/api/auth/admin/nav"
-        version={APP_VERSION}
-      >
-        <PageInjectionBoundary path={path} context={injectionContext}>
-          {children}
-        </PageInjectionBoundary>
-      </AppShell>
+      <I18nProvider locale={locale} dict={dict}>
+        <AppShell
+          key={path}
+          productName={productName}
+          email={auth?.email}
+          groups={groups}
+          currentTitle={currentTitle}
+          breadcrumb={breadcrumb}
+          sidebarCollapsedDefault={initialCollapsed}
+          rightHeaderSlot={rightHeaderContent}
+          adminNavApi="/api/auth/admin/nav"
+          version={APP_VERSION}
+        >
+          <PageInjectionBoundary path={path} context={injectionContext}>
+            {children}
+          </PageInjectionBoundary>
+        </AppShell>
+      </I18nProvider>
     </>
   )
 }

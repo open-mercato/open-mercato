@@ -8,6 +8,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -91,7 +92,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
-  const undoableOnly = url.searchParams.get('undoableOnly') === 'true'
+  const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
   const limit = parseLimit(url.searchParams.get('limit'))
   const before = parseDate(url.searchParams.get('before'))
   const after = parseDate(url.searchParams.get('after'))

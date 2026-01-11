@@ -10,6 +10,7 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -163,7 +164,7 @@ const addField: ModuleCli = {
     }
     const askBool = async (q: string, d = false) => {
       const a = (await ask(q, d ? 'y' : 'n')).toLowerCase()
-      return a === 'y' || a === 'yes' || a === 'true'
+      return parseBooleanToken(a) === true
     }
 
     try {
@@ -194,7 +195,7 @@ const addField: ModuleCli = {
         switch (kind) {
           case 'integer': defaultValue = Number(needDefault); break
           case 'float': defaultValue = Number(needDefault); break
-          case 'boolean': defaultValue = ['y','yes','true','1'].includes(String(needDefault).toLowerCase()); break
+          case 'boolean': defaultValue = parseBooleanToken(String(needDefault)) === true; break
           default: defaultValue = String(needDefault)
         }
       }

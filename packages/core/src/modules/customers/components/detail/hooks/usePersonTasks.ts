@@ -5,6 +5,7 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { resolveTodoApiPath } from '../utils'
 import type { TodoLinkSummary } from '../types'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const DEFAULT_TODO_SOURCE = 'example:todo'
 
@@ -106,9 +107,8 @@ function normalizeBoolean(value: unknown): boolean | undefined {
   if (value === null || value === undefined) return undefined
   if (typeof value === 'boolean') return value
   if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
-    if (normalized === 'true') return true
-    if (normalized === 'false') return false
+    const parsed = parseBooleanToken(value)
+    return parsed === null ? undefined : parsed
   }
   return undefined
 }

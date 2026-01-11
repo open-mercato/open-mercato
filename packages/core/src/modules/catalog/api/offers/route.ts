@@ -17,6 +17,7 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -75,8 +76,8 @@ export function buildOfferFilters(query: OfferListQuery): Record<string, unknown
     const like = `%${escapeLikePattern(searchTerm)}%`
     filters.$or = [{ [F.title]: { $ilike: like } }, { [F.description]: { $ilike: like } }]
   }
-  if (query.isActive === 'true') filters[F.is_active] = true
-  if (query.isActive === 'false') filters[F.is_active] = false
+  const isActive = parseBooleanToken(query.isActive)
+  if (isActive !== null) filters[F.is_active] = isActive
   return filters
 }
 

@@ -396,6 +396,7 @@ async function ensureDefaultRoleAcls(
       'perspectives.use',
       'perspectives.role_defaults',
       'business_rules.*',
+      'booking.*',
     ]
     await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures, { remove: ['directory.organizations.*', 'directory.tenants.*'] })
   }

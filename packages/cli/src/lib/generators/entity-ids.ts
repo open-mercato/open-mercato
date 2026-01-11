@@ -251,7 +251,6 @@ export type KnownEntities = typeof E
   // Write per-group outputs
   const groups = Object.keys(grouped) as GroupKey[]
   for (const g of groups) {
-    const isApp = g === '@app'
     const pkgOutputDir = resolver.getPackageOutputDir(g)
     const out = path.join(pkgOutputDir, 'entities.ids.generated.ts')
 
@@ -279,6 +278,18 @@ export type KnownEntities = typeof E
     // Generate static entity fields registry for Turbopack compatibility
     writeEntityFieldsRegistry(pkgOutputDir, combined)
   }
+
+  // Write combined entity fields to root generated/ folder
+  const combinedAll: EntityFieldMap = {}
+  for (const groupFields of Object.values(fieldsByGroup)) {
+    for (const mMap of Object.values(groupFields)) {
+      for (const [entity, fields] of Object.entries(mMap)) {
+        combinedAll[entity] = Array.from(new Set([...(combinedAll[entity] || []), ...fields]))
+      }
+    }
+  }
+  writePerEntityFieldFiles(path.join(outputDir, 'entities'), combinedAll)
+  writeEntityFieldsRegistry(outputDir, combinedAll)
 
   return result
 }

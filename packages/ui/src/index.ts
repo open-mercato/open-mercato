@@ -11,6 +11,7 @@ export * from './backend/RowActions'
 export * from './backend/utils/nav'
 export * from './backend/CrudForm'
 export * from './backend/detail'
+export * from './backend/schedule'
 
 export * from './backend/inputs'
 export * from './backend/ContextHelp'
