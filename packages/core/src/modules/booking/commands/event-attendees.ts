@@ -441,6 +441,7 @@ const deleteAttendeeCommand: CommandHandler<{ id?: string }, { attendeeId: strin
         organizationId: attendee.organizationId,
         tenantId: attendee.tenantId,
       },
+      indexer: attendeeCrudIndexer,
     })
 
     return { attendeeId: attendee.id }
@@ -498,6 +499,7 @@ const deleteAttendeeCommand: CommandHandler<{ id?: string }, { attendeeId: strin
         organizationId: attendee.organizationId,
         tenantId: attendee.tenantId,
       },
+      indexer: attendeeCrudIndexer,
     })
   },
 }
