@@ -329,6 +329,7 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      indexer: teamRoleCrudIndexer,
     })
   },
 }
@@ -393,6 +394,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      indexer: teamRoleCrudIndexer,
     })
     return { roleId: role.id }
   },

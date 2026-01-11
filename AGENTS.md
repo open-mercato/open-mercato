@@ -176,6 +176,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Default to `CrudForm` for new forms and `DataTable` for tables displaying information unless a different component is explicitly required.
 - New CRUD forms should use `CrudForm` wired to CRUD factory/commands APIs and be shared between create/edit flows.
 - Prefer reusing components from the shared `packages/ui` package before introducing new UI primitives.
+- For new `DataTable` columns, set `meta.truncate` and `meta.maxWidth` in the column config when you need specific truncation behavior; only rely on defaults when those are not set.
 
 ### Type Safety Addendum
 - Centralize reusable types and constants (e.g., custom field kinds) in `packages/shared` and import them everywhere to avoid drift.
