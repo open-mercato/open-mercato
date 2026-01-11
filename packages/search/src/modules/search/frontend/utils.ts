@@ -49,11 +49,10 @@ export async function fetchHybridSearchResults(
 
 /**
  * Fetch global search results for the Cmd+K dialog.
- * Uses the hybrid search API with configurable strategies.
+ * Uses the global search API which respects saved strategy settings.
  */
 export type FetchGlobalSearchOptions = {
   limit?: number
-  strategies?: SearchStrategyId[]
   signal?: AbortSignal
 }
 
@@ -67,15 +66,11 @@ export async function fetchGlobalSearchResults(
   const limit = Math.max(1, Math.min(opts.limit ?? 10, 50))
   params.set('limit', String(limit))
 
-  if (opts.strategies && opts.strategies.length > 0) {
-    params.set('strategies', opts.strategies.join(','))
-  }
-
   const body = await readApiResultOrThrow<{
     results?: SearchResult[]
     error?: string
   }>(
-    `/api/search/search?${params.toString()}`,
+    `/api/search/search/global?${params.toString()}`,
     { signal: opts.signal },
     { errorMessage: 'Search failed', allowNullResult: true }
   )

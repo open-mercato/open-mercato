@@ -4,6 +4,8 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
+import type { Queue } from '@open-mercato/queue'
+import { getReindexLockStatus, type ReindexLockStatus } from '../../lib/reindex-lock'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -22,6 +24,13 @@ type FulltextStats = {
   fieldDistribution: Record<string, number>
 }
 
+type ReindexLock = {
+  type: 'fulltext' | 'vector'
+  action: string
+  startedAt: string
+  elapsedMinutes: number
+}
+
 type SearchSettings = {
   strategies: StrategyStatus[]
   fulltextConfigured: boolean
@@ -29,6 +38,10 @@ type SearchSettings = {
   vectorConfigured: boolean
   tokensEnabled: boolean
   defaultStrategies: string[]
+  /** @deprecated Use fulltextReindexLock or vectorReindexLock instead */
+  reindexLock: ReindexLock | null
+  fulltextReindexLock: ReindexLock | null
+  vectorReindexLock: ReindexLock | null
 }
 
 type SettingsResponse = {
@@ -109,6 +122,49 @@ export async function GET(req: Request) {
 
     const tokensEnabled = process.env.OM_SEARCH_ENABLED !== 'false'
 
+    // Check for active reindex locks with queue-aware stale detection
+    let fulltextReindexLock: ReindexLock | null = null
+    let vectorReindexLock: ReindexLock | null = null
+
+    if (auth.tenantId) {
+      // Try to resolve queues for smarter stale detection
+      let fulltextQueue: Queue | undefined
+      let vectorQueue: Queue | undefined
+      try {
+        fulltextQueue = container.resolve<Queue>('fulltextIndexQueue')
+      } catch { /* Queue not available */ }
+      try {
+        vectorQueue = container.resolve<Queue>('vectorIndexQueue')
+      } catch { /* Queue not available */ }
+
+      // Check fulltext lock
+      const fulltextLockStatus = await getReindexLockStatus(container, auth.tenantId, { queue: fulltextQueue, type: 'fulltext' })
+      if (fulltextLockStatus) {
+        const startedAt = new Date(fulltextLockStatus.startedAt)
+        fulltextReindexLock = {
+          type: 'fulltext',
+          action: fulltextLockStatus.action,
+          startedAt: fulltextLockStatus.startedAt,
+          elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+        }
+      }
+
+      // Check vector lock
+      const vectorLockStatus = await getReindexLockStatus(container, auth.tenantId, { queue: vectorQueue, type: 'vector' })
+      if (vectorLockStatus) {
+        const startedAt = new Date(vectorLockStatus.startedAt)
+        vectorReindexLock = {
+          type: 'vector',
+          action: vectorLockStatus.action,
+          startedAt: vectorLockStatus.startedAt,
+          elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+        }
+      }
+    }
+
+    // Keep deprecated reindexLock for backwards compatibility (prefer fulltext if both are active)
+    const reindexLock = fulltextReindexLock ?? vectorReindexLock
+
     return toJson({
       settings: {
         strategies,
@@ -117,6 +173,9 @@ export async function GET(req: Request) {
         vectorConfigured,
         tokensEnabled,
         defaultStrategies,
+        reindexLock,
+        fulltextReindexLock,
+        vectorReindexLock,
       },
     })
   } finally {

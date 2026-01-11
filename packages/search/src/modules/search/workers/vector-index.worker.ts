@@ -26,8 +26,74 @@ export async function handleVectorIndexJob(
   jobCtx: JobContext,
   ctx: HandlerContext,
 ): Promise<void> {
-  const { jobType, entityType, recordId, tenantId, organizationId } = job.payload
+  const { jobType, entityType, recordId, tenantId, organizationId, records } = job.payload
 
+  // Handle batch-index jobs (from reindex operations)
+  if (jobType === 'batch-index') {
+    if (!records?.length || !tenantId) {
+      searchDebugWarn('vector-index.worker', 'Skipping batch-index job with missing required fields', {
+        jobId: jobCtx.jobId,
+        recordCount: records?.length ?? 0,
+        tenantId,
+      })
+      return
+    }
+
+    let searchIndexer: SearchIndexer
+    try {
+      searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
+    } catch {
+      searchDebugWarn('vector-index.worker', 'searchIndexer not available')
+      return
+    }
+
+    // Load saved embedding config to use the correct provider/model
+    try {
+      const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
+      if (embeddingConfig) {
+        const embeddingService = ctx.resolve<EmbeddingService>('vectorEmbeddingService')
+        embeddingService.updateConfig(embeddingConfig)
+      }
+    } catch (configErr) {
+      searchDebugWarn('vector-index.worker', 'Failed to load embedding config for batch, using defaults', {
+        error: configErr instanceof Error ? configErr.message : configErr,
+      })
+    }
+
+    // Process each record in the batch
+    let successCount = 0
+    let failCount = 0
+    for (const { entityId, recordId: recId } of records) {
+      try {
+        const result = await searchIndexer.indexRecordById({
+          entityId: entityId as Parameters<typeof searchIndexer.indexRecordById>[0]['entityId'],
+          recordId: recId,
+          tenantId,
+          organizationId,
+        })
+        if (result.action === 'indexed') {
+          successCount++
+        }
+      } catch (error) {
+        failCount++
+        searchDebugWarn('vector-index.worker', 'Failed to index record in batch', {
+          entityId,
+          recordId: recId,
+          error: error instanceof Error ? error.message : error,
+        })
+      }
+    }
+
+    searchDebugWarn('vector-index.worker', 'Batch-index job completed', {
+      jobId: jobCtx.jobId,
+      totalRecords: records.length,
+      successCount,
+      failCount,
+    })
+    return
+  }
+
+  // Handle single record jobs (index/delete)
   if (!entityType || !recordId || !tenantId) {
     searchDebugWarn('vector-index.worker', 'Skipping job with missing required fields', {
       jobId: jobCtx.jobId,

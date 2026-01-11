@@ -12,6 +12,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from './queue/fulltext-indexing'
+import type { VectorIndexJobPayload } from './queue/vector-indexing'
 import type { EncryptionMapEntry } from './lib/field-policy'
 
 /**
@@ -207,12 +208,21 @@ export function registerSearchModule(
   try {
     fulltextQueue = container.resolve<Queue<FulltextIndexJobPayload>>('fulltextIndexQueue')
   } catch {
-    // Queue not available, queue-based reindex will be disabled
+    // Queue not available, queue-based fulltext reindex will be disabled
+  }
+
+  // Try to resolve vectorIndexQueue for queue-based vector reindexing
+  let vectorQueue: Queue<VectorIndexJobPayload> | undefined
+  try {
+    vectorQueue = container.resolve<Queue<VectorIndexJobPayload>>('vectorIndexQueue')
+  } catch {
+    // Queue not available, queue-based vector reindex will be disabled
   }
 
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
     queryEngine,
     fulltextQueue,
+    vectorQueue,
   })
 
   // Register in container

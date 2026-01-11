@@ -207,7 +207,17 @@ function normalizeErrorMessage(input: unknown, fallback?: string): string | null
   return fallbackMessage
 }
 
-export function HybridSearchTable() {
+type HybridSearchTableProps = {
+  /** Show strategy selector checkboxes (default: false - hidden from regular users) */
+  showStrategySelector?: boolean
+  /** Show source column in results (default: false - hidden from regular users) */
+  showSourceColumn?: boolean
+}
+
+export function HybridSearchTable({
+  showStrategySelector = false,
+  showSourceColumn = false,
+}: HybridSearchTableProps = {}) {
   const router = useRouter()
   const t = useT()
   const [searchValue, setSearchValue] = React.useState('')
@@ -222,7 +232,13 @@ export function HybridSearchTable() {
   )
   const debounceRef = React.useRef<number | null>(null)
   const abortRef = React.useRef<AbortController | null>(null)
-  const columns = React.useMemo(() => createColumns(t), [t])
+  const columns = React.useMemo(() => {
+    const allColumns = createColumns(t)
+    if (!showSourceColumn) {
+      return allColumns.filter((col) => col.id !== 'source')
+    }
+    return allColumns
+  }, [t, showSourceColumn])
 
   const toggleStrategy = React.useCallback((strategy: SearchStrategyId) => {
     setEnabledStrategies((prev) => {
@@ -266,7 +282,7 @@ export function HybridSearchTable() {
       setRows([])
       setTiming(null)
       setStrategiesUsed([])
-      setError(t('search.table.errors.noStrategies', 'Select at least one search strategy'))
+      setError(t('search.table.errors.noSources', 'Select at least one search source'))
       setLoading(false)
       return
     }
@@ -323,37 +339,40 @@ export function HybridSearchTable() {
 
   return (
     <div className="flex w-full flex-col gap-4">
-      {/* Strategy Checkboxes */}
-      <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/50 p-3">
-        <span className="text-sm font-medium text-muted-foreground">
-          {t('search.table.strategies', 'Strategies:')}
-        </span>
-        {ALL_STRATEGIES.map((strategy) => (
-          <label key={strategy} className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              className="size-4 rounded border-gray-300"
-              checked={enabledStrategies.has(strategy)}
-              onChange={() => toggleStrategy(strategy)}
-            />
-            <span
-              className={cn(
-                'rounded px-2 py-0.5 text-xs font-medium',
-                getStrategyColorClass(strategy)
-              )}
-            >
-              {strategy}
-            </span>
-          </label>
-        ))}
-      </div>
+      {/* Source Selector - only shown when showStrategySelector is true */}
+      {showStrategySelector && (
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/50 p-3">
+          <span className="text-sm font-medium text-muted-foreground">
+            {t('search.table.sources', 'Sources:')}
+          </span>
+          {ALL_STRATEGIES.map((strategy) => (
+            <label key={strategy} className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="size-4 rounded border-gray-300"
+                checked={enabledStrategies.has(strategy)}
+                onChange={() => toggleStrategy(strategy)}
+              />
+              <span
+                className={cn(
+                  'rounded px-2 py-0.5 text-xs font-medium',
+                  getStrategyColorClass(strategy)
+                )}
+              >
+                {strategy}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
 
       {/* Stats Bar */}
       {timing !== null && rows.length > 0 && (
         <div className="flex items-center gap-4 text-sm text-muted-foreground">
           <span>{rows.length} {t('search.table.stats.results', 'results')}</span>
           <span>{timing}ms</span>
-          {strategiesUsed.length > 0 && (
+          {/* Only show sources when strategy selector is visible */}
+          {showStrategySelector && strategiesUsed.length > 0 && (
             <span>
               {t('search.table.stats.sources', 'Sources:')} {strategiesUsed.join(', ')}
             </span>

@@ -21,6 +21,13 @@ type FulltextStats = {
   fieldDistribution: Record<string, number>
 }
 
+type ReindexLock = {
+  type: 'fulltext' | 'vector'
+  action: string
+  startedAt: string
+  elapsedMinutes: number
+}
+
 type SearchSettings = {
   strategies: StrategyStatus[]
   fulltextConfigured: boolean
@@ -28,6 +35,9 @@ type SearchSettings = {
   vectorConfigured: boolean
   tokensEnabled: boolean
   defaultStrategies: string[]
+  reindexLock: ReindexLock | null
+  fulltextReindexLock: ReindexLock | null
+  vectorReindexLock: ReindexLock | null
 }
 
 type SettingsResponse = {
@@ -135,6 +145,7 @@ type EmbeddingSettings = {
   configuredProviders: EmbeddingProviderId[]
   indexedDimension: number | null
   reindexRequired: boolean
+  documentCount: number | null
 }
 
 type EmbeddingSettingsResponse = {
@@ -239,12 +250,12 @@ export function SearchSettingsPageClient() {
   const [vectorReindexing, setVectorReindexing] = React.useState(false)
   const [showVectorReindexDialog, setShowVectorReindexDialog] = React.useState(false)
 
+
   // Global search settings state
   const [globalSearchStrategies, setGlobalSearchStrategies] = React.useState<Set<string>>(() => new Set(['fulltext', 'vector', 'tokens']))
   const [globalSearchInitial, setGlobalSearchInitial] = React.useState<Set<string>>(() => new Set(['fulltext', 'vector', 'tokens']))
   const [globalSearchLoading, setGlobalSearchLoading] = React.useState(true)
   const [globalSearchSaving, setGlobalSearchSaving] = React.useState(false)
-  const [globalSearchDirty, setGlobalSearchDirty] = React.useState(false)
 
   // Full-text search config state
   const [fulltextConfig, setFulltextConfig] = React.useState<FulltextConfigResponse | null>(null)
@@ -273,6 +284,9 @@ export function SearchSettingsPageClient() {
           vectorConfigured: false,
           tokensEnabled: true,
           defaultStrategies: [],
+          reindexLock: null,
+          fulltextReindexLock: null,
+          vectorReindexLock: null,
         })
       }
     } catch (err) {
@@ -287,6 +301,58 @@ export function SearchSettingsPageClient() {
   React.useEffect(() => {
     fetchSettings()
   }, [fetchSettings])
+
+  // Lightweight stats refresh (no loading state) for polling during reindex
+  const refreshStatsOnly = React.useCallback(async () => {
+    try {
+      const body = await readApiResultOrThrow<SettingsResponse>(
+        '/api/search/settings',
+        undefined,
+        { errorMessage: '', allowNullResult: true },
+      )
+      if (body?.settings) {
+        setSettings(body.settings)
+      }
+    } catch {
+      // Silently ignore errors during polling
+    }
+  }, [])
+
+  // Lightweight embedding stats refresh (no loading state) for polling during vector reindex
+  const refreshEmbeddingStatsOnly = React.useCallback(async () => {
+    try {
+      const body = await readApiResultOrThrow<EmbeddingSettingsResponse>(
+        '/api/search/embeddings',
+        undefined,
+        { errorMessage: '', allowNullResult: true },
+      )
+      if (body?.settings) {
+        setEmbeddingSettings(body.settings)
+      }
+    } catch {
+      // Silently ignore errors during polling
+    }
+  }, [])
+
+  // Poll for stats updates while reindex is in progress
+  React.useEffect(() => {
+    // Poll when there's an active reindex lock OR when local reindexing state is active
+    const shouldPollFulltext = settings?.fulltextReindexLock !== null || reindexing !== null
+    const shouldPollVector = settings?.vectorReindexLock !== null || vectorReindexing
+
+    if (!shouldPollFulltext && !shouldPollVector) return
+
+    const pollInterval = setInterval(() => {
+      if (shouldPollFulltext) {
+        refreshStatsOnly()
+      }
+      if (shouldPollVector) {
+        refreshEmbeddingStatsOnly()
+      }
+    }, 3000) // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval)
+  }, [settings?.fulltextReindexLock, settings?.vectorReindexLock, reindexing, vectorReindexing, refreshStatsOnly, refreshEmbeddingStatsOnly])
 
   // Fetch embedding settings
   const fetchEmbeddingSettings = React.useCallback(async () => {
@@ -313,6 +379,7 @@ export function SearchSettingsPageClient() {
           configuredProviders: [],
           indexedDimension: null,
           reindexRequired: false,
+          documentCount: null,
         })
       }
     } catch {
@@ -404,6 +471,7 @@ export function SearchSettingsPageClient() {
         configuredProviders: [],
         indexedDimension: null,
         reindexRequired: false,
+        documentCount: null,
       }
     })
     setEmbeddingSaving(true)
@@ -663,33 +731,31 @@ export function SearchSettingsPageClient() {
     }
   }
 
-  // Global search settings handlers
-  const toggleGlobalSearchStrategy = React.useCallback((strategyId: string) => {
-    setGlobalSearchStrategies((prev) => {
-      const next = new Set(prev)
-      if (next.has(strategyId)) {
-        // Don't allow disabling all strategies
-        if (next.size > 1) {
-          next.delete(strategyId)
-        }
+  // Global search settings handlers - auto-save on toggle
+  const toggleGlobalSearchStrategy = React.useCallback(async (strategyId: string) => {
+    // Calculate new strategies
+    const newStrategies = new Set(globalSearchStrategies)
+    if (newStrategies.has(strategyId)) {
+      // Don't allow disabling all strategies
+      if (newStrategies.size > 1) {
+        newStrategies.delete(strategyId)
       } else {
-        next.add(strategyId)
+        return // Can't disable the last strategy
       }
-      // Compute dirty by comparing with initial
-      const isDirty = next.size !== globalSearchInitial.size ||
-        Array.from(next).some((s) => !globalSearchInitial.has(s))
-      setGlobalSearchDirty(isDirty)
-      return next
-    })
-  }, [globalSearchInitial])
+    } else {
+      newStrategies.add(strategyId)
+    }
 
-  const saveGlobalSearchSettings = React.useCallback(async () => {
+    // Update UI immediately
+    setGlobalSearchStrategies(newStrategies)
     setGlobalSearchSaving(true)
+
+    // Auto-save
     try {
       const response = await fetch('/api/search/settings/global-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabledStrategies: Array.from(globalSearchStrategies) }),
+        body: JSON.stringify({ enabledStrategies: Array.from(newStrategies) }),
       })
 
       if (!response.ok) {
@@ -697,15 +763,15 @@ export function SearchSettingsPageClient() {
         throw new Error(body.error || t('search.settings.globalSearch.saveError', 'Failed to save settings'))
       }
 
-      flash(t('search.settings.globalSearch.saveSuccess', 'Global search settings saved'), 'success')
-      setGlobalSearchInitial(new Set(globalSearchStrategies))
-      setGlobalSearchDirty(false)
+      setGlobalSearchInitial(new Set(newStrategies))
     } catch (err) {
+      // Revert on error
+      setGlobalSearchStrategies(globalSearchInitial)
       flash(normalizeErrorMessage(err, t('search.settings.globalSearch.saveError', 'Failed to save settings')), 'error')
     } finally {
       setGlobalSearchSaving(false)
     }
-  }, [globalSearchStrategies, t])
+  }, [globalSearchStrategies, globalSearchInitial, t])
 
   const getStrategyIcon = (strategyId: string) => {
     switch (strategyId) {
@@ -742,6 +808,78 @@ export function SearchSettingsPageClient() {
       <div className="space-y-1">
         <h1 className="text-2xl font-bold">{t('search.settings.pageTitle', 'Search Settings')}</h1>
         <p className="text-muted-foreground">{t('search.settings.pageDescription', 'Configure search strategies and view their availability.')}</p>
+      </div>
+
+      {/* Global Search Settings Card */}
+      <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-lg font-semibold mb-2">{t('search.settings.globalSearch.title', 'Global Search (Cmd+K)')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.globalSearch.description', 'Configure which search methods are used when searching with Cmd+K.')}</p>
+
+        {globalSearchLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Spinner size="sm" />
+            <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
+          </div>
+        ) : (
+          <>
+          <div className="space-y-3">
+          {/* Full-Text Search Toggle */}
+          <label className={`flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors ${globalSearchSaving ? 'opacity-60' : ''}`}>
+            <input
+              type="checkbox"
+              checked={globalSearchStrategies.has('fulltext')}
+              onChange={() => toggleGlobalSearchStrategy('fulltext')}
+              disabled={globalSearchSaving || (globalSearchStrategies.has('fulltext') && globalSearchStrategies.size === 1)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{t('search.settings.globalSearch.fulltext', 'Full-Text Search')}</span>
+                {!settings?.fulltextConfigured && (
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.fulltextDescription', 'Fast, typo-tolerant search across all text fields.')}</p>
+            </div>
+          </label>
+
+          {/* Semantic Search Toggle */}
+          <label className={`flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors ${globalSearchSaving ? 'opacity-60' : ''}`}>
+            <input
+              type="checkbox"
+              checked={globalSearchStrategies.has('vector')}
+              onChange={() => toggleGlobalSearchStrategy('vector')}
+              disabled={globalSearchSaving || (globalSearchStrategies.has('vector') && globalSearchStrategies.size === 1)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{t('search.settings.globalSearch.vector', 'Semantic Search (AI)')}</span>
+                {!settings?.vectorConfigured && (
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.vectorDescription', 'AI-powered search that understands meaning and finds related content.')}</p>
+            </div>
+          </label>
+
+          {/* Keyword Search Toggle */}
+          <label className={`flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors ${globalSearchSaving ? 'opacity-60' : ''}`}>
+            <input
+              type="checkbox"
+              checked={globalSearchStrategies.has('tokens')}
+              onChange={() => toggleGlobalSearchStrategy('tokens')}
+              disabled={globalSearchSaving || (globalSearchStrategies.has('tokens') && globalSearchStrategies.size === 1)}
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+            />
+            <div className="flex-1">
+              <span className="font-medium">{t('search.settings.globalSearch.tokens', 'Keyword Search')}</span>
+              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.tokensDescription', 'Exact word matching in the database.')}</p>
+            </div>
+          </label>
+        </div>
+        </>
+        )}
       </div>
 
       {/* Full-Text Search Configuration Card */}
@@ -862,97 +1000,6 @@ export function SearchSettingsPageClient() {
         )}
       </div>
 
-      {/* Global Search Settings Card */}
-      <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-lg font-semibold mb-2">{t('search.settings.globalSearch.title', 'Global Search (Cmd+K)')}</h2>
-        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.globalSearch.description', 'Configure which search methods are used when searching with Cmd+K.')}</p>
-
-        {globalSearchLoading ? (
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Spinner size="sm" />
-            <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
-          </div>
-        ) : (
-          <>
-          <div className="space-y-3">
-          {/* Full-Text Search Toggle */}
-          <label className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={globalSearchStrategies.has('fulltext')}
-              onChange={() => toggleGlobalSearchStrategy('fulltext')}
-              disabled={globalSearchStrategies.has('fulltext') && globalSearchStrategies.size === 1}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{t('search.settings.globalSearch.fulltext', 'Full-Text Search')}</span>
-                {!settings?.fulltextConfigured && (
-                  <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.fulltextDescription', 'Fast, typo-tolerant search across all text fields.')}</p>
-            </div>
-          </label>
-
-          {/* Semantic Search Toggle */}
-          <label className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={globalSearchStrategies.has('vector')}
-              onChange={() => toggleGlobalSearchStrategy('vector')}
-              disabled={globalSearchStrategies.has('vector') && globalSearchStrategies.size === 1}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{t('search.settings.globalSearch.vector', 'Semantic Search (AI)')}</span>
-                {!settings?.vectorConfigured && (
-                  <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.vectorDescription', 'AI-powered search that understands meaning and finds related content.')}</p>
-            </div>
-          </label>
-
-          {/* Keyword Search Toggle */}
-          <label className="flex items-start gap-3 p-3 rounded-md border border-border hover:bg-muted/50 cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={globalSearchStrategies.has('tokens')}
-              onChange={() => toggleGlobalSearchStrategy('tokens')}
-              disabled={globalSearchStrategies.has('tokens') && globalSearchStrategies.size === 1}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-            />
-            <div className="flex-1">
-              <span className="font-medium">{t('search.settings.globalSearch.tokens', 'Keyword Search')}</span>
-              <p className="text-sm text-muted-foreground">{t('search.settings.globalSearch.tokensDescription', 'Exact word matching in the database.')}</p>
-            </div>
-          </label>
-        </div>
-
-        {/* Save Button */}
-        <div className="flex justify-end mt-4 pt-4 border-t border-border">
-          <Button
-            type="button"
-            size="sm"
-            onClick={saveGlobalSearchSettings}
-            disabled={globalSearchSaving || !globalSearchDirty}
-          >
-            {globalSearchSaving ? (
-              <>
-                <Spinner size="sm" className="mr-2" />
-                {t('search.settings.globalSearch.saving', 'Saving...')}
-              </>
-            ) : (
-              t('search.settings.globalSearch.save', 'Save Changes')
-            )}
-          </Button>
-        </div>
-        </>
-        )}
-      </div>
-
       {/* Full-Text Search Index Management Card */}
       <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
         <h2 className="text-lg font-semibold mb-2">{t('search.settings.fulltextIndexTitle', 'Full-Text Search Index')}</h2>
@@ -995,6 +1042,26 @@ export function SearchSettingsPageClient() {
               </div>
             )}
 
+            {/* Show active reindex lock banner */}
+            {settings?.fulltextReindexLock && (
+              <div className="p-4 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                <div className="flex items-start gap-3">
+                  <Spinner size="sm" className="flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                      {t('search.settings.reindexInProgress', 'Reindex operation in progress')}
+                    </p>
+                    <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                      {t('search.settings.reindexInProgressDetails', 'Action: {{action}} | Started {{minutes}} minutes ago', {
+                        action: settings.fulltextReindexLock.action,
+                        minutes: settings.fulltextReindexLock.elapsedMinutes,
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Actions - Full Reindex always visible, others only when index exists */}
             <div className="flex flex-wrap gap-3 pt-2">
               {/* Clear Index - only when index exists */}
@@ -1005,7 +1072,7 @@ export function SearchSettingsPageClient() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleReindexClick('clear')}
-                    disabled={reindexing !== null}
+                    disabled={reindexing !== null || settings?.fulltextReindexLock !== null}
                   >
                     {reindexing === 'clear' ? (
                       <>
@@ -1027,7 +1094,7 @@ export function SearchSettingsPageClient() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleReindexClick('recreate')}
-                    disabled={reindexing !== null}
+                    disabled={reindexing !== null || settings?.fulltextReindexLock !== null}
                   >
                     {reindexing === 'recreate' ? (
                       <>
@@ -1048,7 +1115,7 @@ export function SearchSettingsPageClient() {
                   variant="default"
                   size="sm"
                   onClick={() => handleReindexClick('reindex')}
-                  disabled={reindexing !== null}
+                  disabled={reindexing !== null || settings?.fulltextReindexLock !== null}
                 >
                   {reindexing === 'reindex' ? (
                     <>
@@ -1140,7 +1207,7 @@ export function SearchSettingsPageClient() {
             <div>
               <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.providers', 'Embedding Provider')}</h3>
               <p className="text-xs text-muted-foreground mb-3">{t('search.settings.vector.providersHint', 'Select a provider to generate embeddings. Only providers with configured API keys can be selected.')}</p>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-start">
                 {providerOptions.map((providerId) => {
                   const info = EMBEDDING_PROVIDERS[providerId]
                   const isConfigured = embeddingSettings?.configuredProviders?.includes(providerId)
@@ -1329,6 +1396,14 @@ export function SearchSettingsPageClient() {
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Document Count */}
+            {embeddingSettings?.documentCount !== null && embeddingSettings?.documentCount !== undefined && (
+              <div className="rounded-md border border-border p-4 max-w-xs">
+                <p className="text-sm text-muted-foreground">{t('search.settings.vectorDocumentsLabel', 'Embeddings')}</p>
+                <p className="text-2xl font-bold">{embeddingSettings.documentCount.toLocaleString()}</p>
+              </div>
+            )}
+
             {/* Auto-Indexing Toggle */}
             <div className="flex items-start gap-4 p-4 rounded-md border border-border">
               <div className="flex-1">
@@ -1363,6 +1438,27 @@ export function SearchSettingsPageClient() {
               <p className="text-xs text-muted-foreground">
                 {t('search.settings.vectorReindex.description', 'Rebuild vector embeddings for all indexed entities. This will purge existing data and regenerate all embeddings.')}
               </p>
+
+              {/* Show active reindex lock banner for vector */}
+              {settings?.vectorReindexLock && (
+                <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-start gap-3">
+                    <Spinner size="sm" className="flex-shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                        {t('search.settings.reindexInProgress', 'Reindex operation in progress')}
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                        {t('search.settings.reindexInProgressDetails', 'Action: {{action}} | Started {{minutes}} minutes ago', {
+                          action: settings.vectorReindexLock.action,
+                          minutes: settings.vectorReindexLock.elapsedMinutes,
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20">
                 <svg className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -1376,7 +1472,7 @@ export function SearchSettingsPageClient() {
                 variant="default"
                 size="sm"
                 onClick={handleVectorReindexClick}
-                disabled={embeddingLoading || embeddingSaving || vectorReindexing}
+                disabled={embeddingLoading || embeddingSaving || vectorReindexing || settings?.vectorReindexLock !== null}
               >
                 {vectorReindexing ? (
                   <>

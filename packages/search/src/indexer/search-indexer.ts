@@ -12,6 +12,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { Queue } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
+import type { VectorIndexJobPayload, VectorBatchRecord } from '../queue/vector-indexing'
 import { searchDebug, searchDebugWarn, searchError } from '../lib/debug'
 
 /**
@@ -109,6 +110,8 @@ export type SearchIndexerOptions = {
   queryEngine?: QueryEngine
   /** Queue for fulltext batch indexing */
   fulltextQueue?: Queue<FulltextIndexJobPayload>
+  /** Queue for vector batch indexing */
+  vectorQueue?: Queue<VectorIndexJobPayload>
 }
 
 /**
@@ -119,6 +122,7 @@ export class SearchIndexer {
   private readonly entityConfigMap: Map<EntityId, SearchEntityConfig>
   private readonly queryEngine?: QueryEngine
   private readonly fulltextQueue?: Queue<FulltextIndexJobPayload>
+  private readonly vectorQueue?: Queue<VectorIndexJobPayload>
 
   constructor(
     private readonly searchService: SearchService,
@@ -128,6 +132,7 @@ export class SearchIndexer {
     this.entityConfigMap = new Map()
     this.queryEngine = options?.queryEngine
     this.fulltextQueue = options?.fulltextQueue
+    this.vectorQueue = options?.vectorQueue
     for (const moduleConfig of moduleConfigs) {
       for (const entityConfig of moduleConfig.entities) {
         if (entityConfig.enabled !== false) {
@@ -777,6 +782,227 @@ export class SearchIndexer {
         recreateIndex: false, // Already recreated above
         onProgress: params.onProgress,
         useQueue: params.useQueue,
+      })
+
+      result.entitiesProcessed += entityResult.entitiesProcessed
+      result.recordsIndexed += entityResult.recordsIndexed
+      result.recordsDropped = (result.recordsDropped ?? 0) + (entityResult.recordsDropped ?? 0)
+      result.jobsEnqueued = (result.jobsEnqueued ?? 0) + (entityResult.jobsEnqueued ?? 0)
+      result.errors.push(...entityResult.errors)
+
+      if (!entityResult.success) {
+        result.success = false
+      }
+    }
+
+    return result
+  }
+
+  /**
+   * Reindex a single entity type to vector search.
+   * This fetches all records from the database and enqueues them for vector indexing.
+   *
+   * When `useQueue` is true (default), record IDs are enqueued for background processing by workers.
+   * When `useQueue` is false, records are indexed directly (blocking).
+   */
+  async reindexEntityToVector(params: ReindexEntityParams & { purgeFirst?: boolean }): Promise<ReindexResult> {
+    searchDebug('SearchIndexer', 'reindexEntityToVector called', {
+      entityId: params.entityId,
+      tenantId: params.tenantId,
+      organizationId: params.organizationId,
+      useQueue: params.useQueue,
+      purgeFirst: params.purgeFirst,
+    })
+
+    const result: ReindexResult = {
+      success: true,
+      entitiesProcessed: 0,
+      recordsIndexed: 0,
+      recordsDropped: 0,
+      jobsEnqueued: 0,
+      errors: [],
+    }
+
+    // If useQueue is requested but no queue is available, return error
+    if (params.useQueue !== false && !this.vectorQueue) {
+      result.success = false
+      result.errors.push({ entityId: params.entityId, error: 'Vector queue not configured for queue-based reindexing' })
+      return result
+    }
+
+    if (!this.queryEngine) {
+      result.success = false
+      result.errors.push({ entityId: params.entityId, error: 'QueryEngine not available for reindexing' })
+      return result
+    }
+
+    const config = this.entityConfigMap.get(params.entityId)
+    if (!config) {
+      result.success = false
+      result.errors.push({ entityId: params.entityId, error: 'Entity not configured for search' })
+      return result
+    }
+
+    try {
+      params.onProgress?.({
+        entityId: params.entityId,
+        phase: 'starting',
+        processed: 0,
+      })
+
+      // Optionally purge vector index first
+      if (params.purgeFirst) {
+        try {
+          await this.searchService.purge(params.entityId, params.tenantId)
+        } catch (error) {
+          searchDebugWarn('SearchIndexer', 'Failed to purge entity before vector reindex', {
+            entityId: params.entityId,
+            error: error instanceof Error ? error.message : error,
+          })
+        }
+      }
+
+      // Fetch and enqueue records with pagination
+      const pageSize = 200
+      let page = 1
+      let totalProcessed = 0
+      let jobsEnqueued = 0
+
+      for (;;) {
+        params.onProgress?.({
+          entityId: params.entityId,
+          phase: 'fetching',
+          processed: totalProcessed,
+        })
+
+        const queryResult = await this.queryEngine.query(params.entityId, {
+          tenantId: params.tenantId,
+          organizationId: params.organizationId ?? undefined,
+          page: { page, pageSize },
+        })
+
+        if (!queryResult.items.length) break
+
+        params.onProgress?.({
+          entityId: params.entityId,
+          phase: 'indexing',
+          processed: totalProcessed,
+          total: queryResult.total,
+        })
+
+        // Build batch of record references
+        const batchRecords: VectorBatchRecord[] = []
+        for (const item of queryResult.items) {
+          const recordId = String((item as Record<string, unknown>).id ?? '')
+          if (!recordId) {
+            result.recordsDropped = (result.recordsDropped ?? 0) + 1
+            continue
+          }
+          batchRecords.push({
+            entityId: params.entityId,
+            recordId,
+          })
+        }
+
+        // Enqueue batch for background processing or index directly
+        if (batchRecords.length > 0) {
+          if (params.useQueue !== false && this.vectorQueue) {
+            await this.vectorQueue.enqueue({
+              jobType: 'batch-index',
+              tenantId: params.tenantId,
+              organizationId: params.organizationId ?? null,
+              records: batchRecords,
+            })
+            jobsEnqueued += 1
+            totalProcessed += batchRecords.length
+            searchDebug('SearchIndexer', 'Enqueued batch for vector indexing', {
+              entityId: params.entityId,
+              batchSize: batchRecords.length,
+              jobsEnqueued,
+              totalProcessed,
+            })
+          } else {
+            // Direct indexing (blocking) - index each record via SearchService
+            for (const { entityId, recordId } of batchRecords) {
+              try {
+                await this.indexRecordById({
+                  entityId: entityId as EntityId,
+                  recordId,
+                  tenantId: params.tenantId,
+                  organizationId: params.organizationId,
+                })
+                totalProcessed++
+              } catch (error) {
+                searchDebugWarn('SearchIndexer', 'Failed to index record to vector', {
+                  entityId,
+                  recordId,
+                  error: error instanceof Error ? error.message : error,
+                })
+              }
+            }
+          }
+        }
+
+        if (queryResult.items.length < pageSize) break
+        page += 1
+
+        // Safety check to prevent infinite loops
+        if (page > MAX_PAGES) {
+          searchDebugWarn('SearchIndexer', 'Reached MAX_PAGES limit, stopping pagination', {
+            entityId: params.entityId,
+            maxPages: MAX_PAGES,
+            totalProcessed,
+          })
+          break
+        }
+      }
+
+      result.entitiesProcessed = 1
+      result.recordsIndexed = totalProcessed
+      result.jobsEnqueued = jobsEnqueued
+
+      params.onProgress?.({
+        entityId: params.entityId,
+        phase: 'complete',
+        processed: totalProcessed,
+        total: totalProcessed,
+      })
+    } catch (error) {
+      result.success = false
+      result.errors.push({
+        entityId: params.entityId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    return result
+  }
+
+  /**
+   * Reindex all enabled entities to vector search.
+   *
+   * When `useQueue` is true (default), batches are enqueued for background processing by workers.
+   * When `useQueue` is false, batches are indexed directly (blocking).
+   */
+  async reindexAllToVector(params: ReindexAllParams & { purgeFirst?: boolean }): Promise<ReindexResult> {
+    const result: ReindexResult = {
+      success: true,
+      entitiesProcessed: 0,
+      recordsIndexed: 0,
+      recordsDropped: 0,
+      jobsEnqueued: 0,
+      errors: [],
+    }
+
+    const entities = this.listEnabledEntities()
+    for (const entityId of entities) {
+      const entityResult = await this.reindexEntityToVector({
+        entityId,
+        tenantId: params.tenantId,
+        organizationId: params.organizationId,
+        onProgress: params.onProgress,
+        useQueue: params.useQueue,
+        purgeFirst: params.purgeFirst,
       })
 
       result.entitiesProcessed += entityResult.entitiesProcessed

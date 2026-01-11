@@ -3,11 +3,13 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { SearchIndexer } from '../../../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../../../vector'
+import type { Queue } from '@open-mercato/queue'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebug, searchDebugWarn, searchError } from '../../../../../lib/debug'
+import { acquireReindexLock, getReindexLockStatus } from '../../../lib/reindex-lock'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
@@ -31,6 +33,46 @@ export async function POST(req: Request) {
   const purgeFirst = payload?.purgeFirst === true
 
   const container = await createRequestContainer()
+
+  // Try to resolve the vector queue for smarter lock detection
+  let vectorQueue: Queue | undefined
+  try {
+    vectorQueue = container.resolve<Queue>('vectorIndexQueue')
+  } catch { /* Queue not available */ }
+
+  // Check if another vector reindex operation is already in progress
+  const existingLock = await getReindexLockStatus(container, auth.tenantId, { queue: vectorQueue, type: 'vector' })
+  if (existingLock) {
+    const startedAt = new Date(existingLock.startedAt)
+    return NextResponse.json(
+      {
+        error: t('search.api.errors.reindexInProgress', 'A reindex operation is already in progress'),
+        lock: {
+          type: existingLock.type,
+          action: existingLock.action,
+          startedAt: existingLock.startedAt,
+          elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+        },
+      },
+      { status: 409 }
+    )
+  }
+
+  // Acquire lock before starting the operation
+  const lockAcquired = await acquireReindexLock(container, {
+    type: 'vector',
+    action: entityId ? `reindex:${entityId}` : 'reindex:all',
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+  })
+
+  if (!lockAcquired) {
+    return NextResponse.json(
+      { error: t('search.api.errors.lockFailed', 'Failed to acquire reindex lock') },
+      { status: 409 }
+    )
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let em: any = null
@@ -83,20 +125,23 @@ export async function POST(req: Request) {
       },
     ).catch(() => undefined)
 
-    // Use SearchIndexer.reindexEntity or reindexAll which indexes via all strategies
+    // Use queue-based vector reindexing (similar to fulltext)
+    // This enqueues batches for background processing by workers
     let result
     if (entityId) {
-      result = await searchIndexer.reindexEntity({
+      result = await searchIndexer.reindexEntityToVector({
         entityId: entityId as EntityId,
         tenantId: auth.tenantId,
         organizationId: auth.orgId ?? null,
         purgeFirst,
+        useQueue: true,
       })
     } else {
-      result = await searchIndexer.reindexAll({
+      result = await searchIndexer.reindexAllToVector({
         tenantId: auth.tenantId,
         organizationId: auth.orgId ?? null,
         purgeFirst,
+        useQueue: true,
       })
     }
 
@@ -105,15 +150,16 @@ export async function POST(req: Request) {
       {
         source: 'vector',
         handler: 'api:search.embeddings.reindex',
-        message: entityId
-          ? `Vector reindex completed for ${entityId}`
-          : 'Vector reindex completed for all entities',
+        message: result.jobsEnqueued
+          ? `Vector reindex enqueued ${result.jobsEnqueued} jobs for ${entityId ?? 'all entities'}`
+          : `Vector reindex completed for ${entityId ?? 'all entities'}`,
         entityType: entityId ?? null,
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
         details: {
           purgeFirst,
           recordsIndexed: result.recordsIndexed,
+          jobsEnqueued: result.jobsEnqueued,
           success: result.success,
         },
       },
@@ -122,6 +168,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: result.success,
       recordsIndexed: result.recordsIndexed,
+      jobsEnqueued: result.jobsEnqueued,
       entitiesProcessed: result.entitiesProcessed,
       errors: result.errors.length > 0 ? result.errors : undefined,
     })
@@ -140,6 +187,10 @@ export async function POST(req: Request) {
       { status: status >= 400 ? status : 500 }
     )
   } finally {
+    // Do NOT clear lock here - let queue-aware stale detection handle it
+    // When the vector queue becomes empty AND lock is older than 2 minutes,
+    // getReindexLockStatus() will automatically clear the stale lock
+
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {
       await disposable.dispose()

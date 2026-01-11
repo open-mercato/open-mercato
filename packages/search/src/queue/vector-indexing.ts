@@ -4,17 +4,28 @@ import type { Queue } from '@open-mercato/queue'
 /**
  * Job types for vector indexing queue
  */
-export type VectorIndexJobType = 'index' | 'delete'
+export type VectorIndexJobType = 'index' | 'delete' | 'batch-index'
+
+/**
+ * Record reference for batch indexing
+ */
+export type VectorBatchRecord = {
+  entityId: string
+  recordId: string
+}
 
 /**
  * Payload for vector indexing jobs
  */
 export type VectorIndexJobPayload = {
   jobType: VectorIndexJobType
-  entityType: string
-  recordId: string
   tenantId: string
   organizationId: string | null
+  // For single record jobs (index/delete)
+  entityType?: string
+  recordId?: string
+  // For batch-index jobs
+  records?: VectorBatchRecord[]
 }
 
 /**

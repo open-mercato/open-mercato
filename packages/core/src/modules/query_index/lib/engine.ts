@@ -38,10 +38,16 @@ function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boo
 }
 
 function resolveDebugVerbosity(): boolean {
+  // Check explicit OM_QUERY_INDEX_DEBUG flag first
+  const queryIndexDebug = process.env.OM_QUERY_INDEX_DEBUG
+  if (queryIndexDebug !== undefined) {
+    return parseBooleanToken(queryIndexDebug, false)
+  }
+  // Fall back to log level or NODE_ENV
   const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
   if (['debug', 'trace', 'silly'].includes(level)) return true
-  const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
-  return nodeEnv === 'development'
+  // Default to false (don't spam logs in development)
+  return false
 }
 
 type ResultRow = Record<string, unknown>

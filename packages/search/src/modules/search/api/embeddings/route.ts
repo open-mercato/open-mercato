@@ -44,6 +44,7 @@ type SettingsResponse = {
     configuredProviders: EmbeddingProviderId[]
     indexedDimension: number | null
     reindexRequired: boolean
+    documentCount: number | null
   }
 }
 
@@ -67,6 +68,23 @@ async function getIndexedDimension(container: { resolve: <T = unknown>(name: str
     const pgvectorDriver = drivers.find((d) => d.id === 'pgvector')
     if (pgvectorDriver?.getTableDimension) {
       return await pgvectorDriver.getTableDimension()
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function getVectorDocumentCount(
+  container: { resolve: <T = unknown>(name: string) => T },
+  tenantId: string,
+  organizationId?: string | null,
+): Promise<number | null> {
+  try {
+    const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
+    const pgvectorDriver = drivers.find((d) => d.id === 'pgvector')
+    if (pgvectorDriver?.count) {
+      return await pgvectorDriver.count({ tenantId, organizationId: organizationId ?? undefined })
     }
     return null
   } catch {
@@ -104,6 +122,11 @@ export async function GET(req: Request) {
       indexedDimension !== effectiveDimension
     )
 
+    // Get document count for vector index
+    const documentCount = auth.tenantId
+      ? await getVectorDocumentCount(container, auth.tenantId, auth.orgId)
+      : null
+
     return toJson({
       settings: {
         openaiConfigured: openAiConfigured(),
@@ -114,6 +137,7 @@ export async function GET(req: Request) {
         configuredProviders,
         indexedDimension,
         reindexRequired,
+        documentCount,
       },
     })
   } finally {
@@ -248,6 +272,11 @@ export async function POST(req: Request) {
       }
     }
 
+    // Get updated document count
+    const updatedDocumentCount = auth.tenantId
+      ? await getVectorDocumentCount(container, auth.tenantId, auth.orgId)
+      : null
+
     return toJson({
       settings: {
         openaiConfigured: openAiConfigured(),
@@ -258,6 +287,7 @@ export async function POST(req: Request) {
         configuredProviders: getConfiguredProviders(),
         indexedDimension,
         reindexRequired,
+        documentCount: updatedDocumentCount,
       },
     })
   } catch (error) {

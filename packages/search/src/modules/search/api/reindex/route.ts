@@ -8,7 +8,9 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Queue } from '@open-mercato/queue'
 import { searchDebug, searchError } from '../../../../lib/debug'
+import { acquireReindexLock, clearReindexLock, getReindexLockStatus } from '../../lib/reindex-lock'
 
 /** Strategy with optional stats support */
 type StrategyWithStats = SearchStrategy & {
@@ -69,12 +71,50 @@ export async function POST(req: Request) {
     payload.action === 'clear' ? 'clear' :
     payload.action === 'recreate' ? 'recreate' : 'reindex'
   const entityId = typeof payload.entityId === 'string' ? payload.entityId : undefined
-  // Force direct indexing when using local queue strategy (no background worker)
-  const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-  const useQueue = queueStrategy === 'async' && payload.useQueue === true
+  // Use queue when client requests it (requires queue workers to be running)
+  const useQueue = payload.useQueue === true
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+
+  // Try to resolve the fulltext queue for smarter lock detection
+  let fulltextQueue: Queue | undefined
+  try {
+    fulltextQueue = container.resolve<Queue>('fulltextIndexQueue')
+  } catch { /* Queue not available */ }
+
+  // Check if another fulltext reindex operation is already in progress
+  const existingLock = await getReindexLockStatus(container, auth.tenantId, { queue: fulltextQueue, type: 'fulltext' })
+  if (existingLock) {
+    const startedAt = new Date(existingLock.startedAt)
+    return NextResponse.json(
+      {
+        error: t('search.api.errors.reindexInProgress', 'A reindex operation is already in progress'),
+        lock: {
+          type: existingLock.type,
+          action: existingLock.action,
+          startedAt: existingLock.startedAt,
+          elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+        },
+      },
+      { status: 409 }
+    )
+  }
+
+  // Acquire lock before starting the operation
+  const lockAcquired = await acquireReindexLock(container, {
+    type: 'fulltext',
+    action,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+  })
+
+  if (!lockAcquired) {
+    return NextResponse.json(
+      { error: t('search.api.errors.lockFailed', 'Failed to acquire reindex lock') },
+      { status: 409 }
+    )
+  }
 
   try {
     // Get all search strategies
@@ -359,6 +399,13 @@ export async function POST(req: Request) {
       { status: 500 }
     )
   } finally {
+    // Only clear lock immediately if NOT using queue mode
+    // When using queue mode, the lock will auto-clear via smart detection
+    // when the queue becomes empty (handled by getReindexLockStatus)
+    if (!useQueue) {
+      await clearReindexLock(container, auth.tenantId, 'fulltext')
+    }
+
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {
       await disposable.dispose()

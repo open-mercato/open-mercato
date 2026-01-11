@@ -134,7 +134,6 @@ export function GlobalSearchDialog({
       try {
         const data = await fetchGlobalSearchResults(query, {
           limit: 10,
-          strategies: enabledStrategies,
           signal: controller.signal,
         })
         setResults(data.results)
