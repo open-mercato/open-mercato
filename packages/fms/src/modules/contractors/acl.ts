@@ -3,7 +3,6 @@ export const features = [
   { id: 'contractors.create', title: 'Create contractors', module: 'contractors' },
   { id: 'contractors.edit', title: 'Edit contractors', module: 'contractors' },
   { id: 'contractors.delete', title: 'Delete contractors', module: 'contractors' },
-  { id: 'contractors.manage_roles', title: 'Manage contractor roles', module: 'contractors' },
   { id: 'contractors.manage_financial', title: 'Manage payment terms and credit limits', module: 'contractors' },
   { id: 'contractors.admin', title: 'Administer role types', module: 'contractors' },
 ]

@@ -63,7 +63,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const contractor = await em.findOne(Contractor, filters, {
-    populate: ['addresses', 'contacts', 'roles', 'roles.roleType', 'paymentTerms', 'creditLimit'],
+    populate: ['addresses', 'contacts', 'paymentTerms', 'creditLimit'],
   })
 
   if (!contractor) return NextResponse.json({ error: 'Contractor not found' }, { status: 404 })
@@ -73,11 +73,8 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     id: contractor.id,
     name: contractor.name,
     shortName: contractor.shortName,
-    code: contractor.code,
     parentId: contractor.parentId,
     taxId: contractor.taxId,
-    legalName: contractor.legalName,
-    registrationNumber: contractor.registrationNumber,
     isActive: contractor.isActive,
     createdAt: contractor.createdAt.toISOString(),
     updatedAt: contractor.updatedAt.toISOString(),
@@ -85,8 +82,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       id: addr.id,
       purpose: addr.purpose,
       label: addr.label,
-      addressLine1: addr.addressLine1,
-      addressLine2: addr.addressLine2,
+      addressLine: addr.addressLine,
       city: addr.city,
       state: addr.state,
       postalCode: addr.postalCode,
@@ -100,31 +96,14 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       id: contact.id,
       firstName: contact.firstName,
       lastName: contact.lastName,
-      jobTitle: contact.jobTitle,
-      department: contact.department,
       email: contact.email,
       phone: contact.phone,
-      mobile: contact.mobile,
       isPrimary: contact.isPrimary,
       isActive: contact.isActive,
-      notes: contact.notes,
       createdAt: contact.createdAt.toISOString(),
       updatedAt: contact.updatedAt.toISOString(),
     })),
-    roles: contractor.roles.getItems().map((role) => ({
-      id: role.id,
-      roleTypeId: role.roleType.id,
-      roleTypeName: role.roleType.name,
-      roleTypeCode: role.roleType.code,
-      roleTypeColor: role.roleType.color,
-      roleTypeCategory: role.roleType.category,
-      isActive: role.isActive,
-      effectiveFrom: role.effectiveFrom?.toISOString() ?? null,
-      effectiveTo: role.effectiveTo?.toISOString() ?? null,
-      settings: role.settings,
-      createdAt: role.createdAt.toISOString(),
-      updatedAt: role.updatedAt.toISOString(),
-    })),
+    roleTypeIds: contractor.roleTypeIds ?? [],
     paymentTerms: contractor.paymentTerms ? {
       id: contractor.paymentTerms.id,
       paymentDays: contractor.paymentTerms.paymentDays,
@@ -144,11 +123,6 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
       creditLimit: contractor.creditLimit.creditLimit,
       currencyCode: contractor.creditLimit.currencyCode,
       isUnlimited: contractor.creditLimit.isUnlimited,
-      currentExposure: contractor.creditLimit.currentExposure,
-      lastCalculatedAt: contractor.creditLimit.lastCalculatedAt?.toISOString() ?? null,
-      requiresApprovalAbove: contractor.creditLimit.requiresApprovalAbove,
-      approvedById: contractor.creditLimit.approvedById,
-      approvedAt: contractor.creditLimit.approvedAt?.toISOString() ?? null,
       notes: contractor.creditLimit.notes,
       createdAt: contractor.creditLimit.createdAt.toISOString(),
       updatedAt: contractor.creditLimit.updatedAt.toISOString(),
@@ -191,11 +165,10 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   if (data.name !== undefined) contractor.name = data.name
   if (data.shortName !== undefined) contractor.shortName = data.shortName
-  if (data.code !== undefined) contractor.code = data.code
   if (data.parentId !== undefined) contractor.parentId = data.parentId
   if (data.taxId !== undefined) contractor.taxId = data.taxId
-  if (data.legalName !== undefined) contractor.legalName = data.legalName
-  if (data.registrationNumber !== undefined) contractor.registrationNumber = data.registrationNumber
+  if (data.isActive !== undefined) contractor.isActive = data.isActive
+  if (data.roleTypeIds !== undefined) contractor.roleTypeIds = data.roleTypeIds
 
   contractor.updatedAt = new Date()
 
@@ -205,12 +178,10 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
     id: contractor.id,
     name: contractor.name,
     shortName: contractor.shortName,
-    code: contractor.code,
     parentId: contractor.parentId,
     taxId: contractor.taxId,
-    legalName: contractor.legalName,
-    registrationNumber: contractor.registrationNumber,
     isActive: contractor.isActive,
+    roleTypeIds: contractor.roleTypeIds ?? [],
     createdAt: contractor.createdAt.toISOString(),
     updatedAt: contractor.updatedAt.toISOString(),
   })

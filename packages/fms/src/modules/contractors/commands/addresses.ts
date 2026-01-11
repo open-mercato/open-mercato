@@ -41,8 +41,7 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       contractor,
       purpose: parsed.purpose,
       label: parsed.label ?? null,
-      addressLine1: parsed.addressLine1,
-      addressLine2: parsed.addressLine2 ?? null,
+      addressLine: parsed.addressLine,
       city: parsed.city,
       state: parsed.state ?? null,
       postalCode: parsed.postalCode ?? null,
@@ -77,8 +76,7 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
 
     if (parsed.purpose !== undefined) address.purpose = parsed.purpose
     if (parsed.label !== undefined) address.label = parsed.label ?? null
-    if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
-    if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
+    if (parsed.addressLine !== undefined) address.addressLine = parsed.addressLine
     if (parsed.city !== undefined) address.city = parsed.city
     if (parsed.state !== undefined) address.state = parsed.state ?? null
     if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { NextResponse } from 'next/server'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { Contractor } from '../../data/entities'
+import { Contractor, ContractorRoleType } from '../../data/entities'
 import { contractorCreateSchema, contractorUpdateSchema, contractorListQuerySchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
@@ -13,6 +13,45 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const rawBodySchema = z.object({}).passthrough()
+
+// Field mapping from frontend camelCase to database field names
+const FIELD_MAP: Record<string, string> = {
+  name: 'name',
+  shortName: 'shortName',
+  taxId: 'taxId',
+  isActive: 'isActive',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt',
+}
+
+// Parse DynamicTable FilterRow into MikroORM filter format
+function parseFilterRow(row: { field: string; operator: string; values: unknown[] }): Record<string, unknown> | null {
+  const field = FIELD_MAP[row.field]
+  if (!field) return null
+
+  switch (row.operator) {
+    case 'is_any_of':
+      return { [field]: { $in: row.values } }
+    case 'is_not_any_of':
+      return { [field]: { $nin: row.values } }
+    case 'contains':
+      return { [field]: { $ilike: `%${row.values[0] || ''}%` } }
+    case 'is_empty':
+      return { [field]: { $eq: null } }
+    case 'is_not_empty':
+      return { [field]: { $ne: null } }
+    case 'equals':
+      return { [field]: { $eq: row.values[0] } }
+    case 'not_equals':
+      return { [field]: { $ne: row.values[0] } }
+    case 'is_true':
+      return { [field]: { $eq: true } }
+    case 'is_false':
+      return { [field]: { $eq: false } }
+    default:
+      return null
+  }
+}
 
 const listSchema = contractorListQuerySchema.extend({
   page: z.coerce.number().min(1).default(1),
@@ -45,20 +84,17 @@ const crud = makeCrudRoute({
       'id',
       'name',
       'short_name',
-      'code',
       'parent_id',
       'tax_id',
-      'legal_name',
-      'registration_number',
       'is_active',
       'organization_id',
       'tenant_id',
       'created_at',
       'updated_at',
+      'role_type_ids',
     ],
     sortFieldMap: {
       name: 'name',
-      code: 'code',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -69,7 +105,6 @@ const crud = makeCrudRoute({
         const pattern = `%${escapeLikePattern(query.search)}%`
         filters.$or = [
           { name: { $ilike: pattern } },
-          { code: { $ilike: pattern } },
           { tax_id: { $ilike: pattern } },
         ]
       }
@@ -92,11 +127,8 @@ const crud = makeCrudRoute({
       id: item.id,
       name: item.name,
       shortName: item.short_name ?? null,
-      code: item.code ?? null,
       parentId: item.parent_id ?? null,
       taxId: item.tax_id ?? null,
-      legalName: item.legal_name ?? null,
-      registrationNumber: item.registration_number ?? null,
       isActive: item.is_active ?? true,
       organizationId: item.organization_id,
       tenantId: item.tenant_id,
@@ -206,6 +238,17 @@ export async function GET(req: Request) {
 
   const { page, pageSize, sortField, sortDir, search, isActive, hasParent } = parsed.data
 
+  // Parse DynamicTable filters from query string
+  const filtersParam = url.searchParams.get('filters')
+  let dynamicFilters: Array<{ field: string; operator: string; values: unknown[] }> = []
+  if (filtersParam) {
+    try {
+      dynamicFilters = JSON.parse(filtersParam)
+    } catch {
+      // Ignore invalid JSON
+    }
+  }
+
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const em = container.resolve('em') as EntityManager
@@ -216,11 +259,21 @@ export async function GET(req: Request) {
     ...scopeFilters,
   }
 
+  // Apply DynamicTable filters
+  if (dynamicFilters.length > 0) {
+    const parsedFilters = dynamicFilters
+      .map(parseFilterRow)
+      .filter((f): f is Record<string, unknown> => f !== null)
+
+    if (parsedFilters.length > 0) {
+      filters.$and = [...(filters.$and as Record<string, unknown>[] || []), ...parsedFilters]
+    }
+  }
+
   if (search) {
     const pattern = `%${escapeLikePattern(search)}%`
     filters.$or = [
       { name: { $ilike: pattern } },
-      { code: { $ilike: pattern } },
       { taxId: { $ilike: pattern } },
     ]
   }
@@ -239,24 +292,35 @@ export async function GET(req: Request) {
 
   const orderBy: Record<string, 'asc' | 'desc'> = {}
   if (sortField) {
-    const fieldMap: Record<string, string> = {
-      name: 'name',
-      code: 'code',
-      createdAt: 'createdAt',
-      updatedAt: 'updatedAt',
-    }
-    const dbField = fieldMap[sortField] || 'createdAt'
+    const dbField = FIELD_MAP[sortField] || 'createdAt'
     orderBy[dbField] = sortDir || 'desc'
   } else {
     orderBy.createdAt = 'desc'
   }
 
   const [contractors, total] = await em.findAndCount(Contractor, filters, {
-    populate: ['roles', 'roles.roleType', 'creditLimit', 'paymentTerms', 'contacts', 'addresses'],
+    populate: ['creditLimit', 'paymentTerms', 'contacts', 'addresses'],
     limit: pageSize,
     offset: (page - 1) * pageSize,
     orderBy,
   })
+
+  // Collect all role type IDs from all contractors
+  const allRoleTypeIds = new Set<string>()
+  contractors.forEach((contractor) => {
+    if (contractor.roleTypeIds && Array.isArray(contractor.roleTypeIds)) {
+      contractor.roleTypeIds.forEach((id) => allRoleTypeIds.add(id))
+    }
+  })
+
+  // Fetch all role types in one query
+  const roleTypesMap = new Map<string, ContractorRoleType>()
+  if (allRoleTypeIds.size > 0) {
+    const roleTypes = await em.find(ContractorRoleType, {
+      id: { $in: [...allRoleTypeIds] },
+    })
+    roleTypes.forEach((rt) => roleTypesMap.set(rt.id, rt))
+  }
 
   const items = contractors.map((contractor) => {
     // Find primary contact or first active contact
@@ -267,29 +331,33 @@ export async function GET(req: Request) {
     const addresses = contractor.addresses.getItems()
     const primaryAddress = addresses.find(a => a.isPrimary && a.isActive) ?? addresses.find(a => a.isActive) ?? null
 
+    // Map role type IDs to role type details
+    const roles = (contractor.roleTypeIds ?? [])
+      .map((id) => roleTypesMap.get(id))
+      .filter((rt): rt is ContractorRoleType => rt != null)
+      .map((rt) => ({
+        id: rt.id,
+        roleTypeId: rt.id,
+        roleTypeName: rt.name,
+        roleTypeCode: rt.code,
+        roleTypeColor: rt.color,
+        roleTypeCategory: rt.category,
+        isActive: true,
+      }))
+
     return {
       id: contractor.id,
       name: contractor.name,
       shortName: contractor.shortName ?? null,
-      code: contractor.code ?? null,
       parentId: contractor.parentId ?? null,
       taxId: contractor.taxId ?? null,
-      legalName: contractor.legalName ?? null,
-      registrationNumber: contractor.registrationNumber ?? null,
       isActive: contractor.isActive,
       organizationId: contractor.organizationId,
       tenantId: contractor.tenantId,
       createdAt: contractor.createdAt?.toISOString(),
       updatedAt: contractor.updatedAt?.toISOString(),
-      roles: contractor.roles.getItems().map((role) => ({
-        id: role.id,
-        roleTypeId: role.roleType.id,
-        roleTypeName: role.roleType.name,
-        roleTypeCode: role.roleType.code,
-        roleTypeColor: role.roleType.color,
-        roleTypeCategory: role.roleType.category,
-        isActive: role.isActive,
-      })),
+      roleTypeIds: contractor.roleTypeIds ?? [],
+      roles,
       creditLimit: contractor.creditLimit ? {
         creditLimit: contractor.creditLimit.creditLimit,
         currencyCode: contractor.creditLimit.currencyCode,
@@ -302,7 +370,7 @@ export async function GET(req: Request) {
       } : null,
       primaryContactEmail: primaryContact?.email ?? null,
       primaryAddress: primaryAddress ? {
-        addressLine1: primaryAddress.addressLine1,
+        addressLine: primaryAddress.addressLine,
         city: primaryAddress.city,
         countryCode: primaryAddress.countryCode,
       } : null,

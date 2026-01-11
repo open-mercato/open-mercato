@@ -216,11 +216,9 @@ export function createMouseHandlers(
   const { handleDragStart, handleDragMove, handleDragEnd } = dragHandlers;
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Save any current editing
-    const editing = store.getEditingCell();
-    if (editing) {
-      store.clearEditing();
-    }
+    // Don't clear editing here - let blur/click-outside handlers save first.
+    // The editor's blur handler calls onSave -> handleCellSave -> clearEditing,
+    // ensuring the value is saved before the editing state is cleared.
 
     const cell = (e.target as HTMLElement).closest('td');
     if (!cell) return;

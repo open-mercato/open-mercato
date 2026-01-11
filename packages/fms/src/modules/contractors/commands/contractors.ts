@@ -54,11 +54,8 @@ const createContractorCommand: CommandHandler<ScopedContractorCreateInput, { con
       tenantId,
       name: parsed.name,
       shortName: parsed.shortName ?? null,
-      code: parsed.code ?? null,
       parentId: parsed.parentId ?? null,
       taxId: parsed.taxId ?? null,
-      legalName: parsed.legalName ?? null,
-      registrationNumber: parsed.registrationNumber ?? null,
       isActive: parsed.isActive ?? true,
     })
 
@@ -91,11 +88,8 @@ const updateContractorCommand: CommandHandler<ScopedContractorUpdateInput, { con
 
     if (parsed.name !== undefined) contractor.name = parsed.name
     if (parsed.shortName !== undefined) contractor.shortName = parsed.shortName ?? null
-    if (parsed.code !== undefined) contractor.code = parsed.code ?? null
     if (parsed.parentId !== undefined) contractor.parentId = parsed.parentId ?? null
     if (parsed.taxId !== undefined) contractor.taxId = parsed.taxId ?? null
-    if (parsed.legalName !== undefined) contractor.legalName = parsed.legalName ?? null
-    if (parsed.registrationNumber !== undefined) contractor.registrationNumber = parsed.registrationNumber ?? null
     if (parsed.isActive !== undefined) contractor.isActive = parsed.isActive
 
     await em.flush()
