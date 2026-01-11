@@ -121,7 +121,7 @@ export function useBookingResourceFormConfig(options: {
         id: 'description',
         label: t('booking.resources.form.fields.description', 'Description'),
         type: 'richtext',
-        editor: 'simple',
+        editor: 'uiw',
       },
       {
         id: 'resourceTypeId',

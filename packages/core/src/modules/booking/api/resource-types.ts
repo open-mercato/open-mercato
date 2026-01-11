@@ -3,7 +3,9 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { BookingResourceType } from '../data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { BookingResource, BookingResourceType } from '../data/entities'
 import { bookingResourceTypeCreateSchema, bookingResourceTypeUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm } from './helpers'
 import { E } from '@/generated/entities.ids.generated'
@@ -109,6 +111,49 @@ const crud = makeCrudRoute({
         return { id }
       },
       response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const items: Array<Record<string, unknown>> = Array.isArray(payload?.items)
+        ? (payload.items as Array<Record<string, unknown>>)
+        : []
+      if (!items.length) return
+      const typeIds = items
+        .map((item) => (typeof item.id === 'string' ? item.id : null))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      if (!typeIds.length) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const tenantId = ctx.organizationScope?.tenantId ?? ctx.auth?.tenantId ?? null
+      const orgIds = ctx.organizationIds ?? ctx.organizationScope?.filterIds ?? null
+      const orgFilter =
+        Array.isArray(orgIds) && orgIds.length > 0
+          ? { $in: orgIds }
+          : ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null
+      const scope = { tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null }
+      const resources = await findWithDecryption(
+        em,
+        BookingResource,
+        {
+          resourceTypeId: { $in: typeIds },
+          deletedAt: null,
+          ...(tenantId ? { tenantId } : {}),
+          ...(orgFilter ? { organizationId: orgFilter } : {}),
+        },
+        { fields: ['id', 'resourceTypeId'] },
+        scope,
+      )
+      const countMap = new Map<string, number>()
+      resources.forEach((resource) => {
+        const typeId = resource.resourceTypeId ?? null
+        if (!typeId) return
+        countMap.set(typeId, (countMap.get(typeId) ?? 0) + 1)
+      })
+      items.forEach((item) => {
+        const id = typeof item.id === 'string' ? item.id : null
+        if (!id) return
+        item.resourceCount = countMap.get(id) ?? 0
+      })
     },
   },
 })

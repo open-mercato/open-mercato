@@ -22,6 +22,7 @@ export default function BookingResourceTypeEditPage({ params }: { params?: { id?
   const [initialValues, setInitialValues] = React.useState<ResourceTypeFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [resourceCount, setResourceCount] = React.useState(0)
 
   React.useEffect(() => {
     if (!resourceTypeId) return
@@ -57,6 +58,11 @@ export default function BookingResourceTypeEditPage({ params }: { params?: { id?
             },
             ...customValues,
           })
+          setResourceCount(typeof item.resourceCount === 'number'
+            ? item.resourceCount
+            : typeof item.resource_count === 'number'
+              ? item.resource_count
+              : 0)
         }
       } catch (err) {
         console.error('booking.resource-types.load', err)
@@ -81,12 +87,16 @@ export default function BookingResourceTypeEditPage({ params }: { params?: { id?
 
   const handleDelete = React.useCallback(async () => {
     if (!resourceTypeId) return
+    if (resourceCount > 0) {
+      flash(t('booking.resourceTypes.errors.deleteAssigned', 'Resource type has assigned resources.'), 'error')
+      return
+    }
     await deleteCrud('booking/resource-types', resourceTypeId, {
       errorMessage: t('booking.resourceTypes.errors.delete', 'Failed to delete resource type.'),
     })
     flash(t('booking.resourceTypes.messages.deleted', 'Resource type deleted.'), 'success')
     router.push('/backend/booking/resource-types')
-  }, [resourceTypeId, router, t])
+  }, [resourceCount, resourceTypeId, router, t])
 
   return (
     <Page>
@@ -100,6 +110,7 @@ export default function BookingResourceTypeEditPage({ params }: { params?: { id?
           isLoading={loading}
           onSubmit={handleSubmit}
           onDelete={handleDelete}
+          deleteVisible={resourceCount === 0}
         />
       </PageBody>
     </Page>

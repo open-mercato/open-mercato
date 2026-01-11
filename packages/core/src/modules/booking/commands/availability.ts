@@ -2,6 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { BookingAvailabilityRule } from '../data/entities'
 import {
   bookingAvailabilityRuleCreateSchema,
@@ -37,6 +38,16 @@ const createAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleCreat
     await em.flush()
     return { ruleId: record.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.availability.create', 'Create availability rule'),
+      resourceKind: 'booking.availability',
+      resourceId: result?.ruleId ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const updateAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleUpdateInput, { ruleId: string }> = {
@@ -60,6 +71,16 @@ const updateAvailabilityRuleCommand: CommandHandler<BookingAvailabilityRuleUpdat
     await em.flush()
     return { ruleId: record.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.availability.update', 'Update availability rule'),
+      resourceKind: 'booking.availability',
+      resourceId: result?.ruleId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: string }> = {
@@ -75,6 +96,16 @@ const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: s
     record.deletedAt = new Date()
     await em.flush()
     return { ruleId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.availability.delete', 'Delete availability rule'),
+      resourceKind: 'booking.availability',
+      resourceId: result?.ruleId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
   },
 }
 

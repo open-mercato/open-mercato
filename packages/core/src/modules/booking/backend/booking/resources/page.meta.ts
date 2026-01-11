@@ -15,7 +15,7 @@ export const metadata = {
   pageTitleKey: 'booking.resources.page.title',
   pageGroup: 'Booking',
   pageGroupKey: 'booking.nav.group',
-  pageOrder: 90,
+  pageOrder: 31,
   icon: resourcesIcon,
   breadcrumb: [{ label: 'Resources', labelKey: 'booking.resources.page.title' }],
 }

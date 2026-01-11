@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -75,6 +75,24 @@ export default function BookingResourcesPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const resourceTypeFilter = searchParams.get('resourceTypeId')
+  const selectedResourceTypeId = typeof filterValues.resourceTypeId === 'string'
+    ? filterValues.resourceTypeId
+    : resourceTypeFilter
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [resourceTypeFilter])
+
+  React.useEffect(() => {
+    if (!resourceTypeFilter) return
+    setFilterValues((prev) => {
+      if (prev.resourceTypeId === resourceTypeFilter) return prev
+      if (typeof prev.resourceTypeId === 'string' && prev.resourceTypeId.length > 0) return prev
+      return { ...prev, resourceTypeId: resourceTypeFilter }
+    })
+  }, [resourceTypeFilter])
 
   React.useEffect(() => {
     let cancelled = false
@@ -169,7 +187,19 @@ export default function BookingResourcesPage() {
     [],
   )
 
+  const resourceTypeOptions = React.useMemo<FilterOption[]>(() => {
+    const entries = Array.from(resourceTypes.values())
+    entries.sort((a, b) => a.name.localeCompare(b.name))
+    return entries.map((entry) => ({ value: entry.id, label: entry.name }))
+  }, [resourceTypes])
+
   const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'resourceTypeId',
+      label: t('booking.resources.list.filters.resourceType', 'Resource type'),
+      type: 'select',
+      options: resourceTypeOptions,
+    },
     {
       id: 'tagIds',
       label: t('booking.resources.list.filters.tags', 'Tags'),
@@ -177,7 +207,7 @@ export default function BookingResourcesPage() {
       loadOptions: loadTagOptions,
       options: tagOptions,
     },
-  ], [loadTagOptions, tagOptions, t])
+  ], [loadTagOptions, resourceTypeOptions, tagOptions, t])
 
   const groupedRows = React.useMemo(() => {
     const grouped: ResourceTableRow[] = []
@@ -246,6 +276,7 @@ export default function BookingResourcesPage() {
           pageSize: String(PAGE_SIZE),
         })
         if (search) params.set('search', search)
+        if (selectedResourceTypeId) params.set('resourceTypeId', selectedResourceTypeId)
         const tagIds = Array.isArray(filterValues.tagIds)
           ? filterValues.tagIds
               .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
@@ -277,7 +308,7 @@ export default function BookingResourcesPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [filterValues, page, search, scopeVersion, t])
+  }, [filterValues, page, search, scopeVersion, selectedResourceTypeId, t])
 
   const handleDelete = React.useCallback(async (row: ResourceTableRow) => {
     if (row.rowKind !== 'resource') return

@@ -15,6 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { Package } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
 
@@ -32,6 +33,7 @@ type ResourceTypeRow = {
   appearanceIcon: string | null
   appearanceColor: string | null
   updatedAt: string | null
+  resourceCount: number
 }
 
 type ResourceTypesResponse = {
@@ -60,6 +62,7 @@ export default function BookingResourceTypesPage() {
       name: translate('booking.resourceTypes.table.name', 'Name'),
       description: translate('booking.resourceTypes.table.description', 'Description'),
       appearance: translate('booking.resourceTypes.table.appearance', 'Appearance'),
+      resources: translate('booking.resourceTypes.table.resources', 'Resources'),
       updatedAt: translate('booking.resourceTypes.table.updatedAt', 'Updated'),
       empty: translate('booking.resourceTypes.table.empty', 'No resource types yet.'),
       search: translate('booking.resourceTypes.table.search', 'Search resource types…'),
@@ -69,6 +72,7 @@ export default function BookingResourceTypesPage() {
       edit: translate('booking.resourceTypes.actions.edit', 'Edit'),
       delete: translate('booking.resourceTypes.actions.delete', 'Delete'),
       deleteConfirm: translate('booking.resourceTypes.actions.deleteConfirm', 'Delete resource type "{{name}}"?'),
+      showResources: translate('booking.resourceTypes.actions.showResources', 'Show resources ({{count}})'),
       refresh: translate('booking.resourceTypes.actions.refresh', 'Refresh'),
     },
     form: {
@@ -87,6 +91,7 @@ export default function BookingResourceTypesPage() {
       load: translate('booking.resourceTypes.errors.load', 'Failed to load resource types.'),
       save: translate('booking.resourceTypes.errors.save', 'Failed to save resource type.'),
       delete: translate('booking.resourceTypes.errors.delete', 'Failed to delete resource type.'),
+      deleteAssigned: translate('booking.resourceTypes.errors.deleteAssigned', 'Resource type has assigned resources.'),
     },
   }), [translate])
 
@@ -125,9 +130,24 @@ export default function BookingResourceTypesPage() {
       },
     },
     {
+      accessorKey: 'resourceCount',
+      header: translations.table.resources,
+      meta: { priority: 3 },
+      cell: ({ row }) => (
+        <Link
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          href={`/backend/booking/resources?resourceTypeId=${encodeURIComponent(row.original.id)}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Package className="h-4 w-4" aria-hidden />
+          {translations.actions.showResources.replace('{{count}}', String(row.original.resourceCount))}
+        </Link>
+      ),
+    },
+    {
       accessorKey: 'description',
       header: translations.table.description,
-      meta: { priority: 4 },
+      meta: { priority: 5 },
       cell: ({ row }) => row.original.description ? (
         <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS} className={MARKDOWN_DESCRIPTION_CLASSNAME}>
           {row.original.description}
@@ -139,12 +159,19 @@ export default function BookingResourceTypesPage() {
     {
       accessorKey: 'updatedAt',
       header: translations.table.updatedAt,
-      meta: { priority: 3 },
+      meta: { priority: 4 },
       cell: ({ row }) => row.original.updatedAt
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">—</span>,
     },
-  ], [translations.table.appearance, translations.table.description, translations.table.name, translations.table.updatedAt])
+  ], [
+    translations.actions.showResources,
+    translations.table.appearance,
+    translations.table.description,
+    translations.table.name,
+    translations.table.resources,
+    translations.table.updatedAt,
+  ])
 
   const loadResourceTypes = React.useCallback(async () => {
     setIsLoading(true)
@@ -192,6 +219,10 @@ export default function BookingResourceTypesPage() {
   }, [])
 
   const handleDelete = React.useCallback(async (entry: ResourceTypeRow) => {
+    if (entry.resourceCount > 0) {
+      flash(translations.errors.deleteAssigned, 'error')
+      return
+    }
     const message = translations.actions.deleteConfirm.replace('{{name}}', entry.name)
     if (typeof window !== 'undefined' && !window.confirm(message)) return
     try {
@@ -202,7 +233,7 @@ export default function BookingResourceTypesPage() {
       console.error('booking.resource-types.delete', error)
       flash(translations.errors.delete, 'error')
     }
-  }, [handleRefresh, translations.actions.deleteConfirm, translations.errors.delete, translations.messages.deleted])
+  }, [handleRefresh, translations.actions.deleteConfirm, translations.errors.delete, translations.errors.deleteAssigned, translations.messages.deleted])
 
   return (
     <Page>
@@ -236,7 +267,9 @@ export default function BookingResourceTypesPage() {
             <RowActions
               items={[
                 { label: translations.actions.edit, href: `/backend/booking/resource-types/${row.id}/edit` },
-                { label: translations.actions.delete, destructive: true, onSelect: () => handleDelete(row) },
+                ...(row.resourceCount > 0
+                  ? []
+                  : [{ label: translations.actions.delete, destructive: true, onSelect: () => handleDelete(row) }]),
               ]}
             />
           )}
@@ -271,7 +304,12 @@ function mapApiResourceType(item: Record<string, unknown>): ResourceTypeRow {
     : typeof item.updated_at === 'string'
       ? item.updated_at
       : null
-  return { id, name, description, appearanceIcon, appearanceColor, updatedAt }
+  const resourceCount = typeof item.resourceCount === 'number'
+    ? item.resourceCount
+    : typeof item.resource_count === 'number'
+      ? item.resource_count
+      : 0
+  return { id, name, description, appearanceIcon, appearanceColor, updatedAt, resourceCount }
 }
 
 function formatDateTime(value: string): string {

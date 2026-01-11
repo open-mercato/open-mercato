@@ -47,6 +47,16 @@ const createAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
     })
     return { ruleSetId: record.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.availabilityRuleSets.create', 'Create availability schedule'),
+      resourceKind: 'booking.availabilityRuleSet',
+      resourceId: result?.ruleSetId ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSetUpdateInput, { ruleSetId: string }> = {
@@ -74,6 +84,16 @@ const updateAvailabilityRuleSetCommand: CommandHandler<BookingAvailabilityRuleSe
       values: custom,
     })
     return { ruleSetId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.availabilityRuleSets.update', 'Update availability schedule'),
+      resourceKind: 'booking.availabilityRuleSet',
+      resourceId: result?.ruleSetId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
   },
 }
 
@@ -113,6 +133,16 @@ const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSe
     record.deletedAt = new Date()
     await em.flush()
     return { ruleSetId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.availabilityRuleSets.delete', 'Delete availability schedule'),
+      resourceKind: 'booking.availabilityRuleSet',
+      resourceId: result?.ruleSetId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
   },
 }
 

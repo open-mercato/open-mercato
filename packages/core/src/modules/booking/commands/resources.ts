@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { BookingResource, BookingResourceTag, BookingResourceTagAssignment } from '../data/entities'
 import {
@@ -172,6 +173,16 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
     await em.flush()
     return { resourceId: record.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.resources.create', 'Create resource'),
+      resourceKind: 'booking.resource',
+      resourceId: result?.resourceId ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resourceId: string }> = {
@@ -237,6 +248,16 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     })
     return { resourceId: record.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.resources.update', 'Update resource'),
+      resourceKind: 'booking.resource',
+      resourceId: result?.resourceId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: string }> = {
@@ -258,6 +279,16 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     record.deletedAt = new Date()
     await em.flush()
     return { resourceId: record.id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.resources.delete', 'Delete resource'),
+      resourceKind: 'booking.resource',
+      resourceId: result?.resourceId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
   },
 }
 

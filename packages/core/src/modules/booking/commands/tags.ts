@@ -2,6 +2,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { BookingResourceTag, BookingResourceTagAssignment } from '../data/entities'
 import {
   bookingResourceTagCreateSchema,
@@ -37,6 +38,16 @@ const createTagCommand: CommandHandler<BookingResourceTagCreateInput, { tagId: s
     await em.persistAndFlush(tag)
     return { tagId: tag.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.resourceTags.create', 'Create resource tag'),
+      resourceKind: 'booking.resourceTag',
+      resourceId: result?.tagId ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const updateTagCommand: CommandHandler<BookingResourceTagUpdateInput, { tagId: string }> = {
@@ -67,6 +78,16 @@ const updateTagCommand: CommandHandler<BookingResourceTagUpdateInput, { tagId: s
     await em.flush()
     return { tagId: tag.id }
   },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.resourceTags.update', 'Update resource tag'),
+      resourceKind: 'booking.resourceTag',
+      resourceId: result?.tagId ?? input?.id ?? null,
+      tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
+      organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
+  },
 }
 
 const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
@@ -83,6 +104,16 @@ const deleteTagCommand: CommandHandler<{ id?: string }, { tagId: string }> = {
     em.remove(tag)
     await em.flush()
     return { tagId: id }
+  },
+  buildLog: async ({ input, result, ctx }) => {
+    const { translate } = await resolveTranslations()
+    return {
+      actionLabel: translate('booking.audit.resourceTags.delete', 'Delete resource tag'),
+      resourceKind: 'booking.resourceTag',
+      resourceId: result?.tagId ?? input?.id ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    }
   },
 }
 

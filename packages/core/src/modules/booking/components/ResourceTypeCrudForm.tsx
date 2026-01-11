@@ -21,6 +21,7 @@ type ResourceTypeCrudFormProps = {
   isLoading?: boolean
   onSubmit: (values: ResourceTypeFormValues) => Promise<void>
   onDelete?: () => Promise<void>
+  deleteVisible?: boolean
 }
 
 const normalizeCustomFieldSubmitValue = (value: unknown): unknown => {
@@ -57,6 +58,7 @@ export function ResourceTypeCrudForm({
   isLoading,
   onSubmit,
   onDelete,
+  deleteVisible,
 }: ResourceTypeCrudFormProps) {
   const t = useT()
 
@@ -116,7 +118,7 @@ export function ResourceTypeCrudForm({
       isLoading={isLoading}
       onSubmit={onSubmit}
       onDelete={mode === 'edit' ? onDelete : undefined}
-      deleteVisible={mode === 'edit'}
+      deleteVisible={typeof deleteVisible === 'boolean' ? deleteVisible : mode === 'edit'}
     />
   )
 }
