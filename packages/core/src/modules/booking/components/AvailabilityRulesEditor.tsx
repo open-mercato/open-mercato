@@ -892,9 +892,26 @@ export function AvailabilityRulesEditor({
     }, { errorMessage: listLabels.ruleSetCreateError })
     const id = typeof response.result?.id === 'string' ? response.result.id : null
     if (!id) throw new Error(listLabels.ruleSetCreateError)
-    if (activeRules.length) {
-      await Promise.all(
-        activeRules.map((rule) => createCrud('booking/availability', {
+    const creations: Array<Promise<unknown>> = []
+    const weeklyWindows = buildWeeklyPayload(normalizeWeeklyWindows(weeklyWindowsRef.current))
+    weeklyWindows.forEach((window) => {
+      const start = toDateForWeekday(window.weekday, window.start)
+      const end = toDateForWeekday(window.weekday, window.end)
+      if (!start || !end) return
+      const rrule = buildAvailabilityRrule(start, end, 'weekly')
+      creations.push(createCrud('booking/availability', {
+        subjectType: 'ruleset',
+        subjectId: id,
+        timezone: timezoneValue,
+        rrule,
+        exdates: [],
+        kind: 'availability',
+        note: null,
+      }, { errorMessage: listLabels.ruleSetCreateError }))
+    })
+    if (dateSpecificRules.length) {
+      dateSpecificRules.forEach((rule) => {
+        creations.push(createCrud('booking/availability', {
           subjectType: 'ruleset',
           subjectId: id,
           timezone: rule.timezone || timezoneValue,
@@ -902,8 +919,11 @@ export function AvailabilityRulesEditor({
           exdates: rule.exdates ?? [],
           kind: rule.kind ?? 'availability',
           note: rule.note ?? null,
-        }, { errorMessage: listLabels.ruleSetCreateError })),
-      )
+        }, { errorMessage: listLabels.ruleSetCreateError }))
+      })
+    }
+    if (creations.length) {
+      await Promise.all(creations)
     }
     await refreshRuleSets()
     if (onRulesetChange) {
@@ -917,6 +937,7 @@ export function AvailabilityRulesEditor({
     activeRules,
     listLabels.ruleSetCreateError,
     listLabels.ruleSetCreateSuccess,
+    dateSpecificRules,
     onRulesetChange,
     refreshAvailability,
     refreshRuleSetRules,
@@ -1102,9 +1123,6 @@ export function AvailabilityRulesEditor({
       <div className="rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {listLabels.title}
-            </p>
             <h2 className="text-lg font-semibold text-foreground">
               {listLabels.title}
             </h2>

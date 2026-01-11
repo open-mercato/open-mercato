@@ -5,7 +5,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { BookingTeam, BookingTeamRole } from '../data/entities'
+import { BookingTeam, BookingTeamMember, BookingTeamRole } from '../data/entities'
 import { bookingTeamRoleCreateSchema, bookingTeamRoleUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm } from './helpers'
 import { E } from '@/generated/entities.ids.generated'
@@ -93,6 +93,10 @@ const crud = makeCrudRoute({
         ? (payload.items as Array<Record<string, unknown>>)
         : []
       if (!items.length) return
+      const memberCounts = new Map<string, number>()
+      const tenantId = ctx.auth?.tenantId ?? null
+      const organizationId = ctx.selectedOrganizationId ?? null
+      const roleIds = new Set<string>()
       const teamIds = new Set<string>()
       items.forEach((item) => {
         if (!item || typeof item !== 'object') return
@@ -102,16 +106,35 @@ const crud = makeCrudRoute({
             ? item.team_id
             : null
         if (teamId) teamIds.add(teamId)
+        const roleId = typeof item.id === 'string' && item.id.length ? item.id : null
+        if (roleId) roleIds.add(roleId)
       })
-      if (!teamIds.size) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const teams = await findWithDecryption(
-        em,
-        BookingTeam,
-        { id: { $in: Array.from(teamIds) }, deletedAt: null },
-        undefined,
-        { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
-      )
+      if (roleIds.size && tenantId && organizationId) {
+        const counts = await Promise.all(
+          Array.from(roleIds).map(async (roleId) => {
+            const count = await em.count(BookingTeamMember, {
+              tenantId,
+              organizationId,
+              deletedAt: null,
+              roleIds: { $contains: [roleId] },
+            })
+            return [roleId, count] as const
+          }),
+        )
+        counts.forEach(([roleId, count]) => {
+          memberCounts.set(roleId, count)
+        })
+      }
+      const teams = teamIds.size
+        ? await findWithDecryption(
+          em,
+          BookingTeam,
+          { id: { $in: Array.from(teamIds) }, deletedAt: null },
+          undefined,
+          { tenantId, organizationId },
+        )
+        : []
       const teamById = new Map(teams.map((team) => [team.id, { id: team.id, name: team.name }]))
       items.forEach((item) => {
         if (!item || typeof item !== 'object') return
@@ -121,6 +144,8 @@ const crud = makeCrudRoute({
             ? item.team_id
             : null
         item.team = teamId ? (teamById.get(teamId) ?? null) : null
+        const roleId = typeof item.id === 'string' && item.id.length ? item.id : null
+        item.memberCount = roleId ? memberCounts.get(roleId) ?? 0 : 0
       })
     },
   },

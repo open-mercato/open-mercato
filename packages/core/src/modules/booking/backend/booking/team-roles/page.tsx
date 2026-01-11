@@ -13,7 +13,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { Pencil } from 'lucide-react'
+import { Pencil, Users } from 'lucide-react'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
@@ -51,6 +51,7 @@ type TeamRoleRow = {
   name: string
   description: string | null
   updatedAt: string | null
+  memberCount: number
 }
 
 type TeamRolesResponse = {
@@ -88,6 +89,7 @@ export default function BookingTeamRolesPage() {
     table: {
       name: t('booking.teamRoles.table.name', 'Name'),
       description: t('booking.teamRoles.table.description', 'Description'),
+      members: t('booking.teamRoles.table.members', 'Team members'),
       updatedAt: t('booking.teamRoles.table.updatedAt', 'Updated'),
       empty: t('booking.teamRoles.table.empty', 'No team roles yet.'),
       search: t('booking.teamRoles.table.search', 'Search roles...'),
@@ -101,6 +103,7 @@ export default function BookingTeamRolesPage() {
     actions: {
       add: t('booking.teamRoles.actions.add', 'Add team role'),
       edit: t('booking.teamRoles.actions.edit', 'Edit'),
+      showMembers: t('booking.teamRoles.actions.showMembers', 'Show team members ({{count}})'),
       delete: t('booking.teamRoles.actions.delete', 'Delete'),
       deleteConfirm: t('booking.teamRoles.actions.deleteConfirm', 'Delete team role "{{name}}"?'),
       refresh: t('booking.teamRoles.actions.refresh', 'Refresh'),
@@ -175,16 +178,34 @@ export default function BookingTeamRolesPage() {
           : <span className="text-xs text-muted-foreground">-</span>,
     },
     {
+      accessorKey: 'memberCount',
+      header: <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
+      meta: { priority: 3 },
+      enableSorting: false,
+      cell: ({ row }) => row.original.kind === 'role'
+        ? (
+          <Link
+            className="inline-flex min-w-[220px] items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+            href={`/backend/booking/team-members?roleId=${encodeURIComponent(row.original.id)}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Users className="h-4 w-4" aria-hidden />
+            {labels.actions.showMembers.replace('{{count}}', String(row.original.memberCount))}
+          </Link>
+        )
+        : <span className="text-xs text-muted-foreground">-</span>,
+    },
+    {
       accessorKey: 'updatedAt',
       header: labels.table.updatedAt,
-      meta: { priority: 2 },
+      meta: { priority: 4 },
       cell: ({ row }) => row.original.kind === 'team'
         ? <span className="text-xs text-muted-foreground">-</span>
         : row.original.updatedAt
           ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
           : <span className="text-xs text-muted-foreground">-</span>,
     },
-  ], [labels.table.description, labels.table.name, labels.table.updatedAt, markdownPlugins])
+  ], [labels.actions.showMembers, labels.table.description, labels.table.members, labels.table.name, labels.table.updatedAt, markdownPlugins])
 
   const loadTeamRoles = React.useCallback(async () => {
     setIsLoading(true)
@@ -218,8 +239,52 @@ export default function BookingTeamRolesPage() {
     void loadTeamRoles()
   }, [loadTeamRoles, scopeVersion, reloadToken])
 
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadFilters() {
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '100' })
+        const response = await apiCall<TeamsResponse>(`/api/booking/teams?${params.toString()}`)
+        const teamItems = Array.isArray(response.result?.items) ? response.result.items : []
+        const teams = teamItems
+          .map((team) => {
+            const id = typeof team.id === 'string' ? team.id : null
+            const name = typeof team.name === 'string' ? team.name : null
+            if (!id || !name) return null
+            return { value: id, label: name }
+          })
+          .filter((entry): entry is { value: string; label: string } => entry !== null)
+        if (!cancelled) setTeamFilterOptions(teams)
+      } catch {
+        if (!cancelled) setTeamFilterOptions([])
+      }
+    }
+    loadFilters()
+    return () => { cancelled = true }
+  }, [scopeVersion])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'teamId',
+      label: labels.filters.team,
+      type: 'select',
+      options: teamFilterOptions,
+      placeholder: labels.filters.team,
+    },
+  ], [labels.filters.team, teamFilterOptions])
+
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)
+    setPage(1)
+  }, [])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
     setPage(1)
   }, [])
 
@@ -252,6 +317,10 @@ export default function BookingTeamRolesPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
           actions={(
             <Button asChild size="sm">
@@ -293,6 +362,7 @@ type TeamRoleApiRow = {
   updatedAt: string | null
   teamId: string | null
   teamName: string | null
+  memberCount: number
 }
 
 function mapApiTeamRole(item: Record<string, unknown>): TeamRoleApiRow {
@@ -313,7 +383,8 @@ function mapApiTeamRole(item: Record<string, unknown>): TeamRoleApiRow {
     ? item.team as { name?: unknown }
     : null
   const teamName = typeof team?.name === 'string' ? team.name : null
-  return { id, name, description, updatedAt, teamId, teamName }
+  const memberCount = typeof item.memberCount === 'number' ? item.memberCount : 0
+  return { id, name, description, updatedAt, teamId, teamName, memberCount }
 }
 
 function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): TeamRoleRow[] {
@@ -335,6 +406,7 @@ function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): Te
       name: group.name,
       description: null,
       updatedAt: null,
+      memberCount: 0,
     })
     const sortedRoles = [...group.roles].sort((a, b) => a.name.localeCompare(b.name))
     for (const role of sortedRoles) {
@@ -345,6 +417,7 @@ function buildTeamRoleRows(items: TeamRoleApiRow[], unassignedLabel: string): Te
         name: role.name,
         description: role.description,
         updatedAt: role.updatedAt,
+        memberCount: role.memberCount,
       })
     }
   }

@@ -7,6 +7,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCu
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { BookingResource, BookingResourceType } from '../data/entities'
 import {
   bookingResourceTypeCreateSchema,
@@ -16,6 +17,10 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '@/generated/entities.ids.generated'
+
+const resourceTypeCrudIndexer: CrudIndexerConfig<BookingResourceType> = {
+  entityType: E.booking.booking_resource_type,
+}
 
 type ResourceTypeSnapshot = {
   id: string
@@ -105,6 +110,7 @@ const createResourceTypeCommand: CommandHandler<BookingResourceTypeCreateInput, 
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceTypeCrudIndexer,
     })
     return { resourceTypeId: record.id }
   },
@@ -146,6 +152,19 @@ const createResourceTypeCommand: CommandHandler<BookingResourceTypeCreateInput, 
       resourceType.deletedAt = new Date()
       resourceType.updatedAt = new Date()
       await em.flush()
+
+      const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: resourceType,
+        identifiers: {
+          id: resourceType.id,
+          organizationId: resourceType.organizationId,
+          tenantId: resourceType.tenantId,
+        },
+        indexer: resourceTypeCrudIndexer,
+      })
     }
   },
 }
@@ -200,6 +219,7 @@ const updateResourceTypeCommand: CommandHandler<BookingResourceTypeUpdateInput, 
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceTypeCrudIndexer,
     })
     return { resourceTypeId: record.id }
   },
@@ -285,6 +305,7 @@ const updateResourceTypeCommand: CommandHandler<BookingResourceTypeUpdateInput, 
         organizationId: resourceType.organizationId,
         tenantId: resourceType.tenantId,
       },
+      indexer: resourceTypeCrudIndexer,
     })
   },
 }
@@ -337,6 +358,7 @@ const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeI
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceTypeCrudIndexer,
     })
     return { resourceTypeId: record.id }
   },
@@ -412,6 +434,7 @@ const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeI
         organizationId: resourceType.organizationId,
         tenantId: resourceType.tenantId,
       },
+      indexer: resourceTypeCrudIndexer,
     })
   },
 }

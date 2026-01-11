@@ -3,7 +3,9 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { BookingTeam } from '../data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { BookingTeam, BookingTeamMember } from '../data/entities'
 import { bookingTeamCreateSchema, bookingTeamUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { E } from '@/generated/entities.ids.generated'
@@ -113,6 +115,49 @@ const crud = makeCrudRoute({
         return { id }
       },
       response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const items: Array<Record<string, unknown>> = Array.isArray(payload?.items)
+        ? (payload.items as Array<Record<string, unknown>>)
+        : []
+      if (!items.length) return
+      const teamIds = items
+        .map((item) => (typeof item.id === 'string' ? item.id : null))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      if (!teamIds.length) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const tenantId = ctx.organizationScope?.tenantId ?? ctx.auth?.tenantId ?? null
+      const orgIds = ctx.organizationIds ?? ctx.organizationScope?.filterIds ?? null
+      const orgFilter =
+        Array.isArray(orgIds) && orgIds.length > 0
+          ? { $in: orgIds }
+          : ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null
+      const scope = { tenantId, organizationId: ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null }
+      const members = await findWithDecryption(
+        em,
+        BookingTeamMember,
+        {
+          teamId: { $in: teamIds },
+          deletedAt: null,
+          ...(tenantId ? { tenantId } : {}),
+          ...(orgFilter ? { organizationId: orgFilter } : {}),
+        },
+        { fields: ['id', 'teamId'] },
+        scope,
+      )
+      const countMap = new Map<string, number>()
+      members.forEach((member) => {
+        const teamId = member.teamId ?? null
+        if (!teamId) return
+        countMap.set(teamId, (countMap.get(teamId) ?? 0) + 1)
+      })
+      items.forEach((item) => {
+        const id = typeof item.id === 'string' ? item.id : null
+        if (!id) return
+        item.memberCount = countMap.get(id) ?? 0
+      })
     },
   },
 })

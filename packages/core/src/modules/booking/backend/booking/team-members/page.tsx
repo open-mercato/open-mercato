@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingFn, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -45,13 +45,15 @@ type TeamsResponse = {
 }
 
 type TeamRolesResponse = {
-  items?: Array<{ id?: string; name?: string }>
+  items?: Array<{ id?: string; name?: string; team?: { name?: string } | null }>
 }
 
 export default function BookingTeamMembersPage() {
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const scopeVersion = useOrganizationScopeVersion()
+  const searchParams = useSearchParams()
   const [rows, setRows] = React.useState<TeamMemberRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -63,6 +65,33 @@ export default function BookingTeamMembersPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [teamFilterOptions, setTeamFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
   const [roleFilterOptions, setRoleFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const teamFilterParam = searchParams?.get('teamId')
+  const roleFilterParam = searchParams?.get('roleId')
+  const resolvedTeamId = typeof filterValues.teamId === 'string' && filterValues.teamId.length
+    ? filterValues.teamId
+    : teamFilterParam
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [teamFilterParam, roleFilterParam])
+
+  React.useEffect(() => {
+    if (!teamFilterParam) return
+    setFilterValues((prev) => {
+      if (prev.teamId === teamFilterParam) return prev
+      if (typeof prev.teamId === 'string' && prev.teamId.length > 0) return prev
+      return { ...prev, teamId: teamFilterParam }
+    })
+  }, [teamFilterParam])
+
+  React.useEffect(() => {
+    if (!roleFilterParam) return
+    setFilterValues((prev) => {
+      if (prev.roleId === roleFilterParam) return prev
+      if (typeof prev.roleId === 'string' && prev.roleId.length > 0) return prev
+      return { ...prev, roleId: roleFilterParam }
+    })
+  }, [roleFilterParam])
 
   const labels = React.useMemo(() => ({
     title: t('booking.teamMembers.page.title', 'Team members'),
@@ -207,7 +236,7 @@ export default function BookingTeamMembersPage() {
         params.set('sortDir', sort.desc ? 'desc' : 'asc')
       }
       if (search.trim()) params.set('search', search.trim())
-      if (filterValues.teamId) params.set('teamId', String(filterValues.teamId))
+      if (resolvedTeamId) params.set('teamId', String(resolvedTeamId))
       if (filterValues.roleId) params.set('roleId', String(filterValues.roleId))
       const payload = await readApiResultOrThrow<TeamMembersResponse>(
         `/api/booking/team-members?${params.toString()}`,
@@ -239,7 +268,7 @@ export default function BookingTeamMembersPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [filterValues.roleId, filterValues.teamId, labels.errors.load, labels.groups, page, search, sorting])
+  }, [filterValues.roleId, labels.errors.load, labels.groups, page, resolvedTeamId, search, sorting])
 
   React.useEffect(() => {
     void loadTeamMembers()
@@ -269,8 +298,11 @@ export default function BookingTeamMembersPage() {
           .map((role) => {
             const id = typeof role.id === 'string' ? role.id : null
             const name = typeof role.name === 'string' ? role.name : null
+            const teamName = role.team && typeof role.team === 'object' && typeof role.team.name === 'string'
+              ? role.team.name
+              : labels.groups.unassignedTeam
             if (!id || !name) return null
-            return { value: id, label: name }
+            return { value: id, label: `${teamName} - ${name}` }
           })
           .filter((entry): entry is { value: string; label: string } => entry !== null)
         if (!cancelled) {
@@ -308,16 +340,38 @@ export default function BookingTeamMembersPage() {
   const handleSearchChange = React.useCallback((value: string) => {
     setSearch(value)
     setPage(1)
-  }, [])
+  }, [pathname, router, searchParams])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     setFilterValues(values)
     setPage(1)
-  }, [])
+
+    const params = new URLSearchParams(searchParams?.toString())
+    const hasTeamId = typeof values.teamId === 'string' && values.teamId.length > 0
+    if (!hasTeamId && params.has('teamId')) {
+      params.delete('teamId')
+    }
+    const hasRoleId = typeof values.roleId === 'string' && values.roleId.length > 0
+    if (!hasRoleId && params.has('roleId')) {
+      params.delete('roleId')
+    }
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [pathname, router, searchParams])
 
   const handleFiltersClear = React.useCallback(() => {
     setFilterValues({})
     setPage(1)
+
+    const params = new URLSearchParams(searchParams?.toString())
+    if (params.has('teamId')) {
+      params.delete('teamId')
+    }
+    if (params.has('roleId')) {
+      params.delete('roleId')
+    }
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
   }, [])
 
   const handleRefresh = React.useCallback(() => {

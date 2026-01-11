@@ -358,33 +358,54 @@ type ColumnTruncateConfig = {
   truncate: boolean
 }
 
-function getColumnTruncateConfig(columnId: string, accessorKey?: string): ColumnTruncateConfig {
+type ColumnTruncateMeta = {
+  truncate?: boolean
+  maxWidth?: string
+}
+
+function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnMeta?: ColumnTruncateMeta): ColumnTruncateConfig {
   const key = accessorKey || columnId
+  const metaMaxWidth = typeof columnMeta?.maxWidth === 'string' ? columnMeta.maxWidth.trim() : ''
 
   // Custom fields get narrower width
   if (key.startsWith('cf_') || key.startsWith('cf:')) {
-    return { maxWidth: '120px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '120px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Core informative columns get wider width
   const wideColumns = ['title', 'name', 'description', 'source', 'companies', 'people']
   if (wideColumns.includes(key)) {
-    return { maxWidth: '250px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '250px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Medium width for status-like columns
   const mediumColumns = ['status', 'pipelineStage', 'pipeline_stage', 'type', 'category']
   if (mediumColumns.includes(key)) {
-    return { maxWidth: '180px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '180px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Date columns
   if (key.endsWith('_at') || key.endsWith('At') || key.includes('date') || key.includes('Date')) {
-    return { maxWidth: '120px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '120px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Default for other columns
-  return { maxWidth: '150px', truncate: true }
+  return {
+    maxWidth: metaMaxWidth || '150px',
+    truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+  }
 }
 
 // Check if a column should skip truncation (e.g., actions column)
@@ -1627,13 +1648,10 @@ export function DataTable<T>({
 
                       // Get truncation configuration for this column
                       const skipTruncation = shouldSkipTruncation(columnId)
-                      const metaTruncate = columnMeta?.truncate
-                      const metaMaxWidth = columnMeta?.maxWidth
-                      const shouldTruncate = metaTruncate !== false && !skipTruncation
-
-                      // Get default config based on column type
-                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey)
-                      const maxWidth = metaMaxWidth || truncateConfig.maxWidth
+                      // Get truncation configuration for this column
+                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey, columnMeta)
+                      const shouldTruncate = truncateConfig.truncate && !skipTruncation
+                      const maxWidth = truncateConfig.maxWidth
 
                       // Wrap content with TruncatedCell if truncation is enabled
                       // Get raw cell value for tooltip - flexRender returns React elements

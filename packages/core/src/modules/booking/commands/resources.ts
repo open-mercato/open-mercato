@@ -7,6 +7,7 @@ import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCu
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { BookingResource, BookingResourceTag, BookingResourceTagAssignment } from '../data/entities'
 import {
@@ -18,6 +19,10 @@ import {
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { BOOKING_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
 import { E } from '@/generated/entities.ids.generated'
+
+const resourceCrudIndexer: CrudIndexerConfig<BookingResource> = {
+  entityType: E.booking.booking_resource,
+}
 
 type CapacityUnitSnapshot = {
   value: string
@@ -44,6 +49,7 @@ type ResourceSnapshot = {
   availabilityRuleSetId: string | null
   tags: string[]
   deletedAt: string | null
+  customFields?: CustomFieldSnapshot | null
 }
 
 type ResourceUndoPayload = {
@@ -256,6 +262,7 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceCrudIndexer,
     })
     return { resourceId: record.id }
   },
@@ -271,17 +278,20 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
     const snapshot = await loadResourceSnapshot(em, result?.resourceId ?? '')
     if (!snapshot) return null
     const custom = await loadResourceCustomSnapshot(em, snapshot)
+    const snapshotWithCustom: ResourceSnapshot = custom
+      ? { ...snapshot, customFields: custom }
+      : snapshot
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.resources.create', 'Create resource'),
       resourceKind: 'booking.resource',
-      resourceId: snapshot.id,
-      tenantId: snapshot.tenantId,
-      organizationId: snapshot.organizationId,
-      snapshotAfter: snapshot,
+      resourceId: snapshotWithCustom.id,
+      tenantId: snapshotWithCustom.tenantId,
+      organizationId: snapshotWithCustom.organizationId,
+      snapshotAfter: snapshotWithCustom,
       payload: {
         undo: {
-          after: snapshot,
+          after: snapshotWithCustom,
           customAfter: custom,
         } satisfies ResourceUndoPayload,
       },
@@ -297,6 +307,19 @@ const createResourceCommand: CommandHandler<BookingResourceCreateInput, { resour
       record.deletedAt = new Date()
       record.updatedAt = new Date()
       await em.flush()
+
+      const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+        indexer: resourceCrudIndexer,
+      })
     }
   },
 }
@@ -380,6 +403,7 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceCrudIndexer,
     })
     return { resourceId: record.id }
   },
@@ -391,6 +415,12 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     if (!after) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
     const customAfter = await loadResourceCustomSnapshot(em, after)
+    const beforeWithCustom: ResourceSnapshot = customBefore
+      ? { ...before, customFields: customBefore }
+      : before
+    const afterWithCustom: ResourceSnapshot = customAfter
+      ? { ...after, customFields: customAfter }
+      : after
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'name',
       'description',
@@ -420,13 +450,13 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
-      snapshotBefore: before,
-      snapshotAfter: after,
+      snapshotBefore: beforeWithCustom,
+      snapshotAfter: afterWithCustom,
       changes,
       payload: {
         undo: {
-          before,
-          after,
+          before: beforeWithCustom,
+          after: afterWithCustom,
           customBefore: customBefore ?? null,
           customAfter,
         } satisfies ResourceUndoPayload,
@@ -437,6 +467,8 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const fallbackCustomBefore = (before as ResourceSnapshot).customFields ?? null
+    const fallbackCustomAfter = (payload?.after as ResourceSnapshot | null | undefined)?.customFields ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(BookingResource, { id: before.id })
     if (!record) return
@@ -463,8 +495,10 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
     await em.flush()
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
-    if (payload.customBefore || payload.customAfter) {
-      const reset = buildCustomFieldResetMap(payload.customBefore ?? undefined, payload.customAfter ?? undefined)
+    const customBefore = payload.customBefore ?? fallbackCustomBefore ?? undefined
+    const customAfter = payload.customAfter ?? fallbackCustomAfter ?? undefined
+    if (customBefore || customAfter) {
+      const reset = buildCustomFieldResetMap(customBefore, customAfter)
       await setCustomFieldsIfAny({
         dataEngine,
         entityId: E.booking.booking_resource,
@@ -484,6 +518,7 @@ const updateResourceCommand: CommandHandler<BookingResourceUpdateInput, { resour
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceCrudIndexer,
     })
   },
 }
@@ -526,6 +561,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceCrudIndexer,
     })
     return { resourceId: record.id }
   },
@@ -533,6 +569,9 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     const before = snapshots.before as ResourceSnapshot | undefined
     if (!before) return null
     const customBefore = (snapshots as { customBefore?: CustomFieldSnapshot | null }).customBefore ?? undefined
+    const beforeWithCustom: ResourceSnapshot = customBefore
+      ? { ...before, customFields: customBefore }
+      : before
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('booking.audit.resources.delete', 'Delete resource'),
@@ -540,10 +579,10 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
-      snapshotBefore: before,
+      snapshotBefore: beforeWithCustom,
       payload: {
         undo: {
-          before,
+          before: beforeWithCustom,
           customBefore: customBefore ?? null,
         } satisfies ResourceUndoPayload,
       },
@@ -553,6 +592,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
     const before = payload?.before
     if (!before) return
+    const fallbackCustomBefore = (before as ResourceSnapshot).customFields ?? null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(BookingResource, { id: before.id })
     if (!record) {
@@ -603,8 +643,9 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     await em.flush()
 
     const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
-    if (payload.customBefore) {
-      const reset = buildCustomFieldResetMap(payload.customBefore, undefined)
+    const customBefore = payload.customBefore ?? fallbackCustomBefore ?? undefined
+    if (customBefore) {
+      const reset = buildCustomFieldResetMap(customBefore, undefined)
       await setCustomFieldsIfAny({
         dataEngine,
         entityId: E.booking.booking_resource,
@@ -624,6 +665,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      indexer: resourceCrudIndexer,
     })
   },
 }

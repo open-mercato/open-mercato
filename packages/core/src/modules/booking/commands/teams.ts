@@ -7,7 +7,8 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { BookingTeam } from '../data/entities'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { BookingTeam, BookingTeamMember } from '../data/entities'
 import {
   bookingTeamCreateSchema,
   bookingTeamUpdateSchema,
@@ -16,6 +17,10 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '@/generated/entities.ids.generated'
+
+const teamCrudIndexer: CrudIndexerConfig<BookingTeam> = {
+  entityType: E.booking.booking_team,
+}
 
 type TeamSnapshot = {
   id: string
@@ -98,6 +103,7 @@ const createTeamCommand: CommandHandler<BookingTeamCreateInput, { teamId: string
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      indexer: teamCrudIndexer,
     })
 
     return { teamId: team.id }
@@ -139,6 +145,19 @@ const createTeamCommand: CommandHandler<BookingTeamCreateInput, { teamId: string
     if (team) {
       team.deletedAt = new Date()
       await em.flush()
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'deleted',
+        entity: team,
+        identifiers: {
+          id: team.id,
+          organizationId: team.organizationId,
+          tenantId: team.tenantId,
+        },
+        indexer: teamCrudIndexer,
+      })
     }
   },
 }
@@ -192,6 +211,7 @@ const updateTeamCommand: CommandHandler<BookingTeamUpdateInput, { teamId: string
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      indexer: teamCrudIndexer,
     })
 
     return { teamId: team.id }
@@ -270,6 +290,7 @@ const updateTeamCommand: CommandHandler<BookingTeamUpdateInput, { teamId: string
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      indexer: teamCrudIndexer,
     })
   },
 }
@@ -299,6 +320,20 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
     if (!team) throw new CrudHttpError(404, { error: 'Team not found.' })
     ensureTenantScope(ctx, team.tenantId)
     ensureOrganizationScope(ctx, team.organizationId)
+
+    const assignedMemberCount = await em.count(BookingTeamMember, {
+      tenantId: team.tenantId,
+      organizationId: team.organizationId,
+      teamId: team.id,
+      deletedAt: null,
+    })
+    if (assignedMemberCount > 0) {
+      const { t } = await resolveTranslations()
+      throw new CrudHttpError(409, {
+        error: t('booking.teams.errors.deleteAssigned', 'Team has assigned members and cannot be deleted.'),
+      })
+    }
+
     team.deletedAt = new Date()
     team.updatedAt = new Date()
     await em.flush()
@@ -313,6 +348,7 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      indexer: teamCrudIndexer,
     })
     return { teamId: team.id }
   },
@@ -386,6 +422,7 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      indexer: teamCrudIndexer,
     })
   },
 }

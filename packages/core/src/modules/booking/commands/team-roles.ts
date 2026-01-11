@@ -7,7 +7,8 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { BookingTeam, BookingTeamRole } from '../data/entities'
+import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { BookingTeam, BookingTeamMember, BookingTeamRole } from '../data/entities'
 import {
   bookingTeamRoleCreateSchema,
   bookingTeamRoleUpdateSchema,
@@ -16,6 +17,10 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '@/generated/entities.ids.generated'
+
+const teamRoleCrudIndexer: CrudIndexerConfig<BookingTeamRole> = {
+  entityType: E.booking.booking_team_role,
+}
 
 type TeamRoleSnapshot = {
   id: string
@@ -126,6 +131,7 @@ const createTeamRoleCommand: CommandHandler<BookingTeamRoleCreateInput, { roleId
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      indexer: teamRoleCrudIndexer,
     })
 
     return { roleId: role.id }
@@ -167,6 +173,19 @@ const createTeamRoleCommand: CommandHandler<BookingTeamRoleCreateInput, { roleId
     if (role) {
       role.deletedAt = new Date()
       await em.flush()
+
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      await emitCrudUndoSideEffects({
+        dataEngine: de,
+        action: 'deleted',
+        entity: role,
+        identifiers: {
+          id: role.id,
+          organizationId: role.organizationId,
+          tenantId: role.tenantId,
+        },
+        indexer: teamRoleCrudIndexer,
+      })
     }
   },
 }
@@ -227,6 +246,7 @@ const updateTeamRoleCommand: CommandHandler<BookingTeamRoleUpdateInput, { roleId
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      indexer: teamRoleCrudIndexer,
     })
 
     return { roleId: role.id }
@@ -338,6 +358,27 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
     if (!role) throw new CrudHttpError(404, { error: 'Team role not found.' })
     ensureTenantScope(ctx, role.tenantId)
     ensureOrganizationScope(ctx, role.organizationId)
+    const assignedMember = await findOneWithDecryption(
+      em,
+      BookingTeamMember,
+      {
+        tenantId: role.tenantId,
+        organizationId: role.organizationId,
+        deletedAt: null,
+        roleIds: { $contains: [role.id] },
+      },
+      undefined,
+      { tenantId: role.tenantId, organizationId: role.organizationId },
+    )
+    if (assignedMember) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(409, {
+        error: translate(
+          'booking.teamRoles.errors.assignedMembers',
+          'Team role has assigned team members. Remove them before deleting.',
+        ),
+      })
+    }
     role.deletedAt = new Date()
     role.updatedAt = new Date()
     await em.flush()

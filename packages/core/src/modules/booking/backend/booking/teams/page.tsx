@@ -16,6 +16,7 @@ import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { Users } from 'lucide-react'
 
 const PAGE_SIZE = 50
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
@@ -49,6 +50,7 @@ type TeamRow = {
   description: string | null
   isActive: boolean
   updatedAt: string | null
+  memberCount: number
 }
 
 type TeamsResponse = {
@@ -82,6 +84,7 @@ export default function BookingTeamsPage() {
       name: t('booking.teams.table.name', 'Name'),
       description: t('booking.teams.table.description', 'Description'),
       active: t('booking.teams.table.active', 'Active'),
+      members: t('booking.teams.table.members', 'Team members'),
       updatedAt: t('booking.teams.table.updatedAt', 'Updated'),
       empty: t('booking.teams.table.empty', 'No teams yet.'),
       search: t('booking.teams.table.search', 'Search teams...'),
@@ -91,6 +94,7 @@ export default function BookingTeamsPage() {
       edit: t('booking.teams.actions.edit', 'Edit'),
       delete: t('booking.teams.actions.delete', 'Delete'),
       deleteConfirm: t('booking.teams.actions.deleteConfirm', 'Delete team "{{name}}"?'),
+      showMembers: t('booking.teams.actions.showMembers', 'Show team members ({{count}})'),
       refresh: t('booking.teams.actions.refresh', 'Refresh'),
     },
     messages: {
@@ -99,6 +103,7 @@ export default function BookingTeamsPage() {
     errors: {
       load: t('booking.teams.errors.load', 'Failed to load teams.'),
       delete: t('booking.teams.errors.delete', 'Failed to delete team.'),
+      deleteAssigned: t('booking.teams.errors.deleteAssigned', 'Team has assigned members and cannot be deleted.'),
     },
   }), [t])
 
@@ -124,7 +129,7 @@ export default function BookingTeamsPage() {
     {
       accessorKey: 'description',
       header: labels.table.description,
-      meta: { priority: 3 },
+      meta: { priority: 4 },
       cell: ({ row }) => row.original.description
         ? (
           <MarkdownPreview remarkPlugins={markdownPlugins} className={MARKDOWN_CLASSNAME}>
@@ -140,14 +145,38 @@ export default function BookingTeamsPage() {
       cell: ({ row }) => <BooleanIcon value={row.original.isActive} />,
     },
     {
+      accessorKey: 'memberCount',
+      header: <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
+      meta: { priority: 3 },
+      enableSorting: false,
+      cell: ({ row }) => (
+        <Link
+          className="inline-flex min-w-[220px] items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          href={`/backend/booking/team-members?teamId=${encodeURIComponent(row.original.id)}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Users className="h-4 w-4" aria-hidden />
+          {labels.actions.showMembers.replace('{{count}}', String(row.original.memberCount))}
+        </Link>
+      ),
+    },
+    {
       accessorKey: 'updatedAt',
       header: labels.table.updatedAt,
-      meta: { priority: 4 },
+      meta: { priority: 5 },
       cell: ({ row }) => row.original.updatedAt
         ? <span className="text-xs text-muted-foreground">{formatDateTime(row.original.updatedAt)}</span>
         : <span className="text-xs text-muted-foreground">-</span>,
     },
-  ], [labels.table.active, labels.table.description, labels.table.name, labels.table.updatedAt, markdownPlugins])
+  ], [
+    labels.actions.showMembers,
+    labels.table.active,
+    labels.table.description,
+    labels.table.members,
+    labels.table.name,
+    labels.table.updatedAt,
+    markdownPlugins,
+  ])
 
   const loadTeams = React.useCallback(async () => {
     setIsLoading(true)
@@ -193,6 +222,10 @@ export default function BookingTeamsPage() {
   }, [])
 
   const handleDelete = React.useCallback(async (entry: TeamRow) => {
+    if (entry.memberCount > 0) {
+      flash(labels.errors.deleteAssigned, 'error')
+      return
+    }
     const message = labels.actions.deleteConfirm.replace('{{name}}', entry.name)
     if (typeof window !== 'undefined' && !window.confirm(message)) return
     try {
@@ -203,7 +236,7 @@ export default function BookingTeamsPage() {
       console.error('booking.teams.delete', error)
       flash(labels.errors.delete, 'error')
     }
-  }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.messages.deleted])
+  }, [handleRefresh, labels.actions.deleteConfirm, labels.errors.delete, labels.errors.deleteAssigned, labels.messages.deleted])
 
   return (
     <Page>
@@ -243,7 +276,9 @@ export default function BookingTeamsPage() {
             <RowActions
               items={[
                 { label: labels.actions.edit, href: `/backend/booking/teams/${row.id}/edit` },
-                { label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } },
+                ...(row.memberCount > 0
+                  ? []
+                  : [{ label: labels.actions.delete, destructive: true, onSelect: () => { void handleDelete(row) } }]),
               ]}
             />
           )}
@@ -268,7 +303,12 @@ function mapApiTeam(item: Record<string, unknown>): TeamRow {
     : typeof item.is_active === 'boolean'
       ? item.is_active
       : true
-  return { id, name, description, isActive, updatedAt }
+  const memberCount = typeof item.memberCount === 'number'
+    ? item.memberCount
+    : typeof item.member_count === 'number'
+      ? item.member_count
+      : 0
+  return { id, name, description, isActive, updatedAt, memberCount }
 }
 
 function formatDateTime(value: string): string {

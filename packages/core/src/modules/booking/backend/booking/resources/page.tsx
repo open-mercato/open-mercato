@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -76,6 +76,7 @@ export default function BookingResourcesPage() {
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const resourceTypeFilter = searchParams.get('resourceTypeId')
   const selectedResourceTypeId = typeof filterValues.resourceTypeId === 'string'
@@ -209,6 +210,31 @@ export default function BookingResourcesPage() {
       options: tagOptions,
     },
   ], [loadTagOptions, resourceTypeOptions, tagOptions, t])
+
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+
+    const params = new URLSearchParams(searchParams?.toString())
+    const hasResourceType = typeof values.resourceTypeId === 'string' && values.resourceTypeId.length > 0
+    if (!hasResourceType && params.has('resourceTypeId')) {
+      params.delete('resourceTypeId')
+      const query = params.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname)
+    }
+  }, [pathname, router, searchParams])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
+    setPage(1)
+
+    const params = new URLSearchParams(searchParams?.toString())
+    if (params.has('resourceTypeId')) {
+      params.delete('resourceTypeId')
+      const query = params.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname)
+    }
+  }, [pathname, router, searchParams])
 
   const groupedRows = React.useMemo(() => {
     const grouped: ResourceTableRow[] = []
@@ -448,8 +474,8 @@ export default function BookingResourcesPage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           filters={filters}
           filterValues={filterValues}
-          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
-          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
           perspective={{ tableId: 'booking.resources.list' }}
           rowActions={(row) => {
             if (!canManage || row.rowKind !== 'resource') return null

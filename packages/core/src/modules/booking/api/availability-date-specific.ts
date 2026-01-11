@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { bookingAvailabilityDateSpecificReplaceSchema } from '../data/validators'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['booking.manage_availability'] },
@@ -53,8 +54,23 @@ export async function POST(req: Request) {
     const payload = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(bookingAvailabilityDateSpecificReplaceSchema, payload, ctx, translate)
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    await commandBus.execute('booking.availability.date-specific.replace', { input, ctx })
-    return NextResponse.json({ ok: true })
+    const { logEntry } = await commandBus.execute('booking.availability.date-specific.replace', { input, ctx })
+    const response = NextResponse.json({ ok: true })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'booking.availability',
+          resourceId: logEntry.resourceId ?? null,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
+        })
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

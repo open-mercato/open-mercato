@@ -280,11 +280,18 @@ export default function BookingTeamEditPage({ params }: { params?: { id?: string
 
   const handleDelete = React.useCallback(async () => {
     if (!teamId) return
-    await deleteCrud('booking/teams', teamId, {
-      errorMessage: t('booking.teams.errors.delete', 'Failed to delete team.'),
-    })
-    flash(t('booking.teams.messages.deleted', 'Team deleted.'), 'success')
-    router.push('/backend/booking/teams')
+    try {
+      await deleteCrud('booking/teams', teamId, {
+        errorMessage: t('booking.teams.errors.delete', 'Failed to delete team.'),
+      })
+      flash(t('booking.teams.messages.deleted', 'Team deleted.'), 'success')
+      router.push('/backend/booking/teams')
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : t('booking.teams.errors.delete', 'Failed to delete team.')
+      flash(message, 'error')
+    }
   }, [teamId, router, t])
 
   return (
