@@ -15,7 +15,7 @@ type StrategyStatus = {
   available: boolean
 }
 
-type MeilisearchStats = {
+type FulltextStats = {
   numberOfDocuments: number
   isIndexing: boolean
   fieldDistribution: Record<string, number>
@@ -23,8 +23,8 @@ type MeilisearchStats = {
 
 type SearchSettings = {
   strategies: StrategyStatus[]
-  meilisearchConfigured: boolean
-  meilisearchStats: MeilisearchStats | null
+  fulltextConfigured: boolean
+  fulltextStats: FulltextStats | null
   vectorConfigured: boolean
   tokensEnabled: boolean
   defaultStrategies: string[]
@@ -151,11 +151,60 @@ type ReindexResponse = {
     recordsIndexed: number
     errors?: Array<{ entityId: string; error: string }>
   }
-  stats?: MeilisearchStats | null
+  stats?: FulltextStats | null
   error?: string
 }
 
 type ReindexAction = 'clear' | 'recreate' | 'reindex'
+
+// Full-text search config types
+type FulltextEnvVarStatus = {
+  set: boolean
+  hint: string
+}
+
+type FulltextOptionalEnvVarStatus = {
+  set: boolean
+  value?: string | boolean
+  default?: string | boolean
+  hint: string
+}
+
+type FulltextConfigResponse = {
+  driver: 'meilisearch' | null
+  configured: boolean
+  envVars: {
+    MEILISEARCH_HOST: FulltextEnvVarStatus
+    MEILISEARCH_API_KEY: FulltextEnvVarStatus
+  }
+  optionalEnvVars: {
+    MEILISEARCH_INDEX_PREFIX: FulltextOptionalEnvVarStatus
+    SEARCH_EXCLUDE_ENCRYPTED_FIELDS: FulltextOptionalEnvVarStatus
+  }
+}
+
+// Vector store driver types
+type VectorDriverId = 'pgvector' | 'qdrant' | 'chromadb'
+
+type VectorDriverEnvVar = {
+  name: string
+  set: boolean
+  hint: string
+}
+
+type VectorDriverStatus = {
+  id: VectorDriverId
+  name: string
+  configured: boolean
+  implemented: boolean
+  envVars: VectorDriverEnvVar[]
+}
+
+type VectorStoreConfigResponse = {
+  currentDriver: VectorDriverId
+  configured: boolean
+  drivers: VectorDriverStatus[]
+}
 
 const normalizeErrorMessage = (error: unknown, fallback: string): string => {
   if (typeof error === 'string' && error.trim().length) return error.trim()
@@ -197,6 +246,14 @@ export function SearchSettingsPageClient() {
   const [globalSearchSaving, setGlobalSearchSaving] = React.useState(false)
   const [globalSearchDirty, setGlobalSearchDirty] = React.useState(false)
 
+  // Full-text search config state
+  const [fulltextConfig, setFulltextConfig] = React.useState<FulltextConfigResponse | null>(null)
+  const [fulltextConfigLoading, setFulltextConfigLoading] = React.useState(true)
+
+  // Vector store config state
+  const [vectorStoreConfig, setVectorStoreConfig] = React.useState<VectorStoreConfigResponse | null>(null)
+  const [vectorStoreConfigLoading, setVectorStoreConfigLoading] = React.useState(true)
+
   const fetchSettings = React.useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -211,8 +268,8 @@ export function SearchSettingsPageClient() {
       } else {
         setSettings({
           strategies: [],
-          meilisearchConfigured: false,
-          meilisearchStats: null,
+          fulltextConfigured: false,
+          fulltextStats: null,
           vectorConfigured: false,
           tokensEnabled: true,
           defaultStrategies: [],
@@ -292,6 +349,46 @@ export function SearchSettingsPageClient() {
   React.useEffect(() => {
     fetchGlobalSearchSettings()
   }, [fetchGlobalSearchSettings])
+
+  // Fetch fulltext config
+  const fetchFulltextConfig = React.useCallback(async () => {
+    setFulltextConfigLoading(true)
+    try {
+      const response = await fetch('/api/search/settings/fulltext')
+      if (response.ok) {
+        const body = await response.json() as FulltextConfigResponse
+        setFulltextConfig(body)
+      }
+    } catch {
+      // Silently use null if fetch fails
+    } finally {
+      setFulltextConfigLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    fetchFulltextConfig()
+  }, [fetchFulltextConfig])
+
+  // Fetch vector store config
+  const fetchVectorStoreConfig = React.useCallback(async () => {
+    setVectorStoreConfigLoading(true)
+    try {
+      const response = await fetch('/api/search/settings/vector-store')
+      if (response.ok) {
+        const body = await response.json() as VectorStoreConfigResponse
+        setVectorStoreConfig(body)
+      }
+    } catch {
+      // Silently use null if fetch fails
+    } finally {
+      setVectorStoreConfigLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    fetchVectorStoreConfig()
+  }, [fetchVectorStoreConfig])
 
   // Update auto-indexing
   const updateAutoIndexing = React.useCallback(async (nextValue: boolean) => {
@@ -522,7 +619,7 @@ export function SearchSettingsPageClient() {
 
       // Update stats from response
       if (body.stats) {
-        setSettings(prev => prev ? { ...prev, meilisearchStats: body.stats ?? null } : prev)
+        setSettings(prev => prev ? { ...prev, fulltextStats: body.stats ?? null } : prev)
       }
 
       const successLabel = t('search.settings.reindexSuccessLabel', 'Operation completed successfully')
@@ -647,88 +744,119 @@ export function SearchSettingsPageClient() {
         <p className="text-muted-foreground">{t('search.settings.pageDescription', 'Configure search strategies and view their availability.')}</p>
       </div>
 
-      {/* Configuration Status Card */}
+      {/* Full-Text Search Configuration Card */}
       <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-lg font-semibold mb-2">{t('search.settings.configurationTitle', 'Configuration Status')}</h2>
-        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.configurationDescription', 'Overview of search provider configurations.')}</p>
+        <h2 className="text-lg font-semibold mb-2">{t('search.settings.fulltext.title', 'Full-Text Search Configuration')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.fulltext.description', 'Configure the backend for fast, typo-tolerant full-text search.')}</p>
 
-        {loading ? (
+        {fulltextConfigLoading ? (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Spinner size="sm" />
             <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-3">
-            {/* Full-Text Search */}
-            <div className="rounded-md border border-border p-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                  settings?.meilisearchConfigured
-                    ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
-                    : 'bg-muted text-muted-foreground'
-                }`}>
-                  {getStrategyIcon('fulltext')}
-                </div>
-                <div>
-                  <p className="font-medium">{t('search.settings.fulltextLabel', 'Full-Text Search')}</p>
-                  <p className={`text-xs ${
-                    settings?.meilisearchConfigured
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-muted-foreground'
-                  }`}>
-                    {settings?.meilisearchConfigured ? t('search.settings.configuredLabel', 'Configured') : t('search.settings.notConfiguredLabel', 'Not Configured')}
-                  </p>
-                </div>
+          <div className="space-y-4">
+            {/* Driver Status */}
+            <div className="flex items-center gap-3 p-3 rounded-md border border-border bg-muted/30">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                fulltextConfig?.configured
+                  ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                  : 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
+              }`}>
+                {getStrategyIcon('fulltext')}
               </div>
-              <p className="text-xs text-muted-foreground">{t('search.settings.fulltextHint', 'Fast, typo-tolerant search. Powered by Meilisearch.')}</p>
+              <div>
+                <p className="font-medium">{t('search.settings.fulltext.driver', 'Current Driver')}: {fulltextConfig?.driver ? 'Meilisearch' : t('search.settings.fulltext.noDriver', 'None')}</p>
+                <p className={`text-sm ${
+                  fulltextConfig?.configured
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`}>
+                  {fulltextConfig?.configured
+                    ? t('search.settings.fulltext.ready', 'Ready to use')
+                    : t('search.settings.fulltext.notReady', 'Not configured - set environment variables below')}
+                </p>
+              </div>
             </div>
 
-            {/* Vector Search */}
-            <div className="rounded-md border border-border p-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                  settings?.vectorConfigured
-                    ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
-                    : 'bg-muted text-muted-foreground'
-                }`}>
-                  {getStrategyIcon('vector')}
-                </div>
-                <div>
-                  <p className="font-medium">{t('search.settings.vectorSearchLabel', 'Vector Search')}</p>
-                  <p className={`text-xs ${
-                    settings?.vectorConfigured
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-muted-foreground'
-                  }`}>
-                    {settings?.vectorConfigured ? t('search.settings.configuredLabel', 'Configured') : t('search.settings.notConfiguredLabel', 'Not Configured')}
-                  </p>
-                </div>
+            {/* Required Environment Variables */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2">{t('search.settings.fulltext.envVars', 'Required Environment Variables')}</h3>
+              <div className="space-y-2">
+                {fulltextConfig?.envVars && Object.entries(fulltextConfig.envVars).map(([key, status]) => (
+                  <div key={key} className="flex items-start gap-3 p-3 rounded-md border border-border">
+                    <div className={`flex h-5 w-5 items-center justify-center rounded-full flex-shrink-0 mt-0.5 ${
+                      status.set
+                        ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                        : 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400'
+                    }`}>
+                      {status.set ? (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
+                        <span className={`text-xs ${status.set ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {status.set ? t('search.settings.fulltext.envSet', 'Set') : t('search.settings.fulltext.envMissing', 'Missing')}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">{status.hint}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <p className="text-xs text-muted-foreground">{t('search.settings.vectorHint', 'Configure an embedding provider (OpenAI, Google, etc.) to enable.')}</p>
             </div>
 
-            {/* Token Search */}
-            <div className="rounded-md border border-border p-4">
-              <div className="flex items-center gap-3 mb-2">
-                <div className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                  settings?.tokensEnabled
-                    ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
-                    : 'bg-muted text-muted-foreground'
-                }`}>
-                  {getStrategyIcon('tokens')}
-                </div>
-                <div>
-                  <p className="font-medium">{t('search.settings.tokenSearchLabel', 'Token Search')}</p>
-                  <p className={`text-xs ${
-                    settings?.tokensEnabled
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : 'text-muted-foreground'
-                  }`}>
-                    {settings?.tokensEnabled ? t('search.settings.enabledLabel', 'Enabled') : t('search.settings.disabledLabel', 'Disabled')}
-                  </p>
+            {/* Optional Settings */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2">{t('search.settings.fulltext.optional', 'Optional Settings')}</h3>
+              <div className="space-y-2">
+                {fulltextConfig?.optionalEnvVars && Object.entries(fulltextConfig.optionalEnvVars).map(([key, status]) => (
+                  <div key={key} className="flex items-start gap-3 p-2 rounded-md bg-muted/30">
+                    <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">{key}</code>
+                    <div className="flex-1 text-xs text-muted-foreground">
+                      <span>{status.hint}</span>
+                      {status.set ? (
+                        <span className="ml-2 text-emerald-600 dark:text-emerald-400">
+                          ({t('search.settings.fulltext.currentValue', 'Current')}: {String(status.value)})
+                        </span>
+                      ) : (
+                        <span className="ml-2">
+                          ({t('search.settings.fulltext.defaultValue', 'Default')}: {String(status.default)})
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Setup Instructions */}
+            <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <svg className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-sm text-blue-800 dark:text-blue-200">
+                  <p className="font-medium mb-1">{t('search.settings.fulltext.howTo', 'How to set up')}</p>
+                  <p className="text-xs">{t('search.settings.fulltext.howToDescription', 'Add these variables to your .env file or deployment environment. You can use a hosted Meilisearch instance or run it locally with Docker.')}</p>
+                  <a
+                    href="https://www.meilisearch.com/docs/learn/getting_started/quick_start"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block"
+                  >
+                    {t('search.settings.fulltext.learnMore', 'Learn more: Meilisearch Quick Start')} →
+                  </a>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">{t('search.settings.tokenHint', 'Built-in token search using PostgreSQL.')}</p>
             </div>
           </div>
         )}
@@ -759,7 +887,7 @@ export function SearchSettingsPageClient() {
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <span className="font-medium">{t('search.settings.globalSearch.fulltext', 'Full-Text Search')}</span>
-                {!settings?.meilisearchConfigured && (
+                {!settings?.fulltextConfigured && (
                   <span className="text-xs text-amber-600 dark:text-amber-400">{t('search.settings.globalSearch.notConfigured', '(Not configured)')}</span>
                 )}
               </div>
@@ -826,216 +954,384 @@ export function SearchSettingsPageClient() {
       </div>
 
       {/* Full-Text Search Index Management Card */}
-      {settings?.meilisearchConfigured && (
-        <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-          <h2 className="text-lg font-semibold mb-2">{t('search.settings.fulltextIndexTitle', 'Full-Text Search Index')}</h2>
-          <p className="text-sm text-muted-foreground mb-4">{t('search.settings.fulltextIndexDescription', 'Manage the full-text search index for this tenant.')}</p>
+      <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-lg font-semibold mb-2">{t('search.settings.fulltextIndexTitle', 'Full-Text Search Index')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.fulltextIndexDescription', 'Manage the full-text search index for this tenant.')}</p>
 
-          {loading ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Spinner size="sm" />
-              <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
+        {(loading || fulltextConfigLoading) ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Spinner size="sm" />
+            <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
+          </div>
+        ) : !fulltextConfig?.configured ? (
+          <div className="p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <div className="flex items-start gap-3">
+              <svg className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  {t('search.settings.fulltextNotConfigured', 'Full-text search driver not configured')}
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  {t('search.settings.fulltextNotConfiguredHint', 'Configure the required environment variables in the Full-Text Search Configuration section above to enable indexing.')}
+                </p>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Stats - only show if index exists */}
-              {settings?.meilisearchStats ? (
-                <div className="rounded-md border border-border p-4 max-w-xs">
-                  <p className="text-sm text-muted-foreground">{t('search.settings.documentsLabel', 'Documents')}</p>
-                  <p className="text-2xl font-bold">{settings.meilisearchStats.numberOfDocuments.toLocaleString()}</p>
-                </div>
-              ) : (
-                <div className="p-3 rounded-md bg-muted/50">
-                  <p className="text-sm text-muted-foreground">
-                    {t('search.settings.noIndexMessage', "No index found for this tenant. Click 'Full Reindex' to create one.")}
-                  </p>
-                </div>
-              )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Stats - only show if index exists */}
+            {settings?.fulltextStats ? (
+              <div className="rounded-md border border-border p-4 max-w-xs">
+                <p className="text-sm text-muted-foreground">{t('search.settings.documentsLabel', 'Documents')}</p>
+                <p className="text-2xl font-bold">{settings.fulltextStats.numberOfDocuments.toLocaleString()}</p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-md bg-muted/50">
+                <p className="text-sm text-muted-foreground">
+                  {t('search.settings.noIndexMessage', "No index found for this tenant. Click 'Full Reindex' to create one.")}
+                </p>
+              </div>
+            )}
 
-              {/* Actions - Full Reindex always visible, others only when index exists */}
-              <div className="flex flex-wrap gap-3 pt-2">
-                {/* Clear Index - only when index exists */}
-                {settings?.meilisearchStats && (
-                  <div className="flex flex-col">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleReindexClick('clear')}
-                      disabled={reindexing !== null}
-                    >
-                      {reindexing === 'clear' ? (
-                        <>
-                          <Spinner size="sm" className="mr-2" />
-                          {t('search.settings.processingLabel', 'Processing...')}
-                        </>
-                      ) : (
-                        t('search.settings.clearIndexLabel', 'Clear Index')
-                      )}
-                    </Button>
-                    <span className="text-xs text-muted-foreground mt-1">{t('search.settings.clearIndexDescription', 'Remove all documents but keep index settings')}</span>
-                  </div>
-                )}
-                {/* Recreate Index - only when index exists */}
-                {settings?.meilisearchStats && (
-                  <div className="flex flex-col">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleReindexClick('recreate')}
-                      disabled={reindexing !== null}
-                    >
-                      {reindexing === 'recreate' ? (
-                        <>
-                          <Spinner size="sm" className="mr-2" />
-                          {t('search.settings.processingLabel', 'Processing...')}
-                        </>
-                      ) : (
-                        t('search.settings.recreateIndexLabel', 'Recreate Index')
-                      )}
-                    </Button>
-                    <span className="text-xs text-muted-foreground mt-1">{t('search.settings.recreateIndexDescription', 'Delete and recreate the index with fresh settings')}</span>
-                  </div>
-                )}
-                {/* Full Reindex - always visible (allows creating initial index) */}
+            {/* Actions - Full Reindex always visible, others only when index exists */}
+            <div className="flex flex-wrap gap-3 pt-2">
+              {/* Clear Index - only when index exists */}
+              {settings?.fulltextStats && (
                 <div className="flex flex-col">
                   <Button
                     type="button"
-                    variant="default"
+                    variant="outline"
                     size="sm"
-                    onClick={() => handleReindexClick('reindex')}
+                    onClick={() => handleReindexClick('clear')}
                     disabled={reindexing !== null}
                   >
-                    {reindexing === 'reindex' ? (
+                    {reindexing === 'clear' ? (
                       <>
                         <Spinner size="sm" className="mr-2" />
                         {t('search.settings.processingLabel', 'Processing...')}
                       </>
                     ) : (
-                      t('search.settings.fullReindexLabel', 'Full Reindex')
+                      t('search.settings.clearIndexLabel', 'Clear Index')
                     )}
                   </Button>
-                  <span className="text-xs text-muted-foreground mt-1">{t('search.settings.fullReindexDescription', 'Recreate index and re-index all data from database')}</span>
+                  <span className="text-xs text-muted-foreground mt-1">{t('search.settings.clearIndexDescription', 'Remove all documents but keep index settings')}</span>
+                </div>
+              )}
+              {/* Recreate Index - only when index exists */}
+              {settings?.fulltextStats && (
+                <div className="flex flex-col">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleReindexClick('recreate')}
+                    disabled={reindexing !== null}
+                  >
+                    {reindexing === 'recreate' ? (
+                      <>
+                        <Spinner size="sm" className="mr-2" />
+                        {t('search.settings.processingLabel', 'Processing...')}
+                      </>
+                    ) : (
+                      t('search.settings.recreateIndexLabel', 'Recreate Index')
+                    )}
+                  </Button>
+                  <span className="text-xs text-muted-foreground mt-1">{t('search.settings.recreateIndexDescription', 'Delete and recreate the index with fresh settings')}</span>
+                </div>
+              )}
+              {/* Full Reindex - always visible (allows creating initial index) */}
+              <div className="flex flex-col">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={() => handleReindexClick('reindex')}
+                  disabled={reindexing !== null}
+                >
+                  {reindexing === 'reindex' ? (
+                    <>
+                      <Spinner size="sm" className="mr-2" />
+                      {t('search.settings.processingLabel', 'Processing...')}
+                    </>
+                  ) : (
+                    t('search.settings.fullReindexLabel', 'Full Reindex')
+                  )}
+                </Button>
+                <span className="text-xs text-muted-foreground mt-1">{t('search.settings.fullReindexDescription', 'Recreate index and re-index all data from database')}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Vector Search Configuration Card */}
+      <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
+        <h2 className="text-lg font-semibold mb-2">{t('search.settings.vector.title', 'Vector Search Configuration')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.vector.description', 'Configure AI-powered semantic search using embeddings.')}</p>
+
+        {(embeddingLoading || vectorStoreConfigLoading) ? (
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Spinner size="sm" />
+            <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Vector Store Driver Status */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.store', 'Vector Store')}</h3>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {vectorStoreConfig?.drivers.map((driver) => {
+                  const isCurrent = driver.id === vectorStoreConfig.currentDriver
+                  const isReady = driver.configured && driver.implemented
+                  return (
+                    <div
+                      key={driver.id}
+                      className={`flex items-start gap-3 p-3 rounded-md border ${
+                        isCurrent && isReady
+                          ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20'
+                          : !driver.implemented
+                            ? 'border-border bg-muted/20 opacity-60'
+                            : 'border-border bg-muted/30'
+                      }`}
+                    >
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-full flex-shrink-0 ${
+                        isCurrent && isReady
+                          ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                          : 'bg-muted text-muted-foreground'
+                      }`}>
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className={`text-sm font-medium ${isCurrent && isReady ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                            {driver.name}
+                          </p>
+                          {isCurrent && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                              {t('search.settings.vector.active', 'Active')}
+                            </span>
+                          )}
+                          {!driver.implemented && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                              {t('search.settings.vector.comingSoon', 'Coming soon')}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 space-y-0.5">
+                          {driver.envVars.map((envVar) => (
+                            <div key={envVar.name} className="flex items-center gap-1.5">
+                              <div className={`h-1.5 w-1.5 rounded-full ${envVar.set ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
+                              <code className="text-[10px] text-muted-foreground font-mono">{envVar.name}</code>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Embedding Provider Selection */}
+            <div>
+              <h3 className="text-sm font-semibold mb-2">{t('search.settings.vector.providers', 'Embedding Provider')}</h3>
+              <p className="text-xs text-muted-foreground mb-3">{t('search.settings.vector.providersHint', 'Select a provider to generate embeddings. Only providers with configured API keys can be selected.')}</p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {providerOptions.map((providerId) => {
+                  const info = EMBEDDING_PROVIDERS[providerId]
+                  const isConfigured = embeddingSettings?.configuredProviders?.includes(providerId)
+                  const isSelected = displayProvider === providerId
+                  const isCurrentlySaved = savedProvider === providerId
+                  return (
+                    <button
+                      key={providerId}
+                      type="button"
+                      onClick={() => isConfigured && handleProviderChange(providerId)}
+                      disabled={!isConfigured || embeddingLoading || embeddingSaving}
+                      className={`text-left p-3 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                          : isConfigured
+                            ? 'border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer'
+                            : 'border-border bg-muted/20 opacity-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm font-medium ${isSelected ? 'text-primary' : isConfigured ? '' : 'text-muted-foreground'}`}>
+                              {info.name}
+                            </p>
+                            {isCurrentlySaved && isConfigured && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                {t('search.settings.vector.active', 'Active')}
+                              </span>
+                            )}
+                          </div>
+                          {isConfigured ? (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {info.models.length} {t('search.settings.vector.modelsAvailable', 'models available')}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {t('search.settings.vector.setEnvVar', 'Set')} <code className="font-mono text-[10px] bg-muted px-1 rounded">{info.envKeyRequired}</code>
+                            </p>
+                          )}
+                        </div>
+                        <div className={`flex h-5 w-5 items-center justify-center rounded-full flex-shrink-0 ${
+                          isSelected
+                            ? 'bg-primary text-primary-foreground'
+                            : isConfigured
+                              ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                              : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {isSelected ? (
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : isConfigured ? (
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Model Selection - shown when provider is selected */}
+                      {isSelected && isConfigured && (
+                        <div className="mt-3 pt-3 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
+                          <div className="space-y-1">
+                            <Label htmlFor={`model-${providerId}`} className="text-xs font-medium">
+                              {t('search.settings.model.label', 'Model')}
+                            </Label>
+                            <select
+                              id={`model-${providerId}`}
+                              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                              value={displayModel}
+                              onChange={(e) => handleModelChange(e.target.value)}
+                              disabled={embeddingLoading || embeddingSaving}
+                            >
+                              {savedCustomModel && displayProvider === savedProvider && (
+                                <option key={savedCustomModel.id} value={savedCustomModel.id}>
+                                  {savedCustomModel.name} ({savedCustomModel.dimension}d)
+                                </option>
+                              )}
+                              {displayProviderInfo.models.map((model) => (
+                                <option key={model.id} value={model.id}>
+                                  {model.name} ({model.dimension}d)
+                                </option>
+                              ))}
+                              <option value="custom">{t('search.settings.model.custom', 'Custom...')}</option>
+                            </select>
+                          </div>
+
+                          {isCustomModel && (
+                            <div className="space-y-2 p-2 rounded border border-input bg-muted/30">
+                              <input
+                                type="text"
+                                className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
+                                value={customModelName}
+                                onChange={(e) => setCustomModelName(e.target.value)}
+                                placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
+                                disabled={embeddingLoading || embeddingSaving}
+                              />
+                              <input
+                                type="number"
+                                className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
+                                value={customDimension}
+                                onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
+                                placeholder="768"
+                                min={1}
+                                disabled={embeddingLoading || embeddingSaving}
+                              />
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">
+                              {t('search.settings.dimension.label', 'Dimensions')}: {displayDimension}
+                            </span>
+                            {embeddingSettings?.indexedDimension && embeddingSettings.indexedDimension !== displayDimension && (
+                              <span className="text-amber-600 dark:text-amber-400">
+                                {t('search.settings.dimension.mismatch', 'mismatch')}: {embeddingSettings.indexedDimension}
+                              </span>
+                            )}
+                          </div>
+
+                          {hasUnsavedEmbeddingChanges && (
+                            <div className="flex gap-2 pt-1">
+                              <Button type="button" variant="default" size="sm" className="flex-1" onClick={handleApplyEmbeddingChanges} disabled={embeddingLoading || embeddingSaving}>
+                                {embeddingSaving ? <Spinner size="sm" className="mr-1" /> : null}
+                                {t('search.settings.actions.apply', 'Apply')}
+                              </Button>
+                              <Button type="button" variant="outline" size="sm" onClick={handleCancelEmbeddingSelection} disabled={embeddingLoading || embeddingSaving}>
+                                {t('search.settings.actions.cancel', 'Cancel')}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Setup Instructions */}
+            <div className="p-3 rounded-md bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+              <div className="flex items-start gap-2">
+                <svg className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="text-sm text-blue-800 dark:text-blue-200">
+                  <p className="font-medium mb-1">{t('search.settings.vector.howTo', 'How to set up')}</p>
+                  <p className="text-xs">{t('search.settings.vector.howToDescription', 'Add the API key for your preferred provider to your .env file. Only providers with configured API keys can be selected.')}</p>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
-      {/* Vector Search Settings Card */}
+      {/* Vector Search Index Management Card */}
       <div className="rounded-lg border border-border bg-card p-5 shadow-sm">
-        <h2 className="text-lg font-semibold mb-2">{t('search.settings.provider.title', 'Embedding Provider')}</h2>
-        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.vectorSettingsDescription', 'Configure the embedding provider for vector search.')}</p>
+        <h2 className="text-lg font-semibold mb-2">{t('search.settings.vectorIndexTitle', 'Vector Search Index')}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t('search.settings.vectorIndexDescription', 'Manage the vector search index for semantic search.')}</p>
 
         {embeddingLoading ? (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Spinner size="sm" />
             <span>{t('search.settings.loadingLabel', 'Loading settings...')}</span>
           </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-3">
-            {/* Embedding Provider Card */}
-            <div className="rounded-md border border-border p-4">
-              <h3 className="text-sm font-semibold mb-3">{t('search.settings.provider.label', 'Provider')}</h3>
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <Label htmlFor="embedding-provider" className="text-xs font-medium">
-                    {t('search.settings.provider.label', 'Provider')}
-                  </Label>
-                  <select
-                    id="embedding-provider"
-                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                    value={displayProvider}
-                    onChange={(e) => handleProviderChange(e.target.value as EmbeddingProviderId)}
-                    disabled={embeddingLoading || embeddingSaving}
-                  >
-                    {providerOptions.map((providerId) => {
-                      const info = EMBEDDING_PROVIDERS[providerId]
-                      const providerConfigured = embeddingSettings?.configuredProviders?.includes(providerId)
-                      return (
-                        <option key={providerId} value={providerId} disabled={!providerConfigured}>
-                          {info.name} {!providerConfigured && `(${t('search.settings.provider.notConfigured', 'not configured')})`}
-                        </option>
-                      )
-                    })}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <Label htmlFor="embedding-model" className="text-xs font-medium">
-                    {t('search.settings.model.label', 'Model')}
-                  </Label>
-                  <select
-                    id="embedding-model"
-                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                    value={displayModel}
-                    onChange={(e) => handleModelChange(e.target.value)}
-                    disabled={embeddingLoading || embeddingSaving}
-                  >
-                    {savedCustomModel && displayProvider === savedProvider && (
-                      <option key={savedCustomModel.id} value={savedCustomModel.id}>
-                        {savedCustomModel.name} ({savedCustomModel.dimension}d)
-                      </option>
-                    )}
-                    {displayProviderInfo.models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name} ({model.dimension}d)
-                      </option>
-                    ))}
-                    <option value="custom">{t('search.settings.model.custom', 'Custom...')}</option>
-                  </select>
-                </div>
-
-                {isCustomModel && (
-                  <div className="space-y-2 p-2 rounded border border-input bg-muted/30">
-                    <input
-                      type="text"
-                      className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
-                      value={customModelName}
-                      onChange={(e) => setCustomModelName(e.target.value)}
-                      placeholder={t('search.settings.model.namePlaceholder', 'Model name')}
-                      disabled={embeddingLoading || embeddingSaving}
-                    />
-                    <input
-                      type="number"
-                      className="w-full rounded border border-input bg-background px-2 py-1 text-sm"
-                      value={customDimension}
-                      onChange={(e) => setCustomDimension(Number(e.target.value) || 768)}
-                      placeholder="768"
-                      min={1}
-                      disabled={embeddingLoading || embeddingSaving}
-                    />
-                  </div>
-                )}
-
-                <div className="text-xs text-muted-foreground">
-                  {t('search.settings.dimension.label', 'Dimensions')}: {displayDimension}
-                  {embeddingSettings?.indexedDimension && embeddingSettings.indexedDimension !== displayDimension && (
-                    <span className="ml-1 text-amber-600 dark:text-amber-400">
-                      ({t('search.settings.dimension.mismatch', 'mismatch')}: {embeddingSettings.indexedDimension})
-                    </span>
-                  )}
-                </div>
-
-                {hasUnsavedEmbeddingChanges && (
-                  <div className="flex gap-2">
-                    <Button type="button" variant="default" size="sm" onClick={handleApplyEmbeddingChanges} disabled={embeddingLoading || embeddingSaving}>
-                      {t('search.settings.actions.apply', 'Apply')}
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={handleCancelEmbeddingSelection} disabled={embeddingLoading || embeddingSaving}>
-                      {t('search.settings.actions.cancel', 'Cancel')}
-                    </Button>
-                  </div>
-                )}
+        ) : !isEmbeddingConfigured ? (
+          <div className="p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <div className="flex items-start gap-3">
+              <svg className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  {t('search.settings.vectorNotConfigured', 'No embedding provider configured')}
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  {t('search.settings.vectorNotConfiguredHint', 'Configure an embedding provider in the Vector Search Configuration section above to enable indexing.')}
+                </p>
               </div>
             </div>
-
-            {/* Auto-Indexing Card */}
-            <div className="rounded-md border border-border p-4">
-              <h3 className="text-sm font-semibold mb-3">{t('search.settings.status.title', 'Auto-Indexing')}</h3>
-              <div className="space-y-3">
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Auto-Indexing Toggle */}
+            <div className="flex items-start gap-4 p-4 rounded-md border border-border">
+              <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <input
                     id="search-auto-indexing"
@@ -1045,50 +1341,50 @@ export function SearchSettingsPageClient() {
                     onChange={(event) => updateAutoIndexing(event.target.checked)}
                     disabled={autoIndexingDisabled}
                   />
-                  <Label htmlFor="search-auto-indexing" className="text-sm">
+                  <Label htmlFor="search-auto-indexing" className="text-sm font-medium">
                     {t('search.settings.autoIndexing.label', 'Enable auto-indexing')}
                   </Label>
                   {embeddingSaving ? <Spinner size="sm" className="text-muted-foreground" /> : null}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground mt-1 ml-6">
                   {t('search.settings.autoIndexing.description', 'Automatically index new and updated records for vector search.')}
                 </p>
                 {embeddingSettings?.autoIndexingLocked && (
-                  <p className="text-xs text-destructive">
+                  <p className="text-xs text-destructive mt-1 ml-6">
                     {t('search.settings.autoIndexing.locked', 'Disabled via environment variable.')}
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Vector Reindex Card */}
-            <div className="rounded-md border border-border p-4">
-              <h3 className="text-sm font-semibold mb-3">{t('search.settings.reindex.title', 'Reindex Data')}</h3>
-              <p className="text-xs text-muted-foreground mb-3">
-                {t('search.settings.reindex.description', 'Rebuild vector embeddings for all indexed entities.')}
+            {/* Reindex Actions */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">{t('search.settings.vectorReindex.title', 'Reindex Data')}</h3>
+              <p className="text-xs text-muted-foreground">
+                {t('search.settings.vectorReindex.description', 'Rebuild vector embeddings for all indexed entities. This will purge existing data and regenerate all embeddings.')}
               </p>
-              <div className="flex items-center gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20 mb-3">
+              <div className="flex items-center gap-2 p-2 rounded bg-amber-50 dark:bg-amber-900/20">
                 <svg className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <p className="text-xs text-amber-800 dark:text-amber-200">
-                  {t('search.settings.reindex.warning', 'This may take a while for large datasets.')}
+                  {t('search.settings.vectorReindex.warning', 'This may take a while for large datasets and will consume API credits.')}
                 </p>
               </div>
               <Button
                 type="button"
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={handleVectorReindexClick}
-                disabled={embeddingLoading || embeddingSaving || vectorReindexing || !isEmbeddingConfigured}
+                disabled={embeddingLoading || embeddingSaving || vectorReindexing}
               >
                 {vectorReindexing ? (
                   <>
                     <Spinner size="sm" className="mr-2" />
-                    {t('search.settings.reindex.running', 'Reindexing...')}
+                    {t('search.settings.vectorReindex.running', 'Reindexing...')}
                   </>
                 ) : (
-                  t('search.settings.reindex.button', 'Start Reindex')
+                  t('search.settings.vectorReindex.button', 'Full Reindex')
                 )}
               </Button>
             </div>
