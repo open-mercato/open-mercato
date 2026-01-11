@@ -398,10 +398,8 @@ const rebuildAll: ModuleCli = {
     try {
       const knex = em.getConnection().getKnex()
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
-        E: Record<string, Record<string, string>>
-      }
-      const entityIds = flattenSystemEntityIds(All)
+      const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -646,10 +644,8 @@ const reindex: ModuleCli = {
         return
       }
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
-        E: Record<string, Record<string, string>>
-      }
-      const entityIds = flattenSystemEntityIds(All)
+      const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -860,10 +856,8 @@ const purge: ModuleCli = {
         return
       }
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
-        E: Record<string, Record<string, string>>
-      }
-      const entityIds = flattenSystemEntityIds(All)
+      const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       for (const id of entityIds) {
         await bus.emitEvent(
           'query_index.purge',

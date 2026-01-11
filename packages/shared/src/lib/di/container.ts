@@ -2,16 +2,32 @@ import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix
 import { RequestContext } from '@mikro-orm/core'
 import { getOrm } from '@open-mercato/shared/lib/db/mikro'
 import { EntityManager } from '@mikro-orm/postgresql'
-import diRegistrarsDefault from '@/generated/di.generated'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
 import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 
 export type AppContainer = AwilixContainer
+export type DiRegistrar = (container: AwilixContainer) => void
 
-const diRegistrars = diRegistrarsDefault ?? []
+// Registration pattern for publishable packages
+let _diRegistrars: DiRegistrar[] | null = null
+
+export function registerDiRegistrars(registrars: DiRegistrar[]) {
+  if (_diRegistrars !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] DI registrars re-registered (this may occur during HMR)')
+  }
+  _diRegistrars = registrars
+}
+
+export function getDiRegistrars(): DiRegistrar[] {
+  if (!_diRegistrars) {
+    throw new Error('[Bootstrap] DI registrars not registered. Call registerDiRegistrars() at bootstrap.')
+  }
+  return _diRegistrars
+}
 
 export async function createRequestContainer(): Promise<AppContainer> {
+  const diRegistrars = getDiRegistrars()
   const orm = await getOrm()
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em

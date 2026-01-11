@@ -118,9 +118,6 @@ function writePerEntityFieldFiles(outRoot: string, fieldsByEntity: EntityFieldMa
     fs.mkdirSync(entDir, { recursive: true })
     const idx = fields.map((f) => `export const ${toVar(f)} = '${f}'`).join('\n') + '\n'
     fs.writeFileSync(path.join(entDir, 'index.ts'), idx)
-    for (const f of fields) {
-      fs.writeFileSync(path.join(entDir, `${f}.ts`), `export default '${f}'\n`)
-    }
   }
 }
 

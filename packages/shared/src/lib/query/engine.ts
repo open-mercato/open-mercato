@@ -492,7 +492,8 @@ export class BasicQueryEngine implements QueryEngine {
 
     // Entity extensions joins (no selection yet; enables future filters/projections)
     if (opts.includeExtensions) {
-      const allMods = (await import('@/generated/modules.generated')).modules as any[]
+      const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
+      const allMods = getModules() as any[]
       const allExts = allMods.flatMap((m) => (m as any).entityExtensions || [])
       const exts = allExts.filter((e: any) => e.base === entity)
       const chosen = Array.isArray(opts.includeExtensions)

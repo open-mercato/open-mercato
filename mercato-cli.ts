@@ -2,7 +2,11 @@
 /**
  * CLI entry point at root level to ensure correct tsconfig resolution.
  */
+import { bootstrap } from './src/bootstrap'
 import { run } from './packages/cli/src/mercato'
+
+// Bootstrap all package registrations before running CLI
+bootstrap()
 
 async function main() {
   const code = await run(process.argv)

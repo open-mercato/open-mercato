@@ -4,7 +4,24 @@
 
 import { createRequestContainer } from '@/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
-import generatedModules from '@/generated/modules.generated'
+import type { Module } from '@open-mercato/shared/modules/registry'
+
+// Registration pattern for publishable packages
+let _cliModules: Module[] | null = null
+
+export function registerCliModules(modules: Module[]) {
+  if (_cliModules !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
+  }
+  _cliModules = modules
+}
+
+export function getCliModules(): Module[] {
+  if (!_cliModules) {
+    throw new Error('[Bootstrap] CLI modules not registered. Call registerCliModules() at bootstrap.')
+  }
+  return _cliModules
+}
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 let envLoaded = false
@@ -394,8 +411,8 @@ export async function run(argv = process.argv) {
     rest = second !== undefined ? [second, ...remaining] : remaining
   }
   
-  // Load modules lazily, after init handling
-  const { modules } = await import('@/generated/modules.generated')
+  // Load modules from registered CLI modules
+  const modules = getCliModules()
   
   // Load optional app-level CLI commands lazily without static import resolution
   let appCli: any[] = []
@@ -429,7 +446,7 @@ export async function run(argv = process.argv) {
 
             // Load registered module subscribers
             const listeners = new Map<string, Set<any>>()
-            for (const mod of generatedModules) {
+            for (const mod of getCliModules()) {
               for (const sub of (mod as any).subscribers || []) {
                 if (!listeners.has(sub.event)) listeners.set(sub.event, new Set())
                 listeners.get(sub.event)!.add(sub.handler)

@@ -1,8 +1,16 @@
 import { NextRequest } from 'next/server'
-import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { Module, HttpMethod, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+
+// Mock bootstrap to prevent it from running during tests
+jest.mock('@/bootstrap', () => ({
+  bootstrap: jest.fn(),
+  isBootstrapped: jest.fn(() => true),
+}))
+
+// Import route handlers after bootstrap mock is set up
+import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
 
 // Mock the auth module
 jest.mock('@/lib/auth/server', () => ({
@@ -81,6 +89,10 @@ function getMockedModules(): Module[] {
 jest.mock('@/generated/modules.generated', () => ({
   modules: getMockedModules(),
 }))
+
+// Register modules for the registration-based pattern
+import { registerModules } from '@open-mercato/shared/lib/i18n/server'
+registerModules(getMockedModules() as any)
 
 const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>
 

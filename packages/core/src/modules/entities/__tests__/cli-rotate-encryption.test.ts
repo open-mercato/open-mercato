@@ -2,6 +2,14 @@
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { registerEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+
+// Register mock entity IDs for the test
+registerEntityIds({
+  audit_logs: {
+    access_log: 'audit_logs:access_log',
+  },
+} as any)
 
 const execute = jest.fn()
 const find = jest.fn()
