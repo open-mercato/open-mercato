@@ -4,11 +4,11 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { FmsOffer, FmsQuote } from '../../data/entities'
+import { FmsOffer, FmsOfferLine, FmsQuote, FmsQuoteLine } from '../../data/entities'
 import { fmsOfferCreateSchema } from '../../data/validators'
 
 const listSchema = z.object({
-  quoteId: z.string().uuid(),
+  quoteId: z.string().uuid().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(50),
 })
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const query = {
-    quoteId: url.searchParams.get('quoteId'),
+    quoteId: url.searchParams.get('quoteId') || undefined,
     page: url.searchParams.get('page') || '1',
     limit: url.searchParams.get('limit') || '50',
   }
@@ -34,8 +34,12 @@ export async function GET(req: Request) {
   const em = container.resolve('em') as EntityManager
 
   const filters: Record<string, unknown> = {
-    quote: parse.data.quoteId,
     deletedAt: null,
+  }
+
+  // Optional quoteId filter
+  if (parse.data.quoteId) {
+    filters.quote = parse.data.quoteId
   }
 
   if (auth.tenantId) {
@@ -54,6 +58,7 @@ export async function GET(req: Request) {
     orderBy: { createdAt: 'DESC' },
     limit: parse.data.limit,
     offset: (parse.data.page - 1) * parse.data.limit,
+    populate: ['quote', 'lines'],
   })
 
   return NextResponse.json({
@@ -65,12 +70,22 @@ export async function GET(req: Request) {
   })
 }
 
+// Schema for creating offer with line selection
+const createOfferSchema = z.object({
+  quoteId: z.string().uuid(),
+  lineIds: z.array(z.string().uuid()).optional(),
+  validUntil: z.coerce.date(),
+  paymentTerms: z.string().trim().max(255).optional().nullable(),
+  specialTerms: z.string().trim().max(2000).optional().nullable(),
+  customerNotes: z.string().trim().max(2000).optional().nullable(),
+})
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const validation = fmsOfferCreateSchema.partial().safeParse(body)
+  const validation = createOfferSchema.safeParse(body)
   if (!validation.success) {
     return NextResponse.json({ error: 'Invalid input', details: validation.error }, { status: 400 })
   }
@@ -82,7 +97,7 @@ export async function POST(req: Request) {
   const data = validation.data
 
   // Verify the quote exists and user has access
-  const quote = await em.findOne(FmsQuote, { id: data.quoteId, deletedAt: null })
+  const quote = await em.findOne(FmsQuote, { id: data.quoteId, deletedAt: null }, { populate: ['lines'] })
   if (!quote) {
     return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
   }
@@ -99,28 +114,92 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Access denied' }, { status: 403 })
   }
 
+  // Count existing offers for this quote to determine version number
+  const existingOffers = await em.count(FmsOffer, { quote: quote.id, deletedAt: null })
+  const version = existingOffers + 1
+
+  // Generate offer number (e.g., OFF-2026-0001)
+  const year = new Date().getFullYear()
+  const allOffersCount = await em.count(FmsOffer, {
+    tenantId: quote.tenantId,
+    organizationId: quote.organizationId,
+  })
+  const offerNumber = `OFF-${year}-${String(allOffersCount + 1).padStart(4, '0')}`
+
+  // Get quote lines to include (all lines if no specific lineIds provided)
+  const quoteLines = await em.find(FmsQuoteLine, {
+    quote: quote.id,
+    deletedAt: null,
+    ...(data.lineIds?.length ? { id: { $in: data.lineIds } } : {}),
+  })
+
+  if (quoteLines.length === 0) {
+    return NextResponse.json({ error: 'No lines to include in offer' }, { status: 400 })
+  }
+
+  // Calculate total from selected lines (sum of unitSales * quantity)
+  let totalAmount = 0
+  for (const line of quoteLines) {
+    const qty = parseFloat(line.quantity) || 1
+    const sales = parseFloat(line.unitSales) || 0
+    totalAmount += qty * sales
+  }
+
   const offer = em.create(FmsOffer, {
     quote,
     organizationId: quote.organizationId,
     tenantId: quote.tenantId,
-    offerNumber: data.offerNumber || `OFF-${Date.now()}`,
-    status: data.status || 'draft',
-    contractType: data.contractType || 'spot',
-    carrierName: data.carrierName || null,
-    validUntil: data.validUntil ? new Date(data.validUntil) : null,
-    currencyCode: data.currencyCode || quote.currencyCode || 'USD',
-    totalAmount: data.totalAmount?.toString() || '0',
-    notes: data.notes || null,
+    offerNumber,
+    version,
+    status: 'draft',
+    contractType: 'spot',
+    validUntil: new Date(data.validUntil),
+    currencyCode: quote.currencyCode || 'USD',
+    totalAmount: totalAmount.toFixed(4),
+    paymentTerms: data.paymentTerms || null,
+    specialTerms: data.specialTerms || null,
+    customerNotes: data.customerNotes || null,
     createdAt: new Date(),
     updatedAt: new Date(),
   })
 
-  await em.persistAndFlush(offer)
+  em.persist(offer)
+
+  // Create offer lines from quote lines (snapshot)
+  for (let i = 0; i < quoteLines.length; i++) {
+    const quoteLine = quoteLines[i]
+    const qty = parseFloat(quoteLine.quantity) || 1
+    const unitPrice = parseFloat(quoteLine.unitSales) || 0
+    const amount = qty * unitPrice
+
+    const offerLine = em.create(FmsOfferLine, {
+      offer,
+      organizationId: quote.organizationId,
+      tenantId: quote.tenantId,
+      lineNumber: i + 1,
+      productName: quoteLine.productName,
+      chargeCode: quoteLine.chargeCode || null,
+      containerSize: quoteLine.containerSize || null,
+      quantity: quoteLine.quantity,
+      currencyCode: quoteLine.currencyCode || 'USD',
+      unitPrice: quoteLine.unitSales,
+      amount: amount.toFixed(4),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    em.persist(offerLine)
+  }
+
+  await em.flush()
+
+  // Reload offer with lines
+  await em.refresh(offer, { populate: ['lines'] })
 
   return NextResponse.json(offer, { status: 201 })
 }
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['fms_quotes.quotes.view'] },
-  POST: { requireAuth: true, requireFeatures: ['fms_quotes.quotes.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['fms_quotes.offers.view'] },
+  POST: { requireAuth: true, requireFeatures: ['fms_quotes.offers.manage'] },
 }
