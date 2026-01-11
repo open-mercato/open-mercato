@@ -59,9 +59,9 @@ export default function CheckoutDemoPage() {
       return json.data // API returns { data: instance }
     },
     enabled: !!result?.instanceId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Poll while workflow is active (not completed, failed, or cancelled)
-      const status = data?.status || result?.status
+      const status = query.state.data?.status || result?.status
       return (status === 'RUNNING' || status === 'PAUSED' || status === 'WAITING_FOR_ACTIVITIES') ? 500 : false
     },
   })
@@ -95,7 +95,7 @@ export default function CheckoutDemoPage() {
       return data.items || []
     },
     enabled: !!result?.instanceId,
-    refetchInterval: (data) => {
+    refetchInterval: (query) => {
       // Poll while workflow is active
       const status = instanceData?.status || result?.status
       return (status === 'RUNNING' || status === 'PAUSED' || status === 'WAITING_FOR_ACTIVITIES') ? 1000 : false

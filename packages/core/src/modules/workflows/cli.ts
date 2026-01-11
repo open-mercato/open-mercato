@@ -404,7 +404,7 @@ const processActivities: ModuleCli = {
       }
 
       // Process jobs
-      const result = await queue.process(handler, limit > 0 ? { limit } : undefined)
+      const result = await queue.process(handler as any, limit > 0 ? { limit } : undefined)
 
       console.log(`\n[Workflow Activities] ✓ Processed ${result.processed} activities`)
       if (result.failed > 0) {
