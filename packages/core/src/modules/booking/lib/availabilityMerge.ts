@@ -85,14 +85,11 @@ function shouldExcludeOccurrence(startAt: Date, exdates?: string[]): boolean {
 }
 
 function toDayKey(value: Date): string {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return value.toISOString().slice(0, 10)
 }
 
 function startOfDay(value: Date): Date {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate())
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
 }
 
 function expandRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: AvailabilityRange): AvailabilityWindow[] {
@@ -214,7 +211,7 @@ export function getMergedAvailabilityWindows(params: {
   const overrideWindows: AvailabilityWindow[] = []
   overrideDays.forEach((kind, dayKey) => {
     if (kind !== 'availability') return
-    const start = new Date(`${dayKey}T00:00:00`)
+    const start = new Date(`${dayKey}T00:00:00Z`)
     if (Number.isNaN(start.getTime())) return
     const end = new Date(start.getTime() + DAY_MS)
     if (end <= params.range.start || start >= params.range.end) return

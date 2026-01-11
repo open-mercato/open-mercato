@@ -17,6 +17,7 @@ import { Pencil, Users } from 'lucide-react'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
 import { useT } from '@/lib/i18n/context'
+import { truncate } from 'fs'
 
 const PAGE_SIZE = 50
 const isTestEnv = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
@@ -180,7 +181,7 @@ export default function BookingTeamRolesPage() {
     {
       accessorKey: 'memberCount',
       header: <span className="inline-block min-w-[250px]">{labels.table.members}</span>,
-      meta: { priority: 3 },
+      meta: { priority: 3, maxWidth: '250px', truncate: true },
       enableSorting: false,
       cell: ({ row }) => row.original.kind === 'role'
         ? (

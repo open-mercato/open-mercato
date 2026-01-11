@@ -92,11 +92,23 @@ export async function GET(req: Request) {
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
+    const normalizeCustomEntityValue = (value: unknown) => {
+      if (Array.isArray(value)) {
+        return value.map((entry) => {
+          if (typeof entry !== 'string') return entry
+          const parsed = parseBooleanToken(entry)
+          return parsed === null ? entry : parsed
+        })
+      }
+      if (typeof value !== 'string') return value
+      const parsed = parseBooleanToken(value)
+      return parsed === null ? value : parsed
+    }
     const mapRow = (row: any) => {
       if (!isCustomEntity || !row || typeof row !== 'object') return row
       const out: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(row)) {
-        if (k.startsWith('cf_')) out[k.replace(/^cf_/, '')] = v
+        if (k.startsWith('cf_')) out[k.replace(/^cf_/, '')] = normalizeCustomEntityValue(v)
         else out[k] = v
       }
       return out
