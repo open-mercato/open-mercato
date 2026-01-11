@@ -1,11 +1,4 @@
-import { z } from 'zod'
-
-const boolean = z
-  .string()
-  .transform((value) => value.trim().toLowerCase())
-  .transform((value) => (['1', 'true', 'yes', 'on'].includes(value) ? true : ['0', 'false', 'no', 'off'].includes(value) ? false : null))
-  .nullable()
-  .default(null)
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export type SearchConfig = {
   enabled: boolean
@@ -19,10 +12,7 @@ export type SearchConfig = {
 const DEFAULT_BLOCKLIST = ['password', 'token', 'secret', 'hash']
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
-  if (raw == null) return fallback
-  const parsed = boolean.parse(raw)
-  if (parsed === null) return fallback
-  return parsed
+  return parseBooleanWithDefault(raw, fallback)
 }
 
 function parseNumber(raw: string | undefined, fallback: number, min = 1): number {

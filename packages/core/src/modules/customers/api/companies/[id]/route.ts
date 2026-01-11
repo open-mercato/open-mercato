@@ -28,6 +28,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -95,9 +96,7 @@ function extractTodoTitle(record: Record<string, unknown>): string | null {
 function parseBoolean(value: unknown): boolean | null {
   if (typeof value === 'boolean') return value
   if (typeof value === 'string') {
-    const normalized = value.trim().toLowerCase()
-    if (normalized === 'true') return true
-    if (normalized === 'false') return false
+    return parseBooleanToken(value)
   }
   return null
 }

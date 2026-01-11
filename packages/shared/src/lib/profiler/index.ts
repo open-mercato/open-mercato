@@ -1,3 +1,5 @@
+import { parseBooleanToken } from '../boolean'
+
 const ROUND_PRECISION = 1000
 const NS_PER_MS = BigInt(1_000_000)
 const BIGINT_ZERO = BigInt(0)
@@ -328,7 +330,7 @@ export function profilerMatches(target: string, tokens: string[]): boolean {
   if (!tokens.length) return false
   const lower = target.toLowerCase()
   return tokens.some((token) => {
-    if (token === '*' || token === 'all' || token === '1' || token === 'true') return true
+    if (token === '*' || token === 'all' || parseBooleanToken(token) === true) return true
     if (token.endsWith('*')) {
       const prefix = token.slice(0, -1)
       return prefix.length === 0 ? true : lower.startsWith(prefix)

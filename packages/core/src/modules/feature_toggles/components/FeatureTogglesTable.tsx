@@ -11,7 +11,9 @@ import type { FilterDef, FilterValues } from "@open-mercato/ui/backend/FilterBar
 import { useMutation } from '@tanstack/react-query'
 import { deleteCrud, updateCrud } from "@open-mercato/ui/backend/utils/crud";
 import { Button } from "@open-mercato/ui/primitives/button";
+import { Badge } from "@open-mercato/ui/primitives/badge";
 import Link from "next/link";
+import { FeatureToggleType } from "../data/entities";
 
 type Row = {
   id: string
@@ -19,24 +21,30 @@ type Row = {
   name: string
   description: string
   category?: string
-  default_state: boolean
-  fail_mode: 'fail_open' | 'fail_closed'
+  type: FeatureToggleType
 }
+
+type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline' | 'muted'
 
 export function FeatureTogglesTable() {
   const t = useT()
   const queryClient = useQueryClient()
+
+  const featureToggleTypeLabelMap = React.useMemo(() => new Map<FeatureToggleType, { label: string; variant: BadgeVariant }>([
+    ['boolean', { label: t('feature_toggles.types.boolean', 'Boolean'), variant: 'default' }],
+    ['string', { label: t('feature_toggles.types.string', 'String'), variant: 'secondary' }],
+    ['number', { label: t('feature_toggles.types.number', 'Number'), variant: 'outline' }],
+    ['json', { label: t('feature_toggles.types.json', 'JSON'), variant: 'destructive' }],
+  ]), [t])
+
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [sorting, setSorting] = React.useState<SortingState>([])
-  const [categoryOptions, setCategoryOptions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [pagination, setPagination] = React.useState({ page: 1, pageSize: 25 })
 
   const categoryFilterValue = typeof filterValues.category === 'string' ? filterValues.category.trim() : ''
   const nameFilterValue = typeof filterValues.name === 'string' ? filterValues.name.trim() : ''
   const identifierFilterValue = typeof filterValues.identifier === 'string' ? filterValues.identifier.trim() : ''
-  const defaultStateFilterValue = typeof filterValues.defaultState === 'string'
-    ? filterValues.defaultState.trim()
-    : ''
-
+  const typeFilterValue = typeof filterValues.type === 'string' ? filterValues.type.trim() : ''
   const sortField = sorting.length > 0 ? sorting[0].id : 'category'
   const sortDir = sorting.length > 0 && sorting[0].desc ? 'desc' : 'asc'
 
@@ -45,47 +53,37 @@ export function FeatureTogglesTable() {
     if (categoryFilterValue) params.set('category', categoryFilterValue)
     if (nameFilterValue) params.set('name', nameFilterValue)
     if (identifierFilterValue) params.set('identifier', identifierFilterValue)
-    if (defaultStateFilterValue) params.set('defaultState', defaultStateFilterValue)
+    if (typeFilterValue) params.set('type', typeFilterValue)
 
     params.set('sortField', sortField)
     params.set('sortDir', sortDir)
 
+    params.set('page', pagination.page.toString())
+    params.set('pageSize', pagination.pageSize.toString())
+
     return params.toString()
-  }, [categoryFilterValue, defaultStateFilterValue, identifierFilterValue, nameFilterValue, sortField, sortDir])
+  }, [categoryFilterValue, identifierFilterValue, nameFilterValue, sortField, sortDir, typeFilterValue, pagination])
 
   const handleSortingChange = React.useCallback((newSorting: SortingState) => {
     setSorting(newSorting)
   }, [])
 
+  const handlePageChange = React.useCallback((page: number) => {
+    setPagination(prev => ({ ...prev, page }))
+  }, [])
+
   const { data: featureTogglesData, isLoading } = useQuery({
     queryKey: ['feature_toggles', queryParams],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; page: number; pageSize: number; isSuperAdmin?: boolean }>(
         `/api/feature_toggles/global${queryParams ? `?${queryParams}` : ''}`,
       )
       if (!call.ok) {
         await raiseCrudError(call.response, t('feature_toggles.list.error.load', 'Failed to load feature toggles'))
       }
-      return call.result ?? { items: [], total: 0, totalPages: 1 }
+      return call.result ?? { items: [], total: 0, totalPages: 1, page: 1, pageSize: 25 }
     },
   })
-
-  React.useEffect(() => {
-    const items = featureTogglesData?.items ?? []
-    if (!items.length) return
-    const existing = new Map(categoryOptions.map((option) => [option.value, option]))
-    let updated = false
-    items.forEach((item) => {
-      const category = typeof item.category === 'string' ? item.category.trim() : ''
-      if (!category || existing.has(category)) return
-      existing.set(category, { value: category, label: category })
-      updated = true
-    })
-    if (updated) {
-      const next = Array.from(existing.values()).sort((a, b) => a.label.localeCompare(b.label))
-      setCategoryOptions(next)
-    }
-  }, [categoryOptions, featureTogglesData?.items])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -101,19 +99,20 @@ export function FeatureTogglesTable() {
     {
       id: 'category',
       label: t('feature_toggles.list.filters.category', 'Category'),
-      type: 'select',
-      options: categoryOptions,
+      type: 'text',
     },
     {
-      id: 'defaultState',
-      label: t('feature_toggles.list.filters.defaultState', 'Default state'),
+      id: 'type',
+      label: t('feature_toggles.list.filters.type', 'Type'),
       type: 'select',
       options: [
-        { value: 'enabled', label: t('feature_toggles.list.filters.defaultState.enabled', 'Enabled') },
-        { value: 'disabled', label: t('feature_toggles.list.filters.defaultState.disabled', 'Disabled') },
+        { label: t('feature_toggles.types.boolean', 'Boolean'), value: 'boolean' },
+        { label: t('feature_toggles.types.string', 'String'), value: 'string' },
+        { label: t('feature_toggles.types.number', 'Number'), value: 'number' },
+        { label: t('feature_toggles.types.json', 'JSON'), value: 'json' },
       ],
     },
-  ], [categoryOptions, t])
+  ], [t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     setFilterValues(values)
@@ -137,28 +136,6 @@ export function FeatureTogglesTable() {
     await deleteFeatureToggleMutation.mutateAsync(row)
   }, [deleteFeatureToggleMutation, t])
 
-  const updateFeatureToggleMutation = useMutation({
-    mutationFn: async (values: Row) => {
-      const payload = {
-        id: values.id,
-        identifier: values.identifier,
-        name: values.name,
-        description: values.description,
-        category: values.category,
-        defaultState: values.default_state,
-        failMode: values.fail_mode,
-      }
-      await updateCrud('feature_toggles/global', payload)
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['feature_toggles'] })
-    },
-  })
-
-  const onSubmit = React.useCallback(async (values: Row) => {
-    await updateFeatureToggleMutation.mutateAsync(values)
-  }, [updateFeatureToggleMutation])
-
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
       {
@@ -180,36 +157,23 @@ export function FeatureTogglesTable() {
         enableSorting: true
       },
       {
-        accessorKey: 'defaultState',
-        header: t('feature_toggles.list.headers.defaultState', 'Default State'),
+        accessorKey: 'type',
+        header: t('feature_toggles.list.headers.type', 'Type'),
         enableSorting: true,
         cell: ({ row }) => {
+          const typeInfo = featureToggleTypeLabelMap.get(row.original.type)
+          if (!typeInfo) return '-'
+
           return (
-            <select
-              value={row.original.default_state ? 'enabled' : 'disabled'}
-              disabled={updateFeatureToggleMutation.isPending}
-              onChange={(e) => {
-                const state = e.target.value === 'enabled' ? true : false
-                onSubmit({
-                  ...row.original,
-                  default_state: state,
-                })
-              }}
-            >
-              <option value="enabled">Enabled</option>
-              <option value="disabled">Disabled</option>
-            </select>
+            <Badge variant={typeInfo.variant}>
+              {typeInfo.label}
+            </Badge>
           )
         },
       },
-      {
-        accessorKey: 'fail_mode',
-        header: t('feature_toggles.list.headers.failMode', 'Fail Mode'),
-        enableSorting: true,
-      },
     ]
     return base
-  }, [])
+  }, [t, featureToggleTypeLabelMap])
 
   return (
     <DataTable
@@ -232,6 +196,13 @@ export function FeatureTogglesTable() {
       sorting={sorting}
       onSortingChange={handleSortingChange}
       sortable={true}
+      pagination={{
+        page: featureTogglesData?.page ?? 1,
+        pageSize: featureTogglesData?.pageSize ?? 25,
+        total: featureTogglesData?.total ?? 0,
+        totalPages: featureTogglesData?.totalPages ?? 1,
+        onPageChange: handlePageChange,
+      }}
       rowActions={(row) => (
         <RowActions items={[
           { label: t('common.edit', 'Edit'), href: `/backend/feature-toggles/global/${row.id}/edit` },
@@ -242,3 +213,4 @@ export function FeatureTogglesTable() {
     />
   )
 }
+

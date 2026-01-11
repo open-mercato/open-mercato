@@ -1,5 +1,5 @@
 import ApiDocsExplorer from './Explorer'
-import { modules } from '@/generated/modules.generated'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 
@@ -51,6 +51,7 @@ function buildTagOrder(doc: any, operations: ExplorerOperation[]): string[] {
 
 export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
+  const modules = getModules()
   const doc = buildOpenApiDocument(modules, {
     title: 'Open Mercato API',
     version: '1.0.0',

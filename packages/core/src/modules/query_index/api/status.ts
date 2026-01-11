@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
 import type { VectorIndexService } from '@open-mercato/search/vector'
@@ -62,7 +62,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
-  const generatedIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
+  const generatedIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
   const generated = generatedIds.map((entityId) => ({ entityId, label: entityId }))
 
   const byId = new Map<string, { entityId: string; label: string }>()

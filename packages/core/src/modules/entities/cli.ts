@@ -10,6 +10,13 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
+import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import crypto from 'node:crypto'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string | boolean> = {}
@@ -157,7 +164,7 @@ const addField: ModuleCli = {
     }
     const askBool = async (q: string, d = false) => {
       const a = (await ask(q, d ? 'y' : 'n')).toLowerCase()
-      return a === 'y' || a === 'yes' || a === 'true'
+      return parseBooleanToken(a) === true
     }
 
     try {
@@ -188,7 +195,7 @@ const addField: ModuleCli = {
         switch (kind) {
           case 'integer': defaultValue = Number(needDefault); break
           case 'float': defaultValue = Number(needDefault); break
-          case 'boolean': defaultValue = ['y','yes','true','1'].includes(String(needDefault).toLowerCase()); break
+          case 'boolean': defaultValue = parseBooleanToken(String(needDefault)) === true; break
           default: defaultValue = String(needDefault)
         }
       }
@@ -289,5 +296,304 @@ const seedEncryptionMaps: ModuleCli = {
   },
 }
 
+function normalizeKeyInput(value: string): string {
+  return value.trim().replace(/^['"]|['"]$/g, '')
+}
+
+class DerivedKeyKmsService implements KmsService {
+  private root: Buffer
+  constructor(secret: string) {
+    this.root = crypto.createHash('sha256').update(normalizeKeyInput(secret)).digest()
+  }
+
+  isHealthy(): boolean {
+    return true
+  }
+
+  private deriveKey(tenantId: string): string {
+    const iterations = 310_000
+    const keyLength = 32
+    const derived = crypto.pbkdf2Sync(this.root, tenantId, iterations, keyLength, 'sha512')
+    return derived.toString('base64')
+  }
+
+  async getTenantDek(tenantId: string): Promise<TenantDek | null> {
+    if (!tenantId) return null
+    return { tenantId, key: this.deriveKey(tenantId), fetchedAt: Date.now() }
+  }
+
+  async createTenantDek(tenantId: string): Promise<TenantDek | null> {
+    return this.getTenantDek(tenantId)
+  }
+}
+
+function fingerprintDek(dek: TenantDek | null): string | null {
+  if (!dek?.key) return null
+  return crypto.createHash('sha256').update(dek.key).digest('hex').slice(0, 12)
+}
+
+function decryptWithOldKey(
+  payload: string,
+  dek: TenantDek | null,
+): string | null {
+  if (!dek?.key) return null
+  return decryptWithAesGcm(payload, dek.key)
+}
+
+const rotateEncryptionKey: ModuleCli = {
+  command: 'rotate-encryption-key',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantIdArg = (args.tenant as string) || (args.tenantId as string) || null
+    const organizationIdArg = (args.org as string) || (args.organization as string) || (args.organizationId as string) || null
+    const oldKey = (args['old-key'] as string) || (args.oldKey as string) || null
+    const dryRun = Boolean(args['dry-run'] || args.dry)
+    const debug = Boolean(args.debug)
+    const rotate = Boolean(oldKey)
+    if (rotate && !tenantIdArg) {
+      console.warn(
+        '⚠️  Rotating with --old-key across all tenants. A single old key should normally target one tenant; consider --tenant.',
+      )
+    }
+    if (!isTenantDataEncryptionEnabled()) {
+      console.error('TENANT_DATA_ENCRYPTION is disabled; aborting.')
+      return
+    }
+
+    const { resolve } = await createRequestContainer()
+    const em = resolve('em') as any
+    const conn: any = em?.getConnection?.()
+    if (!conn || typeof conn.execute !== 'function') {
+      console.error('Unable to access raw connection; aborting.')
+      return
+    }
+
+    const encryptionService = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
+    const oldKms = rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
+    if (!encryptionService.isEnabled()) {
+      console.error('Encryption service is not enabled (KMS unhealthy or no DEK). Aborting.')
+      return
+    }
+
+    if (debug) {
+      console.log('[rotate-encryption-key]', {
+        hasOldKey: Boolean(oldKey),
+        rotate,
+        tenantId: tenantIdArg ?? null,
+        organizationId: organizationIdArg ?? null,
+      })
+      if (tenantIdArg) {
+        const [oldDek, newDek] = await Promise.all([
+          oldKms?.getTenantDek(tenantIdArg) ?? Promise.resolve(null),
+          encryptionService.getDek(tenantIdArg),
+        ])
+        console.log('[rotate-encryption-key] dek fingerprints', {
+          oldKey: fingerprintDek(oldDek),
+          currentKey: fingerprintDek(newDek),
+        })
+      } else {
+        console.log('[rotate-encryption-key] dek fingerprints skipped (no tenantId)')
+      }
+    }
+
+    const isEncryptedPayload = (value: unknown): boolean => {
+      if (typeof value !== 'string') return false
+      const parts = value.split(':')
+      return parts.length === 4 && parts[3] === 'v1'
+    }
+
+    const registry = em?.getMetadata?.()
+    const allMetaRaw = typeof registry?.getAll === 'function' ? registry.getAll() : []
+    const allMeta = Array.isArray(allMetaRaw) ? allMetaRaw : Object.values(allMetaRaw ?? {})
+    const metaByEntityId = new Map<string, any>()
+    for (const meta of allMeta) {
+      const resolved = resolveEntityIdFromMetadata(meta)
+      if (resolved) metaByEntityId.set(resolved, meta)
+    }
+
+    const where: any = { deletedAt: null }
+    if (tenantIdArg) where.tenantId = tenantIdArg
+    if (organizationIdArg) where.organizationId = organizationIdArg
+    const maps = await em.find(EncryptionMap, where)
+    if (!maps.length) {
+      console.log('No encryption maps found for the selected scope.')
+      return
+    }
+
+    const resolveProperty = (meta: any, field: string): { columnName: string | null; prop: any | null } => {
+      if (!meta?.properties) return { columnName: null, prop: null }
+      const candidates = [
+        field,
+        field.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
+        field.replace(/([A-Z])/g, '_$1').toLowerCase(),
+      ]
+      for (const candidate of candidates) {
+        const prop = meta.properties[candidate]
+        const fieldName =
+          prop?.fieldName ??
+          (Array.isArray(prop?.fieldNames) && prop.fieldNames.length ? prop.fieldNames[0] : undefined)
+        if (typeof fieldName === 'string' && fieldName.length) return { columnName: fieldName, prop }
+        if (prop?.name) return { columnName: prop.name, prop }
+      }
+      return { columnName: null, prop: null }
+    }
+
+    const formatValueForColumn = (prop: any, value: unknown): unknown => {
+      if (value === null || value === undefined) return value
+      const types = Array.isArray(prop?.columnTypes) ? prop.columnTypes : []
+      const type = String(prop?.type ?? '').toLowerCase()
+      const isJson = types.some((entry: string) => entry.toLowerCase().includes('json')) || type === 'json' || type === 'jsonb'
+      if (!isJson) return value
+      return JSON.stringify(value)
+    }
+
+    const resolveScopes = async (tenantId: string, organizationId: string | null) => {
+      if (organizationId) return [{ tenantId, organizationId }]
+      const orgs = await em.find(Organization, { tenantId })
+      const scopes = orgs.map((org: Organization) => ({
+        tenantId,
+        organizationId: String(org.id),
+      }))
+      scopes.push({ tenantId, organizationId: null })
+      return scopes
+    }
+
+    const oldDekCache = new Map<string, TenantDek | null>()
+    const processScope = async (
+      entityId: string,
+      meta: any,
+      fields: Array<{ field: string; hashField?: string | null }>,
+      scope: { tenantId: string; organizationId: string | null },
+    ): Promise<number> => {
+      const pk = Array.isArray(meta?.primaryKeys) && meta.primaryKeys.length ? meta.primaryKeys[0] : 'id'
+      const columns = new Set<string>()
+      columns.add(pk)
+      for (const rule of fields) {
+        const resolved = resolveProperty(meta, rule.field)
+        if (resolved?.columnName) columns.add(resolved.columnName)
+        if (rule.hashField) {
+          const resolvedHash = resolveProperty(meta, rule.hashField)
+          if (resolvedHash?.columnName) columns.add(resolvedHash.columnName)
+        }
+      }
+      const columnList = Array.from(columns)
+      if (!columnList.length) return 0
+      const tableName = meta?.tableName
+      if (!tableName) return 0
+      const schema = meta?.schema
+      const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
+      const selectSql = `select ${columnList.map((c) => `"${c}"`).join(', ')} from ${qualifiedTable} where tenant_id = ? and organization_id is not distinct from ?`
+      const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
+      const list = Array.isArray(rows) ? rows : []
+      if (!list.length) return 0
+      let updated = 0
+      for (const row of list) {
+        const payload: Record<string, unknown> = {}
+        for (const rule of fields) {
+          const resolved = resolveProperty(meta, rule.field)
+          const col = resolved?.columnName
+          if (!col) continue
+          const rawValue = row[col]
+          if (rotate && !isEncryptedPayload(rawValue)) {
+            continue
+          }
+          payload[rule.field] = rawValue
+          if (rule.hashField) {
+            const resolvedHash = resolveProperty(meta, rule.hashField)
+            const hashCol = resolvedHash?.columnName
+            if (hashCol) payload[rule.hashField] = row[hashCol]
+          }
+        }
+        if (rotate && !Object.keys(payload).length) {
+          continue
+        }
+        if (rotate && oldKms) {
+          let oldDek = oldDekCache.get(scope.tenantId) ?? null
+          if (!oldDekCache.has(scope.tenantId)) {
+            oldDek = await oldKms.getTenantDek(scope.tenantId)
+            oldDekCache.set(scope.tenantId, oldDek)
+          }
+          for (const rule of fields) {
+            const value = payload[rule.field]
+            if (typeof value !== 'string' || !isEncryptedPayload(value)) continue
+            const decrypted = decryptWithOldKey(value, oldDek)
+            if (decrypted === null) continue
+            try {
+              payload[rule.field] = JSON.parse(decrypted)
+            } catch {
+              payload[rule.field] = decrypted
+            }
+          }
+        }
+        const encrypted = await encryptionService.encryptEntityPayload(
+          entityId,
+          payload,
+          scope.tenantId,
+          scope.organizationId,
+        )
+        const updates: Record<string, unknown> = {}
+        for (const rule of fields) {
+          const resolved = resolveProperty(meta, rule.field)
+          const col = resolved?.columnName
+          if (!col) continue
+          const nextValue = (encrypted as any)[rule.field]
+          if (nextValue !== undefined && nextValue !== row[col]) {
+            if (!rotate && isEncryptedPayload(row[col])) continue
+            updates[col] = formatValueForColumn(resolved?.prop, nextValue)
+          }
+          if (rule.hashField) {
+            const resolvedHash = resolveProperty(meta, rule.hashField)
+            const hashCol = resolvedHash?.columnName
+            const hashValue = (encrypted as any)[rule.hashField]
+            if (hashCol && hashValue !== undefined && hashValue !== row[hashCol]) {
+              updates[hashCol] = formatValueForColumn(resolvedHash?.prop, hashValue)
+            }
+          }
+        }
+        if (!Object.keys(updates).length) continue
+        if (!dryRun) {
+          const setSql = Object.keys(updates).map((col) => `"${col}" = ?`).join(', ')
+          await conn.execute(
+            `update ${qualifiedTable} set ${setSql} where "${pk}" = ?`,
+            [...Object.values(updates), row[pk]],
+          )
+        }
+        updated += 1
+      }
+      return updated
+    }
+
+    let total = 0
+    for (const map of maps) {
+      const entityId = String(map.entityId)
+      const meta = metaByEntityId.get(entityId)
+      if (!meta) {
+        console.warn(`Skipping ${entityId}: metadata not found.`)
+        continue
+      }
+      const fields = Array.isArray(map.fieldsJson) ? map.fieldsJson : []
+      if (!fields.length) continue
+      const tenantId = map.tenantId ? String(map.tenantId) : null
+      if (!tenantId) continue
+      const scopes = await resolveScopes(tenantId, map.organizationId ? String(map.organizationId) : null)
+      for (const scope of scopes) {
+        const updated = await processScope(entityId, meta, fields, scope)
+        if (updated > 0) {
+          console.log(
+            `${dryRun ? '[dry-run] ' : ''}Encrypted ${updated} record(s) for ${entityId} org=${scope.organizationId ?? 'null'}`
+          )
+        }
+        total += updated
+      }
+    }
+
+    if (total > 0) {
+      console.log(`Encrypted ${total} record(s) across mapped entities.`)
+    } else {
+      console.log('All mapped entity fields already encrypted for the selected scope.')
+    }
+  },
+}
+
 // Keep default export stable (install first for help listing)
-export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps]
+export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps, rotateEncryptionKey]

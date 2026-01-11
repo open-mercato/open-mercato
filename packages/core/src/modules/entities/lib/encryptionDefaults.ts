@@ -160,4 +160,79 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
       { field: 'primary_link_label' },
     ],
   },
+  {
+    entityId: 'booking:booking_service',
+    fields: [
+      { field: 'name' },
+      { field: 'description' },
+      { field: 'tags' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_team_role',
+    fields: [
+      { field: 'name' },
+      { field: 'description' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_team_member',
+    fields: [
+      { field: 'display_name' },
+      { field: 'description' },
+      { field: 'tags' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_resource_type',
+    fields: [
+      { field: 'name' },
+      { field: 'description' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_resource',
+    fields: [
+      { field: 'name' },
+      { field: 'tags' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_availability_rule',
+    fields: [
+      { field: 'rrule' },
+      { field: 'exdates' },
+      { field: 'note' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_event',
+    fields: [
+      { field: 'title' },
+      { field: 'tags' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_event_attendee',
+    fields: [
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'email' },
+      { field: 'phone' },
+      { field: 'address_line1' },
+      { field: 'address_line2' },
+      { field: 'city' },
+      { field: 'region' },
+      { field: 'postal_code' },
+      { field: 'country' },
+      { field: 'notes' },
+      { field: 'tags' },
+    ],
+  },
+  {
+    entityId: 'booking:booking_event_confirmation',
+    fields: [
+      { field: 'note' },
+    ],
+  },
 ]

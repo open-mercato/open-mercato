@@ -1,14 +1,41 @@
 import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import { dashboardWidgetEntries } from '@/generated/dashboard-widgets.generated'
 
 type Entry = ModuleDashboardWidgetEntry
+
+// Registration pattern for publishable packages
+let _dashboardWidgetEntries: Entry[] | null = null
+
+export function registerDashboardWidgets(entries: Entry[]) {
+  if (_dashboardWidgetEntries !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Dashboard widgets re-registered (this may occur during HMR)')
+  }
+  _dashboardWidgetEntries = entries
+}
+
+export function getDashboardWidgets(): Entry[] {
+  if (!_dashboardWidgetEntries) {
+    // On client-side, bootstrap doesn't run - return empty array gracefully
+    if (typeof window !== 'undefined') {
+      return []
+    }
+    throw new Error('[Bootstrap] Dashboard widgets not registered. Call registerDashboardWidgets() at bootstrap.')
+  }
+  return _dashboardWidgetEntries
+}
 
 let entriesPromise: Promise<Entry[]> | null = null
 
 async function getEntries(): Promise<Entry[]> {
   if (!entriesPromise) {
-    entriesPromise = Promise.resolve(dashboardWidgetEntries)
+    const promise = Promise.resolve().then(() => getDashboardWidgets())
+    entriesPromise = promise.catch((err) => {
+      // Clear cache on error so next call can retry after registration
+      if (entriesPromise === promise) {
+        entriesPromise = null
+      }
+      throw err
+    })
   }
   return entriesPromise
 }

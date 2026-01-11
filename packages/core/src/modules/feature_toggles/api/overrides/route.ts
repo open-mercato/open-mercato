@@ -21,7 +21,7 @@ import {
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 
 export async function GET(req: Request) {
-  const { auth, organizationId } = await buildContext(req)
+  const { auth } = await buildContext(req)
 
   const url = new URL(req.url)
   const parsed = overrideListQuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()))
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
     tenantId: auth.tenantId ?? null,
     query: parsed.data,
     accessType: 'read:list',
-    fields: ['id', 'toggleId', 'tenantId', 'overrideState', 'identifier', 'name', 'category', 'defaultState']
+    fields: ['id', 'toggleId', 'tenantId', 'identifier', 'name', 'category']
   })
 
   return NextResponse.json({
@@ -92,7 +92,8 @@ export async function PUT(req: Request) {
       input: {
         toggleId: parsed.data.toggleId,
         tenantId: scope.tenantId,
-        state: parsed.data.state,
+        isOverride: parsed.data.isOverride,
+        overrideValue: parsed.data.overrideValue,
       },
       ctx,
     })

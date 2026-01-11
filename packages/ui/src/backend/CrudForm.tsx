@@ -2260,7 +2260,7 @@ const FieldControl = React.memo(function FieldControlImpl({
 
   return (
     <div className={rootClassName} data-crud-field-id={field.id}>
-      {field.type !== 'checkbox' ? (
+      {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
         <label className="block text-sm font-medium">
           {field.label}
           {field.required ? <span className="text-red-600"> *</span> : null}
@@ -2480,5 +2480,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
-  (prev.field.type !== 'custom' || prev.values === next.values)
+  (prev.field.type !== 'custom' ||
+    (prev.values === next.values &&
+      prev.field.component === (next.field as CrudCustomField).component))
 )

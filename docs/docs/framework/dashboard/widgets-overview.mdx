@@ -36,7 +36,7 @@ Dashboard widgets run on the client, but the discovery phase happens in `node`. 
 
 ## Discovery and runtime
 
-The generator (`scripts/generate-module-registry.ts`) records every widget as `{ moduleId, key, loader }`. At runtime:
+The generator (`mercato generate registry` via `packages/cli/src/lib/generators/module-registry.ts`) records every widget as `{ moduleId, key, loader }`. At runtime:
 
 * `packages/core/src/modules/dashboards/lib/widgets.ts` lazy-loads the registry, requests each widget via `loader()`, validates its metadata, and caches the result.
 * `loadAllWidgets()` returns a deduplicated list (one entry per widget `metadata.id`), while `loadWidgetById()` fetches a single widget lazily.

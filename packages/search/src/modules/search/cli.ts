@@ -12,6 +12,7 @@ import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../qu
 import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type CliProgressBar = {
   update(completed: number): void
@@ -68,10 +69,10 @@ function flagOpt(args: ParsedArgs, ...keys: string[]): boolean | undefined {
     if (raw === true) return true
     if (raw === false) return false
     if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase()
-      if (['1', 'true', 'yes', 'y', ''].includes(normalized)) return true
-      if (['0', 'false', 'no', 'n'].includes(normalized)) return false
-      return true
+      const trimmed = raw.trim()
+      if (!trimmed) return true
+      const parsed = parseBooleanToken(trimmed)
+      return parsed === null ? true : parsed
     }
   }
   return undefined

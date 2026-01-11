@@ -1,7 +1,8 @@
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { AttachmentAssignment } from './metadata'
 import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 type AssignmentLinkSpec = {
   labelFields?: string[]
@@ -9,54 +10,61 @@ type AssignmentLinkSpec = {
   buildHref?: (record: Record<string, unknown>) => string | null | undefined
 }
 
-const ENTITY_LINK_SPECS: Record<string, AssignmentLinkSpec> = {
-  [E.catalog.catalog_product]: {
-    labelFields: ['title', 'sku', 'handle'],
-    buildHref: (record) => buildSimpleHref('/backend/catalog/products', record.id),
-  },
-  [E.catalog.catalog_product_variant]: {
-    labelFields: ['name', 'sku'],
-    extraFields: ['product_id'],
-    buildHref: (record) => {
-      const productId = readRecordValue(record, 'product_id')
-      if (!productId) return null
-      return `/backend/catalog/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(String(record.id ?? ''))}`
+let _entityLinkSpecsCache: Record<string, AssignmentLinkSpec> | null = null
+
+function getEntityLinkSpecs(): Record<string, AssignmentLinkSpec> {
+  if (_entityLinkSpecsCache) return _entityLinkSpecsCache
+  const E = getEntityIds() as any
+  _entityLinkSpecsCache = {
+    [E.catalog.catalog_product]: {
+      labelFields: ['title', 'sku', 'handle'],
+      buildHref: (record) => buildSimpleHref('/backend/catalog/products', record.id),
     },
-  },
-  [E.customers.customer_entity]: {
-    labelFields: ['display_name'],
-    extraFields: ['kind'],
-    buildHref: (record) => {
-      const kind = String(readRecordValue(record, 'kind') || '').toLowerCase()
-      if (kind === 'company') return buildSimpleHref('/backend/customers/companies', record.id)
-      if (kind === 'person') return buildSimpleHref('/backend/customers/people', record.id)
-      return null
+    [E.catalog.catalog_product_variant]: {
+      labelFields: ['name', 'sku'],
+      extraFields: ['product_id'],
+      buildHref: (record) => {
+        const productId = readRecordValue(record, 'product_id')
+        if (!productId) return null
+        return `/backend/catalog/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(String(record.id ?? ''))}`
+      },
     },
-  },
-  [E.customers.customer_person_profile]: {
-    labelFields: ['preferred_name', 'display_name', 'first_name', 'last_name'],
-    extraFields: ['entity_id', 'first_name', 'last_name'],
-    buildHref: (record) => {
-      const entityId = readRecordValue(record, 'entity_id')
-      return entityId ? buildSimpleHref('/backend/customers/people', entityId) : null
+    [E.customers.customer_entity]: {
+      labelFields: ['display_name'],
+      extraFields: ['kind'],
+      buildHref: (record) => {
+        const kind = String(readRecordValue(record, 'kind') || '').toLowerCase()
+        if (kind === 'company') return buildSimpleHref('/backend/customers/companies', record.id)
+        if (kind === 'person') return buildSimpleHref('/backend/customers/people', record.id)
+        return null
+      },
     },
-  },
-  [E.customers.customer_company_profile]: {
-    labelFields: ['brand_name', 'display_name', 'legal_name'],
-    extraFields: ['entity_id'],
-    buildHref: (record) => {
-      const entityId = readRecordValue(record, 'entity_id')
-      return entityId ? buildSimpleHref('/backend/customers/companies', entityId) : null
+    [E.customers.customer_person_profile]: {
+      labelFields: ['preferred_name', 'display_name', 'first_name', 'last_name'],
+      extraFields: ['entity_id', 'first_name', 'last_name'],
+      buildHref: (record) => {
+        const entityId = readRecordValue(record, 'entity_id')
+        return entityId ? buildSimpleHref('/backend/customers/people', entityId) : null
+      },
     },
-  },
-  [E.customers.customer_deal]: {
-    labelFields: ['title'],
-    buildHref: (record) => buildSimpleHref('/backend/customers/deals', record.id),
-  },
-  [E.sales.sales_channel]: {
-    labelFields: ['name', 'title'],
-    buildHref: (record) => buildSimpleHref('/backend/sales/channels', record.id, '/edit'),
-  },
+    [E.customers.customer_company_profile]: {
+      labelFields: ['brand_name', 'display_name', 'legal_name'],
+      extraFields: ['entity_id'],
+      buildHref: (record) => {
+        const entityId = readRecordValue(record, 'entity_id')
+        return entityId ? buildSimpleHref('/backend/customers/companies', entityId) : null
+      },
+    },
+    [E.customers.customer_deal]: {
+      labelFields: ['title'],
+      buildHref: (record) => buildSimpleHref('/backend/customers/deals', record.id),
+    },
+    [E.sales.sales_channel]: {
+      labelFields: ['name', 'title'],
+      buildHref: (record) => buildSimpleHref('/backend/sales/channels', record.id, '/edit'),
+    },
+  }
+  return _entityLinkSpecsCache
 }
 
 const LIBRARY_ENTITY_ID = 'attachments:library'
@@ -82,10 +90,10 @@ let entitySpecsPromise: Promise<Map<string, CustomEntitySpec>> | null = null
 
 async function loadEntitySpecs(): Promise<Map<string, CustomEntitySpec>> {
   if (!entitySpecsPromise) {
-    entitySpecsPromise = import('@/generated/modules.generated')
-      .then((registry) => {
+    entitySpecsPromise = Promise.resolve()
+      .then(() => {
         const map = new Map<string, CustomEntitySpec>()
-        const mods = registry.modules ?? []
+        const mods = getModules()
         for (const mod of mods) {
           const specs = ((mod as any).customEntities as CustomEntitySpec[] | undefined) ?? []
           for (const spec of specs) {
@@ -152,6 +160,7 @@ function isUuid(value: string | null | undefined): boolean {
 }
 
 function filterIdsForEntity(entityId: string, ids: string[]): string[] {
+  const E = getEntityIds() as any
   if (entityId === E.catalog.catalog_product_variant || entityId === E.catalog.catalog_product) {
     return ids.filter((id) => isUuid(id))
   }
@@ -213,10 +222,11 @@ export async function resolveAssignmentEnrichments(
   }
   if (!grouped.size) return map
 
+  const entityLinkSpecs = getEntityLinkSpecs()
   for (const [entityId, idsSet] of grouped.entries()) {
     const ids = filterIdsForEntity(entityId, Array.from(idsSet.values()))
     if (!ids.length) continue
-    const linkSpec = ENTITY_LINK_SPECS[entityId]
+    const linkSpec = entityLinkSpecs[entityId]
     const fields = new Set<string>(['id'])
     const candidates = resolveLabelCandidates(entityId, linkSpec, entitySpecs)
     candidates.forEach((field) => fields.add(field))

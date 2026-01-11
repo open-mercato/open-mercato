@@ -6,6 +6,7 @@ import { CustomerEntity } from '../../../../data/entities'
 import type { FilterQuery } from '@mikro-orm/core'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -45,7 +46,7 @@ async function resolveContext(req: Request, translate: (key: string, fallback?: 
     tenantId,
     organizationIds,
     limit: parsed.data.limit,
-    includePast: parsed.data.includePast === 'true',
+    includePast: parseBooleanToken(parsed.data.includePast) === true,
   }
 }
 
