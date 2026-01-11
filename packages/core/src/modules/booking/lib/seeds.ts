@@ -294,7 +294,10 @@ function normalizeAssetTag(value: string): string {
   return normalized || 'RESOURCE'
 }
 
-function buildBaseResourceCustomValues(resourceName: string, seedKey?: string | null) {
+function buildBaseResourceCustomValues(
+  resourceName: string,
+  seedKey?: string | null,
+): Record<string, string | number | boolean | null> {
   const tagSource = seedKey?.trim().length ? seedKey : resourceName
   const assetTag = normalizeAssetTag(tagSource ?? resourceName)
   return {
@@ -305,7 +308,10 @@ function buildBaseResourceCustomValues(resourceName: string, seedKey?: string | 
   }
 }
 
-function buildResourceTypeCustomValues(fieldsetCode: string, seedKey?: string | null) {
+function buildResourceTypeCustomValues(
+  fieldsetCode: string,
+  seedKey?: string | null,
+): Record<string, string | number | boolean | null> {
   switch (fieldsetCode) {
     case BOOKING_RESOURCE_FIELDSET_ROOM:
       return {
@@ -994,6 +1000,8 @@ export async function seedBookingResourceExamples(
       durationMinutes: seed.durationMinutes,
       capacityModel: seed.capacityModel,
       maxAttendees: seed.maxAttendees ?? null,
+      requiredRoles: [],
+      requiredMembers: [],
       requiredResources: seed.requiredResources ?? [],
       requiredResourceTypes,
       tags: seed.tagLabels,

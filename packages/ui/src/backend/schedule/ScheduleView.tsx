@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Calendar, dateFnsLocalizer, type View, type SlotInfo } from 'react-big-calendar'
 import { addDays, differenceInCalendarDays, endOfDay, endOfMonth, endOfWeek, format, getDay, parse, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
-import enUS from 'date-fns/locale/en-US'
+import { enUS } from 'date-fns/locale/en-US'
 import type { ScheduleItem, ScheduleRange, ScheduleSlot, ScheduleViewMode } from './types'
 import { ScheduleToolbar } from './ScheduleToolbar'
 import { expandRecurringItems } from './recurrence'
@@ -159,18 +159,17 @@ export function ScheduleView({
           onView={handleViewChange}
           onNavigate={handleNavigate}
           onRangeChange={handleRangeChange}
-          onSelectEvent={(event) => onItemClick?.((event as CalendarEvent).resource)}
-          onSelectSlot={(slot) => {
+          onSelectEvent={(event: CalendarEvent) => onItemClick?.(event.resource)}
+          onSelectSlot={(slot: SlotInfo) => {
             if (!onSlotClick) return
-            const info = slot as SlotInfo
-            onSlotClick({ start: info.start, end: info.end })
+            onSlotClick({ start: slot.start, end: slot.end })
           }}
-          eventPropGetter={(event) => ({
-            style: getEventStyles((event as CalendarEvent).resource),
+          eventPropGetter={(event: CalendarEvent) => ({
+            style: getEventStyles(event.resource),
           })}
           components={{
-            event: ({ event }) => {
-              const resource = (event as CalendarEvent).resource
+            event: ({ event }: { event: CalendarEvent }) => {
+              const resource = event.resource
               const hasLink = Boolean(resource.linkLabel) && typeof onItemClick === 'function'
               return (
                 <div className="flex items-center justify-between gap-2">

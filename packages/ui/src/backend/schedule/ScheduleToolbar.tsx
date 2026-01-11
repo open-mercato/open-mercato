@@ -7,7 +7,7 @@ import type { ScheduleRange, ScheduleViewMode } from './types'
 import { cn } from '@/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { addDays, addMonths, addWeeks, differenceInCalendarDays, endOfDay, endOfMonth, endOfWeek, format, startOfDay, startOfMonth, startOfWeek } from 'date-fns'
-import enUS from 'date-fns/locale/en-US'
+import { enUS } from 'date-fns/locale/en-US'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 const VIEW_OPTIONS: Array<{ id: ScheduleViewMode; labelKey: string; fallback: string }> = [

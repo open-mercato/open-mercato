@@ -2884,7 +2884,6 @@ const seedStressTest: ModuleCli = {
     const parsedCount = Number.parseInt(countRaw, 10)
     const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : defaultCount
     const liteFlag = (() => {
-      if (args.lite === true) return true
       if (typeof args.lite === 'string') {
         if (!args.lite.trim()) return true
         return parseBooleanToken(args.lite) === true

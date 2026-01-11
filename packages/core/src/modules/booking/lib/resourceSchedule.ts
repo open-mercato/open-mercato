@@ -150,7 +150,7 @@ export function buildResourceScheduleItems(params: {
     }
   })
   const eventItems = params.bookedEvents
-    .map((event) => {
+    .map((event): ScheduleItem | null => {
       const start = toDate(event.startsAt)
       const end = toDate(event.endsAt)
       if (!start || !end) return null
