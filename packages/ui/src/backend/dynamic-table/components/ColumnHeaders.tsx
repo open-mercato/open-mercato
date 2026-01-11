@@ -11,6 +11,7 @@ export interface ColumnHeadersProps {
   sortState: SortState;
   actionsColumnWidth: number;
   showActionsColumn?: boolean;
+  stretchColumns?: boolean;
   onSort: (colIndex: number) => void;
   onResizeStart: (e: React.MouseEvent, colIndex: number) => void;
   onDoubleClick: (e: React.MouseEvent, colIndex: number) => void;
@@ -28,6 +29,7 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
     sortState,
     actionsColumnWidth,
     showActionsColumn = true,
+    stretchColumns = false,
     onSort,
     onResizeStart,
     onDoubleClick,
@@ -43,7 +45,7 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
       >
-        <table className="hot-table" style={{ width: `${totalWidth}px` }}>
+        <table className="hot-table" style={{ width: stretchColumns ? '100%' : `${totalWidth}px` }}>
           <thead>
             <tr style={{ display: 'flex' }}>
               {rowHeaders && (
@@ -74,8 +76,8 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
                 const headerStyle: React.CSSProperties = {
                   width: colWidth,
                   flexBasis: colWidth,
-                  flexShrink: 0,
-                  flexGrow: 0,
+                  flexShrink: stretchColumns ? 1 : 0,
+                  flexGrow: stretchColumns ? 1 : 0,
                   position: 'relative',
                 };
 
