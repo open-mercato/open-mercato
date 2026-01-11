@@ -332,7 +332,7 @@ export async function run(argv = process.argv) {
       if (orgId && tenantId) {
         if (reinstall) {
           console.log('🧩 Reinstalling custom field definitions...')
-          runCommand(`yarn mercato entities reinstall --tenant ${tenantId}`)
+          await runModuleCommand(allModules, 'entities', 'reinstall', ['--tenant', tenantId])
           console.log('🧩 ✅ Custom field definitions reinstalled\n')
         }
 
@@ -345,11 +345,11 @@ export async function run(argv = process.argv) {
         console.log('📏 ✅ Catalog units seeded\n')
 
         console.log('📐 Seeding booking capacity units...')
-        runCommand(`yarn mercato booking seed-capacity-units --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'booking', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📐 ✅ Booking capacity units seeded\n')
 
         console.log('🗓️  Seeding booking availability schedules...')
-        runCommand(`yarn mercato booking seed-availability-rulesets --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'booking', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
         console.log('🗓️  ✅ Booking availability schedules seeded\n')
 
         const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
@@ -390,7 +390,7 @@ export async function run(argv = process.argv) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
           console.log('🪑 Seeding booking resource examples...')
-          runCommand(`yarn mercato booking seed-examples --tenant ${tenantId} --org ${orgId}`)
+          await runModuleCommand(allModules, 'booking', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🪑 ✅ Booking resource examples seeded\n')
 
           console.log('🛍️  Seeding catalog examples...')
