@@ -4,9 +4,17 @@ import * as React from 'react'
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import {
   DynamicTable,
   TableSkeleton,
@@ -162,6 +170,8 @@ export default function FmsQuotesPage() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [previewQuoteId, setPreviewQuoteId] = useState<string | null>(null)
   const [wizardQuoteId, setWizardQuoteId] = useState<string | null>(null)
+  const [quoteToDelete, setQuoteToDelete] = useState<FmsQuoteRow | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(50)
   const [sortField, setSortField] = useState('createdAt')
@@ -257,6 +267,46 @@ export default function FmsQuotesPage() {
     },
     [queryClient, router]
   )
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!quoteToDelete) return
+
+    setIsDeleting(true)
+    try {
+      const response = await apiCall<{ error?: string }>(`/api/fms_quotes/${quoteToDelete.id}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        flash('Quote deleted', 'success')
+        queryClient.invalidateQueries({ queryKey: ['fms_quotes'] })
+        setQuoteToDelete(null)
+      } else {
+        flash(response.result?.error || 'Failed to delete quote', 'error')
+      }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : 'Failed to delete quote', 'error')
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [quoteToDelete, queryClient])
+
+  const actionsRenderer = useCallback((rowData: any, _rowIndex: number) => {
+    const row = rowData as FmsQuoteRow
+    if (!row.id) return null
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation()
+          setQuoteToDelete(row)
+        }}
+        className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+        title="Delete"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    )
+  }, [])
 
   useEventHandlers(
     {
@@ -455,11 +505,12 @@ export default function FmsQuotesPage() {
           columns={columns}
           tableName="Freight Quotes"
           idColumnName="id"
-          height={600}
+          height="calc(100vh - 110px)"
           colHeaders={true}
           rowHeaders={true}
           savedPerspectives={savedPerspectives}
           activePerspectiveId={activePerspectiveId}
+          actionsRenderer={actionsRenderer}
           uiConfig={{
             hideAddRowButton: true,
             enableFullscreen: true,
@@ -501,6 +552,32 @@ export default function FmsQuotesPage() {
             queryClient.invalidateQueries({ queryKey: ['fms_quotes'] })
           }}
         />
+        <Dialog open={!!quoteToDelete} onOpenChange={(open) => !open && setQuoteToDelete(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Quote</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete quote &quot;{quoteToDelete?.quoteNumber || `#${quoteToDelete?.id?.slice(0, 8)}`}&quot;? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setQuoteToDelete(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </PageBody>
     </Page>
   )
