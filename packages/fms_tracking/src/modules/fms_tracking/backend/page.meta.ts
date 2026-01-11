@@ -10,8 +10,12 @@ const cogs = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['fms_tracking.backend'],
-  pageTitle: 'Freighttech Tracking Admin',
-  pageGroup: 'Freighttech',
-  pageOrder: 20000,
+  pageTitle: 'Tracking',
+  pageTitleKey: 'fms_tracking.nav.tracking',
+  pageGroup: 'FMS',
+  pageGroupKey: 'fms_quotes.nav.group',
+  pagePriority: 50,
+  pageOrder: 130,
   icon: cogs,
+  breadcrumb: [{ label: 'Tracking', labelKey: 'fms_tracking.nav.tracking' }],
 }

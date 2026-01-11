@@ -7,9 +7,9 @@ export const metadata = {
   pageTitle: 'Contractors',
   pageTitleKey: 'contractors.list.title',
   pageGroup: 'FMS',
-  pageGroupKey: 'fms.nav.group',
-  pagePriority: 10,
-  pageOrder: 100,
+  pageGroupKey: 'fms_quotes.nav.group',
+  pagePriority: 50,
+  pageOrder: 140,
   icon: React.createElement(Users, { size: 16 }),
   breadcrumb: [{ label: 'Contractors', labelKey: 'contractors.list.title' }],
 }
