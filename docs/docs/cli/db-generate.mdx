@@ -4,30 +4,34 @@ sidebar_label: yarn db:generate
 description: Generates per-module MikroORM migrations based on entity diffs.
 ---
 
-`yarn db:generate` executes `tsx scripts/mikro-modules.ts generate`, iterating through every enabled module and creating MikroORM migrations when entity metadata changes.
+`yarn db:generate` executes `mercato db generate`, iterating through every enabled module and creating MikroORM migrations when entity metadata changes.
 
 ## Usage
 
 ```bash
+# Using yarn script
 yarn db:generate
+
+# Using CLI directly
+yarn mercato db generate
 ```
 
-The script requires a valid `DATABASE_URL` pointing to the Postgres database used for diffing.
+The command requires a valid `DATABASE_URL` pointing to the Postgres database used for diffing.
 
 ## What Happens
 
-1. Loads enabled modules via `scripts/shared/modules-config.ts`.
-2. For each module, resolves entity definitions (`data/entities.ts` or `schema.ts`) and spins up a temporary MikroORM instance.
+1. Loads enabled modules via the CLI resolver (`packages/cli/src/lib/resolver.ts`).
+2. For each module (in alphabetical order), resolves entity definitions (`data/entities.ts` or `schema.ts`) and spins up a temporary MikroORM instance.
 3. Writes migrations into `packages/<module>/src/modules/<module>/migrations`. App overrides fall back to `src/modules/<module>/migrations`.
 4. Renames generated files and migration classes to include the module suffix (e.g. `_auth`) to keep names unique across modules.
-5. Prints a summary such as `auth: generated Migration20240214_auth` or `directory: no changes`.
+5. Prints a summary such as `• auth: generated Migration20240214_auth` or `• directory: no changes`.
 
 ## Typical Workflow
 
 - Run `yarn db:generate` after modifying entity definitions.
 - Inspect the generated TypeScript migration and adjust it if necessary.
 - Commit the migration alongside your entity changes.
-- Apply migrations with [`yarn db:migrate`](./db-migrate) or `npm run db:migrate`.
+- Apply migrations with [`yarn db:migrate`](./db-migrate) or `yarn mercato db migrate`.
 
 ## Troubleshooting
 
