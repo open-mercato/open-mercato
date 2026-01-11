@@ -61,6 +61,7 @@ export const createChargeCodeSchema = z.object({
   description: z.string().max(1000).optional().nullable(),
   chargeUnit: chargeUnitSchema,
   fieldSchema: chargeCodeFieldSchemaValidator.optional().nullable(),
+  isActive: z.boolean().optional().default(true),
 })
 
 export const updateChargeCodeSchema = createChargeCodeSchema
