@@ -5,25 +5,8 @@
 import { createRequestContainer } from '@/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
 import type { Module } from '@open-mercato/shared/modules/registry'
-
-// Registration pattern for publishable packages
-let _cliModules: Module[] | null = null
-
-export function registerCliModules(modules: Module[]) {
-  if (_cliModules !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
-  }
-  _cliModules = modules
-}
-
-export function getCliModules(): Module[] {
-  // Return empty array if not registered - allows generate command to work without bootstrap
-  return _cliModules ?? []
-}
-
-export function hasCliModules(): boolean {
-  return _cliModules !== null && _cliModules.length > 0
-}
+import { getCliModules, hasCliModules, registerCliModules } from './registry'
+export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 let envLoaded = false
@@ -428,12 +411,12 @@ export async function run(argv = process.argv) {
         console.log('⚠️  Could not get organization ID or tenant ID, skipping seeding steps\n')
       }
 
-      console.log('🧠 Building vector indexes...')
+      console.log('🧠 Building search indexes...')
       const vectorArgs = tenantId
         ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
         : ['--purgeFirst=false']
-      await runModuleCommand(allModules, 'vector', 'reindex', vectorArgs)
-      console.log('✅ Vector indexes built\n')
+      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs)
+      console.log('✅ Search indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
       const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]

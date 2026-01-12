@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./mercato": "./src/mercato.ts",
+    "./registry": "./src/registry.ts",
     ".": "./src/index.ts"
   },
   "bin": {
