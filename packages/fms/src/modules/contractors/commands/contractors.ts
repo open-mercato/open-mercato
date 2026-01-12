@@ -30,13 +30,15 @@ type ScopedContractorUpdateInput = ContractorUpdateInput & {
 }
 
 function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
-  if (ctx.tenantId && ctx.tenantId !== tenantId) {
+  const auth = ctx.auth
+  if (!auth || !auth.tenantId || auth.tenantId !== tenantId) {
     throw new CrudHttpError(403, { error: 'Tenant scope mismatch' })
   }
 }
 
 function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
-  if (ctx.organizationId && ctx.organizationId !== organizationId) {
+  const auth = ctx.auth
+  if (!auth || !auth.organizationId || auth.organizationId !== organizationId) {
     throw new CrudHttpError(403, { error: 'Organization scope mismatch' })
   }
 }
