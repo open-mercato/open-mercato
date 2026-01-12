@@ -375,7 +375,7 @@ yarn mercato search worker <queue-name> [options]
 
 Available queues:
 - `vector-indexing` - Process vector embedding indexing jobs
-- `meilisearch-indexing` - Process Meilisearch batch indexing jobs
+- `fulltext-indexing` - Process Meilisearch batch indexing jobs
 
 Options:
 - `--concurrency <n>` - Number of concurrent jobs to process (default: 1)
@@ -386,7 +386,7 @@ Examples:
 yarn mercato search worker vector-indexing --concurrency=10
 
 # Start Meilisearch indexing worker with 5 concurrent jobs
-yarn mercato search worker meilisearch-indexing --concurrency=5
+yarn mercato search worker fulltext-indexing --concurrency=5
 ```
 
 **Requirements:**
@@ -429,7 +429,7 @@ When using async queues, start workers in separate processes:
 yarn mercato search worker vector-indexing --concurrency=10
 
 # Terminal 2: Start Meilisearch indexing worker
-yarn mercato search worker meilisearch-indexing --concurrency=5
+yarn mercato search worker fulltext-indexing --concurrency=5
 ```
 
 **Note:** If no workers are running when a reindex is triggered, the API will automatically fall back to synchronous processing and display a warning.
