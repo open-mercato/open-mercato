@@ -6,6 +6,7 @@ import type {
   SearchServiceOptions,
   ResultMergeConfig,
   IndexableRecord,
+  PresenterEnricherFn,
 } from './types'
 import { mergeAndRankResults } from './lib/merger'
 import { searchError } from './lib/debug'
@@ -46,6 +47,7 @@ export class SearchService {
   private readonly defaultStrategies: SearchStrategyId[]
   private readonly fallbackStrategy: SearchStrategyId | undefined
   private readonly mergeConfig: ResultMergeConfig
+  private readonly presenterEnricher?: PresenterEnricherFn
 
   constructor(options: SearchServiceOptions = {}) {
     this.strategies = new Map()
@@ -55,6 +57,7 @@ export class SearchService {
     this.defaultStrategies = options.defaultStrategies ?? ['tokens']
     this.fallbackStrategy = options.fallbackStrategy
     this.mergeConfig = options.mergeConfig ?? DEFAULT_MERGE_CONFIG
+    this.presenterEnricher = options.presenterEnricher
   }
 
   /**
@@ -112,57 +115,29 @@ export class SearchService {
     // Merge and rank results
     const merged = mergeAndRankResults(allResults, this.mergeConfig)
 
-    // Enrich results missing presenter data from fulltext strategy if available
-    return this.enrichResultsWithPresenter(merged, options.tenantId)
+    // Enrich results missing presenter data
+    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
   }
 
   /**
-   * Enrich results that are missing presenter data by looking them up in fulltext strategy.
+   * Enrich results that are missing presenter data using the configured enricher.
    * This ensures token-only results get proper titles/subtitles for display.
    */
   private async enrichResultsWithPresenter(
     results: SearchResult[],
     tenantId: string,
+    organizationId?: string | null,
   ): Promise<SearchResult[]> {
-    // Find results missing presenter
-    const missingPresenter = results.filter((r) => !r.presenter?.title)
-    if (missingPresenter.length === 0) return results
+    // If no enricher configured, return as-is
+    if (!this.presenterEnricher) return results
 
-    // Try to get fulltext strategy for lookup
-    const fulltext = this.strategies.get('fulltext')
-    if (!fulltext) return results
+    // Check if any results are missing presenter
+    const hasMissing = results.some((r) => !r.presenter?.title)
+    if (!hasMissing) return results
 
+    // Use the configured presenter enricher
     try {
-      const isAvailable = await fulltext.isAvailable()
-      if (!isAvailable) return results
-
-      // Look up documents by ID in fulltext strategy
-      const lookupMethod = (fulltext as unknown as { getDocuments?: (ids: Array<{ entityId: string; recordId: string }>, tenantId: string) => Promise<Map<string, SearchResult>> }).getDocuments
-      if (typeof lookupMethod !== 'function') return results
-
-      const lookupIds = missingPresenter.map((r) => ({
-        entityId: r.entityId,
-        recordId: r.recordId,
-      }))
-
-      const presenterMap = await lookupMethod.call(fulltext, lookupIds, tenantId)
-
-      // Enrich results with presenter data
-      return results.map((result) => {
-        if (result.presenter?.title) return result
-
-        const key = `${result.entityId}:${result.recordId}`
-        const enriched = presenterMap.get(key)
-        if (enriched?.presenter) {
-          return {
-            ...result,
-            presenter: enriched.presenter,
-            url: result.url ?? enriched.url,
-            links: result.links ?? enriched.links,
-          }
-        }
-        return result
-      })
+      return await this.presenterEnricher(results, tenantId, organizationId)
     } catch {
       // Enrichment failed, return results as-is
       return results
