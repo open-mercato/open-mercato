@@ -26,6 +26,8 @@ type ExchangeRateRow = {
   isActive: boolean
   organizationId: string
   tenantId: string
+  createdAt: string
+  updatedAt: string
 }
 
 type ResponsePayload = {
@@ -180,6 +182,22 @@ export default function ExchangeRatesPage() {
         header: t('exchangeRates.list.columns.active'),
         enableSorting: false,
         cell: ({ getValue }) => <BooleanIcon value={Boolean(getValue())} />,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: t('exchangeRates.list.columns.createdAt'),
+        cell: ({ row }) => {
+          const date = row.original.createdAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
+      },
+      {
+        accessorKey: 'updatedAt',
+        header: t('exchangeRates.list.columns.updatedAt'),
+        cell: ({ row }) => {
+          const date = row.original.updatedAt
+          return date ? new Date(date).toLocaleString() : '—'
+        },
       },
     ],
     [t]

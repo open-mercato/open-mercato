@@ -24,7 +24,9 @@
         "name": "Name",
         "symbol": "Symbol",
         "decimalPlaces": "Decimals",
-        "active": "Active"
+        "active": "Active",
+        "createdAt": "Created At",
+        "updatedAt": "Updated At"
       },
       "filters": {
         "baseOnly": "Show base currency only",
@@ -130,7 +132,9 @@
         "date": "Date & Time",
         "source": "Source",
         "type": "Type",
-        "active": "Active"
+        "active": "Active",
+        "createdAt": "Created At",
+        "updatedAt": "Updated At"
       },
       "filters": {
         "fromCurrency": "From Currency",

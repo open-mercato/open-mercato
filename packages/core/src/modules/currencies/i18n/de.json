@@ -24,7 +24,9 @@
         "name": "Name",
         "symbol": "Symbol",
         "decimalPlaces": "Dezimalstellen",
-        "active": "Aktiv"
+        "active": "Aktiv",
+        "createdAt": "Erstellt am",
+        "updatedAt": "Aktualisiert am"
       },
       "filters": {
         "baseOnly": "Nur Basiswährung anzeigen",
@@ -129,7 +131,10 @@
         "rate": "Kurs",
         "date": "Datum & Uhrzeit",
         "source": "Quelle",
-        "active": "Aktiv"
+        "type": "Typ",
+        "active": "Aktiv",
+        "createdAt": "Erstellt am",
+        "updatedAt": "Aktualisiert am"
       },
       "filters": {
         "fromCurrency": "Von Währung",
