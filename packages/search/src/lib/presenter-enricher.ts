@@ -8,6 +8,8 @@ import type {
 } from '../types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { extractFallbackPresenter } from './fallback-presenter'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
@@ -18,6 +20,29 @@ const logWarning = (message: string, context?: Record<string, unknown>) => {
   if (process.env.NODE_ENV === 'development' || process.env.DEBUG_SEARCH_ENRICHER) {
     console.warn(`[search:presenter-enricher] ${message}`, context ?? '')
   }
+}
+
+/**
+ * Check if a string looks like an encrypted value.
+ * Encrypted format: iv:ciphertext:authTag:v1
+ */
+function looksEncrypted(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  if (!value.includes(':')) return false
+  const parts = value.split(':')
+  // Encrypted strings end with :v1 and have at least 3 colon-separated parts
+  return parts.length >= 3 && parts[parts.length - 1] === 'v1'
+}
+
+/**
+ * Check if a result needs enrichment (missing or encrypted presenter)
+ */
+function needsEnrichment(result: SearchResult): boolean {
+  if (!result.presenter?.title) return true
+  // Also re-enrich if presenter looks encrypted
+  if (looksEncrypted(result.presenter.title)) return true
+  if (looksEncrypted(result.presenter.subtitle)) return true
+  return false
 }
 
 /**
@@ -155,15 +180,17 @@ async function computePresenter(
  * - Parallel Promise.all for formatResult/buildSource calls
  * - Tenant/organization scoping for security
  * - Chunked queries to avoid DB parameter limits
+ * - Automatic decryption of encrypted fields when encryption service is provided
  */
 export function createPresenterEnricher(
   knex: Knex,
   entityConfigMap: Map<EntityId, SearchEntityConfig>,
   queryEngine?: QueryEngine,
+  encryptionService?: TenantDataEncryptionService | null,
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
-    // Find results missing presenter
-    const missingResults = results.filter((r) => !r.presenter?.title)
+    // Find results missing presenter OR with encrypted presenter
+    const missingResults = results.filter(needsEnrichment)
     if (missingResults.length === 0) return results
 
     // Group by entity type for config lookup
@@ -175,11 +202,38 @@ export function createPresenterEnricher(
     }
 
     // Single batch query for all docs across all entity types
-    const docs = await fetchDocsBatch(knex, byEntityType, tenantId, organizationId)
+    const rawDocs = await fetchDocsBatch(knex, byEntityType, tenantId, organizationId)
+
+    // Decrypt docs in parallel using DEK cache for efficiency
+    const dekCache = new Map<string | null, string | null>()
+
+    const decryptedDocs = await Promise.all(
+      rawDocs.map(async (row) => {
+        try {
+          // Use organization_id from the doc itself for proper encryption map lookup
+          // This is critical for global search where organizationId param is null
+          const docData = row.doc as Record<string, unknown>
+          const docOrgId = (docData.organization_id as string | null | undefined) ?? organizationId
+          const scope = { tenantId, organizationId: docOrgId }
+
+          const decryptedDoc = await decryptIndexDocForSearch(
+            row.entity_type,
+            row.doc,
+            scope,
+            encryptionService ?? null,
+            dekCache,
+          )
+          return { ...row, doc: decryptedDoc }
+        } catch (err) {
+          logWarning(`Failed to decrypt doc for ${row.entity_type}:${row.entity_id}`, { error: String(err) })
+          return row // Return original doc if decryption fails
+        }
+      }),
+    )
 
     // Build doc lookup map for fast access
     const docMap = new Map<string, Record<string, unknown>>()
-    for (const row of docs) {
+    for (const row of decryptedDocs) {
       docMap.set(`${row.entity_type}:${row.entity_id}`, row.doc)
     }
 
@@ -217,9 +271,9 @@ export function createPresenterEnricher(
       }
     }
 
-    // Enrich results with computed presenters
+    // Enrich results with computed presenters (replace missing or encrypted)
     return results.map((result) => {
-      if (result.presenter?.title) return result
+      if (!needsEnrichment(result)) return result
       const key = `${result.entityId}:${result.recordId}`
       const presenter = presenterMap.get(key)
       return presenter ? { ...result, presenter } : result
