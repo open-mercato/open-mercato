@@ -195,3 +195,111 @@ This repository is designed for extensibility. Agents should leverage the module
 - Availability merges should use the DI-provided `bookingAvailabilityService` (wrapping `getMergedAvailabilityWindows` from `packages/core/src/modules/booking/lib/availabilityMerge.ts`) so date-specific overrides, notes, and whole-day rules apply consistently for resources and team members.
 - When adding new module features, mirror them in the `mercato init` role seeding (see `packages/core/src/modules/auth/cli.ts`) so the default admin role ships with immediate access to the capabilities you just enabled.
 - `ce.ts` files only describe custom entities or seed default custom-field sets. Always reference generated ids (`E.<module>.<entity>`) so system entities stay aligned with `generated/entities.ids.generated.ts`. System tables (e.g. catalog/sales documents) are auto-discovered from ORM metadata—exporting them in `ce.ts` is just for labeling/field seeding and will not register them as user-defined entities.
+
+## Search Module Configuration
+- **Every module with searchable entities MUST provide a `search.ts` file** at `src/modules/<module>/search.ts` or `packages/<package>/src/modules/<module>/search.ts`.
+- The search config is auto-discovered by generators and registered via `generated/search.generated.ts`.
+- Export a `searchConfig` (or default export) of type `SearchModuleConfig` from `@open-mercato/shared/modules/search`.
+
+### Search Config Structure
+```typescript
+// src/modules/<module>/search.ts
+import type { SearchModuleConfig, SearchBuildContext } from '@open-mercato/shared/modules/search'
+
+export const searchConfig: SearchModuleConfig = {
+  entities: [
+    {
+      entityId: 'your_module:your_entity',  // Must match entity registry
+      enabled: true,
+      priority: 10,  // Higher = appears first in mixed results
+
+      // FOR VECTOR SEARCH: buildSource generates text for embeddings
+      buildSource: async (ctx: SearchBuildContext) => ({
+        text: [`Name: ${ctx.record.name}`, `Description: ${ctx.record.description}`],
+        presenter: { title: ctx.record.name, subtitle: ctx.record.status, icon: 'lucide:file' },
+      }),
+
+      // FOR MEILISEARCH: fieldPolicy controls full-text indexing
+      fieldPolicy: {
+        searchable: ['name', 'description'],  // Indexed for full-text
+        hashOnly: ['email'],                   // Hashed, not searchable
+        excluded: ['password'],                // Never indexed
+      },
+
+      // Optional: Custom presenter formatting for search results
+      formatResult: async (ctx: SearchBuildContext) => ({
+        title: ctx.record.name,
+        subtitle: ctx.record.status,
+        icon: 'lucide:user',
+      }),
+
+      // Optional: Primary URL for the record
+      resolveUrl: async (ctx: SearchBuildContext) => `/backend/your-module/${ctx.record.id}`,
+    },
+  ],
+}
+
+export default searchConfig
+```
+
+### Search Strategies and Configuration Mapping
+
+| Strategy | Indexing Config | Presenter Config | Use Case |
+|----------|----------------|------------------|----------|
+| `fulltext` | `fieldPolicy` | Stored in index | Fast, typo-tolerant full-text search |
+| `vector` | `buildSource` | `buildSource.presenter` | Semantic/AI-powered search via embeddings |
+| `tokens` | Automatic | `formatResult` | Exact keyword matching (PostgreSQL) |
+
+#### Fulltext Strategy
+Uses `fieldPolicy` to control which fields are indexed. Presenter is stored directly in the fulltext index during indexing.
+```typescript
+fieldPolicy: {
+  searchable: ['name', 'description'],  // Indexed and searchable
+  hashOnly: ['email'],                   // Hashed for exact match only
+  excluded: ['password'],                // Never indexed
+}
+```
+
+#### Vector Strategy
+Uses `buildSource` to generate text for embeddings. Presenter is returned from `buildSource` and stored alongside vectors.
+```typescript
+buildSource: async (ctx) => ({
+  text: [`Name: ${ctx.record.name}`],  // Text to embed
+  presenter: { title: ctx.record.name, subtitle: ctx.record.status },
+})
+```
+
+#### Tokens (Keyword) Strategy
+Indexes automatically from `entity_indexes` table. **Presenter is resolved at search time** using `formatResult` from search.ts config. If no config exists, falls back to extracting common fields (`display_name`, `name`, `title`, etc.) from the indexed document.
+```typescript
+// Configure presenter for token/keyword search results
+formatResult: async (ctx: SearchBuildContext) => ({
+  title: ctx.record.display_name ?? ctx.record.name,
+  subtitle: ctx.record.email ?? ctx.record.status,
+  icon: 'lucide:user',
+  badge: 'Customer',
+}),
+```
+
+**Important:** For entities that only use token search (no fulltext/vector), you MUST define `formatResult` to display meaningful titles instead of raw UUIDs in Cmd+K results.
+
+### Running Search Queue Workers
+For production with `QUEUE_STRATEGY=async`, start workers in separate processes:
+```bash
+# Full-text indexing worker
+yarn mercato search worker fulltext-indexing --concurrency=5
+
+# Vector embedding indexing worker
+yarn mercato search worker vector-indexing --concurrency=10
+```
+
+For development with `QUEUE_STRATEGY=local`, jobs are processed from `.queue/` automatically.
+
+### Useful CLI Commands
+```bash
+yarn mercato search status                 # Check search module status and available strategies
+yarn mercato search reindex --tenant <id>  # Trigger reindex for all strategies
+yarn mercato search query -q "term" --tenant <id>  # Test search
+```
+
+See `packages/search/src/modules/search/README.md` for full documentation.
