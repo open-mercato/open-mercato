@@ -1,5 +1,11 @@
 {
   "currencies": {
+    "currencies": {
+      "update": "Actualizar moneda"
+    },
+    "exchange_rates": {
+      "update": "Actualizar tipo de cambio"
+    },
     "module": {
       "title": "Monedas y Tipos de Cambio",
       "description": "Gestionar monedas y tipos de cambio para transacciones multidivisa."

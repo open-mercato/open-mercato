@@ -1,5 +1,11 @@
 {
   "currencies": {
+    "currencies": {
+      "update": "Update currency"
+    },
+    "exchange_rates": {
+      "update": "Update exchange rate"
+    },
     "module": {
       "title": "Currencies & Exchange Rates",
       "description": "Manage currencies and exchange rates for multi-currency transactions."

@@ -67,8 +67,8 @@ export class Currency {
   properties: ['fromCurrencyCode', 'toCurrencyCode', 'date'],
 })
 @Unique({
-  name: 'exchange_rates_pair_datetime_source_type_unique',
-  properties: ['organizationId', 'tenantId', 'fromCurrencyCode', 'toCurrencyCode', 'date', 'source', 'type'],
+  name: 'exchange_rates_pair_datetime_source_unique',
+  properties: ['organizationId', 'tenantId', 'fromCurrencyCode', 'toCurrencyCode', 'date', 'source'],
 })
 export class ExchangeRate {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })

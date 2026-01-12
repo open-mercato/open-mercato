@@ -220,7 +220,7 @@ export default function CreateExchangeRatePage() {
               isActive: values.isActive !== false,
             }
 
-            const { result } = await createCrud('currencies/exchange-rates', payload)
+            await createCrud('currencies/exchange-rates', payload)
 
             flash(t('exchangeRates.flash.created'), 'success')
             router.push('/backend/exchange-rates')

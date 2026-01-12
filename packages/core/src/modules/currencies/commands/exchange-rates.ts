@@ -212,9 +212,10 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       return { exchangeRateId: record.id }
     }
 
-    // Apply only the new values from changes
-    for (const [key, change] of Object.entries(changes)) {
-      (record as any)[key] = change.to
+    for (const [key, change] of Object.entries(
+      changes as Record<string, { from: unknown; to: unknown }>,
+    )) {
+      ;(record as any)[key] = change.to
     }
     record.updatedAt = new Date()
     

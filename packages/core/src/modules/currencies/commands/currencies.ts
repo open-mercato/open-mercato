@@ -191,7 +191,11 @@ const updateCurrencyCommand: CommandHandler<CurrencyUpdateInput, { currencyId: s
       return { currencyId: record.id }
     }
 
-    Object.assign(record, changes)
+    for (const [key, change] of Object.entries(
+      changes as Record<string, { from: unknown; to: unknown }>,
+    )) {
+      ;(record as any)[key] = change.to
+    }
     record.updatedAt = new Date()
     
     // Enforce only one base currency before flush to prevent race conditions

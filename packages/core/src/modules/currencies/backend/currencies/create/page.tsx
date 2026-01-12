@@ -122,7 +122,7 @@ export default function CreateCurrencyPage() {
               isActive: values.isActive !== false,
             }
 
-            const { result } = await createCrud('currencies/currencies', payload)
+            await createCrud('currencies/currencies', payload)
 
             flash(t('currencies.flash.created'), 'success')
             router.push('/backend/currencies')

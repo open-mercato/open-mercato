@@ -1,5 +1,11 @@
 {
   "currencies": {
+    "currencies": {
+      "update": "Währung aktualisieren"
+    },
+    "exchange_rates": {
+      "update": "Wechselkurs aktualisieren"
+    },
     "module": {
       "title": "Währungen & Wechselkurse",
       "description": "Verwalten Sie Währungen und Wechselkurse für Transaktionen in mehreren Währungen."
