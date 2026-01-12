@@ -341,7 +341,9 @@ describe('Workflow Executor (Unit Tests)', () => {
       mockEm.findOne
         .mockResolvedValueOnce(mockInstance) // First call: get instance in executeWorkflow
         .mockResolvedValueOnce(mockDefinition as WorkflowDefinition) // Second call: get definition
-        .mockResolvedValueOnce(mockInstance) // Third call: get instance in completeWorkflow
+        .mockResolvedValueOnce(mockInstance) // Third call: refresh instance in executeWorkflow
+        .mockResolvedValueOnce(mockInstance) // Fourth call: get instance in completeWorkflow
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition) // Fifth call: get definition in completeWorkflow for compensation check
 
       const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
 
@@ -368,8 +370,9 @@ describe('Workflow Executor (Unit Tests)', () => {
       } as WorkflowInstance
 
       mockEm.findOne
-        .mockResolvedValueOnce(mockInstance)
-        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+        .mockResolvedValueOnce(mockInstance) // First call: get instance in executeWorkflow
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition) // Second call: get definition
+        .mockResolvedValueOnce(mockInstance) // Third call: refresh instance in executeWorkflow
 
       const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
 
@@ -514,7 +517,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         updatedAt: new Date(),
       } as WorkflowInstance
 
-      mockEm.findOne.mockResolvedValue(mockInstance)
+      mockEm.findOne
+        .mockResolvedValueOnce(mockInstance) // First call: get instance
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition) // Second call: get definition for compensation check
 
       await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'FAILED', {
         error: 'Something went wrong',

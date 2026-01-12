@@ -280,7 +280,11 @@ describe('Workflow Instances API', () => {
 
       expect(response.status).toBe(201)
       expect(data.data.instance).toEqual(mockInstance)
-      expect(data.data.execution).toEqual(mockExecutionResult)
+      expect(data.data.execution).toEqual({
+        status: mockInstance.status,
+        currentStep: mockInstance.currentStepId,
+        message: 'Workflow execution started in background',
+      })
       expect(data.message).toBe('Workflow started successfully')
       expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
         mockEm,
@@ -535,7 +539,7 @@ describe('Workflow Instances API', () => {
 
       expect(response.status).toBe(200)
       expect(data.message).toBe('Workflow cancelled successfully')
-      expect(workflowExecutor.completeWorkflow).toHaveBeenCalledWith(mockEm, testInstanceId, 'CANCELLED')
+      expect(workflowExecutor.completeWorkflow).toHaveBeenCalledWith(mockEm, expect.any(Object), testInstanceId, 'CANCELLED')
       expect(mockEm.refresh).toHaveBeenCalledWith(mockInstance)
     })
 

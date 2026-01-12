@@ -506,6 +506,15 @@ async function handleUserTaskStep(
 ): Promise<StepExecutionResult> {
   const userTaskConfig = stepDef.userTaskConfig || {}
 
+  // Handle assignedTo - if it's an array, treat it as roles
+  let assignedTo = userTaskConfig.assignedTo || null
+  let assignedToRoles = userTaskConfig.assignedToRoles || null
+
+  if (Array.isArray(assignedTo)) {
+    assignedToRoles = assignedTo
+    assignedTo = null
+  }
+
   // Create user task
   const now = new Date()
   const userTask = em.create(UserTask, {
@@ -516,8 +525,8 @@ async function handleUserTaskStep(
     status: 'PENDING',
     formSchema: userTaskConfig.formSchema || null,
     formData: null,
-    assignedTo: userTaskConfig.assignedTo || null,
-    assignedToRoles: userTaskConfig.assignedToRoles || null,
+    assignedTo: assignedTo,
+    assignedToRoles: assignedToRoles,
     dueDate: userTaskConfig.slaDuration ? calculateDueDate(userTaskConfig.slaDuration) : null,
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,

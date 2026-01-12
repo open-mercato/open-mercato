@@ -224,11 +224,13 @@ describe('Workflows Validators', () => {
         ...validTransition,
         activities: [
           {
+            activityId: 'send-notification-1',
             activityName: 'Send Notification',
             activityType: 'SEND_EMAIL',
             config: { to: 'user@example.com', subject: 'Test' },
           },
           {
+            activityId: 'update-inventory-1',
             activityName: 'Update Inventory',
             activityType: 'UPDATE_ENTITY',
             config: { entityType: 'inventory', updates: { count: 10 } },
@@ -244,6 +246,7 @@ describe('Workflows Validators', () => {
 
   describe('activityDefinitionSchema', () => {
     const validActivity = {
+      activityId: 'send-email-1',
       activityName: 'Send Email Notification',
       activityType: 'SEND_EMAIL' as const,
       config: {

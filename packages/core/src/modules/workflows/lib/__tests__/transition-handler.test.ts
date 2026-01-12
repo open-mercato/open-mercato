@@ -93,6 +93,9 @@ describe('Transition Handler (Unit Tests)', () => {
 
     // Reset mocks
     jest.clearAllMocks()
+
+    // Set up default mock for ruleEvaluator.evaluateConditions
+    ;(ruleEvaluator.evaluateConditions as jest.Mock).mockResolvedValue(true)
   })
 
   // ============================================================================
@@ -403,10 +406,14 @@ describe('Transition Handler (Unit Tests)', () => {
 
   describe('executeTransition', () => {
     test('should execute valid transition successfully', async () => {
+      mockEm.findOne.mockReset()
       mockEm.findOne
-        .mockResolvedValueOnce(mockDefinition) // evaluateTransition
-        .mockResolvedValueOnce(mockDefinition) // evaluatePreConditions
-        .mockResolvedValueOnce(mockDefinition) // evaluatePostConditions
+        .mockResolvedValueOnce(mockDefinition) // 1. evaluateTransition
+        .mockResolvedValueOnce(mockDefinition) // 2. evaluatePreConditions
+        .mockResolvedValueOnce(mockDefinition) // 3. evaluatePostConditions
+        .mockResolvedValueOnce(mockDefinition) // 4. Additional call
+        .mockResolvedValueOnce(mockDefinition) // 5. Additional call
+        .mockResolvedValue(mockDefinition) // Fallback for any additional calls
 
       ;(ruleEngine.executeRules as jest.Mock)
         .mockResolvedValueOnce({
@@ -520,10 +527,14 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should execute transition even if post-conditions fail (warning only)', async () => {
+      mockEm.findOne.mockReset()
       mockEm.findOne
         .mockResolvedValueOnce(mockDefinition)
         .mockResolvedValueOnce(mockDefinition)
         .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValue(mockDefinition)
 
       ;(ruleEngine.executeRules as jest.Mock)
         .mockResolvedValueOnce({
@@ -557,10 +568,14 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should log successful transition event', async () => {
+      mockEm.findOne.mockReset()
       mockEm.findOne
         .mockResolvedValueOnce(mockDefinition)
         .mockResolvedValueOnce(mockDefinition)
         .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValue(mockDefinition)
 
       ;(ruleEngine.executeRules as jest.Mock)
         .mockResolvedValueOnce({
@@ -736,10 +751,14 @@ describe('Transition Handler (Unit Tests)', () => {
     })
 
     test('should call rule engine for post-conditions with correct eventType', async () => {
+      mockEm.findOne.mockReset()
       mockEm.findOne
         .mockResolvedValueOnce(mockDefinition)
         .mockResolvedValueOnce(mockDefinition)
         .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValueOnce(mockDefinition)
+        .mockResolvedValue(mockDefinition)
 
       ;(ruleEngine.executeRules as jest.Mock)
         .mockResolvedValueOnce({
