@@ -9,7 +9,7 @@ TODO: Fix that latter to have reference by the package names
 @source "../../../../node_modules/@open-mercato/ui/src/**/*.{ts,tsx}";
 @source "../../../../node_modules/@open-mercato/core/src/**/*.{ts,tsx}";
 @source "../../../../node_modules/@open-mercato/shared/src/**/*.{ts,tsx}";
-@source "../../../../node_modules/@open-mercato/vector/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/@open-mercato/search/src/**/*.{ts,tsx}";
 @source "../../../../node_modules/@open-mercato/onboarding/src/**/*.{ts,tsx}";
 @source "../../../../node_modules/@open-mercato/content/src/**/*.{ts,tsx}";
 

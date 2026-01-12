@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/core'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
 

@@ -5,7 +5,7 @@ import { FulltextIndexJobPayload } from '../queue/fulltext-indexing'
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
 // Mock dependencies before importing workers
-jest.mock('@/lib/indexers/error-log', () => ({
+jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
   recordIndexerError: jest.fn().mockResolvedValue(undefined),
 }))
 

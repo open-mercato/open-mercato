@@ -1,8 +1,8 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
-import { recordIndexerLog } from '@/lib/indexers/status-log'
-import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }

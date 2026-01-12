@@ -180,6 +180,7 @@
     }
   },
   "dependencies": {
-    "@open-mercato/shared": "0.3.12"
+    "@open-mercato/shared": "0.3.13",
+    "date-fns-tz": "^3.2.0"
   }
 }

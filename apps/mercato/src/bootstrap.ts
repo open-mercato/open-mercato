@@ -18,7 +18,7 @@ import { entityFieldsRegistry } from '@/.mercato/generated/entity-fields-registr
 import { dashboardWidgetEntries } from '@/.mercato/generated/dashboard-widgets.generated'
 import { injectionWidgetEntries } from '@/.mercato/generated/injection-widgets.generated'
 import { injectionTables } from '@/.mercato/generated/injection-tables.generated'
-import { vectorModuleConfigs } from '@/.mercato/generated/vector.generated'
+import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
 
 // Bootstrap factory from shared package
 import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootstrap'
@@ -33,7 +33,7 @@ export const bootstrap = createBootstrap({
   dashboardWidgetEntries,
   injectionWidgetEntries,
   injectionTables,
-  vectorModuleConfigs,
+  searchModuleConfigs,
 })
 
 export { isBootstrapped }

@@ -78,13 +78,16 @@ async function registerWidgetsAndOptionalPackages(data: BootstrapData, options: 
     // UI packages may not be available in all contexts
   }
 
-  // Register vector configs (optional package)
-  if (!options.skipVectorConfigs) {
+  // Register search module (optional package)
+  if (!options.skipSearchConfigs && data.searchModuleConfigs?.length) {
     try {
-      const vectorDi = await import('@open-mercato/vector/modules/vector/di')
-      vectorDi.registerVectorConfigs(data.vectorModuleConfigs)
+      const searchDi = await import('@open-mercato/search/di')
+      // Note: SearchModule registration happens via module DI registrars.
+      // The moduleConfigs are passed to registerSearchModule when the DI container
+      // is set up. This async block just ensures the package is available.
+      void searchDi
     } catch {
-      // Vector package may not be installed
+      // Search package may not be installed
     }
   }
 

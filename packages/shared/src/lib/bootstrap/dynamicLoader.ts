@@ -123,7 +123,7 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],
     injectionTables: [],
-    vectorModuleConfigs: [],
+    searchModuleConfigs: [],
   }
 }
 
@@ -144,7 +144,7 @@ export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapD
   const data = await loadBootstrapData(appRoot)
   const bootstrap = createBootstrap(data)
   bootstrap()
-  // In CLI context, wait for async registrations (UI widgets, vector configs, etc.)
+  // In CLI context, wait for async registrations (UI widgets, search configs, etc.)
   await waitForAsyncRegistration()
 
   return data

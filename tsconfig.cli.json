@@ -16,7 +16,7 @@
       "@open-mercato/shared/*": ["./packages/shared/src/*"],
       "@open-mercato/ui/*": ["./packages/ui/src/*"],
       "@open-mercato/cli/*": ["./packages/cli/src/*"],
-      "@open-mercato/vector/*": ["./packages/vector/src/*"],
+      "@open-mercato/search/*": ["./packages/search/src/*"],
       "@open-mercato/events/*": ["./packages/events/src/*"],
       "@open-mercato/queue/*": ["./packages/queue/src/*"],
       "@open-mercato/cache/*": ["./packages/cache/src/*"],

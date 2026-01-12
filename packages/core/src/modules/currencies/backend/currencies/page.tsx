@@ -10,10 +10,10 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { Plus, Star } from 'lucide-react'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type CurrencyRow = {

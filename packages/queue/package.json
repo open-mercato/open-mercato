@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/queue",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "Multi-strategy job queue with local and BullMQ support",
   "private": true,
   "type": "module",
