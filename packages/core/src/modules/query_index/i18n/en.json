@@ -12,6 +12,7 @@
   "query_index.table.columns.records": "Records",
   "query_index.table.columns.indexed": "Indexed",
   "query_index.table.columns.vector": "Vector",
+  "query_index.table.columns.meilisearch": "Meilisearch",
   "query_index.table.columns.status": "Status",
   "query_index.table.status.in_sync": "In sync",
   "query_index.table.status.out_of_sync": "Out of sync",

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/cli",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -9,6 +9,10 @@
     "./mercato": {
       "types": "./src/mercato.ts",
       "default": "./dist/mercato.js"
+    },
+    "./registry": {
+      "types": "./src/registry.ts",
+      "default": "./dist/registry.js"
     },
     "./*.ts": {
       "types": "./src/*.ts",
@@ -41,7 +45,7 @@
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",
-    "@open-mercato/shared": "0.3.12",
+    "@open-mercato/shared": "0.3.13",
     "openapi-typescript": "^7.10.1",
     "pg": "^8.16.3",
     "typescript": "^5.9.3"

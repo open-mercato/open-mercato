@@ -44,6 +44,8 @@ type Row = {
   indexCount: number | null
   vectorCount: number | null
   vectorEnabled: boolean
+  meilisearchCount: number | null
+  meilisearchEnabled: boolean
   ok: boolean
   job?: JobStatus
 }
@@ -174,6 +176,20 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
         if (!record.vectorEnabled) return <span>—</span>
         const ok = record.vectorCount != null && record.baseCount != null && record.vectorCount === record.baseCount
         const display = formatCount(record.vectorCount)
+        const className = ok ? 'text-green-600' : 'text-orange-600'
+        return <span className={className}>{display}</span>
+      },
+      meta: { priority: 2 },
+    },
+    {
+      id: 'meilisearchCount',
+      header: () => t('query_index.table.columns.meilisearch'),
+      accessorFn: (row) => (row.meilisearchEnabled ? row.meilisearchCount ?? 0 : -1),
+      cell: ({ row }) => {
+        const record = row.original
+        if (!record.meilisearchEnabled) return <span>—</span>
+        const ok = record.meilisearchCount != null && record.baseCount != null && record.meilisearchCount === record.baseCount
+        const display = formatCount(record.meilisearchCount)
         const className = ok ? 'text-green-600' : 'text-orange-600'
         return <span className={className}>{display}</span>
       },

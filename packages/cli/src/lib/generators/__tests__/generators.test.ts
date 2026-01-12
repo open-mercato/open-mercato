@@ -172,10 +172,10 @@ describe('generator file output patterns', () => {
       expect(expectedPath).toContain('injection-widgets.generated.ts')
     })
 
-    it('should output vector config', () => {
+    it('should output search config', () => {
       const outputDir = '/project/generated'
-      const expectedPath = `${outputDir}/vector.generated.ts`
-      expect(expectedPath).toContain('vector.generated.ts')
+      const expectedPath = `${outputDir}/search.generated.ts`
+      expect(expectedPath).toContain('search.generated.ts')
     })
   })
 

@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { DashboardWidgetModule } from './dashboard/widgets'
-import type { VectorModuleConfig } from './vector'
 import type { InjectionWidgetModule, ModuleInjectionTable } from './widgets/injection'
 
 // Context passed to dynamic metadata guards
@@ -140,7 +139,6 @@ export type Module = {
   dashboardWidgets?: ModuleDashboardWidgetEntry[]
   injectionWidgets?: ModuleInjectionWidgetEntry[]
   injectionTable?: ModuleInjectionTable
-  vector?: VectorModuleConfig
 }
 
 function normPath(s: string) {

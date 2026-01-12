@@ -25,6 +25,8 @@
 # misc
 .DS_Store
 *.pem
+# Exception: Allow public CA certificates for SSL verification
+!certs/*.pem
 
 # debug
 npm-debug.log*
@@ -87,4 +89,4 @@ package-lock.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
-.queue
+.queue/**
