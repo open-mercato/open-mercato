@@ -34,7 +34,7 @@ describe('Events Worker', () => {
     const createMockJob = (event: string, payload: unknown): QueuedJob<{ event: string; payload: unknown }> => ({
       id: 'test-job-id',
       payload: { event, payload },
-      enqueuedAt: new Date(),
+      createdAt: new Date().toISOString(),
     })
 
     const createMockContext = (): JobContext & { resolve: <T = unknown>(name: string) => T } => ({
