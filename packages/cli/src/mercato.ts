@@ -548,44 +548,11 @@ export async function run(argv = process.argv) {
                 }
               },
             })
-          } else if (queueName === 'events') {
-            // Legacy handling for built-in "events" queue (subscriber-based)
-            const container = await createRequestContainer()
-            const concurrency = concurrencyOverride ?? 1
-
-            // Load registered module subscribers
-            type SubscriberEntry = {
-              event: string
-              handler: (payload: unknown, ctx: unknown) => Promise<void> | void
-            }
-            const listeners = new Map<string, Set<SubscriberEntry['handler']>>()
-            for (const mod of getCliModules()) {
-              const subs = (mod as { subscribers?: SubscriberEntry[] }).subscribers
-              if (!subs) continue
-              for (const sub of subs) {
-                if (!listeners.has(sub.event)) listeners.set(sub.event, new Set())
-                listeners.get(sub.event)!.add(sub.handler)
-              }
-            }
-
-            await runWorker({
-              queueName: 'events',
-              connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
-              concurrency,
-              handler: async (job) => {
-                const data = job.payload as { event: string; payload: unknown }
-                const handlers = listeners.get(data.event)
-                if (!handlers || handlers.size === 0) return
-
-                for (const handler of handlers) {
-                  await handler(data.payload, { resolve: container.resolve.bind(container) })
-                }
-              },
-            })
           } else {
             console.error(`No workers found for queue "${queueName}"`)
-            const knownQueues = discoveredQueues.length > 0 ? discoveredQueues.join(', ') : 'events'
-            console.error(`Available queues: ${knownQueues}`)
+            if (discoveredQueues.length > 0) {
+              console.error(`Available queues: ${discoveredQueues.join(', ')}`)
+            }
           }
         },
       },
