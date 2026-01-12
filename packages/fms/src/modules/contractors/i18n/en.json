@@ -100,7 +100,7 @@
         "city": "City",
         "state": "State/Province",
         "postalCode": "Postal Code",
-        "countryCode": "Country",
+        "country": "Country",
         "isPrimary": "Primary Address"
       }
     },

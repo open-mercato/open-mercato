@@ -3,7 +3,13 @@ import { NextResponse } from 'next/server'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { Contractor, ContractorRoleType } from '../../data/entities'
-import { contractorCreateSchema, contractorUpdateSchema, contractorListQuerySchema } from '../../data/validators'
+import {
+  contractorCreateSchema,
+  contractorUpdateSchema,
+  contractorListQuerySchema,
+  contractorCreateWithRelationsSchema,
+} from '../../data/validators'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -368,11 +374,13 @@ export async function GET(req: Request) {
         paymentMethod: contractor.paymentTerms.paymentMethod,
         currencyCode: contractor.paymentTerms.currencyCode,
       } : null,
+      primaryContactId: primaryContact?.id ?? null,
       primaryContactEmail: primaryContact?.email ?? null,
+      primaryContactPhone: primaryContact?.phone ?? null,
       primaryAddress: primaryAddress ? {
         addressLine: primaryAddress.addressLine,
         city: primaryAddress.city,
-        countryCode: primaryAddress.countryCode,
+        country: primaryAddress.country,
       } : null,
     }
   })
@@ -385,6 +393,134 @@ export async function GET(req: Request) {
   })
 }
 
-export const POST = crud.POST
+function hasRelations(body: Record<string, unknown>): boolean {
+  return (
+    (Array.isArray(body.contacts) && body.contacts.length > 0) ||
+    (Array.isArray(body.addresses) && body.addresses.length > 0) ||
+    (body.paymentTerms != null && typeof body.paymentTerms === 'object') ||
+    (body.creditLimit != null && typeof body.creditLimit === 'object') ||
+    (typeof body.primaryContactEmail === 'string' && body.primaryContactEmail.length > 0) ||
+    (typeof body.primaryContactPhone === 'string' && body.primaryContactPhone.length > 0)
+  )
+}
+
+function transformPrimaryContactToContacts(body: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...body }
+  const email = typeof body.primaryContactEmail === 'string' ? body.primaryContactEmail : null
+  const phone = typeof body.primaryContactPhone === 'string' ? body.primaryContactPhone : null
+
+  if (email || phone) {
+    const existingContacts = Array.isArray(body.contacts) ? body.contacts : []
+    const primaryContact = {
+      email: email || null,
+      phone: phone || null,
+      isPrimary: true,
+      isActive: true,
+    }
+    result.contacts = [primaryContact, ...existingContacts]
+  }
+
+  delete result.primaryContactEmail
+  delete result.primaryContactPhone
+
+  return result
+}
+
+export async function POST(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { translate } = await resolveTranslations()
+  const container = await createRequestContainer()
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+
+  let rawBody: Record<string, unknown>
+  try {
+    rawBody = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  // Transform primaryContactEmail/primaryContactPhone into contacts array
+  const body = transformPrimaryContactToContacts(rawBody)
+
+  const scopedCtx = {
+    container,
+    auth,
+    organizationScope: scope,
+    selectedOrganizationId: scope?.selectedId ?? null,
+    organizationIds: scope?.filterIds ?? (scope?.selectedId ? [scope.selectedId] : null),
+  }
+  const scoped = withScopedPayload(body, scopedCtx, translate)
+
+  const commandBus = container.resolve('commandBus') as CommandBus
+  const ctx = {
+    ...scopedCtx,
+    request: req,
+  }
+
+  if (hasRelations(rawBody)) {
+    const parseResult = contractorCreateWithRelationsSchema.safeParse(scoped)
+    if (!parseResult.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: parseResult.error.flatten() },
+        { status: 400 }
+      )
+    }
+
+    try {
+      const { result } = await commandBus.execute<
+        typeof parseResult.data & { organizationId: string; tenantId: string },
+        { contractorId: string }
+      >('contractors.createWithRelations', {
+        input: {
+          ...parseResult.data,
+          organizationId: scoped.organizationId as string,
+          tenantId: scoped.tenantId as string,
+        },
+        ctx,
+      })
+
+      return NextResponse.json({ id: result.contractorId }, { status: 201 })
+    } catch (err) {
+      if (err instanceof CrudHttpError) {
+        return NextResponse.json(err.body, { status: err.status })
+      }
+      throw err
+    }
+  }
+
+  const parseResult = contractorCreateSchema.safeParse(scoped)
+  if (!parseResult.success) {
+    return NextResponse.json(
+      { error: 'Validation failed', details: parseResult.error.flatten() },
+      { status: 400 }
+    )
+  }
+
+  try {
+    const { result } = await commandBus.execute<
+      typeof parseResult.data & { organizationId: string; tenantId: string },
+      { contractorId: string }
+    >('contractors.create', {
+      input: {
+        ...parseResult.data,
+        organizationId: scoped.organizationId as string,
+        tenantId: scoped.tenantId as string,
+      },
+      ctx,
+    })
+
+    return NextResponse.json({ id: result.contractorId }, { status: 201 })
+  } catch (err) {
+    if (err instanceof CrudHttpError) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
+}
+
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE

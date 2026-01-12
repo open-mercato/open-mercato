@@ -65,8 +65,8 @@ const crud = makeCrudRoute({
     transformItem: (item: Record<string, unknown>) => ({
       id: item.id,
       contractorId: item.contractor_id,
-      firstName: item.first_name,
-      lastName: item.last_name,
+      firstName: item.first_name ?? null,
+      lastName: item.last_name ?? null,
       email: item.email ?? null,
       phone: item.phone ?? null,
       isPrimary: item.is_primary ?? false,

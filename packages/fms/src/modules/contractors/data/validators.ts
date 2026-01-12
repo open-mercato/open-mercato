@@ -32,12 +32,11 @@ const emptyToNull = (val: unknown) => (val === '' ? null : val)
 
 export const contractorAddressCreateSchema = z.object({
   purpose: z.enum(contractorAddressPurposes),
-  label: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
-  addressLine: z.string().min(1).max(255),
-  city: z.string().min(1).max(100),
+  addressLine: z.preprocess(emptyToNull, z.string().max(255).nullable().optional()),
+  city: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   state: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   postalCode: z.preprocess(emptyToNull, z.string().max(20).nullable().optional()),
-  countryCode: z.string().min(1).max(3),
+  country: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   isPrimary: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
 })
@@ -47,8 +46,8 @@ export const contractorAddressUpdateSchema = contractorAddressCreateSchema.parti
 export type ContractorAddressUpdateInput = z.infer<typeof contractorAddressUpdateSchema>
 
 export const contractorContactCreateSchema = z.object({
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
+  firstName: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
+  lastName: z.preprocess(emptyToNull, z.string().max(100).nullable().optional()),
   email: z.preprocess(emptyToNull, z.string().email().max(255).nullable().optional()),
   phone: z.preprocess(emptyToNull, z.string().max(50).nullable().optional()),
   isPrimary: z.boolean().optional().default(false),
@@ -90,12 +89,20 @@ export const contractorPaymentTermsUpsertSchema = z.object({
 export type ContractorPaymentTermsUpsertInput = z.infer<typeof contractorPaymentTermsUpsertSchema>
 
 export const contractorCreditLimitUpsertSchema = z.object({
-  creditLimit: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  creditLimit: z.coerce.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   currencyCode: z.string().length(3).optional().default('USD'),
   isUnlimited: z.boolean().optional().default(false),
   notes: z.string().max(1000).optional().nullable(),
 })
 export type ContractorCreditLimitUpsertInput = z.infer<typeof contractorCreditLimitUpsertSchema>
+
+export const contractorCreateWithRelationsSchema = contractorCreateSchema.extend({
+  contacts: z.array(contractorContactCreateSchema).optional(),
+  addresses: z.array(contractorAddressCreateSchema).optional(),
+  paymentTerms: contractorPaymentTermsUpsertSchema.optional().nullable(),
+  creditLimit: contractorCreditLimitUpsertSchema.optional().nullable(),
+})
+export type ContractorCreateWithRelationsInput = z.infer<typeof contractorCreateWithRelationsSchema>
 
 export const contractorListQuerySchema = z.object({
   search: z.string().optional(),

@@ -15,6 +15,7 @@ export interface VirtualRowProps {
   actionsColumnWidth: number;
   showActionsColumn?: boolean;
   stretchColumns?: boolean;
+  totalWidth: number;
   storeRevision: number;
   onSaveNewRow: (rowIndex: number) => void;
   onCancelNewRow: (rowIndex: number) => void;
@@ -34,6 +35,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
     actionsColumnWidth,
     showActionsColumn = true,
     stretchColumns = false,
+    totalWidth,
     storeRevision: _storeRevision, // Used to invalidate memo when column widths change
     onSaveNewRow,
     onCancelNewRow,
@@ -74,7 +76,7 @@ const VirtualRow: React.FC<VirtualRowProps> = memo(
           position: 'absolute',
           top: 0,
           left: 0,
-          width: '100%',
+          width: stretchColumns ? '100%' : `${totalWidth}px`,
           height: `${virtualRow.size}px`,
           transform: `translateY(${virtualRow.start}px)`,
         }}

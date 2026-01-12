@@ -52,15 +52,6 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "code": {
-          "name": "code",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
         "parent_id": {
           "name": "parent_id",
           "type": "uuid",
@@ -72,24 +63,6 @@
         },
         "tax_id": {
           "name": "tax_id",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "legal_name": {
-          "name": "legal_name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "registration_number": {
-          "name": "registration_number",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -136,6 +109,15 @@
           "nullable": true,
           "length": 6,
           "mappedType": "datetime"
+        },
+        "role_type_ids": {
+          "name": "role_type_ids",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "json"
         }
       },
       "name": "contractors",
@@ -170,15 +152,6 @@
           "constraint": false,
           "primary": false,
           "unique": false
-        },
-        {
-          "keyName": "contractors_code_unique",
-          "columnNames": [],
-          "composite": false,
-          "constraint": true,
-          "primary": false,
-          "unique": true,
-          "expression": "create unique index \"contractors_code_unique\" on \"contractors\" (\"tenant_id\", \"organization_id\", \"code\") where deleted_at is null and code is not null"
         },
         {
           "keyName": "contractors_pkey",
@@ -234,26 +207,8 @@
           "nullable": false,
           "mappedType": "text"
         },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "address_line1": {
-          "name": "address_line1",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "address_line2": {
-          "name": "address_line2",
+        "address_line": {
+          "name": "address_line",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -267,7 +222,7 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "text"
         },
         "state": {
@@ -288,13 +243,13 @@
           "nullable": true,
           "mappedType": "text"
         },
-        "country_code": {
-          "name": "country_code",
+        "country": {
+          "name": "country",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "text"
         },
         "is_primary": {
@@ -424,29 +379,11 @@
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
-          "nullable": false,
+          "nullable": true,
           "mappedType": "text"
         },
         "last_name": {
           "name": "last_name",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "text"
-        },
-        "job_title": {
-          "name": "job_title",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "department": {
-          "name": "department",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -465,15 +402,6 @@
         },
         "phone": {
           "name": "phone",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "mobile": {
-          "name": "mobile",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -500,15 +428,6 @@
           "nullable": false,
           "default": "true",
           "mappedType": "boolean"
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
         },
         "created_at": {
           "name": "created_at",
@@ -641,58 +560,6 @@
           "nullable": false,
           "default": "false",
           "mappedType": "boolean"
-        },
-        "current_exposure": {
-          "name": "current_exposure",
-          "type": "numeric(18,2)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "precision": 18,
-          "scale": 2,
-          "default": "'0'",
-          "mappedType": "decimal"
-        },
-        "last_calculated_at": {
-          "name": "last_calculated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "requires_approval_above": {
-          "name": "requires_approval_above",
-          "type": "numeric(18,2)",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "precision": 18,
-          "scale": 2,
-          "mappedType": "decimal"
-        },
-        "approved_by_id": {
-          "name": "approved_by_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "uuid"
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
         },
         "notes": {
           "name": "notes",
@@ -1191,187 +1058,6 @@
       ],
       "checks": [],
       "foreignKeys": {},
-      "nativeEnums": {}
-    },
-    {
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "gen_random_uuid()",
-          "mappedType": "uuid"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "settings": {
-          "name": "settings",
-          "type": "jsonb",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "json"
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "default": "true",
-          "mappedType": "boolean"
-        },
-        "effective_from": {
-          "name": "effective_from",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "effective_to": {
-          "name": "effective_to",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamptz",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "length": 6,
-          "mappedType": "datetime"
-        },
-        "contractor_id": {
-          "name": "contractor_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        },
-        "role_type_id": {
-          "name": "role_type_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "mappedType": "uuid"
-        }
-      },
-      "name": "contractor_roles",
-      "schema": "public",
-      "indexes": [
-        {
-          "keyName": "idx_contractor_roles_role_type",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "create index \"idx_contractor_roles_role_type\" on \"contractor_roles\" (\"tenant_id\", \"organization_id\", \"role_type_id\") where is_active = true"
-        },
-        {
-          "keyName": "contractor_roles_contractor_idx",
-          "columnNames": [
-            "contractor_id"
-          ],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "contractor_roles_unique",
-          "columnNames": [
-            "contractor_id",
-            "role_type_id"
-          ],
-          "composite": true,
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
-        {
-          "keyName": "contractor_roles_pkey",
-          "columnNames": [
-            "id"
-          ],
-          "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
-        }
-      ],
-      "checks": [],
-      "foreignKeys": {
-        "contractor_roles_contractor_id_foreign": {
-          "constraintName": "contractor_roles_contractor_id_foreign",
-          "columnNames": [
-            "contractor_id"
-          ],
-          "localTableName": "public.contractor_roles",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.contractors",
-          "updateRule": "cascade"
-        },
-        "contractor_roles_role_type_id_foreign": {
-          "constraintName": "contractor_roles_role_type_id_foreign",
-          "columnNames": [
-            "role_type_id"
-          ],
-          "localTableName": "public.contractor_roles",
-          "referencedColumnNames": [
-            "id"
-          ],
-          "referencedTableName": "public.contractor_role_types",
-          "updateRule": "cascade"
-        }
-      },
       "nativeEnums": {}
     }
   ],

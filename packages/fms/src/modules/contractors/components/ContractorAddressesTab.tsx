@@ -18,12 +18,11 @@ import { useT } from '@/lib/i18n/context'
 type ContractorAddress = {
   id: string
   purpose: string
-  label?: string | null
-  addressLine: string
-  city: string
+  addressLine?: string | null
+  city?: string | null
   state?: string | null
   postalCode?: string | null
-  countryCode: string
+  country?: string | null
   isPrimary: boolean
   isActive: boolean
 }
@@ -86,12 +85,11 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
 
   const columns: ColumnDef[] = React.useMemo(() => [
     { data: 'purpose', title: 'Purpose', type: 'dropdown', source: PURPOSE_OPTIONS, width: 130 },
-    { data: 'label', title: 'Label', type: 'text', width: 100 },
     { data: 'addressLine', title: 'Address', type: 'text', width: 250 },
     { data: 'city', title: 'City', type: 'text', width: 120 },
     { data: 'state', title: 'State', type: 'text', width: 100 },
     { data: 'postalCode', title: 'Postal Code', type: 'text', width: 100 },
-    { data: 'countryCode', title: 'Country', type: 'text', width: 80 },
+    { data: 'country', title: 'Country', type: 'text', width: 80 },
     { data: 'isPrimary', title: 'Primary', type: 'boolean', width: 70 },
     { data: 'isActive', title: 'Active', type: 'boolean', width: 70 },
   ], [])
@@ -102,29 +100,14 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
   }, [handleDelete])
 
   const data = React.useMemo(() => {
-    if (addresses.length === 0) {
-      return [{
-        id: '',
-        purpose: '',
-        label: '',
-        addressLine: '',
-        city: '',
-        state: '',
-        postalCode: '',
-        countryCode: '',
-        isPrimary: false,
-        isActive: true,
-      }]
-    }
     return addresses.map((addr) => ({
       id: addr.id,
       purpose: addr.purpose,
-      label: addr.label ?? '',
-      addressLine: addr.addressLine,
-      city: addr.city,
+      addressLine: addr.addressLine ?? '',
+      city: addr.city ?? '',
       state: addr.state ?? '',
       postalCode: addr.postalCode ?? '',
-      countryCode: addr.countryCode,
+      country: addr.country ?? '',
       isPrimary: addr.isPrimary,
       isActive: addr.isActive,
     }))
@@ -147,7 +130,7 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
           const response = await apiCall(`/api/contractors/addresses?id=${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [prop]: finalValue }),
+            body: JSON.stringify({ id, [prop]: finalValue }),
           })
 
           if (response.ok) {
@@ -218,8 +201,8 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
   )
 
   return (
-    <div>
-      <h3 className="text-sm font-medium text-gray-700 mb-2">
+    <div className="mb-4">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
         {t('contractors.drawer.addressesSection', 'Addresses')}
       </h3>
       <DynamicTable
@@ -227,10 +210,12 @@ export function ContractorAddressesTab({ contractorId, addresses, onUpdated }: C
         data={data}
         columns={columns}
         idColumnName="id"
-        tableName="Addresses"
-        height={Math.max(150, Math.min(300, 80 + data.length * 35))}
+        tableName=""
+        emptyMessage={t('contractors.drawer.noAddresses', 'No addresses')}
+        height={Math.max(150, Math.min(300, 80 + (data.length + 1) * 35))}
         colHeaders={true}
         rowHeaders={false}
+        stretchColumns="all"
         actionsRenderer={actionsRenderer}
         uiConfig={{
           hideToolbar: false,

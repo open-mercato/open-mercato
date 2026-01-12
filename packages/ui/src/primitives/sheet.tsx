@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -34,13 +35,15 @@ SheetOverlay.displayName = DialogPrimitive.Overlay.displayName
 type SheetContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   side?: 'left' | 'right' | 'top' | 'bottom'
   overlayClassName?: string
+  ariaTitle?: string
 }
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   SheetContentProps
->(({ className, children, side = 'right', overlayClassName, ...props }, ref) => {
+>(({ className, children, side = 'right', overlayClassName, ariaTitle, ...props }, ref) => {
   const t = useT()
+  const defaultAriaTitle = t('ui.sheet.defaultTitle', 'Panel')
 
   const sideStyles = {
     left: 'inset-y-0 left-0 h-full w-3/4 max-w-sm border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left',
@@ -63,6 +66,9 @@ const SheetContent = React.forwardRef<
         )}
         {...props}
       >
+        <VisuallyHidden asChild>
+          <DialogPrimitive.Title>{ariaTitle || defaultAriaTitle}</DialogPrimitive.Title>
+        </VisuallyHidden>
         <SheetClose
           className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           aria-label={t('ui.dialog.close.ariaLabel', 'Close')}

@@ -262,6 +262,8 @@ export interface PaginationProps {
 export interface TableUIConfig {
   /** Hide the entire toolbar (header with title, search, buttons) */
   hideToolbar?: boolean;
+  /** Hide just the title in the toolbar */
+  hideTitle?: boolean;
   /** Hide just the search bar */
   hideSearch?: boolean;
   /** Hide the "Build Filter" button */

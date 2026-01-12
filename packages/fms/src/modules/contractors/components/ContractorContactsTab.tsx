@@ -17,8 +17,8 @@ import { useT } from '@/lib/i18n/context'
 
 type ContractorContact = {
   id: string
-  firstName: string
-  lastName: string
+  firstName?: string | null
+  lastName?: string | null
   email?: string | null
   phone?: string | null
   isPrimary: boolean
@@ -88,21 +88,10 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
   }, [handleDelete])
 
   const data = React.useMemo(() => {
-    if (contacts.length === 0) {
-      return [{
-        id: '',
-        firstName: '',
-        lastName: '',
-        email: '',
-        phone: '',
-        isPrimary: false,
-        isActive: true,
-      }]
-    }
     return contacts.map((contact) => ({
       id: contact.id,
-      firstName: contact.firstName,
-      lastName: contact.lastName,
+      firstName: contact.firstName ?? '',
+      lastName: contact.lastName ?? '',
       email: contact.email ?? '',
       phone: contact.phone ?? '',
       isPrimary: contact.isPrimary,
@@ -127,7 +116,7 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
           const response = await apiCall(`/api/contractors/contacts?id=${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [prop]: finalValue }),
+            body: JSON.stringify({ id, [prop]: finalValue }),
           })
 
           if (response.ok) {
@@ -198,8 +187,8 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
   )
 
   return (
-    <div>
-      <h3 className="text-sm font-medium text-gray-700 mb-2">
+    <div className="mb-4">
+      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
         {t('contractors.drawer.contactsSection', 'Contacts')}
       </h3>
       <DynamicTable
@@ -207,10 +196,12 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
         data={data}
         columns={columns}
         idColumnName="id"
-        tableName="Contacts"
-        height={Math.max(150, Math.min(300, 80 + data.length * 35))}
+        tableName=""
+        emptyMessage={t('contractors.drawer.noContacts', 'No contacts')}
+        height={Math.max(150, Math.min(300, 80 + (data.length + 1) * 35))}
         colHeaders={true}
         rowHeaders={false}
+        stretchColumns="all"
         actionsRenderer={actionsRenderer}
         uiConfig={{
           hideToolbar: false,
