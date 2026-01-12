@@ -499,23 +499,70 @@ export async function run(argv = process.argv) {
         command: 'worker',
         run: async (args: string[]) => {
           const queueName = args[0]
+
+          // Collect all discovered workers from modules
+          type WorkerEntry = {
+            id: string
+            queue: string
+            concurrency: number
+            handler: (job: unknown, ctx: unknown) => Promise<void> | void
+          }
+          const allWorkers: WorkerEntry[] = []
+          for (const mod of getCliModules()) {
+            const modWorkers = (mod as { workers?: WorkerEntry[] }).workers
+            if (modWorkers) {
+              allWorkers.push(...modWorkers)
+            }
+          }
+          const discoveredQueues = [...new Set(allWorkers.map((w) => w.queue))]
+
           if (!queueName) {
             console.error('Usage: mercato queue worker <queueName>')
             console.error('Example: mercato queue worker events')
+            if (discoveredQueues.length > 0) {
+              console.error(`Discovered queues: ${discoveredQueues.join(', ')}`)
+            }
             return
           }
 
           const concurrencyArg = args.find((a) => a.startsWith('--concurrency='))
-          const concurrency = concurrencyArg ? Number(concurrencyArg.split('=')[1]) : 1
+          const concurrencyOverride = concurrencyArg ? Number(concurrencyArg.split('=')[1]) : undefined
 
-          // Special handling for known queue types
-          if (queueName === 'events') {
+          // Find workers for this queue
+          const queueWorkers = allWorkers.filter((w) => w.queue === queueName)
+
+          if (queueWorkers.length > 0) {
+            // Use discovered workers
             const container = await createRequestContainer()
+            const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+
+            console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
+
+            await runWorker({
+              queueName,
+              connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+              concurrency,
+              handler: async (job, ctx) => {
+                for (const worker of queueWorkers) {
+                  await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
+                }
+              },
+            })
+          } else if (queueName === 'events') {
+            // Legacy handling for built-in "events" queue (subscriber-based)
+            const container = await createRequestContainer()
+            const concurrency = concurrencyOverride ?? 1
 
             // Load registered module subscribers
-            const listeners = new Map<string, Set<any>>()
+            type SubscriberEntry = {
+              event: string
+              handler: (payload: unknown, ctx: unknown) => Promise<void> | void
+            }
+            const listeners = new Map<string, Set<SubscriberEntry['handler']>>()
             for (const mod of getCliModules()) {
-              for (const sub of (mod as any).subscribers || []) {
+              const subs = (mod as { subscribers?: SubscriberEntry[] }).subscribers
+              if (!subs) continue
+              for (const sub of subs) {
                 if (!listeners.has(sub.event)) listeners.set(sub.event, new Set())
                 listeners.get(sub.event)!.add(sub.handler)
               }
@@ -526,7 +573,7 @@ export async function run(argv = process.argv) {
               connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
               concurrency,
               handler: async (job) => {
-                const data = job.payload as { event: string; payload: any }
+                const data = job.payload as { event: string; payload: unknown }
                 const handlers = listeners.get(data.event)
                 if (!handlers || handlers.size === 0) return
 
@@ -536,7 +583,9 @@ export async function run(argv = process.argv) {
               },
             })
           } else {
-            console.error(`Unknown queue: "${queueName}". Known queues: events`)
+            console.error(`No workers found for queue "${queueName}"`)
+            const knownQueues = discoveredQueues.length > 0 ? discoveredQueues.join(', ') : 'events'
+            console.error(`Available queues: ${knownQueues}`)
           }
         },
       },

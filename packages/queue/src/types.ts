@@ -192,3 +192,43 @@ export type CreateQueueFn = <T = unknown>(
   strategy: QueueStrategyType,
   options?: QueueOptions<QueueStrategyType>
 ) => Queue<T>
+
+// ============================================================================
+// Worker Discovery Types
+// ============================================================================
+
+/**
+ * Metadata exported by worker files for auto-discovery.
+ *
+ * @example
+ * ```typescript
+ * // src/modules/example/workers/my-queue.ts
+ * export const metadata: WorkerMeta = {
+ *   queue: 'my-queue',
+ *   concurrency: 5,
+ * }
+ * ```
+ */
+export type WorkerMeta = {
+  /** Queue name this worker processes */
+  queue: string
+  /** Optional unique identifier (defaults to <module>:workers:<filename>) */
+  id?: string
+  /** Worker concurrency (default: 1) */
+  concurrency?: number
+}
+
+/**
+ * Descriptor for a discovered and registered worker.
+ * @template T - The job payload type this worker handles
+ */
+export type WorkerDescriptor<T = unknown> = {
+  /** Unique identifier for this worker */
+  id: string
+  /** Queue name to process */
+  queue: string
+  /** Handler function */
+  handler: JobHandler<T>
+  /** Concurrency level */
+  concurrency: number
+}
