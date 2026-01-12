@@ -245,7 +245,7 @@ describe('Fulltext Index Worker', () => {
     const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
-      records: [{ entityId: 'test', recordId: '1', tenantId: 'tenant-123', fields: {} }],
+      records: [{ entityId: 'test', recordId: '1' }],
     })
     const ctx = createMockJobContext()
 
@@ -259,7 +259,7 @@ describe('Fulltext Index Worker', () => {
     const job = createMockJob<FulltextIndexJobPayload>({
       jobType: 'batch-index',
       tenantId: 'tenant-123',
-      records: [{ entityId: 'test', recordId: '1', tenantId: 'tenant-123', fields: {} }],
+      records: [{ entityId: 'test', recordId: '1' }],
     })
     const ctx = createMockJobContext()
 

@@ -307,7 +307,7 @@ export function SearchSettingsPageClient() {
     try {
       const body = await readApiResultOrThrow<SettingsResponse>(
         '/api/search/settings',
-        undefined,
+        { cache: 'no-store' },
         { errorMessage: '', allowNullResult: true },
       )
       if (body?.settings) {
@@ -323,7 +323,7 @@ export function SearchSettingsPageClient() {
     try {
       const body = await readApiResultOrThrow<EmbeddingSettingsResponse>(
         '/api/search/embeddings',
-        undefined,
+        { cache: 'no-store' },
         { errorMessage: '', allowNullResult: true },
       )
       if (body?.settings) {

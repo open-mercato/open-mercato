@@ -1,14 +1,186 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import type { FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
+import type { FulltextIndexJobPayload, FulltextBatchRecord } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
+import type { SearchIndexer } from '../../../indexer/search-indexer'
+import type {
+  IndexableRecord,
+  SearchBuildContext,
+  SearchResultPresenter,
+  SearchResultLink,
+  SearchEntityConfig,
+} from '../../../types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 import { updateReindexProgress } from '../lib/reindex-lock'
+import { extractFallbackPresenter } from '../../../lib/fallback-presenter'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
+
+/** Batch size for loading records from database */
+const DB_BATCH_SIZE = 500
+
+/**
+ * Load records from entity_indexes table and build IndexableRecords.
+ * Groups records by entity type for efficient batch queries.
+ */
+async function loadRecordsFromDb(
+  knex: Knex,
+  records: FulltextBatchRecord[],
+  tenantId: string,
+  organizationId: string | null | undefined,
+  searchIndexer: SearchIndexer,
+): Promise<IndexableRecord[]> {
+  if (records.length === 0) return []
+
+  // Group by entity type for batch query
+  const byEntityType = new Map<string, string[]>()
+  for (const { entityId, recordId } of records) {
+    const ids = byEntityType.get(entityId) ?? []
+    ids.push(recordId)
+    byEntityType.set(entityId, ids)
+  }
+
+  const indexableRecords: IndexableRecord[] = []
+
+  for (const [entityId, recordIds] of byEntityType) {
+    // Process in chunks to avoid hitting DB parameter limits
+    for (let i = 0; i < recordIds.length; i += DB_BATCH_SIZE) {
+      const chunk = recordIds.slice(i, i + DB_BATCH_SIZE)
+
+      // Load docs from entity_indexes
+      const query = knex('entity_indexes')
+        .select('entity_id', 'doc')
+        .where('entity_type', entityId)
+        .where('tenant_id', tenantId)
+        .whereIn('entity_id', chunk)
+        .whereNull('deleted_at')
+
+      // Add organization filter if provided
+      if (organizationId) {
+        query.where((builder) => {
+          builder.where('organization_id', organizationId).orWhereNull('organization_id')
+        })
+      }
+
+      const rows = await query
+      const config = searchIndexer.getEntityConfig(entityId as EntityId)
+
+      for (const row of rows) {
+        const doc = row.doc as Record<string, unknown>
+        const indexable = await buildIndexableFromDoc(
+          doc,
+          entityId,
+          row.entity_id as string,
+          tenantId,
+          organizationId,
+          config,
+        )
+        if (indexable) indexableRecords.push(indexable)
+      }
+    }
+  }
+
+  return indexableRecords
+}
+
+/**
+ * Build an IndexableRecord from a doc loaded from entity_indexes.
+ * Uses search.ts config (buildSource, formatResult, etc.) when available,
+ * otherwise falls back to extracting common fields.
+ */
+async function buildIndexableFromDoc(
+  doc: Record<string, unknown>,
+  entityId: string,
+  recordId: string,
+  tenantId: string,
+  organizationId: string | null | undefined,
+  config?: SearchEntityConfig,
+): Promise<IndexableRecord | null> {
+  // Extract custom fields
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(doc)) {
+    if (key.startsWith('cf:') || key.startsWith('cf_')) {
+      customFields[key.slice(3)] = value
+    }
+  }
+
+  const buildContext: SearchBuildContext = {
+    record: doc,
+    customFields,
+    tenantId,
+    organizationId,
+  }
+
+  let presenter: SearchResultPresenter | undefined
+  let url: string | undefined
+  let links: SearchResultLink[] | undefined
+  let text: string | string[] | undefined
+
+  // Use search.ts config if available
+  if (config) {
+    if (config.buildSource) {
+      try {
+        const source = await config.buildSource(buildContext)
+        if (source) {
+          presenter = source.presenter
+          links = source.links
+          text = source.text
+        }
+      } catch (err) {
+        searchDebugWarn('fulltext-index.worker', `buildSource failed for ${entityId}:${recordId}`, {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    if (!presenter && config.formatResult) {
+      try {
+        presenter = (await config.formatResult(buildContext)) ?? undefined
+      } catch (err) {
+        searchDebugWarn('fulltext-index.worker', `formatResult failed for ${entityId}:${recordId}`, {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    if (config.resolveUrl) {
+      try {
+        url = (await config.resolveUrl(buildContext)) ?? undefined
+      } catch {
+        // Skip URL resolution errors
+      }
+    }
+
+    if (!links && config.resolveLinks) {
+      try {
+        links = (await config.resolveLinks(buildContext)) ?? undefined
+      } catch {
+        // Skip link resolution errors
+      }
+    }
+  }
+
+  // Fallback presenter if none from config
+  if (!presenter) {
+    presenter = extractFallbackPresenter(doc, entityId, recordId)
+  }
+
+  return {
+    entityId: entityId as EntityId,
+    recordId,
+    tenantId,
+    organizationId: organizationId ?? null,
+    fields: doc,
+    presenter,
+    url,
+    links,
+    text,
+  }
+}
 
 /**
  * Process a fulltext indexing job.
@@ -35,7 +207,7 @@ export async function handleFulltextIndexJob(
     return
   }
 
-  // Resolve EntityManager for logging and knex for heartbeat updates
+  // Resolve EntityManager for logging and knex for database queries
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let em: any | null = null
   let knex: Knex | null = null
@@ -45,6 +217,14 @@ export async function handleFulltextIndexJob(
   } catch {
     em = null
     knex = null
+  }
+
+  // Resolve searchIndexer for entity configs
+  let searchIndexer: SearchIndexer | undefined
+  try {
+    searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
+  } catch {
+    searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
   // Resolve fulltext strategy
@@ -73,7 +253,7 @@ export async function handleFulltextIndexJob(
 
   try {
     if (jobType === 'batch-index') {
-      const { records } = job.payload
+      const { records, organizationId } = job.payload
       if (!records || records.length === 0) {
         searchDebugWarn('fulltext-index.worker', 'Skipping batch-index with no records', {
           jobId: jobCtx.jobId,
@@ -81,18 +261,44 @@ export async function handleFulltextIndexJob(
         return
       }
 
-      await fulltextStrategy.bulkIndex(records)
+      // Load fresh data from database and build IndexableRecords
+      if (!knex || !searchIndexer) {
+        searchError('fulltext-index.worker', 'Cannot load records: knex or searchIndexer not available', {
+          jobId: jobCtx.jobId,
+          hasKnex: !!knex,
+          hasSearchIndexer: !!searchIndexer,
+        })
+        throw new Error('Database connection or searchIndexer not available')
+      }
+
+      const indexableRecords = await loadRecordsFromDb(
+        knex,
+        records,
+        tenantId,
+        organizationId,
+        searchIndexer,
+      )
+
+      if (indexableRecords.length === 0) {
+        searchDebugWarn('fulltext-index.worker', 'No records found in database for batch', {
+          jobId: jobCtx.jobId,
+          requestedCount: records.length,
+        })
+        return
+      }
+
+      await fulltextStrategy.bulkIndex(indexableRecords)
 
       // Update heartbeat to signal worker is still processing
       if (knex) {
-        const orgId = 'organizationId' in job.payload ? job.payload.organizationId : null
-        await updateReindexProgress(knex, tenantId, 'fulltext', records.length, orgId as string | null)
+        await updateReindexProgress(knex, tenantId, 'fulltext', indexableRecords.length, organizationId as string | null)
       }
 
       searchDebug('fulltext-index.worker', 'Batch indexed to fulltext', {
         jobId: jobCtx.jobId,
         tenantId,
-        recordCount: records.length,
+        requestedCount: records.length,
+        indexedCount: indexableRecords.length,
         attemptNumber: jobCtx.attemptNumber,
       })
 
@@ -101,9 +307,9 @@ export async function handleFulltextIndexJob(
         {
           source: 'fulltext',
           handler: 'worker:fulltext:batch-index',
-          message: `Indexed ${records.length} records to fulltext`,
+          message: `Indexed ${indexableRecords.length} records to fulltext`,
           tenantId,
-          details: { jobId: jobCtx.jobId, recordCount: records.length },
+          details: { jobId: jobCtx.jobId, requestedCount: records.length, indexedCount: indexableRecords.length },
         },
       )
     } else if (jobType === 'delete') {
