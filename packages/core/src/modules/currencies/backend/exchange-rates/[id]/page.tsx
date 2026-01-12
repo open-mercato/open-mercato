@@ -50,7 +50,31 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
   const [exchangeRate, setExchangeRate] = React.useState<ExchangeRateData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [currencyOptions, setCurrencyOptions] = React.useState<CrudFieldOption[]>([])
+
+  const loadCurrencyOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    try {
+      const params = new URLSearchParams()
+      if (query) {
+        params.set('search', query)
+      }
+      params.set('isActive', 'true')
+      params.set('pageSize', '100')
+
+      const call = await apiCall<{ items: CurrencyOption[] }>(
+        `/api/currencies/currencies?${params.toString()}`
+      )
+
+      if (call.ok && call.result?.items) {
+        return call.result.items.map((c) => ({
+          value: c.code,
+          label: c.code,
+        }))
+      }
+    } catch (error) {
+      console.error('Failed to load currencies:', error)
+    }
+    return []
+  }, [])
 
   // Load exchange rate data
   React.useEffect(() => {
@@ -71,32 +95,6 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
     loadExchangeRate()
   }, [params, t])
 
-  // Load active currencies
-  React.useEffect(() => {
-    async function loadCurrencies() {
-      try {
-        const params = new URLSearchParams()
-        params.set('isActive', 'true')
-        params.set('pageSize', '100')
-
-        const call = await apiCall<{ items: CurrencyOption[] }>(
-          `/api/currencies/currencies?${params.toString()}`
-        )
-
-        if (call.ok && call.result?.items) {
-          const options = call.result.items.map((c) => ({
-            value: c.code,
-            label: `${c.code} - ${c.name}`,
-          }))
-          setCurrencyOptions(options)
-        }
-      } catch (error) {
-        console.error('Failed to load currencies:', error)
-      }
-    }
-    loadCurrencies()
-  }, [])
-
   const groups = React.useMemo<CrudFormGroup[]>(
     () => [
       {
@@ -109,7 +107,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             label: t('exchangeRates.form.field.fromCurrency'),
             placeholder: t('exchangeRates.form.field.fromCurrencyPlaceholder'),
             required: true,
-            suggestions: currencyOptions.map((o) => o.value),
+            loadOptions: loadCurrencyOptions,
             allowCustomValues: false,
             description: t('exchangeRates.form.field.fromCurrencyHelp'),
           },
@@ -119,7 +117,7 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
             label: t('exchangeRates.form.field.toCurrency'),
             placeholder: t('exchangeRates.form.field.toCurrencyPlaceholder'),
             required: true,
-            suggestions: currencyOptions.map((o) => o.value),
+            loadOptions: loadCurrencyOptions,
             allowCustomValues: false,
             description: t('exchangeRates.form.field.toCurrencyHelp'),
           },
@@ -174,35 +172,8 @@ export default function EditExchangeRatePage({ params }: { params?: { id?: strin
         ],
       },
     ],
-    [t, currencyOptions]
+    [t, loadCurrencyOptions]
   )
-
-  const handleDelete = React.useCallback(async () => {
-    if (!exchangeRate) return
-    
-    if (!confirm(t('exchangeRates.list.confirmDelete', { 
-      pair: `${exchangeRate.fromCurrencyCode}/${exchangeRate.toCurrencyCode}` 
-    }))) {
-      return
-    }
-
-    try {
-      await apiCall('/api/currencies/exchange-rates', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          id: exchangeRate.id, 
-          organizationId: exchangeRate.organizationId, 
-          tenantId: exchangeRate.tenantId 
-        }),
-      })
-
-      flash(t('exchangeRates.flash.deleted'), 'success')
-      router.push('/backend/exchange-rates')
-    } catch (error) {
-      flash(t('exchangeRates.flash.deleteError'), 'error')
-    }
-  }, [exchangeRate, t, router])
 
   if (loading) {
     return (
