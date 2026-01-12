@@ -128,9 +128,6 @@ export abstract class FmsProduct {
   })
   serviceProvider!: Contractor
 
-  @Property({ type: 'text', nullable: true })
-  description?: string | null
-
   @Property({ name: 'internal_notes', type: 'text', nullable: true })
   internalNotes?: string | null
 
@@ -173,6 +170,9 @@ export class FreightProduct extends FmsProduct {
 
   @Property({ name: 'transit_time', type: 'int', nullable: true })
   transitTime?: number | null
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
 }
 
 /**
@@ -183,6 +183,9 @@ export class FreightProduct extends FmsProduct {
 export class THCProduct extends FmsProduct {
   @ManyToOne(() => FmsLocation)
   location!: FmsLocation
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
 }
 
 /**
@@ -191,7 +194,8 @@ export class THCProduct extends FmsProduct {
  */
 @Entity({ discriminatorValue: 'GCUS' })
 export class CustomsProduct extends FmsProduct {
-  // No additional fields beyond base
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
 }
 
 /**
@@ -201,7 +205,8 @@ export class CustomsProduct extends FmsProduct {
 @Entity({ discriminatorValue: 'GBAF' })
 export class BAFProduct extends FmsProduct {
   // No additional fields beyond base
-}
+  @Property({ type: 'text', nullable: true })
+  description?: string | null}
 
 /**
  * GBAF_PIECE - Bunker Adjustment Factor (Piece)
@@ -210,6 +215,8 @@ export class BAFProduct extends FmsProduct {
 @Entity({ discriminatorValue: 'GBAF_PIECE' })
 export class BAFPieceProduct extends FmsProduct {
   // No additional fields beyond base
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
 }
 
 /**
@@ -219,6 +226,8 @@ export class BAFPieceProduct extends FmsProduct {
 @Entity({ discriminatorValue: 'GBOL' })
 export class BOLProduct extends FmsProduct {
   // No additional fields beyond base
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
 }
 
 /**
@@ -228,6 +237,8 @@ export class BOLProduct extends FmsProduct {
 @Entity({ discriminatorValue: 'CUSTOM' })
 export class CustomProduct extends FmsProduct {
   // No additional fields beyond base
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
 }
 
 /**
@@ -268,9 +279,6 @@ export abstract class FmsProductVariant {
 
   @ManyToOne(() => Contractor, { deleteRule: 'restrict' })
   provider?: Contractor | null
-
-  @Property({ type: 'text', nullable: true })
-  name?: string | null
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
@@ -314,6 +322,9 @@ export class ContainerVariant extends FmsProductVariant {
 
   @Property({ name: 'weight_unit', type: 'text', nullable: true })
   weightUnit?: string | null
+
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
 }
 
 /**
@@ -323,6 +334,8 @@ export class ContainerVariant extends FmsProductVariant {
 @Entity({ discriminatorValue: 'simple' })
 export class SimpleVariant extends FmsProductVariant {
   // No additional fields beyond base
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
 }
 
 /**
