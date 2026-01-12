@@ -49,7 +49,7 @@ import {
 } from '@open-mercato/core/modules/widgets/lib/injection'
 
 // Registration functions from packages/cli
-import { registerCliModules } from '@open-mercato/cli/mercato'
+import { registerCliModules } from '@open-mercato/cli/registry'
 
 let _bootstrapped = false
 

@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -50,6 +50,8 @@
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
     "newrelic": "^13.7.0",
