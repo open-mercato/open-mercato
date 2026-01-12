@@ -1,9 +1,12 @@
 import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Knex } from 'knex'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
+import { updateReindexProgress } from '../lib/reindex-lock'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -32,13 +35,16 @@ export async function handleFulltextIndexJob(
     return
   }
 
-  // Resolve EntityManager for logging
+  // Resolve EntityManager for logging and knex for heartbeat updates
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let em: any | null = null
+  let knex: Knex | null = null
   try {
-    em = ctx.resolve('em')
+    em = ctx.resolve('em') as EntityManager
+    knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
   } catch {
     em = null
+    knex = null
   }
 
   // Resolve fulltext strategy
@@ -76,6 +82,12 @@ export async function handleFulltextIndexJob(
       }
 
       await fulltextStrategy.bulkIndex(records)
+
+      // Update heartbeat to signal worker is still processing
+      if (knex) {
+        const orgId = 'organizationId' in job.payload ? job.payload.organizationId : null
+        await updateReindexProgress(knex, tenantId, 'fulltext', records.length, orgId as string | null)
+      }
 
       searchDebug('fulltext-index.worker', 'Batch indexed to fulltext', {
         jobId: jobCtx.jobId,

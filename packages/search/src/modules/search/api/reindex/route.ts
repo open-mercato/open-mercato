@@ -3,14 +3,18 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchStrategy } from '@open-mercato/shared/modules/search'
-import type { SearchIndexer, ReindexProgress } from '@open-mercato/search/indexer'
+import type { SearchIndexer } from '@open-mercato/search/indexer'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Queue } from '@open-mercato/queue'
+import type { Knex } from 'knex'
 import { searchDebug, searchError } from '../../../../lib/debug'
-import { acquireReindexLock, clearReindexLock, getReindexLockStatus } from '../../lib/reindex-lock'
+import {
+  acquireReindexLock,
+  clearReindexLock,
+  getReindexLockStatus,
+} from '../../lib/reindex-lock'
 
 /** Strategy with optional stats support */
 type StrategyWithStats = SearchStrategy & {
@@ -60,6 +64,9 @@ export async function POST(req: Request) {
     return await unauthorized()
   }
 
+  // Capture tenantId as non-null for TypeScript (we checked above)
+  const tenantId = auth.tenantId
+
   let payload: { action?: ReindexAction; entityId?: string; useQueue?: boolean } = {}
   try {
     payload = await req.json()
@@ -71,20 +78,15 @@ export async function POST(req: Request) {
     payload.action === 'clear' ? 'clear' :
     payload.action === 'recreate' ? 'recreate' : 'reindex'
   const entityId = typeof payload.entityId === 'string' ? payload.entityId : undefined
-  // Use queue when client requests it (requires queue workers to be running)
-  const useQueue = payload.useQueue === true
+  // Use queue by default (requires queue workers to be running), can be disabled with useQueue: false
+  const useQueue = payload.useQueue !== false
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-
-  // Try to resolve the fulltext queue for smarter lock detection
-  let fulltextQueue: Queue | undefined
-  try {
-    fulltextQueue = container.resolve<Queue>('fulltextIndexQueue')
-  } catch { /* Queue not available */ }
+  const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
   // Check if another fulltext reindex operation is already in progress
-  const existingLock = await getReindexLockStatus(container, auth.tenantId, { queue: fulltextQueue, type: 'fulltext' })
+  const existingLock = await getReindexLockStatus(knex, tenantId, { type: 'fulltext' })
   if (existingLock) {
     const startedAt = new Date(existingLock.startedAt)
     return NextResponse.json(
@@ -95,6 +97,8 @@ export async function POST(req: Request) {
           action: existingLock.action,
           startedAt: existingLock.startedAt,
           elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+          processedCount: existingLock.processedCount,
+          totalCount: existingLock.totalCount,
         },
       },
       { status: 409 }
@@ -102,10 +106,10 @@ export async function POST(req: Request) {
   }
 
   // Acquire lock before starting the operation
-  const lockAcquired = await acquireReindexLock(container, {
+  const { acquired: lockAcquired } = await acquireReindexLock(knex, {
     type: 'fulltext',
     action,
-    tenantId: auth.tenantId,
+    tenantId: tenantId,
     organizationId: auth.orgId ?? null,
   })
 
@@ -158,7 +162,7 @@ export async function POST(req: Request) {
       // Debug: List enabled entities
       const enabledEntities = searchIndexer.listEnabledEntities()
       searchDebug('search.reindex', 'Starting reindex', {
-        tenantId: auth.tenantId,
+        tenantId: tenantId,
         orgId,
         enabledEntities,
         entityId: entityId ?? 'all',
@@ -175,7 +179,7 @@ export async function POST(req: Request) {
             ? `Starting Meilisearch reindex for ${entityId}`
             : `Starting Meilisearch reindex for all entities (${enabledEntities.join(', ')})`,
           entityType: entityId ?? null,
-          tenantId: auth.tenantId,
+          tenantId: tenantId,
           organizationId: orgId,
           details: { enabledEntities, useQueue },
         },
@@ -185,17 +189,18 @@ export async function POST(req: Request) {
         // Reindex specific entity
         result = await searchIndexer.reindexEntityToFulltext({
           entityId: entityId as EntityId,
-          tenantId: auth.tenantId,
+          tenantId: tenantId,
           organizationId: orgId,
           recreateIndex: true,
           useQueue,
-          onProgress: (progress) => {
+          onProgress: async (progress) => {
             searchDebug('search.reindex', 'Progress', progress)
+            // Note: Heartbeat is updated by workers during job processing, not during enqueueing
           },
         })
         searchDebug('search.reindex', 'Reindexed entity to Meilisearch', {
           entityId,
-          tenantId: auth.tenantId,
+          tenantId: tenantId,
           recordsIndexed: result.recordsIndexed,
           jobsEnqueued: result.jobsEnqueued,
           errors: result.errors,
@@ -211,7 +216,7 @@ export async function POST(req: Request) {
               ? `Enqueued ${result.jobsEnqueued ?? 0} jobs for Meilisearch reindex of ${entityId}`
               : `Reindexed ${result.recordsIndexed} records to Meilisearch for ${entityId}`,
             entityType: entityId,
-            tenantId: auth.tenantId,
+            tenantId: tenantId,
             organizationId: orgId,
             details: {
               recordsIndexed: result.recordsIndexed,
@@ -231,7 +236,7 @@ export async function POST(req: Request) {
               handler: 'api:search.reindex',
               error: new Error(err.error),
               entityType: err.entityId,
-              tenantId: auth.tenantId,
+              tenantId: tenantId,
               organizationId: orgId,
               payload: { action, useQueue },
             },
@@ -240,16 +245,17 @@ export async function POST(req: Request) {
       } else {
         // Reindex all entities
         result = await searchIndexer.reindexAllToFulltext({
-          tenantId: auth.tenantId,
+          tenantId: tenantId,
           organizationId: orgId,
           recreateIndex: true,
           useQueue,
-          onProgress: (progress) => {
+          onProgress: async (progress) => {
             searchDebug('search.reindex', 'Progress', progress)
+            // Note: Heartbeat is updated by workers during job processing, not during enqueueing
           },
         })
         searchDebug('search.reindex', 'Reindexed all entities to Meilisearch', {
-          tenantId: auth.tenantId,
+          tenantId: tenantId,
           entitiesProcessed: result.entitiesProcessed,
           recordsIndexed: result.recordsIndexed,
           jobsEnqueued: result.jobsEnqueued,
@@ -265,7 +271,7 @@ export async function POST(req: Request) {
             message: useQueue
               ? `Enqueued ${result.jobsEnqueued ?? 0} jobs for Meilisearch reindex of all entities`
               : `Reindexed ${result.recordsIndexed} records to Meilisearch for ${result.entitiesProcessed} entities`,
-            tenantId: auth.tenantId,
+            tenantId: tenantId,
             organizationId: orgId,
             details: {
               entitiesProcessed: result.entitiesProcessed,
@@ -286,7 +292,7 @@ export async function POST(req: Request) {
               handler: 'api:search.reindex',
               error: new Error(err.error),
               entityType: err.entityId,
-              tenantId: auth.tenantId,
+              tenantId: tenantId,
               organizationId: orgId,
               payload: { action, useQueue },
             },
@@ -295,7 +301,7 @@ export async function POST(req: Request) {
       }
 
       // Get updated stats from all strategies
-      const stats = await collectStrategyStats(searchStrategies, auth.tenantId)
+      const stats = await collectStrategyStats(searchStrategies, tenantId)
 
       return toJson({
         ok: result.success,
@@ -312,8 +318,8 @@ export async function POST(req: Request) {
       })
     } else if (entityId) {
       // Purge specific entity
-      await indexableStrategy.purge?.(entityId as EntityId, auth.tenantId)
-      searchDebug('search.reindex', 'Purged entity', { strategyId: indexableStrategy.id, entityId, tenantId: auth.tenantId })
+      await indexableStrategy.purge?.(entityId as EntityId, tenantId)
+      searchDebug('search.reindex', 'Purged entity', { strategyId: indexableStrategy.id, entityId, tenantId: tenantId })
 
       await recordIndexerLog(
         { em },
@@ -322,15 +328,15 @@ export async function POST(req: Request) {
           handler: 'api:search.reindex',
           message: `Purged entity ${entityId} from Meilisearch`,
           entityType: entityId,
-          tenantId: auth.tenantId,
+          tenantId: tenantId,
           organizationId: auth.orgId ?? null,
         },
       )
     } else if (action === 'clear') {
       // Clear all documents but keep index
       if (indexableStrategy.clearIndex) {
-        await indexableStrategy.clearIndex(auth.tenantId)
-        searchDebug('search.reindex', 'Cleared index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+        await indexableStrategy.clearIndex(tenantId)
+        searchDebug('search.reindex', 'Cleared index', { strategyId: indexableStrategy.id, tenantId: tenantId })
 
         await recordIndexerLog(
           { em },
@@ -338,7 +344,7 @@ export async function POST(req: Request) {
             source: 'fulltext',
             handler: 'api:search.reindex',
             message: 'Cleared all documents from Meilisearch index',
-            tenantId: auth.tenantId,
+            tenantId: tenantId,
             organizationId: auth.orgId ?? null,
           },
         )
@@ -346,8 +352,8 @@ export async function POST(req: Request) {
     } else {
       // Recreate the entire index
       if (indexableStrategy.recreateIndex) {
-        await indexableStrategy.recreateIndex(auth.tenantId)
-        searchDebug('search.reindex', 'Recreated index', { strategyId: indexableStrategy.id, tenantId: auth.tenantId })
+        await indexableStrategy.recreateIndex(tenantId)
+        searchDebug('search.reindex', 'Recreated index', { strategyId: indexableStrategy.id, tenantId: tenantId })
 
         await recordIndexerLog(
           { em },
@@ -355,7 +361,7 @@ export async function POST(req: Request) {
             source: 'fulltext',
             handler: 'api:search.reindex',
             message: 'Recreated Meilisearch index',
-            tenantId: auth.tenantId,
+            tenantId: tenantId,
             organizationId: auth.orgId ?? null,
           },
         )
@@ -363,7 +369,7 @@ export async function POST(req: Request) {
     }
 
     // Get updated stats from all strategies
-    const stats = await collectStrategyStats(searchStrategies, auth.tenantId)
+    const stats = await collectStrategyStats(searchStrategies, tenantId)
 
     return toJson({
       ok: true,
@@ -376,7 +382,7 @@ export async function POST(req: Request) {
     searchError('search.reindex', 'Failed', {
       error: error instanceof Error ? error.message : error,
       stack: error instanceof Error ? error.stack : undefined,
-      tenantId: auth.tenantId,
+      tenantId: tenantId,
     })
 
     // Record error to indexer error logs
@@ -387,7 +393,7 @@ export async function POST(req: Request) {
         handler: 'api:search.reindex',
         error,
         entityType: entityId ?? null,
-        tenantId: auth.tenantId,
+        tenantId: tenantId,
         organizationId: auth.orgId ?? null,
         payload: { action, entityId, useQueue },
       },
@@ -400,10 +406,9 @@ export async function POST(req: Request) {
     )
   } finally {
     // Only clear lock immediately if NOT using queue mode
-    // When using queue mode, the lock will auto-clear via smart detection
-    // when the queue becomes empty (handled by getReindexLockStatus)
+    // When using queue mode, workers update heartbeat and stale detection handles cleanup
     if (!useQueue) {
-      await clearReindexLock(container, auth.tenantId, 'fulltext')
+      await clearReindexLock(knex, tenantId, 'fulltext', auth.orgId ?? null)
     }
 
     const disposable = container as unknown as { dispose?: () => Promise<void> }

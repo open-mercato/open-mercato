@@ -3,13 +3,14 @@ import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { SearchIndexer } from '../../../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../../../vector'
-import type { Queue } from '@open-mercato/queue'
+import type { Knex } from 'knex'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveEmbeddingConfig } from '../../../lib/embedding-config'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { searchDebug, searchDebugWarn, searchError } from '../../../../../lib/debug'
-import { acquireReindexLock, getReindexLockStatus } from '../../../lib/reindex-lock'
+import { acquireReindexLock, clearReindexLock, getReindexLockStatus } from '../../../lib/reindex-lock'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['search.embeddings.manage'] },
@@ -33,15 +34,11 @@ export async function POST(req: Request) {
   const purgeFirst = payload?.purgeFirst === true
 
   const container = await createRequestContainer()
-
-  // Try to resolve the vector queue for smarter lock detection
-  let vectorQueue: Queue | undefined
-  try {
-    vectorQueue = container.resolve<Queue>('vectorIndexQueue')
-  } catch { /* Queue not available */ }
+  const em = container.resolve('em') as EntityManager
+  const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
   // Check if another vector reindex operation is already in progress
-  const existingLock = await getReindexLockStatus(container, auth.tenantId, { queue: vectorQueue, type: 'vector' })
+  const existingLock = await getReindexLockStatus(knex, auth.tenantId, { type: 'vector' })
   if (existingLock) {
     const startedAt = new Date(existingLock.startedAt)
     return NextResponse.json(
@@ -52,6 +49,8 @@ export async function POST(req: Request) {
           action: existingLock.action,
           startedAt: existingLock.startedAt,
           elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+          processedCount: existingLock.processedCount,
+          totalCount: existingLock.totalCount,
         },
       },
       { status: 409 }
@@ -59,7 +58,7 @@ export async function POST(req: Request) {
   }
 
   // Acquire lock before starting the operation
-  const lockAcquired = await acquireReindexLock(container, {
+  const { acquired: lockAcquired } = await acquireReindexLock(knex, {
     type: 'vector',
     action: entityId ? `reindex:${entityId}` : 'reindex:all',
     tenantId: auth.tenantId,
@@ -187,9 +186,8 @@ export async function POST(req: Request) {
       { status: status >= 400 ? status : 500 }
     )
   } finally {
-    // Do NOT clear lock here - let queue-aware stale detection handle it
-    // When the vector queue becomes empty AND lock is older than 2 minutes,
-    // getReindexLockStatus() will automatically clear the stale lock
+    // Do NOT clear lock here - vector reindex always uses queue mode
+    // Workers update heartbeat and stale detection handles cleanup when done
 
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') {

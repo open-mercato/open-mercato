@@ -12,6 +12,7 @@ export type FulltextIndexJobType = 'batch-index' | 'delete' | 'purge'
 export type FulltextBatchIndexPayload = {
   jobType: 'batch-index'
   tenantId: string
+  organizationId?: string | null
   records: IndexableRecord[]
 }
 

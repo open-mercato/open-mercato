@@ -668,6 +668,7 @@ export class SearchIndexer {
             await this.fulltextQueue.enqueue({
               jobType: 'batch-index',
               tenantId: params.tenantId,
+              organizationId: params.organizationId,
               records: indexableRecords,
             })
             jobsEnqueued += 1
