@@ -315,7 +315,7 @@ async function executeStepByType(
       return handleEndStep(stepDef, context)
 
     case 'AUTOMATED':
-      return await handleAutomatedStep(em, instance, stepInstance, stepDef, context)
+      return await handleAutomatedStep(em, instance, stepInstance, stepDef, context, container)
 
     case 'USER_TASK':
       return await handleUserTaskStep(em, instance, stepInstance, stepDef, context)
@@ -388,26 +388,106 @@ function handleEndStep(
 /**
  * Handle AUTOMATED step - execute activities
  *
- * For MVP (Phase 3), we immediately complete AUTOMATED steps.
- * Full activity execution will be implemented in Phase 4.
+ * Executes activities defined in step configuration.
+ * Supports both sync and async activities.
  */
 async function handleAutomatedStep(
   em: EntityManager,
   instance: WorkflowInstance,
   stepInstance: StepInstance,
   stepDef: any,
-  context: StepExecutionContext
+  context: StepExecutionContext,
+  container?: any
 ): Promise<StepExecutionResult> {
-  // For MVP: Just complete the step
-  // In Phase 4, we'll execute activities defined in the step config
+  // Extract activities from step definition
+  const activities = stepDef.activities || []
 
-  return {
-    status: 'COMPLETED',
-    outputData: {
-      stepType: 'AUTOMATED',
-      timestamp: new Date().toISOString(),
-      // In Phase 4: activityResults will be populated here
-    },
+  if (activities.length === 0) {
+    // No activities defined - immediate completion (legacy behavior)
+    return {
+      status: 'COMPLETED',
+      outputData: {
+        stepType: 'AUTOMATED',
+        timestamp: new Date().toISOString(),
+      },
+    }
+  }
+
+  // Import activity executor
+  const { executeActivities } = await import('./activity-executor')
+
+  try {
+    // Execute activities with proper context
+    const results = await executeActivities(em, container, activities, {
+      workflowInstance: instance,
+      workflowContext: context.workflowContext,
+      stepContext: { stepId: stepDef.stepId, stepName: stepDef.stepName },
+      stepInstanceId: stepInstance.id,
+      userId: context.userId,
+    })
+
+    // Check if there are pending async activities
+    const pendingActivities = results.filter(r => r.async && !r.success)
+    if (pendingActivities.length > 0) {
+      // Workflow should pause and wait for async activities
+      instance.status = 'WAITING_FOR_ACTIVITIES'
+      instance.pausedAt = new Date()
+      instance.updatedAt = new Date()
+      await em.flush()
+
+      return {
+        status: 'WAITING',
+        waitReason: 'SIGNAL', // Reuse SIGNAL wait reason (will be resumed by activity completion)
+        outputData: {
+          pendingActivities: pendingActivities.map(r => ({
+            activityId: r.activityId,
+            activityName: r.activityName,
+            jobId: r.jobId,
+          })),
+        },
+      }
+    }
+
+    // Check for failures in sync activities
+    const failures = results.filter(r => !r.success && !r.async)
+    if (failures.length > 0) {
+      const errorMessages = failures.map(f => `${f.activityName || f.activityId}: ${f.error}`).join('; ')
+      return {
+        status: 'FAILED',
+        error: `${failures.length} activity(ies) failed: ${errorMessages}`,
+        outputData: {
+          failures: failures.map(f => ({
+            activityId: f.activityId,
+            activityName: f.activityName,
+            error: f.error,
+            retryCount: f.retryCount,
+          })),
+        },
+      }
+    }
+
+    // All activities completed successfully
+    const activityOutputs = results.reduce((acc, r) => {
+      if (r.output) {
+        acc[r.activityId] = r.output
+      }
+      return acc
+    }, {} as Record<string, any>)
+
+    return {
+      status: 'COMPLETED',
+      outputData: {
+        stepType: 'AUTOMATED',
+        timestamp: new Date().toISOString(),
+        activityResults: activityOutputs,
+        activityCount: results.length,
+      },
+    }
+  } catch (error: any) {
+    return {
+      status: 'FAILED',
+      error: `Activity execution failed: ${error.message}`,
+    }
   }
 }
 
@@ -445,19 +525,7 @@ async function handleUserTaskStep(
     updatedAt: now,
   })
 
-  console.log('[UserTask] Creating task:', {
-    id: userTask.id,
-    taskName: userTask.taskName,
-    workflowInstanceId: instance.id,
-    assignedTo: userTask.assignedTo,
-    assignedToRoles: userTask.assignedToRoles,
-    tenantId: userTask.tenantId,
-    organizationId: userTask.organizationId,
-  })
-
   await em.persistAndFlush(userTask)
-
-  console.log('[UserTask] Task persisted to database:', userTask.id)
 
   // Log USER_TASK_CREATED event
   await logStepEvent(em, {

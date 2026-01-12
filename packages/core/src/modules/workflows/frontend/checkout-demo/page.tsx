@@ -125,13 +125,9 @@ export default function CheckoutDemoPage() {
     queryFn: async () => {
       if (!result?.instanceId) return []
 
-      console.log('[UserTasks] Fetching tasks for instance:', result.instanceId)
-
       const response = await fetch(
         `/api/workflows/tasks?workflowInstanceId=${result.instanceId}&status=PENDING`
       )
-
-      console.log('[UserTasks] Response status:', response.status)
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
@@ -140,7 +136,6 @@ export default function CheckoutDemoPage() {
       }
 
       const data = await response.json()
-      console.log('[UserTasks] Fetched tasks:', data.data?.length || 0, 'tasks', data.data)
       return data.data || []
     },
     enabled: !!result?.instanceId && result?.status === 'PAUSED' && enableTaskPolling,
@@ -296,11 +291,9 @@ export default function CheckoutDemoPage() {
   // This reduces race condition where API returns before background execution completes
   useEffect(() => {
     if (result?.status === 'PAUSED') {
-      console.log('[UserTasks] Workflow paused, adding 500ms delay before polling...')
       setEnableTaskPolling(false)
 
       const timer = setTimeout(() => {
-        console.log('[UserTasks] Delay complete, enabling task polling')
         setEnableTaskPolling(true)
       }, 500)
 
@@ -363,14 +356,6 @@ export default function CheckoutDemoPage() {
           last4: '4242',
         },
       }
-
-      // Debug: Log what we're sending
-      console.log('[Checkout Demo] Starting workflow with context:', {
-        cartItemCount: initialContext.cart.items.length,
-        orderLinesCount: initialContext.cart.orderLines.length,
-        cartItems: initialContext.cart.items,
-        orderLines: initialContext.cart.orderLines,
-      })
 
       // Start the checkout workflow
       const response = await fetch('/api/workflows/instances', {
@@ -599,9 +584,7 @@ export default function CheckoutDemoPage() {
       let data: any
       try {
         data = JSON.parse(responseText)
-        console.log('[Signal] Signal sent successfully:', data)
       } catch (parseError) {
-        console.warn('[Signal] Success response is not JSON, but request succeeded')
         data = { success: true }
       }
 

@@ -72,6 +72,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [signalName, setSignalName] = useState('')
   const [signalTimeout, setSignalTimeout] = useState('')
 
+  // Step activities state (for AUTOMATED steps)
+  const [stepActivities, setStepActivities] = useState<any[]>([])
+  const [expandedStepActivities, setExpandedStepActivities] = useState<Set<number>>(new Set())
+
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
     if (!schema || !schema.properties) return []
@@ -193,6 +197,13 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       } else {
         setSignalName('')
         setSignalTimeout('')
+      }
+
+      // Load step activities (for AUTOMATED steps)
+      if (node.type === 'automated' && nodeData?.activities) {
+        setStepActivities(nodeData.activities)
+      } else if (node.type === 'automated') {
+        setStepActivities([])
       }
 
       // Load form fields from userTaskConfig.formSchema
@@ -371,6 +382,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
       if (Object.keys(config).length > 0) {
         updates.signalConfig = config
       }
+    }
+
+    // Step activities (for AUTOMATED steps)
+    if (node.type === 'automated' && stepActivities.length > 0) {
+      updates.activities = stepActivities
     }
 
     // Parse advanced config (JSON)
@@ -762,51 +778,302 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                 </>
               )}
 
-              {/* Automated Task Configuration */}
+              {/* Automated Step Activities */}
               {node.type === 'automated' && (
                 <>
                   <div className="border-t border-gray-200 pt-4 mt-4">
-                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                      Automated Task Configuration
-                    </h3>
-                  </div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">
+                          Step Activities ({stepActivities.length})
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Activities to execute when this step runs
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => {
+                          setStepActivities([
+                            ...stepActivities,
+                            {
+                              activityId: `activity_${stepActivities.length + 1}`,
+                              activityName: `Activity ${stepActivities.length + 1}`,
+                              activityType: 'CALL_API',
+                              config: {},
+                              async: false,
+                            },
+                          ])
+                        }}
+                      >
+                        <Plus className="size-3 mr-1" />
+                        Add Activity
+                      </Button>
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Activity Type
-                    </label>
-                    <select
-                      value={activityType}
-                      onChange={(e) => setActivityType(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">-- Select activity type --</option>
-                      <option value="CALL_API">Call API</option>
-                      <option value="SEND_EMAIL">Send Email</option>
-                      <option value="SEND_NOTIFICATION">Send Notification</option>
-                      <option value="UPDATE_ENTITY">Update Entity</option>
-                      <option value="EXECUTE_BUSINESS_RULE">Execute Business Rule</option>
-                      <option value="WAIT">Wait</option>
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Type of automated activity to execute (schema-compliant values only)
-                    </p>
-                  </div>
+                    {stepActivities.length === 0 && (
+                      <div className="p-4 text-center text-sm text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
+                        No activities defined. Click "Add Activity" to create one.
+                      </div>
+                    )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Activity ID
-                    </label>
-                    <input
-                      type="text"
-                      value={activityId}
-                      onChange={(e) => setActivityId(e.target.value)}
-                      placeholder="send_welcome_email"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Unique identifier for this activity
-                    </p>
+                    <div className="space-y-2">
+                      {stepActivities.map((activity, index) => {
+                        const isExpanded = expandedStepActivities.has(index)
+                        return (
+                          <div key={index} className="border border-gray-200 rounded-lg bg-gray-50">
+                            {/* Activity Header (Collapsed) */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newExpanded = new Set(expandedStepActivities)
+                                if (isExpanded) {
+                                  newExpanded.delete(index)
+                                } else {
+                                  newExpanded.add(index)
+                                }
+                                setExpandedStepActivities(newExpanded)
+                              }}
+                              className="w-full px-4 py-3 text-left flex items-center justify-between hover:bg-gray-100 transition-colors rounded-t-lg"
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold text-gray-900">
+                                    {activity.activityName || activity.activityId || `Activity ${index + 1}`}
+                                  </span>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {activity.activityType}
+                                  </Badge>
+                                  {activity.async && (
+                                    <Badge variant="outline" className="text-xs">
+                                      Async
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-600 mt-1">
+                                  ID: <code className="bg-white px-1 rounded">{activity.activityId}</code>
+                                </p>
+                              </div>
+                              <ChevronDown
+                                className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                              />
+                            </button>
+
+                            {/* Activity Body (Expanded) */}
+                            {isExpanded && (
+                              <div className="px-4 pb-4 space-y-3 border-t border-gray-200 bg-white">
+                                {/* Activity ID */}
+                                <div className="pt-3">
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Activity ID *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={activity.activityId}
+                                    onChange={(e) => {
+                                      const updated = [...stepActivities]
+                                      updated[index].activityId = e.target.value
+                                      setStepActivities(updated)
+                                    }}
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    placeholder="send_email"
+                                  />
+                                </div>
+
+                                {/* Activity Name */}
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Activity Name *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={activity.activityName || ''}
+                                    onChange={(e) => {
+                                      const updated = [...stepActivities]
+                                      updated[index].activityName = e.target.value
+                                      setStepActivities(updated)
+                                    }}
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    placeholder="Send Welcome Email"
+                                  />
+                                </div>
+
+                                {/* Activity Type */}
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Activity Type *
+                                  </label>
+                                  <select
+                                    value={activity.activityType}
+                                    onChange={(e) => {
+                                      const updated = [...stepActivities]
+                                      updated[index].activityType = e.target.value
+                                      setStepActivities(updated)
+                                    }}
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                  >
+                                    <option value="SEND_EMAIL">Send Email</option>
+                                    <option value="CALL_API">Call API</option>
+                                    <option value="UPDATE_ENTITY">Update Entity</option>
+                                    <option value="EMIT_EVENT">Emit Event</option>
+                                    <option value="CALL_WEBHOOK">Call Webhook</option>
+                                    <option value="EXECUTE_FUNCTION">Execute Function</option>
+                                  </select>
+                                </div>
+
+                                {/* Timeout */}
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Timeout
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={activity.timeoutMs || ''}
+                                    onChange={(e) => {
+                                      const updated = [...stepActivities]
+                                      updated[index].timeoutMs = e.target.value ? parseInt(e.target.value) : undefined
+                                      setStepActivities(updated)
+                                    }}
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                    placeholder="30000"
+                                  />
+                                  <p className="text-xs text-gray-500 mt-1">Timeout in milliseconds (e.g., 30000 = 30 seconds)</p>
+                                </div>
+
+                                {/* Retry Policy Grid */}
+                                <div className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                  <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                    Retry Policy
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Max Attempts</label>
+                                      <input
+                                        type="number"
+                                        value={activity.retryPolicy?.maxAttempts || 1}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          if (!updated[index].retryPolicy) updated[index].retryPolicy = {}
+                                          updated[index].retryPolicy.maxAttempts = parseInt(e.target.value) || 1
+                                          setStepActivities(updated)
+                                        }}
+                                        min="1"
+                                        max="10"
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Initial Interval (ms)</label>
+                                      <input
+                                        type="number"
+                                        value={activity.retryPolicy?.initialIntervalMs || 1000}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          if (!updated[index].retryPolicy) updated[index].retryPolicy = {}
+                                          updated[index].retryPolicy.initialIntervalMs = parseInt(e.target.value) || 1000
+                                          setStepActivities(updated)
+                                        }}
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Backoff Coefficient</label>
+                                      <input
+                                        type="number"
+                                        step="0.1"
+                                        value={activity.retryPolicy?.backoffCoefficient || 2}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          if (!updated[index].retryPolicy) updated[index].retryPolicy = {}
+                                          updated[index].retryPolicy.backoffCoefficient = parseFloat(e.target.value) || 2
+                                          setStepActivities(updated)
+                                        }}
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">Max Interval (ms)</label>
+                                      <input
+                                        type="number"
+                                        value={activity.retryPolicy?.maxIntervalMs || 60000}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          if (!updated[index].retryPolicy) updated[index].retryPolicy = {}
+                                          updated[index].retryPolicy.maxIntervalMs = parseInt(e.target.value) || 60000
+                                          setStepActivities(updated)
+                                        }}
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Activity Flags */}
+                                <div className="flex gap-4">
+                                  <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={activity.async || false}
+                                      onChange={(e) => {
+                                        const updated = [...stepActivities]
+                                        updated[index].async = e.target.checked
+                                        setStepActivities(updated)
+                                      }}
+                                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                    />
+                                    <span className="text-xs text-gray-700">Execute Asynchronously</span>
+                                  </label>
+                                </div>
+
+                                {/* Activity Config JSON */}
+                                <div>
+                                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                                    Configuration (JSON)
+                                  </label>
+                                  <textarea
+                                    value={JSON.stringify(activity.config || {}, null, 2)}
+                                    onChange={(e) => {
+                                      try {
+                                        const updated = [...stepActivities]
+                                        updated[index].config = JSON.parse(e.target.value)
+                                        setStepActivities(updated)
+                                      } catch (err) {
+                                        // Invalid JSON - ignore
+                                      }
+                                    }}
+                                    rows={6}
+                                    className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs font-mono focus:ring-1 focus:ring-blue-500"
+                                    placeholder='{ "endpoint": "/api/...", "method": "POST" }'
+                                  />
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Activity-specific configuration. Supports variable interpolation: {`{{context.field}}`}, {`{{workflow.instanceId}}`}
+                                  </p>
+                                </div>
+
+                                {/* Delete Button */}
+                                <div className="pt-3 border-t border-gray-100">
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => {
+                                      setStepActivities(stepActivities.filter((_, i) => i !== index))
+                                      const newExpanded = new Set(expandedStepActivities)
+                                      newExpanded.delete(index)
+                                      setExpandedStepActivities(newExpanded)
+                                    }}
+                                  >
+                                    <Trash2 className="size-3 mr-1" />
+                                    Delete Activity
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                 </>
               )}

@@ -85,8 +85,10 @@ export function graphToDefinition(
       step.signalConfig = node.data.signalConfig
     }
 
-    // Automated task configuration is now stored in transitions, not on steps
-    // (Step schema has no activities field - activities belong in transition.activities[])
+    // Step activities (for AUTOMATED steps)
+    if (node.type === 'automated' && node.data.activities) {
+      step.activities = node.data.activities
+    }
 
     // Store position for visual editor
     if (options.includePositions && node.position) {
@@ -269,20 +271,9 @@ export function definitionToGraph(
       nodeData.signalConfig = (step as any).signalConfig
     }
 
-    // Add automated task data from transition activities
-    // (Activities are stored in transitions, not on steps)
-    if (step.stepType === 'AUTOMATED') {
-      // Find the first outgoing transition that has activities
-      const outgoingTransition = definition.transitions.find(
-        t => t.fromStepId === step.stepId && t.activities && t.activities.length > 0
-      )
-      if (outgoingTransition && outgoingTransition.activities) {
-        const activity = outgoingTransition.activities[0]
-        nodeData.activityType = activity.activityType
-        nodeData.activityId = activity.activityId
-        nodeData.activityName = activity.activityName
-        nodeData.activityConfig = activity.config
-      }
+    // Add step activities data (for AUTOMATED steps)
+    if (step.stepType === 'AUTOMATED' && (step as any).activities) {
+      nodeData.activities = (step as any).activities
     }
 
     // Set badge based on type
