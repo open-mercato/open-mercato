@@ -155,7 +155,12 @@ export default function CurrencyFetchingConfig() {
       if (result) {
         const byProvider = result.byProvider as Record<string, { count: number; errors?: string[] }>
         const count = byProvider?.[provider]?.count || 0
-        flash(`${t('currencies.fetch.sync_success')}: ${count} rates fetched`, 'success')
+
+        if (count === 0) {
+          flash(t('currencies.fetch.sync_no_rates'), 'warning')
+        } else {
+          flash(`${t('currencies.fetch.sync_success')}: ${count} rates fetched`, 'success')
+        }
         await loadConfigs()
       }
     } catch (err: any) {
@@ -282,14 +287,14 @@ export default function CurrencyFetchingConfig() {
                   <Button
                     onClick={() => fetchNow(config.provider)}
                     disabled={fetching === config.provider}
-                    size="sm"
-                    className="ml-auto"
+                    size="default"
+                    className="ml-auto min-w-32"
                   >
                     {fetching === config.provider ? (
-                      <>
-                        <Spinner className="mr-2 h-3 w-3" />
+                      <div>
+                        <Spinner className="mr-1.5" size='sm' />
                         {t('currencies.fetch.fetching')}
-                      </>
+                      </div>
                     ) : (
                       t('currencies.fetch.fetch_now')
                     )}

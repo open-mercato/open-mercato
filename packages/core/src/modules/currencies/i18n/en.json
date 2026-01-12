@@ -100,6 +100,7 @@
       "fetch_now": "Fetch Now",
       "fetching": "Fetching...",
       "sync_success": "Rates fetched successfully",
+      "sync_no_rates": "No rate fetched. You've got no currencies defined, please create the pairs you want to fetch",
       "sync_error": "Failed to fetch rates",
       "provider_nbp": "NBP (National Bank of Poland)",
       "provider_nbp_description": "~13 currencies with buy/sell rates from Polish National Bank",

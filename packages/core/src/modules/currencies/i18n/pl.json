@@ -100,6 +100,7 @@
       "fetch_now": "Pobierz Teraz",
       "fetching": "Pobieranie...",
       "sync_success": "Kursy pobrane pomyślnie",
+      "sync_no_rates": "Nie pobrano żadnego kursu. Nie masz zdefiniowanych walut, proszę utworzyć pary które chcesz pobrać",
       "sync_error": "Nie udało się pobrać kursów",
       "provider_nbp": "NBP (Narodowy Bank Polski)",
       "provider_nbp_description": "~13 walut z kursami kupna/sprzedaży z Narodowego Banku Polskiego",
