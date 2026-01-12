@@ -144,7 +144,6 @@
     },
     "form": {
       "group": {
-        "details": "Detalles del Tipo de Cambio",
         "metadata": "Metadatos"
       },
       "field": {

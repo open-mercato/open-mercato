@@ -151,7 +151,6 @@
     },
     "form": {
       "group": {
-        "details": "Exchange Rate Details",
         "metadata": "Metadata"
       },
       "field": {

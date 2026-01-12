@@ -55,7 +55,6 @@ export default function CreateExchangeRatePage() {
       {
         id: 'rate-details',
         column: 1,
-        title: t('exchangeRates.form.group.details'),
         fields: [
           {
             id: 'fromCurrencyCode',
