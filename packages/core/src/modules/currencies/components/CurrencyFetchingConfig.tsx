@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 interface FetchConfig {
   id: string
@@ -32,7 +33,6 @@ interface Props {
     providerRaiffeisen: string
     loading: string
     testConnection: string
-    baseCurrency: string
   }
 }
 
@@ -41,17 +41,11 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
   const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState<string | null>(null)
   const [initializing, setInitializing] = useState(false)
-  const [baseCurrency, setBaseCurrency] = useState<string | null>(null)
 
   // Available providers that should be configured
-  const availableProviders = ['NBP', 'Raiffeisen Bank Polska']
+  const availableProviders = useMemo(() => ['NBP', 'Raiffeisen Bank Polska'], [])
 
-  useEffect(() => {
-    loadConfigs()
-    loadBaseCurrency()
-  }, [])
-
-  async function loadConfigs() {
+  const loadConfigs = useCallback(async () => {
     try {
       const { result } = await apiCall('/api/currencies/fetch-configs')
 
@@ -75,38 +69,9 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [availableProviders])
 
-  async function loadBaseCurrency() {
-    try {
-      const { result } = await apiCall<{ items: Array<{ code: string }> }>('/api/currencies/currencies?isBase=true')
-      if (result?.items && result.items.length > 0) {
-        setBaseCurrency(result.items[0].code)
-      }
-    } catch (err: any) {
-      console.error('Failed to load base currency:', err)
-    }
-  }
-
-  async function initializeMissingProviders(providers: string[]) {
-    setInitializing(true)
-    try {
-      for (const provider of providers) {
-        await createProviderConfig(provider)
-      }
-      // Reload configs after initialization
-      const { result } = await apiCall('/api/currencies/fetch-configs')
-      if (result?.configs) {
-        setConfigs(result.configs as FetchConfig[])
-      }
-    } catch (err: any) {
-      console.error('Failed to initialize providers:', err)
-    } finally {
-      setInitializing(false)
-    }
-  }
-
-  async function createProviderConfig(provider: string) {
+  const createProviderConfig = useCallback(async (provider: string) => {
     try {
       await apiCall('/api/currencies/fetch-configs', {
         method: 'POST',
@@ -123,9 +88,27 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
         throw err
       }
     }
-  }
+  }, [])
 
-  async function toggleEnabled(configId: string, currentValue: boolean) {
+  const initializeMissingProviders = useCallback(async (providers: string[]) => {
+    setInitializing(true)
+    try {
+      for (const provider of providers) {
+        await createProviderConfig(provider)
+      }
+      // Reload configs after initialization
+      const { result } = await apiCall('/api/currencies/fetch-configs')
+      if (result?.configs) {
+        setConfigs(result.configs as FetchConfig[])
+      }
+    } catch (err: any) {
+      console.error('Failed to initialize providers:', err)
+    } finally {
+      setInitializing(false)
+    }
+  }, [createProviderConfig])
+
+  const toggleEnabled = useCallback(async (configId: string, currentValue: boolean) => {
     try {
       const { result } = await apiCall('/api/currencies/fetch-configs', {
         method: 'PUT',
@@ -145,9 +128,9 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     } catch (err: any) {
       flash(err.message || 'Failed to update configuration', 'error')
     }
-  }
+  }, [])
 
-  async function updateSyncTime(configId: string, syncTime: string) {
+  const updateSyncTime = useCallback(async (configId: string, syncTime: string) => {
     try {
       const { result } = await apiCall('/api/currencies/fetch-configs', {
         method: 'PUT',
@@ -166,9 +149,9 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     } catch (err: any) {
       flash(err.message || 'Failed to update sync time', 'error')
     }
-  }
+  }, [])
 
-  async function fetchNow(provider: string) {
+  const fetchNow = useCallback(async (provider: string) => {
     setFetching(provider)
 
     try {
@@ -191,7 +174,11 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     } finally {
       setFetching(null)
     }
-  }
+  }, [t.syncSuccess, t.syncError, loadConfigs])
+
+  useEffect(() => {
+    loadConfigs()
+  }, [loadConfigs])
 
   function formatLastSync(date: string | null): string {
     if (!date) return 'Never'
@@ -232,130 +219,127 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
 
   if (loading || initializing) {
     return (
-      <Page>
-        <PageHeader title={t.title} />
-        <PageBody>
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-            <span className="ml-3">
-              {initializing ? 'Initializing providers...' : t.loading}
-            </span>
-          </div>
-        </PageBody>
-      </Page>
+      <section className="space-y-3 rounded-lg border bg-background p-4">
+        <header className="space-y-2">
+          <h2 className="text-xl font-semibold">{t.title}</h2>
+          <p className="text-sm text-muted-foreground">
+            Manage automatic currency exchange rate fetching from external providers
+          </p>
+        </header>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner className="h-4 w-4" />
+          {initializing ? 'Initializing providers...' : t.loading}
+        </div>
+      </section>
     )
   }
 
   return (
-    <Page>
-      <PageHeader title={t.title} />
-      <PageBody>
-        <div className="space-y-6">
-          {configs.map((config) => (
-            <div
-              key={config.id}
-              className="border rounded-lg p-6 bg-white shadow-sm"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h3 className="text-lg font-semibold">
-                    {getProviderName(config.provider)}
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {getProviderDescription(config.provider)}
-                  </p>
-                  {baseCurrency && (
-                    <div className="mt-2 inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-indigo-100 text-indigo-800">
-                      {t.baseCurrency}: {baseCurrency}
-                    </div>
-                  )}
-                </div>
+    <section className="space-y-6 rounded-lg border bg-background p-4">
+      <header className="space-y-2">
+        <h2 className="text-xl font-semibold">{t.title}</h2>
+        <p className="text-sm text-muted-foreground">
+          Manage automatic currency exchange rate fetching from external providers
+        </p>
+      </header>
 
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={config.isEnabled}
-                    onChange={() => toggleEnabled(config.id, config.isEnabled)}
-                    className="w-5 h-5"
-                  />
-                  <span className="font-medium">
-                    {config.isEnabled ? t.enabled : t.disabled}
-                  </span>
+      <div className="space-y-3">
+        {configs.map((config) => (
+          <div
+            key={config.id}
+            className="rounded-lg border bg-card p-4"
+          >
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="flex-1">
+                <h3 className="text-sm font-medium">
+                  {getProviderName(config.provider)}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {getProviderDescription(config.provider)}
+                </p>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs">
+                <input
+                  type="checkbox"
+                  checked={config.isEnabled}
+                  onChange={() => toggleEnabled(config.id, config.isEnabled)}
+                  className="h-4 w-4"
+                />
+                <span className="font-medium">
+                  {config.isEnabled ? t.enabled : t.disabled}
+                </span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">
+                  {t.syncTime}
                 </label>
+                <input
+                  type="time"
+                  value={config.syncTime || '09:00'}
+                  onChange={(e) => updateSyncTime(config.id, e.target.value)}
+                  className="w-full rounded border bg-background px-2 py-1.5 text-sm"
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t.syncTime}
-                  </label>
-                  <input
-                    type="time"
-                    value={config.syncTime || '09:00'}
-                    onChange={(e) => updateSyncTime(config.id, e.target.value)}
-                    className="border rounded px-3 py-2 w-full"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t.lastSync}
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-600">
-                      {formatLastSync(config.lastSyncAt)}
-                    </span>
-                    {getStatusBadge(config.lastSyncStatus)}
-                  </div>
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">
+                  {t.lastSync}
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {formatLastSync(config.lastSyncAt)}
+                  </span>
+                  {getStatusBadge(config.lastSyncStatus)}
                 </div>
               </div>
+            </div>
 
-              {config.lastSyncCount !== null && (
-                <div className="text-sm text-gray-600 mb-4">
-                  {t.lastSyncCount}: <strong>{config.lastSyncCount}</strong>{' '}
-                  rates
-                </div>
+            {config.lastSyncCount !== null && (
+              <div className="text-xs text-muted-foreground mb-3">
+                {t.lastSyncCount}: <span className="font-medium">{config.lastSyncCount}</span> rates
+              </div>
+            )}
+
+            {config.lastSyncMessage && config.lastSyncStatus === 'error' && (
+              <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 mb-3">
+                {config.lastSyncMessage}
+              </div>
+            )}
+
+            <Button
+              onClick={() => fetchNow(config.provider)}
+              disabled={fetching === config.provider}
+              size="sm"
+            >
+              {fetching === config.provider ? (
+                <>
+                  <Spinner className="mr-2 h-3 w-3" />
+                  Fetching...
+                </>
+              ) : (
+                t.fetchNow
               )}
+            </Button>
+          </div>
+        ))}
 
-              {config.lastSyncMessage &&
-                config.lastSyncStatus === 'error' && (
-                  <div className="text-sm text-red-600 mb-4 bg-red-50 p-2 rounded">
-                    {config.lastSyncMessage}
-                  </div>
-                )}
-
-              <button
-                onClick={() => fetchNow(config.provider)}
-                disabled={fetching === config.provider}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                {fetching === config.provider ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Fetching...
-                  </>
-                ) : (
-                  t.fetchNow
-                )}
-              </button>
-            </div>
-          ))}
-
-          {configs.length === 0 && (
-            <div className="text-center py-12">
-              <div className="text-gray-500 mb-4">
-                No currency providers configured yet.
-              </div>
-              <button
-                onClick={() => initializeMissingProviders(availableProviders)}
-                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-              >
-                Initialize Providers
-              </button>
-            </div>
-          )}
-        </div>
-      </PageBody>
-    </Page>
+        {configs.length === 0 && (
+          <div className="rounded border bg-background/70 p-6 text-center">
+            <p className="text-sm text-muted-foreground mb-3">
+              No currency providers configured yet.
+            </p>
+            <Button
+              onClick={() => initializeMissingProviders(availableProviders)}
+            >
+              Initialize Providers
+            </Button>
+          </div>
+        )}
+      </div>
+    </section>
   )
 }

@@ -102,8 +102,7 @@
       "provider_nbp": "NBP (National Bank of Poland)",
       "provider_raiffeisen": "Raiffeisen Bank Poland",
       "loading": "Loading...",
-      "test_connection": "Test Connection",
-      "baseCurrency": "Base Currency"
+      "test_connection": "Test Connection"
     }
   },
   "exchangeRates": {
