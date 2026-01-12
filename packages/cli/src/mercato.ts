@@ -2,7 +2,7 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { createRequestContainer } from '@/lib/di/container'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
 import type { Module } from '@open-mercato/shared/modules/registry'
 
@@ -25,15 +25,37 @@ export function hasCliModules(): boolean {
   return _cliModules !== null && _cliModules.length > 0
 }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import path from 'node:path'
+import fs from 'node:fs'
 
 let envLoaded = false
 
 async function ensureEnvLoaded() {
   if (envLoaded) return
+  envLoaded = true
+
+  // Try to find and load .env from the app directory
+  // First, try to find the app directory via resolver
+  try {
+    const { createResolver } = await import('./lib/resolver.js')
+    const resolver = createResolver()
+    const appDir = resolver.getAppDir()
+
+    // Load .env from app directory if it exists
+    const envPath = path.join(appDir, '.env')
+    if (fs.existsSync(envPath)) {
+      const dotenv = await import('dotenv')
+      dotenv.config({ path: envPath })
+      return
+    }
+  } catch {
+    // Resolver might fail during early init, fall back to default behavior
+  }
+
+  // Fall back to default dotenv behavior (loads from cwd)
   try {
     await import('dotenv/config')
   } catch {}
-  envLoaded = true
 }
 
 // Helper to run a CLI command directly (without spawning a process)
@@ -79,12 +101,13 @@ async function buildAllModules(): Promise<Module[]> {
         command: 'all',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
           console.log('Running all generators...')
           await generateEntityIds({ resolver, quiet })
           await generateModuleRegistry({ resolver, quiet })
+          await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
           await generateModuleDi({ resolver, quiet })
           await generateApiClient({ resolver, quiet })
@@ -180,7 +203,7 @@ export async function run(argv = process.argv) {
 
       if (reinstall) {
         // Load env variables so DATABASE_URL is available
-        try { await import('dotenv/config') } catch {}
+        await ensureEnvLoaded()
         console.log('♻️  Reinstall mode enabled: dropping all database tables...')
         const { Client } = await import('pg')
         const dbUrl = process.env.DATABASE_URL
@@ -244,10 +267,11 @@ export async function run(argv = process.argv) {
       // Step 2: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
+      await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
       await generateApiClient({ resolver, quiet: true })
@@ -260,14 +284,12 @@ export async function run(argv = process.argv) {
       console.log('✅ Migrations applied\n')
 
       // Step 4: Bootstrap to register modules and entity IDs
-      // Call the actual bootstrap function now that generated files exist
+      // Use the shared dynamicLoader which compiles TypeScript files on-the-fly
       console.log('🔗 Bootstrapping application...')
-      const { bootstrap } = await import('@/bootstrap')
-      bootstrap()
-      // Also register entity IDs via @open-mercato/shared path since some modules use that path
-      const { registerEntityIds: registerEntityIdsShared } = await import('@open-mercato/shared/lib/encryption/entityIds')
-      const { E: entityIdMap } = await import('@/generated/entities.ids.generated')
-      registerEntityIdsShared(entityIdMap)
+      const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+      const bootstrapData = await bootstrapFromAppRoot(resolver.getAppDir())
+      // Register CLI modules directly (bootstrapFromAppRoot returns the data for this purpose)
+      registerCliModules(bootstrapData.modules)
       console.log('✅ Bootstrap complete\n')
 
       // Step 5: Build all modules for CLI commands
@@ -405,9 +427,13 @@ export async function run(argv = process.argv) {
           await runModuleCommand(allModules, 'sales', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🧾 ✅ Sales examples seeded\n')
 
-          console.log('📝 Seeding example todos...')
-          await runModuleCommand(allModules, 'example', 'seed-todos', ['--org', orgId, '--tenant', tenantId])
-          console.log('📝 ✅ Example todos seeded\n')
+          // Optional: seed example todos if the example module is enabled
+          const exampleModule = allModules.find((m) => m.id === 'example')
+          if (exampleModule && exampleModule.cli) {
+            console.log('📝 Seeding example todos...')
+            await runModuleCommand(allModules, 'example', 'seed-todos', ['--org', orgId, '--tenant', tenantId])
+            console.log('📝 ✅ Example todos seeded\n')
+          }
         }
 
         if (stressTestEnabled) {
@@ -628,7 +654,7 @@ export async function run(argv = process.argv) {
           if (payloadArg) {
             try { payload = JSON.parse(payloadArg) } catch { payload = payloadArg }
           }
-          const { createRequestContainer } = await import('@/lib/di/container')
+          const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
           await bus.emit(eventName, payload, { persistent })
@@ -638,7 +664,7 @@ export async function run(argv = process.argv) {
       {
         command: 'clear',
         run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
+          const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
           const res = await bus.clearQueue()
@@ -754,7 +780,7 @@ export async function run(argv = process.argv) {
           const baseDir = path.resolve('src/modules', mod, 'api', routeSeg)
           fs.mkdirSync(baseDir, { recursive: true })
           const entitySnake = entity.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@/modules/${mod}/data/entities'\nimport { E } from '@/generated/entities.ids.generated'\nimport * as F from '@/generated/entities/${entitySnake}'\nimport ceEntities from '@/modules/${mod}/ce'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\nimport type { CustomFieldSet } from '@open-mercato/shared/modules/entities'\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst fieldSets: CustomFieldSet[] = []\nconst ceEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === '${mod}:${entitySnake}') : undefined\nif (ceEntity?.fields?.length) {\n  fieldSets.push({ entity: ceEntity.id, fields: ceEntity.fields, source: '${mod}' })\n}\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  indexer: { entityType: E.${mod}.${entitySnake} },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
+          const tmpl = `import { z } from 'zod'\nimport { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'\nimport { ${entity} } from '@open-mercato/shared/modules/${mod}/data/entities'\nimport { E } from '#generated/entities.ids.generated'\nimport ceEntities from '@open-mercato/shared/modules/${mod}/ce'\nimport { buildCustomFieldSelectorsForEntity, extractCustomFieldsFromItem, buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'\nimport type { CustomFieldSet } from '@open-mercato/shared/modules/entities'\n\n// Field constants - update these based on your entity's actual fields\nconst F = {\n  id: 'id',\n  tenant_id: 'tenant_id',\n  organization_id: 'organization_id',\n  created_at: 'created_at',\n  updated_at: 'updated_at',\n  deleted_at: 'deleted_at',\n} as const\n\nconst querySchema = z.object({\n  id: z.string().uuid().optional(),\n  page: z.coerce.number().min(1).default(1),\n  pageSize: z.coerce.number().min(1).max(100).default(50),\n  sortField: z.string().optional().default('id'),\n  sortDir: z.enum(['asc','desc']).optional().default('asc'),\n  withDeleted: z.coerce.boolean().optional().default(false),\n}).passthrough()\n\nconst createSchema = z.object({}).passthrough()\nconst updateSchema = z.object({ id: z.string().uuid() }).passthrough()\n\ntype Query = z.infer<typeof querySchema>\n\nconst fieldSets: CustomFieldSet[] = []\nconst ceEntity = Array.isArray(ceEntities) ? ceEntities.find((entity) => entity?.id === '${mod}:${entitySnake}') : undefined\nif (ceEntity?.fields?.length) {\n  fieldSets.push({ entity: ceEntity.id, fields: ceEntity.fields, source: '${mod}' })\n}\n\nconst cfSel = buildCustomFieldSelectorsForEntity(E.${mod}.${entitySnake}, fieldSets)\nconst sortFieldMap: Record<string, unknown> = { id: F.id, created_at: F.created_at, ...Object.fromEntries(cfSel.keys.map(k => [\`cf_\${k}\`, \`cf:\${k}\`])) }\n\nexport const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({\n  metadata: { GET: { requireAuth: true }, POST: { requireAuth: true }, PUT: { requireAuth: true }, DELETE: { requireAuth: true } },\n  orm: { entity: ${entity}, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },\n  events: { module: '${mod}', entity: '${entitySnake}', persistent: true },\n  indexer: { entityType: E.${mod}.${entitySnake} },\n  list: {\n    schema: querySchema,\n    entityId: E.${mod}.${entitySnake},\n    fields: [F.id, F.created_at, ...cfSel.selectors],\n    sortFieldMap,\n    buildFilters: async (q: Query, ctx) => ({\n      ...(await buildCustomFieldFiltersFromQuery({\n        entityId: E.${mod}.${entitySnake},\n        query: q as any,\n        em: ctx.container.resolve('em'),\n        tenantId: ctx.auth!.tenantId,\n      })),\n    }),\n    transformItem: (item: any) => ({ id: item.id, created_at: item.created_at, ...extractCustomFieldsFromItem(item, cfSel.keys) }),\n  },\n  create: { schema: createSchema, mapToEntity: (input: any) => ({}), customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  update: { schema: updateSchema, applyToEntity: (entity: ${entity}, input: any) => {}, customFields: { enabled: true, entityId: E.${mod}.${entitySnake}, pickPrefixed: true } },\n  del: { idFrom: 'query', softDelete: true },\n})\n`
           const file = path.join(baseDir, 'route.ts')
           fs.writeFileSync(file, tmpl, { flag: 'wx' })
           console.log(`Created CRUD route: ${path.relative(process.cwd(), file)}`)
@@ -772,13 +798,14 @@ export async function run(argv = process.argv) {
         command: 'all',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
           const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
           await generateEntityIds({ resolver, quiet })
           await generateModuleRegistry({ resolver, quiet })
+          await generateModuleRegistryCli({ resolver, quiet })
           await generateModuleEntities({ resolver, quiet })
           await generateModuleDi({ resolver, quiet })
           await generateApiClient({ resolver, quiet })

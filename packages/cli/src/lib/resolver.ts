@@ -16,6 +16,7 @@ export type PackageInfo = {
 export interface PackageResolver {
   isMonorepo(): boolean
   getRootDir(): string
+  getAppDir(): string
   getOutputDir(): string
   getModulesConfigPath(): string
   discoverPackages(): PackageInfo[]
@@ -37,7 +38,7 @@ function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!from || from === '@open-mercato/core') {
     return path.resolve(rootDir, 'packages/core/src/modules')
   }
-  // Support other local packages like '@open-mercato/example' => packages/example/src/modules
+  // Support other local packages like '@open-mercato/onboarding' => packages/onboarding/src/modules
   const m = from.match(/^@open-mercato\/(.+)$/)
   if (m) {
     return path.resolve(rootDir, `packages/${m[1]}/src/modules`)
@@ -62,9 +63,9 @@ function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
   return path.resolve(rootDir, 'packages/core')
 }
 
-function loadEnabledModulesFromConfig(rootDir: string): ModuleEntry[] {
+function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const require = createRequire(import.meta.url)
-  const cfgPath = path.resolve(rootDir, 'src/modules.ts')
+  const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
       const mod = require(cfgPath)
@@ -75,7 +76,7 @@ function loadEnabledModulesFromConfig(rootDir: string): ModuleEntry[] {
     }
   }
   // Fallback: scan src/modules/* to keep backward compatibility
-  const modulesRoot = path.resolve(rootDir, 'src/modules')
+  const modulesRoot = path.resolve(appDir, 'src/modules')
   if (!fs.existsSync(modulesRoot)) return []
   return fs
     .readdirSync(modulesRoot, { withFileTypes: true })
@@ -149,23 +150,103 @@ function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
   return packages
 }
 
+function detectAppDir(rootDir: string, isMonorepo: boolean): string {
+  if (!isMonorepo) {
+    // Production mode: app is at root
+    return rootDir
+  }
+
+  // Monorepo mode: look for app in apps/mercato/ or apps/app/
+  const mercatoApp = path.join(rootDir, 'apps', 'mercato')
+  if (fs.existsSync(mercatoApp)) {
+    return mercatoApp
+  }
+
+  const defaultApp = path.join(rootDir, 'apps', 'app')
+  if (fs.existsSync(defaultApp)) {
+    return defaultApp
+  }
+
+  // Fallback: check if apps directory exists and has any app
+  const appsDir = path.join(rootDir, 'apps')
+  if (fs.existsSync(appsDir)) {
+    const entries = fs.readdirSync(appsDir, { withFileTypes: true })
+    const appEntry = entries.find(
+      (e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'docs'
+    )
+    if (appEntry) {
+      return path.join(appsDir, appEntry.name)
+    }
+  }
+
+  // Final fallback for legacy structure: root is the app
+  return rootDir
+}
+
+function findNodeModulesRoot(startDir: string): string | null {
+  // Walk up to find node_modules/@open-mercato/core
+  let dir = startDir
+  while (dir !== path.dirname(dir)) {
+    const corePkgPath = path.join(dir, 'node_modules', '@open-mercato', 'core')
+    if (fs.existsSync(corePkgPath)) {
+      return dir
+    }
+    dir = path.dirname(dir)
+  }
+  return null
+}
+
+function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; monorepoRoot: string | null; nodeModulesRoot: string | null } {
+  // Find where node_modules/@open-mercato/core is located (may be hoisted)
+  const nodeModulesRoot = findNodeModulesRoot(appDir)
+  if (!nodeModulesRoot) {
+    return { isMonorepo: false, monorepoRoot: null, nodeModulesRoot: null }
+  }
+
+  const corePkgPath = path.join(nodeModulesRoot, 'node_modules', '@open-mercato', 'core')
+
+  try {
+    const stat = fs.lstatSync(corePkgPath)
+    if (stat.isSymbolicLink()) {
+      // It's a symlink - we're in monorepo dev mode
+      // Resolve the symlink to find the monorepo root
+      const realPath = fs.realpathSync(corePkgPath)
+      // realPath is something like /path/to/monorepo/packages/core
+      // monorepo root is 2 levels up
+      const monorepoRoot = path.dirname(path.dirname(realPath))
+      return { isMonorepo: true, monorepoRoot, nodeModulesRoot }
+    }
+    // It's a real directory - production mode
+    return { isMonorepo: false, monorepoRoot: null, nodeModulesRoot }
+  } catch {
+    // Package doesn't exist yet or error reading - assume production mode
+    return { isMonorepo: false, monorepoRoot: null, nodeModulesRoot }
+  }
+}
+
 export function createResolver(cwd: string = process.cwd()): PackageResolver {
-  const rootDir = cwd
-  const packagesDir = path.join(rootDir, 'packages')
-  const _isMonorepo = fs.existsSync(packagesDir)
+  // First detect if we're in a monorepo by checking if node_modules packages are symlinks
+  const { isMonorepo: _isMonorepo, monorepoRoot } = detectMonorepoFromNodeModules(cwd)
+  const rootDir = monorepoRoot ?? cwd
+
+  // The app directory depends on context:
+  // - In monorepo: use detectAppDir to find apps/mercato or similar
+  // - In production: app is at cwd
+  const appDir = _isMonorepo ? detectAppDir(rootDir, true) : cwd
 
   return {
     isMonorepo: () => _isMonorepo,
 
     getRootDir: () => rootDir,
 
+    getAppDir: () => appDir,
+
     getOutputDir: () => {
-      return _isMonorepo
-        ? path.join(rootDir, 'generated')
-        : path.join(rootDir, '.mercato', 'generated')
+      // Output is ALWAYS .mercato/generated relative to app directory
+      return path.join(appDir, '.mercato', 'generated')
     },
 
-    getModulesConfigPath: () => path.join(rootDir, 'src', 'modules.ts'),
+    getModulesConfigPath: () => path.join(appDir, 'src', 'modules.ts'),
 
     discoverPackages: () => {
       return _isMonorepo
@@ -173,10 +254,10 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
         : discoverPackagesInNodeModules(rootDir)
     },
 
-    loadEnabledModules: () => loadEnabledModulesFromConfig(rootDir),
+    loadEnabledModules: () => loadEnabledModulesFromConfig(appDir),
 
     getModulePaths: (entry: ModuleEntry) => {
-      const appBase = path.resolve(rootDir, 'src/modules', entry.id)
+      const appBase = path.resolve(appDir, 'src/modules', entry.id)
       const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo)
       const pkgBase = path.join(pkgModulesRoot, entry.id)
       return { appBase, pkgBase }
@@ -193,7 +274,8 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
 
     getPackageOutputDir: (packageName: string) => {
       if (packageName === '@app') {
-        return path.join(rootDir, 'generated')
+        // App output goes to .mercato/generated
+        return path.join(appDir, '.mercato', 'generated')
       }
       const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo)
       return path.join(pkgRoot, 'generated')

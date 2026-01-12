@@ -5,9 +5,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Building2, Loader2, Pencil, Trash2, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { cn } from '@/lib/utils'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { CompanySelectField } from '../formConfig'
 import {
   InlineTextEditor,

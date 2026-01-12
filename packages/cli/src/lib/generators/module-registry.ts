@@ -835,3 +835,293 @@ ${injectionTableDecls.join(',\n')}
 
   return result
 }
+
+/**
+ * Generate a CLI-specific module registry that excludes Next.js dependent code.
+ * This produces modules.cli.generated.ts which can be loaded without Next.js runtime.
+ *
+ * Includes: module metadata, CLI commands, translations, subscribers, entity extensions,
+ *           features/ACL, custom entities, vector config, custom fields
+ * Excludes: frontend routes, backend routes, API handlers, dashboard/injection widgets
+ */
+export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  const { resolver, quiet = false } = options
+  const result = createGeneratorResult()
+
+  const outputDir = resolver.getOutputDir()
+  const outFile = path.join(outputDir, 'modules.cli.generated.ts')
+  const checksumFile = path.join(outputDir, 'modules.cli.generated.checksum')
+
+  const enabled = resolver.loadEnabledModules()
+  const imports: string[] = []
+  const moduleDecls: string[] = []
+  let importId = 0
+  const trackedRoots = new Set<string>()
+  const requiresByModule = new Map<string, string[]>()
+
+  for (const entry of enabled) {
+    const modId = entry.id
+    const roots = resolver.getModulePaths(entry)
+    const imps = resolver.getModuleImportBase(entry)
+    trackedRoots.add(roots.appBase)
+    trackedRoots.add(roots.pkgBase)
+
+    let cliImportName: string | null = null
+    const translations: string[] = []
+    const subscribers: string[] = []
+    let infoImportName: string | null = null
+    let extensionsImportName: string | null = null
+    let fieldsImportName: string | null = null
+    let featuresImportName: string | null = null
+    let customEntitiesImportName: string | null = null
+    let vectorImportName: string | null = null
+    let customFieldSetsExpr: string = '[]'
+
+    // Module metadata: index.ts (overrideable)
+    const appIndex = path.join(roots.appBase, 'index.ts')
+    const pkgIndex = path.join(roots.pkgBase, 'index.ts')
+    const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
+    if (indexTs) {
+      infoImportName = `I${importId++}_${toVar(modId)}`
+      const importPath = indexTs.startsWith(roots.appBase) ? `${imps.appBase}/index` : `${imps.pkgBase}/index`
+      imports.push(`import * as ${infoImportName} from '${importPath}'`)
+      // Try to eagerly read ModuleInfo.requires for dependency validation
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require(indexTs)
+        const reqs: string[] | undefined =
+          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
+        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
+      } catch {}
+    }
+
+    // Entity extensions: src/modules/<module>/data/extensions.ts
+    {
+      const appFile = path.join(roots.appBase, 'data', 'extensions.ts')
+      const pkgFile = path.join(roots.pkgBase, 'data', 'extensions.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `X_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/data/extensions` : `${imps.pkgBase}/data/extensions`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        extensionsImportName = importName
+      }
+    }
+
+    // RBAC feature declarations: module root acl.ts
+    {
+      const rootApp = path.join(roots.appBase, 'acl.ts')
+      const rootPkg = path.join(roots.pkgBase, 'acl.ts')
+      const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
+      if (hasRoot) {
+        const importName = `ACL_${toVar(modId)}_${importId++}`
+        const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
+        const importPath = useApp.startsWith(roots.appBase) ? `${imps.appBase}/acl` : `${imps.pkgBase}/acl`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        featuresImportName = importName
+      }
+    }
+
+    // Custom entities declarations: module root ce.ts
+    {
+      const appFile = path.join(roots.appBase, 'ce.ts')
+      const pkgFile = path.join(roots.pkgBase, 'ce.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `CE_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/ce` : `${imps.pkgBase}/ce`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        customEntitiesImportName = importName
+      }
+    }
+
+    // Vector search configuration: module root vector.ts
+    {
+      const appFile = path.join(roots.appBase, 'vector.ts')
+      const pkgFile = path.join(roots.pkgBase, 'vector.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `VECTOR_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/vector` : `${imps.pkgBase}/vector`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        vectorImportName = importName
+      }
+    }
+
+    // Custom field declarations: src/modules/<module>/data/fields.ts
+    {
+      const appFile = path.join(roots.appBase, 'data', 'fields.ts')
+      const pkgFile = path.join(roots.pkgBase, 'data', 'fields.ts')
+      const hasApp = fs.existsSync(appFile)
+      const hasPkg = fs.existsSync(pkgFile)
+      if (hasApp || hasPkg) {
+        const importName = `F_${toVar(modId)}_${importId++}`
+        const importPath = hasApp ? `${imps.appBase}/data/fields` : `${imps.pkgBase}/data/fields`
+        imports.push(`import * as ${importName} from '${importPath}'`)
+        fieldsImportName = importName
+      }
+    }
+
+    // CLI
+    const cliApp = path.join(roots.appBase, 'cli.ts')
+    const cliPkg = path.join(roots.pkgBase, 'cli.ts')
+    const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
+    if (cliPath) {
+      const importName = `CLI_${toVar(modId)}`
+      const importPath = cliPath.startsWith(roots.appBase) ? `${imps.appBase}/cli` : `${imps.pkgBase}/cli`
+      imports.push(`import ${importName} from '${importPath}'`)
+      cliImportName = importName
+    }
+
+    // Translations: merge core + app with app overriding
+    const i18nApp = path.join(roots.appBase, 'i18n')
+    const i18nCore = path.join(roots.pkgBase, 'i18n')
+    const locales = new Set<string>()
+    if (fs.existsSync(i18nCore))
+      for (const e of fs.readdirSync(i18nCore, { withFileTypes: true }))
+        if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
+    if (fs.existsSync(i18nApp))
+      for (const e of fs.readdirSync(i18nApp, { withFileTypes: true }))
+        if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
+    for (const locale of locales) {
+      const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
+      const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
+      if (coreHas && appHas) {
+        const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
+        const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
+        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
+        imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
+        translations.push(
+          `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
+        )
+      } else if (appHas) {
+        const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
+        imports.push(`import ${aName} from '${imps.appBase}/i18n/${locale}.json'`)
+        translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
+      } else if (coreHas) {
+        const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
+        imports.push(`import ${cName} from '${imps.pkgBase}/i18n/${locale}.json'`)
+        translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
+      }
+    }
+
+    // Subscribers: src/modules/<module>/subscribers/*.ts
+    const subApp = path.join(roots.appBase, 'subscribers')
+    const subPkg = path.join(roots.pkgBase, 'subscribers')
+    if (fs.existsSync(subApp) || fs.existsSync(subPkg)) {
+      const found: string[] = []
+      const walk = (dir: string, rel: string[] = []) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.isDirectory()) {
+            if (e.name === '__tests__' || e.name === '__mocks__') continue
+            walk(path.join(dir, e.name), [...rel, e.name])
+          } else if (e.isFile() && e.name.endsWith('.ts')) {
+            if (/\.(test|spec)\.ts$/.test(e.name)) continue
+            found.push([...rel, e.name].join('/'))
+          }
+        }
+      }
+      if (fs.existsSync(subPkg)) walk(subPkg)
+      if (fs.existsSync(subApp)) walk(subApp)
+      const files = Array.from(new Set(found))
+      for (const rel of files) {
+        const segs = rel.split('/')
+        const file = segs.pop()!
+        const name = file.replace(/\.ts$/, '')
+        const importName = `Subscriber${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+        const metaName = `SubscriberMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+        const appFile = path.join(subApp, ...segs, `${name}.ts`)
+        const fromApp = fs.existsSync(appFile)
+        const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/subscribers/${[...segs, name].join('/')}`
+        imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+        const sid = [modId, ...segs, name].filter(Boolean).join(':')
+        subscribers.push(
+          `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, handler: ${importName} }`
+        )
+      }
+    }
+
+    // Build combined customFieldSets expression from data/fields.ts and ce.ts (entities[].fields)
+    {
+      const parts: string[] = []
+      if (fieldsImportName)
+        parts.push(`(( ${fieldsImportName}.default ?? ${fieldsImportName}.fieldSets) as any) || []`)
+      if (customEntitiesImportName)
+        parts.push(
+          `((( ${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: '${modId}' }))`
+        )
+      customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
+    }
+
+    moduleDecls.push(`{
+      id: '${modId}',
+      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
+      ${cliImportName ? `cli: ${cliImportName},` : ''}
+      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
+      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
+      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as any) || [],` : ''}
+      customFieldSets: ${customFieldSetsExpr},
+      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
+      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
+      ${vectorImportName ? `vector: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? undefined),` : ''}
+    }`)
+  }
+
+  const output = `// AUTO-GENERATED by mercato generate registry (CLI version)
+// This file excludes Next.js dependent code (routes, APIs, widgets)
+import type { Module } from '@open-mercato/shared/modules/registry'
+${imports.join('\n')}
+
+export const modules: Module[] = [
+  ${moduleDecls.join(',\n  ')}
+]
+export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
+export default modules
+`
+
+  // Validate module dependencies declared via ModuleInfo.requires
+  {
+    const enabledIds = new Set(enabled.map((e) => e.id))
+    const problems: string[] = []
+    for (const [modId, reqs] of requiresByModule.entries()) {
+      const missing = reqs.filter((r) => !enabledIds.has(r))
+      if (missing.length) {
+        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
+      }
+    }
+    if (problems.length) {
+      console.error('\nModule dependency check failed:')
+      for (const p of problems) console.error(p)
+      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
+      console.error(
+        '  export const enabledModules = [ { id: \'' +
+          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
+          "' } ]"
+      )
+      process.exit(1)
+    }
+  }
+
+  const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
+
+  const checksum = { content: calculateChecksum(output), structure: structureChecksum }
+  const existingChecksum = readChecksumRecord(checksumFile)
+  const shouldWrite =
+    !existingChecksum ||
+    existingChecksum.content !== checksum.content ||
+    existingChecksum.structure !== checksum.structure
+  if (shouldWrite) {
+    fs.mkdirSync(path.dirname(outFile), { recursive: true })
+    fs.writeFileSync(outFile, output)
+    writeChecksumRecord(checksumFile, checksum)
+    result.filesWritten.push(outFile)
+  } else {
+    result.filesUnchanged.push(outFile)
+  }
+  if (!quiet) logGenerationResult(path.relative(process.cwd(), outFile), shouldWrite)
+
+  return result
+}

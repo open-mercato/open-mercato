@@ -1,6 +1,6 @@
 import type { FieldSetInput } from '@open-mercato/core/modules/entities/lib/field-definitions'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import { defineFields, cf } from '@/modules/dsl'
+import { E } from '#generated/entities.ids.generated'
+import { defineFields, cf } from '@open-mercato/shared/modules/dsl'
 
 export const BOOKING_RESOURCE_FIELDSET_DEFAULT = 'booking_resource_general'
 export const BOOKING_RESOURCE_FIELDSET_ROOM = 'booking_resource_room'

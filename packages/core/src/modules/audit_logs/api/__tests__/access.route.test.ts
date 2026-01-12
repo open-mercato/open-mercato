@@ -70,7 +70,7 @@ describe('GET /api/audit_logs/audit-logs/access', () => {
   })
 
   it('returns 401 when unauthenticated', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
 
     const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/access'))
@@ -78,7 +78,7 @@ describe('GET /api/audit_logs/audit-logs/access', () => {
   })
 
   it('returns list payload when authenticated', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',

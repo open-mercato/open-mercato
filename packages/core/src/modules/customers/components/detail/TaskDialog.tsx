@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
 import { TaskForm } from './TaskForm'
 

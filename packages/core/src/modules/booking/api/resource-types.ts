@@ -8,8 +8,24 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { BookingResource, BookingResourceType } from '../data/entities'
 import { bookingResourceTypeCreateSchema, bookingResourceTypeUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm } from './helpers'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_resource_type'
+import { E } from '#generated/entities.ids.generated'
+
+// Field constants for BookingResourceType entity
+const F = {
+  id: "id",
+  tenant_id: "tenant_id",
+  organization_id: "organization_id",
+  name: "name",
+  description: "description",
+  default_duration: "default_duration",
+  default_buffer: "default_buffer",
+  appearance_icon: "appearance_icon",
+  appearance_color: "appearance_color",
+  is_active: "is_active",
+  created_at: "created_at",
+  updated_at: "updated_at",
+  deleted_at: "deleted_at",
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

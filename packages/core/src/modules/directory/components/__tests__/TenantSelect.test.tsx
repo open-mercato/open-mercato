@@ -6,7 +6,7 @@ import '@testing-library/jest-dom'
 import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import { TenantSelect } from '../TenantSelect'
-import { renderWithProviders } from '../../../../../../../tests/helpers/renderWithProviders'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({

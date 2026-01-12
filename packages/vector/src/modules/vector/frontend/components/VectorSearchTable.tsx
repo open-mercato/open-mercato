@@ -10,7 +10,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { VectorSearchHit, VectorIndexEntry } from '@open-mercato/vector'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { fetchVectorResults, fetchVectorIndexEntries } from '../utils'
 
 type Row = {

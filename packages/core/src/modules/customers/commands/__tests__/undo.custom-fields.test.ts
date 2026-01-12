@@ -21,7 +21,14 @@ import {
   CustomerTagAssignment,
   CustomerTodoLink,
 } from '../../data/entities'
-import type { Todo } from '@open-mercato/example/modules/example/data/entities'
+// Todo type removed - example package no longer exists
+type Todo = {
+  id: string
+  title: string
+  isDone: boolean
+  tenantId: string | null
+  organizationId: string | null
+}
 
 const TEST_TENANT_ID = '00000000-0000-0000-0000-000000000000'
 const TEST_ORG_ID = '123e4567-e89b-41d3-a456-426614174000'

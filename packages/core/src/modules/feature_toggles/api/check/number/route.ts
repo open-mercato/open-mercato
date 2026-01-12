@@ -1,5 +1,5 @@
-import { getAuthFromRequest } from "@/lib/auth/server"
-import { createRequestContainer } from "@/lib/di/container"
+import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server"
+import { createRequestContainer } from "@open-mercato/shared/lib/di/container"
 import { NextResponse } from "next/server"
 import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory/utils/organizationScope"
 import { FeatureTogglesService } from "../../../lib/feature-flag-check"

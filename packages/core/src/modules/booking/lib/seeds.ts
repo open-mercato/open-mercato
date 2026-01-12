@@ -19,7 +19,7 @@ import {
   type BookingResourceRequirement,
   type BookingResourceTypeRequirement,
 } from '../data/entities'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   BOOKING_RESOURCE_CUSTOM_FIELD_SETS,

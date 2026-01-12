@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { Label } from '@open-mercato/ui/primitives/label'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ProductFormValues } from './productForm'
 

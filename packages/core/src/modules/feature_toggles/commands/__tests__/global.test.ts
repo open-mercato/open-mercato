@@ -1,7 +1,7 @@
 export { }
 
 import { FeatureToggle } from '../../data/entities'
-import { CrudHttpError } from '@/lib/crud/errors'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const registerCommand = jest.fn()
 const invalidateIsEnabledCacheByIdentifierTag = jest.fn().mockResolvedValue(undefined)

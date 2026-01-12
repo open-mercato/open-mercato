@@ -10,9 +10,9 @@
  * ```typescript
  * import { bootstrapTest, resetTestBootstrap } from '@open-mercato/shared/lib/testing/bootstrap'
  *
- * beforeEach(() => {
+ * beforeEach(async () => {
  *   resetTestBootstrap()
- *   bootstrapTest({
+ *   await bootstrapTest({
  *     modules: mockModules,
  *     entityIds: mockEntityIds,
  *   })
@@ -24,7 +24,7 @@
  * ```typescript
  * beforeEach(async () => {
  *   jest.resetModules()
- *   const { registerModules } = await import('@open-mercato/shared/lib/i18n/server')
+ *   const { registerModules } = await import('@open-mercato/shared/modules/registry')
  *   registerModules(mockModules as any)
  * })
  * ```
@@ -51,27 +51,27 @@ let _testBootstrapped = false
  * Bootstrap dependencies for tests.
  * Call this in beforeEach or beforeAll to set up required registrations.
  */
-export function bootstrapTest(options: TestBootstrapOptions = {}): void {
+export async function bootstrapTest(options: TestBootstrapOptions = {}): Promise<void> {
   const { modules, entityIds, ormEntities, diRegistrars } = options
 
   if (modules !== undefined) {
     // Import lazily to avoid circular dependencies
-    const { registerModules } = require('../../i18n/server')
+    const { registerModules } = await import('../../modules/registry.js')
     registerModules(modules)
   }
 
   if (entityIds !== undefined) {
-    const { registerEntityIds } = require('../../encryption/entityIds')
+    const { registerEntityIds } = await import('../../encryption/entityIds.js')
     registerEntityIds(entityIds)
   }
 
   if (ormEntities !== undefined) {
-    const { registerOrmEntities } = require('../../db/mikro')
+    const { registerOrmEntities } = await import('../../db/mikro.js')
     registerOrmEntities(ormEntities)
   }
 
   if (diRegistrars !== undefined) {
-    const { registerDiRegistrars } = require('../../di/container')
+    const { registerDiRegistrars } = await import('../../di/container.js')
     registerDiRegistrars(diRegistrars)
   }
 

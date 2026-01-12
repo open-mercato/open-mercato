@@ -4,7 +4,7 @@
 
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '../../../../../../tests/helpers/renderWithProviders'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { LastOperationBanner } from '../LastOperationBanner'
 import { apiCall } from '../../utils/apiCall'
 import { flash } from '../../FlashMessages'

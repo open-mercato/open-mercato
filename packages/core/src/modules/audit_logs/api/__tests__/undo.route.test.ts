@@ -58,7 +58,7 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
   })
 
   it('returns 401 when unauthenticated', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
 
     const res = await POST(makeRequest({ undoToken: 'tk' }))
@@ -66,7 +66,7 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
   })
 
   it('returns 400 when token missing', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1' })
 
     const res = await POST(makeRequest({}))
@@ -74,7 +74,7 @@ describe('POST /api/audit_logs/audit-logs/actions/undo', () => {
   })
 
   it('undoes latest action and returns ok', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',

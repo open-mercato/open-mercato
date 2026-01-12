@@ -1,0 +1,159 @@
+---
+title: Rule Types
+description: Five business rule types and when to use each.
+---
+
+# Rule Types
+
+| Type | Purpose | Priority | Success | Failure |
+|------|---------|----------|---------|---------|
+| **GUARD** | Block/allow operations | 500-1000 | Rarely | ✅ Yes |
+| **VALIDATION** | Validate data | 300-500 | ✅ Yes | ✅ Yes |
+| **CALCULATION** | Calculate values | 200-300 | ✅ Yes | Rarely |
+| **ACTION** | Trigger side effects | 50-200 | ✅ Yes | Sometimes |
+| **ASSIGNMENT** | Auto-set fields | 0-100 | ✅ Yes | Rarely |
+
+## GUARD
+
+**Purpose**: Block/allow operations. If ANY guard blocks, operation stops.
+
+**Behavior**: Conditions true → failure actions (BLOCK), false → success actions (ALLOW)
+
+**Use Cases**: Enforce prerequisites, prevent policy violations, require conditions
+
+**Examples:**
+```
+IF newStatus = "RELEASED" AND materialsAvailable = false
+THEN BLOCK + SHOW_ERROR
+
+IF orderTotal > creditLimit AND creditCheckRequired = true
+THEN BLOCK + NOTIFY approver
+```
+
+**Best Practices**: High priority (500-1000), clear error messages, actionable guidance, log blocks
+
+**Actions**: Failure: BLOCK_TRANSITION, SHOW_ERROR, LOG, NOTIFY
+
+## VALIDATION
+
+**Purpose**: Validate data without hard blocking (soft stop via warnings/flags)
+
+**Use Cases**: Data quality, required fields, business logic, approval triggers
+
+**Examples:**
+```
+IF orderTotal > 10000
+THEN SET_FIELD approvalRequired=true, NOTIFY approver
+
+IF shipDate < orderDate
+THEN SHOW_ERROR, LOG
+```
+
+**Best Practices**: Priority 300-500, accumulate errors, distinguish warnings from errors
+
+**Actions**: Success/Failure: SET_FIELD, SHOW_ERROR, SHOW_WARNING, LOG, NOTIFY
+
+**GUARD vs VALIDATION**: GUARD = hard stop (blocks), VALIDATION = soft stop (warns/flags)
+
+## CALCULATION
+
+**Purpose**: Calculate and set derived values. Runs after validation, before actions.
+
+**Use Cases**: Pricing, discounts, tax, scoring, date calculations
+
+**Examples:**
+```
+IF orderQuantity >= 100
+THEN SET_FIELD discount = orderTotal * 0.15
+
+IF customer.region = "CA"
+THEN SET_FIELD taxAmount = subtotal * 0.0825
+```
+
+**Best Practices**: Priority 200-300, handle null/zero, round financials, document formulas
+
+**Actions**: Success: SET_FIELD, LOG
+
+## ACTION
+
+**Purpose**: Trigger side effects (notifications, webhooks, events, logging). Doesn't modify entity data.
+
+**Use Cases**: Notifications, external APIs, domain events, audit trails
+
+**Examples:**
+```
+IF status = "CONFIRMED"
+THEN NOTIFY customer, LOG confirmation
+
+IF orderTotal > 50000
+THEN NOTIFY manager, CALL_WEBHOOK
+```
+
+**Best Practices**: Priority 50-200, handle webhook failures gracefully, avoid spam, include context
+
+**Actions**: Success: NOTIFY, CALL_WEBHOOK, EMIT_EVENT, LOG, SHOW_INFO
+
+## ASSIGNMENT
+
+**Purpose**: Auto-set field values. Runs last (lowest priority).
+
+**Use Cases**: Auto-assign, defaults, timestamps, metadata, ownership
+
+**Examples:**
+```
+IF priority = "HIGH" AND assignedTo IS_EMPTY
+THEN SET_FIELD assignedTo = {{nextAvailableAgent}}
+
+IF status CHANGED
+THEN SET_FIELD lastStatusChange={{now}}, lastModifiedBy={{user.id}}
+```
+
+**Best Practices**: Priority 0-100, check empty first (don't overwrite), use special values, log assignments
+
+**Actions**: Success: SET_FIELD, LOG, NOTIFY
+
+## Choosing the Right Type
+
+**Decision Tree:**
+- Preventing operation? → **GUARD**
+- Checking validity? → **VALIDATION**
+- Calculating value? → **CALCULATION**
+- Auto-setting field? → **ASSIGNMENT**
+- Otherwise → **ACTION**
+
+**Common Combinations:**
+
+**Approval Workflow:** VALIDATION(400) → CALCULATION(250) → ASSIGNMENT(50) → ACTION(25)
+
+**Order Processing:** GUARD(800) → VALIDATION(400) → CALCULATION(250) → ASSIGNMENT(50) → ACTION(25)
+
+**Work Order Release:** GUARD(900,850) → VALIDATION(400) → ASSIGNMENT(50) → ACTION(25)
+
+## Execution Order
+
+Rules execute by priority (highest first):
+```
+1000-900: GUARD (critical/standard)
+500-400: VALIDATION (required/standard)
+300-250: CALCULATION (dependent/primary)
+200-100: ACTION (high-priority), ASSIGNMENT
+50-25: ACTION (notifications/logging)
+```
+
+**Same priority**: Order deterministic but not guaranteed.
+
+## Key Considerations
+
+| Type | Warning | Best Practice |
+|------|---------|---------------|
+| **GUARD** | Blocking is permanent | Clear messages, test thoroughly, monitor false positives |
+| **VALIDATION** | Can accumulate errors | Distinguish warnings/errors, avoid warning fatigue |
+| **CALCULATION** | Handle edge cases | Test null/zero, round financials, document formulas |
+| **ACTION** | Webhooks may fail | Handle gracefully, avoid spam, include context |
+| **ASSIGNMENT** | Don't overwrite input | Check before setting, allow override, log changes |
+
+## Next Steps
+
+- [**Creating Rules**](./creating-rules) - Step-by-step guide to creating rules
+- [**Conditions**](./conditions) - Build conditional logic
+- [**Actions**](./actions) - Configure actions for each type

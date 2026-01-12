@@ -3,11 +3,63 @@
   "version": "0.3.12",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs"
+  },
   "exports": {
-    ".": "./src/index.ts",
-    "./*": "./src/*"
+    ".": "./dist/index.js",
+    "./backend/schedule": {
+      "types": "./src/backend/schedule/index.ts",
+      "default": "./dist/backend/schedule/index.js"
+    },
+    "./backend/dashboard": {
+      "types": "./src/backend/dashboard/index.ts",
+      "default": "./dist/backend/dashboard/index.js"
+    },
+    "./backend/dashboard/widgetRegistry": {
+      "types": "./src/backend/dashboard/widgetRegistry.ts",
+      "default": "./dist/backend/dashboard/widgetRegistry.js"
+    },
+    "./backend/detail": {
+      "types": "./src/backend/detail/index.ts",
+      "default": "./dist/backend/detail/index.js"
+    },
+    "./backend/inputs": {
+      "types": "./src/backend/inputs/index.ts",
+      "default": "./dist/backend/inputs/index.js"
+    },
+    "./backend/injection/widgetRegistry": {
+      "types": "./src/backend/injection/widgetRegistry.ts",
+      "default": "./dist/backend/injection/widgetRegistry.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*": {
+      "types": ["./src/*.ts", "./src/*.tsx"],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": ["./src/*/*.ts", "./src/*/*.tsx"],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": ["./src/*/*/*.ts", "./src/*/*/*.tsx"],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": ["./src/*/*/*/*.ts", "./src/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*.js"
+    }
   },
   "dependencies": {
+    "@open-mercato/shared": "0.3.12",
     "@radix-ui/react-tooltip": "^1.2.8",
     "date-fns": "^4.1.0",
     "react-big-calendar": "^1.19.4"

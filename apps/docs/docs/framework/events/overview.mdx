@@ -1,0 +1,153 @@
+---
+title: Events and Subscribers
+description: Publish domain events and react with module-scoped subscribers that stay isolated yet collaborative.
+---
+
+# Events & Subscribers
+
+Open Mercato provides a comprehensive event/subscriber system with module auto-discovery, DI integration, and offline processing. The system supports two processing modes:
+
+1. **Inline Events** (`persistent: false`): Subscribers execute immediately when events are emitted, within the same request lifecycle
+2. **Async Events** (`persistent: true`): Events are queued and processed asynchronously by dedicated workers, providing reliability, retry capabilities, and scalability
+
+:::tip When to use persistent events
+Use `persistent: true` for events that:
+- Trigger long-running operations (sending emails, webhooks, external API calls)
+- Require guaranteed delivery even if the server restarts
+- Should not block the current request
+- Need retry logic on failure
+:::
+
+For background job processing at scale, see the [Queue & Workers](./queue-workers.mdx) documentation.
+
+## Overview
+
+- Subscribers live under `src/modules/<module>/subscribers/*.ts` and export:
+  - `export const metadata = { event: string, persistent?: boolean, id?: string }`
+  - `export default async function(payload, ctx) { /* ... */ }`
+    - `ctx.resolve(name)` resolves services from Awilix per-request container.
+- Subscribers discovered at build via `modules:prepare` and registered into a global Event Bus via the core bootstrap (`@open-mercato/core/bootstrap`), which your app calls from `src/di.ts`.
+- Emit events programmatically via `eventBus.emitEvent(event, payload, { persistent? })`.
+- Two strategies:
+  - Local: online delivery + optional persistence to `.events/queue.json` with state in `.events/state.json`.
+  - Redis: online delivery + persistence in Redis sorted set.
+- Offline processing: `npm run mercato events process -- [--limit=N]` replays unprocessed persistent events.
+
+## File Structure
+
+Example subscriber file `src/modules/example/subscribers/order-created.ts`:
+
+```
+export const metadata = {
+  event: 'order.created',
+  persistent: true, // optional, default false
+}
+
+export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
+  const em = ctx.resolve('em')
+  // ... do something with payload using DI services
+}
+```
+
+IDs are optional; default is `"<module>:<nested_path>"`.
+
+## Emitting Events
+
+From any handler with DI access:
+
+```
+const bus = container.resolve('eventBus')
+await bus.emitEvent('order.created', { id: 123, total: 42 }, { persistent: true })
+```
+
+## Programmatic Registration
+
+Modules can register subscribers in `di.ts`:
+
+```
+import type { AppContainer } from '@/lib/di/container'
+
+export function register(container: AppContainer) {
+  const bus = container.resolve<any>('eventBus')
+  bus.on('custom.event', async (payload, ctx) => {
+    const em = ctx.resolve('em')
+    // ...
+  })
+}
+```
+
+## Strategy & Persistence
+
+- Select strategy via `EVENTS_STRATEGY=local|redis` (default `local`).
+- Redis URL taken from `REDIS_URL` or `EVENTS_REDIS_URL`.
+- Persistent events are recorded and can be replayed later.
+  - Local: `.events/queue.json` and `.events/state.json` in project root.
+  - Redis: keys `events:last_id`, `events:queue` (sorted set), `events:last_processed_id`.
+
+## Processing Persistent Events
+
+Persistent events are processed by running a dedicated queue worker:
+
+```bash
+# Start a worker to process events from the queue
+yarn mercato queue worker events
+
+# With custom concurrency (default is 1)
+yarn mercato queue worker events --concurrency=5
+```
+
+The worker connects to Redis (or uses local storage) and continuously processes queued events. It uses the DI container, so subscriber handlers can resolve services.
+
+### Queue Management
+
+```bash
+# Check queue status (waiting, active, completed, failed counts)
+yarn mercato queue status events
+
+# Clear all events from the queue
+yarn mercato queue clear events
+```
+
+## Emit via CLI
+
+Quickly emit an event from the terminal (useful for testing subscribers or seeding flows):
+
+```bash
+yarn mercato events emit <event> [jsonPayload] [--persistent|-p]
+```
+
+Examples:
+
+```bash
+# Simple event without payload (non-persistent)
+yarn mercato events emit example.event
+
+# Emit with JSON payload (remember to quote it)
+yarn mercato events emit order.created '{"id":123,"total":42.5}'
+
+# Emit a persistent event so it is queued for async processing
+yarn mercato events emit order.created '{"id":124}' --persistent
+
+# Shorthand for persistent flag
+yarn mercato events emit order.created '{"id":125}' -p
+```
+
+Notes:
+- Payload is parsed as JSON when possible; otherwise treated as a string.
+- Persistent events are delivered inline and also queued for async processing.
+- The CLI uses the DI container, so subscribers can resolve services via `ctx.resolve`.
+
+## Notes
+
+- Subscribers are executed online on `emitEvent`, and also available for offline replay when persistent.
+- Input validation and security remain the responsibility of the emitting producer/consumer code.
+
+## CRUD Events
+
+The [CRUD factory](../api/crud-factory) emits standard events for module entities:
+
+- `<module>.<entity>.created`
+- `<module>.<entity>.updated`
+- `<module>.<entity>.deleted`
+
+Use these to react to lifecycle changes without tightly coupling modules. Mark them persistent to support offline replay.

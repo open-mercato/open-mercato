@@ -7,7 +7,7 @@ import { readApiResultOrThrow, apiCallOrThrow, apiCall } from '@open-mercato/ui/
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/booking/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/booking/lib/memberSchedule'
 import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } from '@open-mercato/core/modules/booking/components/TeamMemberForm'

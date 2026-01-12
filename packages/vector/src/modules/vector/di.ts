@@ -1,5 +1,5 @@
 import { asValue } from 'awilix'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { EmbeddingService, VectorIndexService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '@open-mercato/vector'
 import type { VectorModuleConfig } from '@open-mercato/vector'
 

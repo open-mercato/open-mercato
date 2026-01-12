@@ -3,9 +3,183 @@
   "version": "0.3.12",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "imports": {
+    "#generated/entities.ids.generated": {
+      "types": "./src/generated-shims/entities.ids.generated.ts",
+      "default": "./dist/generated-shims/entities.ids.generated.js"
+    },
+    "#generated/entity-fields-registry": {
+      "types": "./src/generated-shims/entity-fields-registry.ts",
+      "default": "./dist/generated-shims/entity-fields-registry.js"
+    },
+    "#generated/entities/*": "./generated/entities/*/index.ts"
+  },
   "exports": {
-    "./modules/*": "./src/modules/*",
-    "./datamodel/entities": "./generated/entities.ids.generated.ts",
-    ".": "./src/index.js"
+    ".": "./dist/index.js",
+    "./modules/customers": {
+      "types": "./src/modules/customers/index.ts",
+      "default": "./dist/modules/customers/index.js"
+    },
+    "./modules/customers/commands": {
+      "types": "./src/modules/customers/commands/index.ts",
+      "default": "./dist/modules/customers/commands/index.js"
+    },
+    "./modules/sales": {
+      "types": "./src/modules/sales/index.ts",
+      "default": "./dist/modules/sales/index.js"
+    },
+    "./modules/sales/commands": {
+      "types": "./src/modules/sales/commands/index.ts",
+      "default": "./dist/modules/sales/commands/index.js"
+    },
+    "./modules/catalog": {
+      "types": "./src/modules/catalog/index.ts",
+      "default": "./dist/modules/catalog/index.js"
+    },
+    "./modules/catalog/commands": {
+      "types": "./src/modules/catalog/commands/index.ts",
+      "default": "./dist/modules/catalog/commands/index.js"
+    },
+    "./modules/booking": {
+      "types": "./src/modules/booking/index.ts",
+      "default": "./dist/modules/booking/index.js"
+    },
+    "./modules/booking/commands": {
+      "types": "./src/modules/booking/commands/index.ts",
+      "default": "./dist/modules/booking/commands/index.js"
+    },
+    "./modules/auth": {
+      "types": "./src/modules/auth/index.ts",
+      "default": "./dist/modules/auth/index.js"
+    },
+    "./modules/directory": {
+      "types": "./src/modules/directory/index.ts",
+      "default": "./dist/modules/directory/index.js"
+    },
+    "./modules/entities": {
+      "types": "./src/modules/entities/index.ts",
+      "default": "./dist/modules/entities/index.js"
+    },
+    "./modules/dictionaries": {
+      "types": "./src/modules/dictionaries/index.ts",
+      "default": "./dist/modules/dictionaries/index.js"
+    },
+    "./modules/dictionaries/commands": {
+      "types": "./src/modules/dictionaries/commands/index.ts",
+      "default": "./dist/modules/dictionaries/commands/index.js"
+    },
+    "./modules/feature_toggles": {
+      "types": "./src/modules/feature_toggles/index.ts",
+      "default": "./dist/modules/feature_toggles/index.js"
+    },
+    "./modules/feature_toggles/commands": {
+      "types": "./src/modules/feature_toggles/commands/index.ts",
+      "default": "./dist/modules/feature_toggles/commands/index.js"
+    },
+    "./modules/configs": {
+      "types": "./src/modules/configs/index.ts",
+      "default": "./dist/modules/configs/index.js"
+    },
+    "./modules/query_index": {
+      "types": "./src/modules/query_index/index.ts",
+      "default": "./dist/modules/query_index/index.js"
+    },
+    "./modules/audit_logs": {
+      "types": "./src/modules/audit_logs/index.ts",
+      "default": "./dist/modules/audit_logs/index.js"
+    },
+    "./modules/attachments": {
+      "types": "./src/modules/attachments/index.ts",
+      "default": "./dist/modules/attachments/index.js"
+    },
+    "./modules/dashboards": {
+      "types": "./src/modules/dashboards/index.ts",
+      "default": "./dist/modules/dashboards/index.js"
+    },
+    "./modules/perspectives": {
+      "types": "./src/modules/perspectives/index.ts",
+      "default": "./dist/modules/perspectives/index.js"
+    },
+    "./modules/business_rules": {
+      "types": "./src/modules/business_rules/index.ts",
+      "default": "./dist/modules/business_rules/index.js"
+    },
+    "./modules/api_docs": {
+      "types": "./src/modules/api_docs/index.ts",
+      "default": "./dist/modules/api_docs/index.js"
+    },
+    "./modules/api_keys": {
+      "types": "./src/modules/api_keys/index.ts",
+      "default": "./dist/modules/api_keys/index.js"
+    },
+    "./modules/widgets/lib/injection": {
+      "types": "./src/modules/widgets/lib/injection.ts",
+      "default": "./dist/modules/widgets/lib/injection.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": ["./src/*.ts", "./src/*.tsx"],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": ["./src/*/*.ts", "./src/*/*.tsx"],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": ["./src/*/*/*.ts", "./src/*/*/*.tsx"],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": ["./src/*/*/*/*.ts", "./src/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*.ts", "./src/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json",
+    "./*/*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*/*.ts", "./src/*/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*.json": "./src/*/*/*/*/*/*/*.json",
+    "./*/*/*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*/*/*.ts", "./src/*/*/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*/*.json": "./src/*/*/*/*/*/*/*/*.json",
+    "./*/*/*/*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*/*/*/*.ts", "./src/*/*/*/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*/*/*.json": "./src/*/*/*/*/*/*/*/*/*.json",
+    "./*/*/*/*/*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*/*/*/*/*.ts", "./src/*/*/*/*/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*/*/*/*/*.json": "./src/*/*/*/*/*/*/*/*/*/*.json",
+    "./*/*/*/*/*/*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*/*/*/*/*/*.ts", "./src/*/*/*/*/*/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*/*/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@open-mercato/shared": "0.3.12"
   }
 }

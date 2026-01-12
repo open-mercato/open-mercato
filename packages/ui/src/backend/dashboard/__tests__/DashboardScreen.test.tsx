@@ -4,7 +4,7 @@
 
 import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '../../../../../../tests/helpers/renderWithProviders'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { DashboardScreen } from '../DashboardScreen'
 import { apiCall } from '../../utils/apiCall'
 import { loadDashboardWidgetModule } from '../widgetRegistry'

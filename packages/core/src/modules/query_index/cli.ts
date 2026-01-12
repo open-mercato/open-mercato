@@ -1,5 +1,5 @@
-import type { ModuleCli } from '@/modules/registry'
-import { createRequestContainer } from '@/lib/di/container'
+import type { ModuleCli } from '@open-mercato/shared/modules/registry'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
@@ -12,8 +12,8 @@ type ProgressBarHandle = {
   complete(): void
 }
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import { recordIndexerError } from '@/lib/indexers/error-log'
-import { recordIndexerLog } from '@/lib/indexers/status-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'

@@ -7,9 +7,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@/lib/i18n/context'
-import { useOrganizationScopeVersion } from '@/lib/frontend/useOrganizationScope'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { E } from '#generated/entities.ids.generated'
 
 type AttendeeFormValues = {
   id?: string

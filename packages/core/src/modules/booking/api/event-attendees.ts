@@ -9,7 +9,7 @@ import { BookingEvent, BookingEventAttendee } from '../data/entities'
 import { bookingEventAttendeeCreateSchema, bookingEventAttendeeUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm } from './helpers'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
-import { E } from '@/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

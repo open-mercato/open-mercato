@@ -5,7 +5,7 @@
 import '@testing-library/jest-dom'
 import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { renderWithProviders } from '../../../../../../../../tests/helpers/renderWithProviders'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { VectorSettingsPageClient } from '../VectorSettingsPageClient'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'

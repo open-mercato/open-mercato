@@ -88,7 +88,7 @@ describe('sales document update routes', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     setupEntityMocks()
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',

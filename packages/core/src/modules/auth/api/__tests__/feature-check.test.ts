@@ -27,14 +27,14 @@ describe('POST /api/auth/feature-check', () => {
   })
 
   it('returns 401 when not authenticated', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockReturnValue(null)
     const res = await POST(makeReq({ features: ['x.y'] }))
     expect(res.status).toBe(401)
   })
 
   it('returns ok true when no features passed', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockReturnValue({ sub: 'u1', tenantId: 't1', orgId: 'o1' })
     const res = await POST(makeReq({ features: [] }))
     expect(res.status).toBe(200)
@@ -42,7 +42,7 @@ describe('POST /api/auth/feature-check', () => {
   })
 
   it('returns ok true when RBAC grants all features', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockReturnValue({ sub: 'u1', tenantId: 't1', orgId: 'o1' })
     mockRbac.userHasAllFeatures.mockResolvedValueOnce(true)
     const res = await POST(makeReq({ features: ['a.b'] }))
@@ -51,7 +51,7 @@ describe('POST /api/auth/feature-check', () => {
   })
 
   it('returns ok false when RBAC denies features', async () => {
-    const { getAuthFromRequest } = await import('@/lib/auth/server')
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockReturnValue({ sub: 'u1', tenantId: 't1', orgId: 'o1' })
     mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
     const res = await POST(makeReq({ features: ['a.b'] }))

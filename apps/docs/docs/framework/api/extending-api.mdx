@@ -1,0 +1,59 @@
+---
+title: Extend module APIs
+description: Add bespoke endpoints while keeping tenant safety, RBAC, and validation consistent.
+---
+
+While the [CRUD factory](./crud-factory) covers most cases, sometimes you need bespoke endpoints—aggregations, external integrations, or webhooks. Follow these guidelines to extend module APIs safely.
+
+## File structure
+
+```
+src/modules/<module>/api/<path>/route.ts
+```
+
+Example: `api/organizations/invite/route.ts` handles `/api/organizations/invite`.
+
+Each file exports handlers for HTTP methods (GET, POST, PUT, DELETE, etc.) following Next.js App Router conventions.
+
+```ts title="api/organizations/invite/route.ts"
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { createRequestContainer } from "@/lib/di/container";
+import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
+
+const inputSchema = z.object({
+  email: z.string().email(),
+  roleId: z.string().uuid(),
+});
+
+export async function POST(req: Request, { auth }: { auth: AuthContext }) {
+  const body = inputSchema.parse(await req.json());
+
+  const container = await createRequestContainer();
+  const invitations = container.resolve("organizationInvitationService");
+
+  await invitations.inviteUser({
+    ...body,
+    organizationId: auth.organizationId,
+  });
+
+  return NextResponse.json({ ok: true });
+}
+
+export const metadata = {
+  POST: {
+    requireAuth: true,
+    requireFeatures: ["directory.invite"],
+  },
+};
+```
+
+## Best practices
+
+- **Validate all inputs** using Zod schemas colocated with the entity or service they touch.
+- **Respect tenant boundaries** by scoping queries to `organizationId` or `tenantId` from the request context.
+- **Use services, not repositories directly** – resolve them from DI so you can unit test independently and override implementations per tenant.
+- **Emit events deliberately** when downstream modules should react; otherwise keep handlers idempotent.
+- **Document metadata** (`requireFeatures`, `requireRoles`) to integrate with admin navigation and ACLs.
+
+Mixing CRUD factories and bespoke endpoints gives you the flexibility to move fast while keeping the platform predictable.

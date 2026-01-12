@@ -10,12 +10,13 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+.turbo
 
 # testing
 /coverage
 
 # next.js
-/.next/
+.next/
 /out/
 
 # production
@@ -58,6 +59,7 @@ packages/client/src/generated/
 # package build outputs
 packages/*/dist/
 packages/**/dist/
+.mercato
 
 # runtime/event state
 .events/
@@ -85,5 +87,4 @@ package-lock.json
 packages/cache/node_modules/*
 newrelic_agent.log
 /generated/
-.queue/events/queue.json
-.queue/events/state.json
+.queue

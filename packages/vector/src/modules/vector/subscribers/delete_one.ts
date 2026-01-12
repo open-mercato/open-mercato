@@ -1,4 +1,4 @@
-import { recordIndexerError } from '@/lib/indexers/error-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import type { VectorIndexOperationResult, VectorIndexService, EmbeddingService } from '@open-mercato/vector'

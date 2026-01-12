@@ -8,7 +8,7 @@ import {
   type AccessLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
+import { E } from '#generated/entities.ids.generated'
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 

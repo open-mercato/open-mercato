@@ -1,0 +1,368 @@
+---
+title: Business Rules API
+description: REST API for managing and executing business rules programmatically.
+---
+
+# Business Rules API
+
+The Business Rules API enables programmatic access to rule management, execution, and logging. Use these endpoints to integrate business rules into your applications, workflows, and automation systems.
+
+## Base URL
+
+```
+/api/business_rules
+```
+
+## Authentication
+
+All Business Rules API endpoints require authentication. Include your API key or session token in the request headers.
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/rules" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Accept: application/json"
+```
+
+## Multi-Tenant Scoping
+
+All endpoints are automatically scoped to your tenant and organization based on your authentication context. You cannot access rules, sets, or logs from other tenants.
+
+The API automatically injects:
+
+- `tenant_id` - From your authentication token
+- `organization_id` - From your authentication token
+
+## RBAC Features
+
+Access to Business Rules API is controlled by these features:
+
+| Feature                        | Description            |
+| ------------------------------ | ---------------------- |
+| `business_rules.rules.view`    | List and view rules    |
+| `business_rules.rules.create`  | Create new rules       |
+| `business_rules.rules.edit`    | Update existing rules  |
+| `business_rules.rules.delete`  | Delete rules           |
+| `business_rules.rules.execute` | Execute rules manually |
+| `business_rules.logs.view`     | View execution logs    |
+
+Contact your administrator if you receive 403 Forbidden responses.
+
+## Response Format
+
+### Success Responses
+
+Successful responses return JSON with appropriate HTTP status codes:
+
+- `200 OK` - Request succeeded, data returned
+- `201 Created` - Resource created successfully
+- `204 No Content` - Request succeeded, no data returned
+
+**List Response**:
+
+```json
+{
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 150,
+    "totalPages": 8
+  }
+}
+```
+
+**Single Resource**:
+
+```json
+{
+  "id": "uuid",
+  "ruleId": "RULE_ID",
+  ...
+}
+```
+
+### Error Responses
+
+Errors return JSON with error details:
+
+```json
+{
+  "error": "Error message",
+  "code": "ERROR_CODE",
+  "details": {}
+}
+```
+
+**Common Status Codes**:
+
+- `400 Bad Request` - Invalid input, validation errors
+- `401 Unauthorized` - Missing or invalid authentication
+- `403 Forbidden` - Insufficient permissions
+- `404 Not Found` - Resource not found
+- `409 Conflict` - Resource conflict (e.g., duplicate ID)
+- `500 Internal Server Error` - Server error
+
+## Rate Limiting
+
+API requests are rate-limited to prevent abuse:
+
+- **Standard**: 100 requests per minute per user
+- **Execute endpoint**: 10 requests per minute (to prevent runaway automation)
+
+Rate limit headers are included in responses:
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 95
+X-RateLimit-Reset: 1234567890
+```
+
+## Pagination
+
+List endpoints support pagination with query parameters:
+
+- `page` - Page number (default: 1)
+- `pageSize` - Items per page (default: 20, max: 100)
+
+**Example**:
+
+```bash
+curl -X GET "$BASE_URL/api/business_rules/rules?page=2&pageSize=50"
+```
+
+**Response**:
+
+```json
+{
+  "data": [...],
+  "pagination": {
+    "page": 2,
+    "pageSize": 50,
+    "total": 150,
+    "totalPages": 3
+  }
+}
+```
+
+## Filtering and Sorting
+
+List endpoints support filtering and sorting:
+
+**Filters**: Pass as query parameters
+
+```
+?ruleType=GUARD&enabled=true&entityType=WorkOrder
+```
+
+**Sorting**: Use `sortField` and `sortDir`
+
+```
+?sortField=priority&sortDir=desc
+```
+
+**Search**: Use `search` parameter
+
+```
+?search=material
+```
+
+## Endpoints
+
+### Rules Management
+
+- [**GET /api/business_rules/rules**](./business-rules/rules#list-rules) - List all rules with filters
+- [**POST /api/business_rules/rules**](./business-rules/rules#create-rule) - Create a new rule
+- [**GET /api/business_rules/rules/[id]**](./business-rules/rules#get-rule) - Get rule details
+- [**PUT /api/business_rules/rules**](./business-rules/rules#update-rule) - Update an existing rule
+- [**DELETE /api/business_rules/rules**](./business-rules/rules#delete-rule) - Delete a rule (soft delete)
+
+### Rule Execution
+
+- [**POST /api/business_rules/execute**](./business-rules/execute) - Execute rules for an entity
+
+### Execution Logs
+
+- [**GET /api/business_rules/logs**](./business-rules/logs#list-logs) - List execution logs with filters
+- [**GET /api/business_rules/logs/[id]**](./business-rules/logs#get-log-details) - Get log details
+
+### Rule Sets
+
+- [**GET /api/business_rules/sets**](./business-rules/sets#list-sets) - List rule sets
+- [**POST /api/business_rules/sets**](./business-rules/sets#create-set) - Create a rule set
+- [**PUT /api/business_rules/sets**](./business-rules/sets#update-set) - Update a rule set
+- [**DELETE /api/business_rules/sets**](./business-rules/sets#delete-set) - Delete a rule set
+- [**GET /api/business_rules/sets/[id]**](./business-rules/sets#get-set-details) - Get set with members
+- [**POST /api/business_rules/sets/[id]/members**](./business-rules/sets#add-rule-to-set) - Add rule to set
+- [**PUT /api/business_rules/sets/[id]/members**](./business-rules/sets#update-set-member) - Update member
+- [**DELETE /api/business_rules/sets/[id]/members**](./business-rules/sets#remove-rule-from-set) - Remove rule from set
+
+## Environment Setup
+
+Set these environment variables for API examples:
+
+```bash
+export BASE_URL="http://localhost:3000"
+export API_KEY="your_api_key_here"
+```
+
+All subsequent examples assume these variables are set.
+
+## Common Workflows
+
+### Create and Execute a Rule
+
+```bash
+# 1. Create a rule
+curl -X POST "$BASE_URL/api/business_rules/rules" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ruleId": "TEST_RULE",
+    "ruleName": "Test Rule",
+    "ruleType": "VALIDATION",
+    "entityType": "Order",
+    "conditionExpression": {
+      "field": "total",
+      "operator": ">",
+      "value": 1000
+    },
+    "successActions": [
+      {
+        "type": "LOG",
+        "config": {"level": "info", "message": "Large order detected"}
+      }
+    ],
+    "enabled": true,
+    "priority": 100,
+    "version": 1
+  }'
+
+# 2. Execute the rule
+curl -X POST "$BASE_URL/api/business_rules/execute" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "entityType": "Order",
+    "entityId": "order-123",
+    "eventType": "afterCreate",
+    "data": {"total": 1500},
+    "dryRun": false
+  }'
+
+# 3. Check execution logs
+curl -X GET "$BASE_URL/api/business_rules/logs?entityId=order-123" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+### Bulk Rule Management
+
+```bash
+# List all GUARD rules
+curl -X GET "$BASE_URL/api/business_rules/rules?ruleType=GUARD" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Disable rules by updating each
+for ruleId in RULE_1 RULE_2 RULE_3; do
+  curl -X PUT "$BASE_URL/api/business_rules/rules" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"ruleId\": \"$ruleId\", \"enabled\": false}"
+done
+```
+
+### Query Execution History
+
+```bash
+# Get logs for failed executions
+curl -X GET "$BASE_URL/api/business_rules/logs?executionResult=FAILURE&pageSize=100" \
+  -H "Authorization: Bearer $API_KEY"
+
+# Get logs for specific rule
+curl -X GET "$BASE_URL/api/business_rules/logs?ruleId=MATERIAL_CHECK&sortField=executedAt&sortDir=desc" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+## SDK and Client Libraries
+
+Official client libraries are available:
+
+- **TypeScript/JavaScript**: `@open-mercato/api-client`
+- **Python**: `open-mercato` (PyPI)
+- **Go**: `github.com/open-mercato/go-client`
+
+Install and use:
+
+```typescript
+import { BusinessRulesClient } from "@open-mercato/api-client";
+
+const client = new BusinessRulesClient({
+  baseUrl: "http://localhost:3000",
+  apiKey: process.env.API_KEY,
+});
+
+const rules = await client.rules.list({ ruleType: "GUARD" });
+const result = await client.execute({
+  entityType: "Order",
+  entityId: "order-123",
+  eventType: "afterCreate",
+  data: { total: 1500 },
+});
+```
+
+## Webhooks and Events
+
+Business rules can emit events that trigger webhooks. Configure webhook URLs in rule actions:
+
+```json
+{
+  "type": "CALL_WEBHOOK",
+  "config": {
+    "url": "https://your-app.com/webhooks/rule-executed",
+    "method": "POST",
+    "payload": "{\"ruleId\": \"{{ruleId}}\", \"result\": \"{{result}}\"}"
+  }
+}
+```
+
+Webhook requests include:
+
+- JSON payload from action config
+- Header: `X-Open-Mercato-Event: rule.executed`
+- Header: `X-Open-Mercato-Signature: hmac-sha256-signature`
+
+## Best Practices
+
+**Use Dry Run**: Test rule execution with `dryRun: true` before running in production
+
+**Monitor Execution Logs**: Regularly review logs for errors and performance issues
+
+**Set Appropriate Timeouts**: Rules execute with timeouts to prevent runaway execution
+
+**Handle Errors**: API calls can fail; implement retry logic with exponential backoff
+
+**Cache Rule Data**: Cache rule lists if querying frequently; invalidate when rules change
+
+**Use Pagination**: Don't fetch all data at once; use pagination for large result sets
+
+**Filter Aggressively**: Use filters to reduce data transfer and improve performance
+
+**Secure API Keys**: Store API keys securely; rotate regularly; use different keys per environment
+
+## Troubleshooting
+
+**403 Forbidden**: Check RBAC features assigned to your user
+
+**404 Not Found**: Verify resource ID and tenant scope
+
+**400 Bad Request**: Review error details for validation failures
+
+**Rate Limited**: Implement backoff and respect rate limit headers
+
+**Timeout**: Rule execution can timeout; check logs for slow rules
+
+## Next Steps
+
+- [**Rules API**](./business-rules/rules) - CRUD operations for rules
+- [**Execute API**](./business-rules/execute) - Trigger rule execution
+- [**Logs API**](./business-rules/logs) - Query execution history
+- [**Sets API**](./business-rules/sets) - Manage rule sets

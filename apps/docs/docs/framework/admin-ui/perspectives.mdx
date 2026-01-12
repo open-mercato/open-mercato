@@ -1,0 +1,78 @@
+---
+title: Table perspectives
+description: Save and reuse DataTable configurations, share defaults with roles, and hydrate the UI without visual flicker.
+---
+
+Table perspectives let operators bookmark how a DataTable is presented: column order, hidden fields, filters, sorting and search input are all persisted per table. The feature is discoverable anywhere the backend renders `DataTable` with a `perspective` prop.
+
+## Permissions recap
+
+- `perspectives.use` &mdash; required to open the **Perspectives** drawer, switch between saved views and store personal defaults.
+- `perspectives.role_defaults` &mdash; additionally required to publish a perspective for selected roles or mark one as a role default.
+
+Both permissions are seeded by `mercato auth setup`. If you introduce new roles manually, remember to add the features to their ACLs.
+
+## Enabling perspectives on a DataTable
+
+```tsx title="Customers table excerpt"
+<DataTable
+  columns={columns}
+  data={rows}
+  perspective={{ tableId: 'customers.people.list' }}
+  /* ... */
+/>
+```
+
+The `tableId` can be any unique string; it scopes the stored data and maps to the `/api/perspectives/{tableId}` endpoints from the `perspectives` module.
+
+## Eliminating flicker with SSR
+
+When a user lands on the table for the first time, the client component normally downloads perspectives and applies the selected view afterwards. To hydrate the table with the right layout from the start, fetch the initial state on the server and pass it down:
+
+```tsx title="app/backend/customers/page.tsx"
+import { fetchInitialPerspectiveState } from '@open-mercato/core/modules/perspectives/utils/initialState'
+import CustomersPageClient from './PageClient'
+
+export default async function CustomersPage() {
+  const perspective = await fetchInitialPerspectiveState('customers.people.list')
+  return <CustomersPageClient initialPerspective={perspective ?? undefined} />
+}
+```
+
+Then forward `initialPerspective` to `DataTable`:
+
+```tsx title="PageClient.tsx"
+<DataTable
+  columns={columns}
+  data={rows}
+  perspective={{
+    tableId: 'customers.people.list',
+    initialState: perspective,
+  }}
+/>
+```
+
+`fetchInitialPerspectiveState()` reads the user’s cookie and calls the perspectives API using the incoming request credentials. It returns the saved response payload, the id that should be activated, and a sanitized copy of the perspective settings. The client uses that information to render the table with the correct columns immediately while still revalidating the data once hydrated.
+
+## What the client stores locally
+
+The `DataTable` component keeps a lightweight snapshot in `localStorage` so subsequent navigations reapply the last view even before React Query has revalidated against the API. The snapshot is invalidated automatically when a perspective is deleted or a role default is cleared.
+
+## API surface
+
+`/api/perspectives/{tableId}`
+: `GET` fetches personal and role perspectives for the current user. `POST` creates or updates the personal entry and optionally pushes a copy to roles.
+
+`/api/perspectives/{tableId}/{perspectiveId}`
+: `DELETE` soft-deletes the personal perspective.
+
+`/api/perspectives/{tableId}/roles/{roleId}`
+: `DELETE` removes a role default. Requires `perspectives.role_defaults`.
+
+All endpoints live in the `perspectives` module and are included automatically by `npm run modules:prepare`.
+
+## Troubleshooting
+
+- If you see *“Perspectives API is not available yet”*, run `npm run modules:prepare` and restart the dev server so the new module routes are generated.
+- Validation errors such as *“Invalid key in record”* usually mean a consumer is sending unsanitized column ids; use the `sanitizePerspectiveSettings` helper before invoking the API directly.
+- Role changes do not retroactively update personal perspectives. Ask users to refresh or delete their saved view after a major schema change.

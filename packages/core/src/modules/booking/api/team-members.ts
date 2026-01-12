@@ -9,8 +9,25 @@ import { BookingTeam, BookingTeamMember, BookingTeamRole } from '../data/entitie
 import { bookingTeamMemberCreateSchema, bookingTeamMemberUpdateSchema } from '../data/validators'
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { E } from '@/generated/entities.ids.generated'
-import * as F from '@/generated/entities/booking_team_member'
+import { E } from '#generated/entities.ids.generated'
+
+// Field constants for BookingTeamMember entity
+const F = {
+  id: "id",
+  tenant_id: "tenant_id",
+  organization_id: "organization_id",
+  team_id: "team_id",
+  display_name: "display_name",
+  description: "description",
+  user_id: "user_id",
+  role_ids: "role_ids",
+  tags: "tags",
+  availability_rule_set_id: "availability_rule_set_id",
+  is_active: "is_active",
+  created_at: "created_at",
+  updated_at: "updated_at",
+  deleted_at: "deleted_at",
+} as const
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },

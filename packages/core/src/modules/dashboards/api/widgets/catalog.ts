@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getAuthFromRequest } from '@/lib/auth/server'
-import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'

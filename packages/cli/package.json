@@ -3,12 +3,39 @@
   "version": "0.3.12",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
   "exports": {
-    "./mercato": "./src/mercato.ts",
-    ".": "./src/index.ts"
+    ".": "./dist/index.js",
+    "./mercato": {
+      "types": "./src/mercato.ts",
+      "default": "./dist/mercato.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*": {
+      "types": ["./src/*.ts"],
+      "default": "./dist/*.js"
+    },
+    "./*/*": {
+      "types": ["./src/*/*.ts"],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*": {
+      "types": ["./src/*/*/*.ts"],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*": {
+      "types": ["./src/*/*/*/*.ts"],
+      "default": "./dist/*/*/*/*.js"
+    }
   },
   "bin": {
-    "mercato": "./dist/bin.js"
+    "mercato": "./bin/mercato"
+  },
+  "scripts": {
+    "build": "node build.mjs"
   },
   "dependencies": {
     "@mikro-orm/core": "^6.6.2",

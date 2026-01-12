@@ -7,8 +7,8 @@ import { SalesQuoteLine } from '../../data/entities'
 import { quoteLineCreateSchema } from '../../data/validators'
 import { createPagedListResponseSchema, createSalesCrudOpenApi, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import * as F from '@open-mercato/core/generated/entities/sales_quote_line'
+import { E } from '#generated/entities.ids.generated'
+import * as F from '#generated/entities/sales_quote_line'
 
 const rawBodySchema = z.object({}).passthrough()
 const resolveRawBody = (raw: unknown) => (raw && typeof raw === 'object' && 'body' in raw ? (raw as any).body : raw)

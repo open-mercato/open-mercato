@@ -10,8 +10,8 @@ import {
   optionSchemaTemplateUpdateSchema,
 } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import * as FO from '@open-mercato/core/generated/entities/catalog_option_schema_template'
+import { E } from '#generated/entities.ids.generated'
+import * as FO from '#generated/entities/catalog_option_schema_template'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {

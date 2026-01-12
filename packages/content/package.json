@@ -3,8 +3,47 @@
   "version": "0.3.12",
   "private": true,
   "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "node build.mjs"
+  },
   "exports": {
-    "./modules/*": "./src/modules/*",
-    ".": "./src/index.ts"
+    ".": "./dist/index.js",
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*.tsx": {
+      "types": "./src/*.tsx",
+      "default": "./dist/*.js"
+    },
+    "./*.json": "./src/*.json",
+    "./*": {
+      "types": ["./src/*.ts", "./src/*.tsx"],
+      "default": "./dist/*.js"
+    },
+    "./*/*.json": "./src/*/*.json",
+    "./*/*": {
+      "types": ["./src/*/*.ts", "./src/*/*.tsx"],
+      "default": "./dist/*/*.js"
+    },
+    "./*/*/*.json": "./src/*/*/*.json",
+    "./*/*/*": {
+      "types": ["./src/*/*/*.ts", "./src/*/*/*.tsx"],
+      "default": "./dist/*/*/*.js"
+    },
+    "./*/*/*/*.json": "./src/*/*/*/*.json",
+    "./*/*/*/*": {
+      "types": ["./src/*/*/*/*.ts", "./src/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*.js"
+    },
+    "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
+    "./*/*/*/*/*": {
+      "types": ["./src/*/*/*/*/*.ts", "./src/*/*/*/*/*.tsx"],
+      "default": "./dist/*/*/*/*/*.js"
+    }
+  },
+  "dependencies": {
+    "@open-mercato/shared": "0.3.12"
   }
 }

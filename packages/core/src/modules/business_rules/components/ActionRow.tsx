@@ -4,7 +4,7 @@ import * as React from 'react'
 import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import type { Action } from './utils/actionValidation'
 import { getActionTypeOptions, getRequiredConfigFields, getOptionalConfigFields } from './utils/actionValidation'
-import { useT } from '@/lib/i18n/context'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type ActionRowProps = {
   action: Action

@@ -1,5 +1,5 @@
 import { asFunction } from 'awilix'
-import type { AppContainer } from '@/lib/di/container'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { DefaultBookingAvailabilityService } from './services/bookingAvailabilityService'
 
 export function register(container: AppContainer) {

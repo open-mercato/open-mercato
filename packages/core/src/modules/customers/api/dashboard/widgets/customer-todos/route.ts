@@ -7,7 +7,7 @@ import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/core'
-import type { EntityId } from '@/modules/entities'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 
 const querySchema = z.object({

@@ -7,8 +7,8 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductPrice } from '../../data/entities'
 import { priceCreateSchema, priceUpdateSchema } from '../../data/validators'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
-import { E } from '@open-mercato/core/generated/entities.ids.generated'
-import * as FP from '@open-mercato/core/generated/entities/catalog_product_price'
+import { E } from '#generated/entities.ids.generated'
+import * as FP from '#generated/entities/catalog_product_price'
 import {
   createCatalogCrudOpenApi,
   createPagedListResponseSchema,
