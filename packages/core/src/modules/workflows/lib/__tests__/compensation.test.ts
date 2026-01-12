@@ -31,6 +31,11 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
   const mockContainer = {} as any
 
   const mockInstance = {
+    version: '1.0.0',
+    startedAt: new Date('2024-01-01T10:00:00Z'),
+    retryCount: 0,
+    createdAt: new Date('2024-01-01T09:00:00Z'),
+    updatedAt: new Date('2024-01-01T10:00:00Z'),
     id: instanceId,
     definitionId: 'def-123',
     status: 'FAILED',
@@ -127,6 +132,9 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       // Mock successful compensation executions
       mockExecuteActivity.mockResolvedValue({
         success: true,
+        activityId: 'test-activity',
+        activityType: 'CALL_API',
+        retryCount: 0,
         output: { refunded: true },
         executionTimeMs: 100,
       })
@@ -177,7 +185,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: {}, executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       await compensateWorkflow(
         mockEm,
@@ -207,7 +215,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: {}, executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       const result = await compensateWorkflow(
         mockEm,
@@ -246,7 +254,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: {}, executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       await compensateWorkflow(
         mockEm,
@@ -318,7 +326,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: {}, executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       const result = await compensateWorkflow(
         mockEm,
@@ -373,7 +381,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       }
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: {}, executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       const result = await compensateWorkflow(
         mockEm,
@@ -408,8 +416,8 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
 
       // First compensation fails, second succeeds
       mockExecuteActivity
-        .mockResolvedValueOnce({ success: false, error: 'Inventory service unavailable', executionTimeMs: 50 })
-        .mockResolvedValueOnce({ success: true, output: {}, executionTimeMs: 50 })
+        .mockResolvedValueOnce({ success: false, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, error: 'Inventory service unavailable', executionTimeMs: 50 })
+        .mockResolvedValueOnce({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       const result = await compensateWorkflow(
         mockEm,
@@ -444,7 +452,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: false, error: 'Compensation failed', executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: false, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, error: 'Compensation failed', executionTimeMs: 50 })
 
       const result = await compensateWorkflow(
         mockEm,
@@ -541,7 +549,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: false, error: 'Critical failure', executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: false, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, error: 'Critical failure', executionTimeMs: 50 })
 
       const result = await compensateWorkflow(
         mockEm,
@@ -603,7 +611,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: { refunded: true }, executionTimeMs: 123 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: { refunded: true }, executionTimeMs: 123 })
 
       await compensateWorkflow(
         mockEm,
@@ -655,7 +663,7 @@ describe('Compensation (Saga Pattern) - Phase 8', () => {
       ]
 
       mockEm.find.mockResolvedValue(completedActivities)
-      mockExecuteActivity.mockResolvedValue({ success: true, output: {}, executionTimeMs: 50 })
+      mockExecuteActivity.mockResolvedValue({ success: true, activityId: 'test-activity', activityType: 'CALL_API', retryCount: 0, output: {}, executionTimeMs: 50 })
 
       await compensateWorkflow(
         mockEm,

@@ -849,8 +849,8 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
 
       const startedEvent = eventCalls.find((call: any) => call[1].eventType === 'SUB_WORKFLOW_STARTED')
       expect(startedEvent).toBeDefined()
-      expect(startedEvent![1].eventData.subWorkflowId).toBe('child-workflow')
-      expect(startedEvent![1].eventData.childInstanceId).toBe(childInstanceId)
+      expect((startedEvent![1] as any).eventData.subWorkflowId).toBe('child-workflow')
+      expect((startedEvent![1] as any).eventData.childInstanceId).toBe(childInstanceId)
 
       startWorkflowSpy.mockRestore()
       executeWorkflowSpy.mockRestore()
@@ -886,8 +886,8 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
 
       const completedEvent = eventCalls.find((call: any) => call[1].eventType === 'SUB_WORKFLOW_COMPLETED')
       expect(completedEvent).toBeDefined()
-      expect(completedEvent![1].eventData.childInstanceId).toBe(childInstanceId)
-      expect(completedEvent![1].eventData.outputData).toBeDefined()
+      expect((completedEvent![1] as any).eventData.childInstanceId).toBe(childInstanceId)
+      expect((completedEvent![1] as any).eventData.outputData).toBeDefined()
 
       startWorkflowSpy.mockRestore()
       executeWorkflowSpy.mockRestore()
@@ -924,8 +924,8 @@ describe('Sub-Workflow Execution (Phase 8)', () => {
 
       const failedEvent = eventCalls.find((call: any) => call[1].eventType === 'SUB_WORKFLOW_FAILED')
       expect(failedEvent).toBeDefined()
-      expect(failedEvent![1].eventData.childInstanceId).toBe(childInstanceId)
-      expect(failedEvent![1].eventData.error).toContain('Processing error')
+      expect((failedEvent![1] as any).eventData.childInstanceId).toBe(childInstanceId)
+      expect((failedEvent![1] as any).eventData.error).toContain('Processing error')
 
       startWorkflowSpy.mockRestore()
       executeWorkflowSpy.mockRestore()

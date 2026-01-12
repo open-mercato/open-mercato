@@ -109,7 +109,10 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt: expect.any(Date),
         tenantId: testTenantId,
         organizationId: testOrgId,
-      } as StepInstance
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
 
@@ -168,6 +171,9 @@ describe('Step Handler (Unit Tests)', () => {
         inputData: { trigger: 'manual', userId: 'user-123' },
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
@@ -203,6 +209,9 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt,
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       await stepHandler.exitStep(mockEm, mockStepInstance, { result: 'success' })
@@ -224,6 +233,9 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt: new Date(),
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       await stepHandler.exitStep(mockEm, mockStepInstance)
@@ -252,6 +264,9 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt: new Date(),
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
@@ -288,6 +303,9 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt: new Date(),
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
@@ -325,6 +343,9 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt: new Date(),
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
@@ -363,6 +384,9 @@ describe('Step Handler (Unit Tests)', () => {
         enteredAt: new Date(),
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       const mockUserTask = {
@@ -374,6 +398,8 @@ describe('Step Handler (Unit Tests)', () => {
         assignedTo: 'manager@example.com',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as UserTask
 
       mockEm.create
@@ -409,6 +435,9 @@ describe('Step Handler (Unit Tests)', () => {
         status: 'ACTIVE',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       const mockUserTask = {
@@ -426,7 +455,9 @@ describe('Step Handler (Unit Tests)', () => {
         dueDate: expect.any(Date),
         tenantId: testTenantId,
         organizationId: testOrgId,
-      } as UserTask
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as UserTask
 
       mockEm.create
         .mockReturnValueOnce(mockStepInstance)
@@ -444,7 +475,7 @@ describe('Step Handler (Unit Tests)', () => {
       // Verify user task was created with correct properties
       // Calls: step instance, event, user task, event
       expect(mockEm.create).toHaveBeenCalledTimes(4)
-      const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] // Third call is user task
+      const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] as [string, any] // Third call is user task
       expect(userTaskCall[1].formSchema).toBeDefined()
       expect(userTaskCall[1].assignedTo).toBe('manager@example.com')
       expect(userTaskCall[1].dueDate).toBeDefined()
@@ -481,6 +512,9 @@ describe('Step Handler (Unit Tests)', () => {
         status: 'ACTIVE',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       const mockUserTask = {
@@ -489,6 +523,8 @@ describe('Step Handler (Unit Tests)', () => {
         assignedToRoles: ['manager', 'admin'],
         tenantId: testTenantId,
         organizationId: testOrgId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as UserTask
 
       mockEm.create
@@ -504,7 +540,7 @@ describe('Step Handler (Unit Tests)', () => {
         { workflowContext: {} }
       )
 
-      const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] // Third call is user task
+      const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] as [string, any] // Third call is user task
       expect(userTaskCall[1].assignedTo).toBeNull()
       expect(userTaskCall[1].assignedToRoles).toEqual(['manager', 'admin'])
     })
@@ -529,6 +565,9 @@ describe('Step Handler (Unit Tests)', () => {
         status: 'ACTIVE',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
@@ -557,6 +596,9 @@ describe('Step Handler (Unit Tests)', () => {
         status: 'ACTIVE',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create.mockReturnValue(mockStepInstance)
@@ -602,6 +644,9 @@ describe('Step Handler (Unit Tests)', () => {
         status: 'ACTIVE',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as StepInstance
 
       mockEm.create

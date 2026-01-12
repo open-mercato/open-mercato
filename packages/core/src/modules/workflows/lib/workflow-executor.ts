@@ -400,8 +400,6 @@ export async function executeWorkflow(
 
         // Check if transition paused for async activities
         if (transitionResult.pausedForActivities) {
-          console.log('[WORKFLOW] Transition paused - waiting for async activities')
-
           await logWorkflowEvent(em, {
             workflowInstanceId: currentInstance.id,
             eventType: 'WORKFLOW_WAITING_FOR_ACTIVITIES',
@@ -537,7 +535,6 @@ export async function completeWorkflow(
 
     if (definition && checkIfCompensationNeeded(definition)) {
       try {
-        console.log(`[Workflow] Starting compensation for failed workflow ${instanceId}`)
 
         // Set error message before compensation
         if (result?.error) {
@@ -795,7 +792,6 @@ export async function resumeWorkflowAfterActivities(
     container
   )
 
-  console.log('[WORKFLOW] Step execution result after resume:', stepResult)
 
   // Continue workflow execution from the new step
   await executeWorkflow(em, container, instanceId)

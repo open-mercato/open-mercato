@@ -53,6 +53,9 @@ describe('Transition Handler (Unit Tests)', () => {
       context: { initiatedBy: 'user@example.com' },
       tenantId: testTenantId,
       organizationId: testOrgId,
+      version: 1,
+      startedAt: new Date(),
+      retryCount: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
     } as WorkflowInstance
@@ -61,11 +64,9 @@ describe('Transition Handler (Unit Tests)', () => {
     mockDefinition = {
       id: testDefinitionId,
       workflowId: 'simple-approval',
+      workflowName: 'Simple Approval',
       version: 1,
       definition: {
-        workflowId: 'simple-approval',
-        workflowName: 'Simple Approval',
-        version: 1,
         steps: [
           { stepId: 'start', stepName: 'Start', stepType: 'START' },
           { stepId: 'step-1', stepName: 'Step 1', stepType: 'AUTOMATED' },

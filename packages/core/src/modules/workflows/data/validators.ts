@@ -148,25 +148,6 @@ export const activityRetryPolicySchema = z.object({
   maxIntervalMs: z.number().int().min(0),
 })
 
-// Step definition
-export const workflowStepSchema = z.object({
-  stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
-  stepName: z.string().min(1).max(255),
-  stepType: workflowStepTypeSchema,
-  description: z.string().max(1000).optional(),
-  config: z.record(z.string(), z.any()).optional(),
-  userTaskConfig: userTaskConfigSchema.optional(),
-  subWorkflowConfig: subWorkflowConfigSchema.optional(),
-  timeout: z.string().optional(), // ISO 8601 duration
-  retryPolicy: retryPolicySchema.optional(),
-})
-
-// Transition condition (reference to business rule)
-export const transitionConditionSchema = z.object({
-  ruleId: z.string().min(1).max(50), // Business rule ID
-  required: z.boolean().default(true),
-})
-
 // Activity definition (embedded in transitions)
 export const activityDefinitionSchema = z.object({
   activityId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Activity ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -181,6 +162,32 @@ export const activityDefinitionSchema = z.object({
     automatic: z.boolean().default(true).optional() // Auto-trigger on failure
   }).optional(), // Compensation configuration (Phase 8.2)
 })
+
+// Step definition
+export const workflowStepSchema = z.object({
+  stepId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Step ID must contain only lowercase letters, numbers, hyphens, and underscores'),
+  stepName: z.string().min(1).max(255),
+  stepType: workflowStepTypeSchema,
+  description: z.string().max(1000).optional(),
+  config: z.record(z.string(), z.any()).optional(),
+  userTaskConfig: userTaskConfigSchema.optional(),
+  subWorkflowConfig: subWorkflowConfigSchema.optional(),
+  signalConfig: z.object({
+    signalName: z.string().min(1),
+    timeout: z.string().optional(),
+  }).optional(),
+  activities: z.array(activityDefinitionSchema).optional(),
+  timeout: z.string().optional(), // ISO 8601 duration
+  retryPolicy: retryPolicySchema.optional(),
+})
+
+// Transition condition (reference to business rule)
+export const transitionConditionSchema = z.object({
+  ruleId: z.string().min(1).max(50), // Business rule ID
+  required: z.boolean().default(true),
+})
+
+
 
 // Transition definition
 export const workflowTransitionSchema = z.object({

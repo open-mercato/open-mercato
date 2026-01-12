@@ -176,7 +176,6 @@ export async function completeUserTask(
 
   if (autoTransitions.length === 0) {
     // No automatic transitions, workflow stays paused at current step
-    console.log(`[TaskHandler] No automatic transitions from step ${currentStepId}`)
     return
   }
 
@@ -196,7 +195,6 @@ export async function completeUserTask(
   const firstValidTransition = validTransitions.find(t => t.isValid)
 
   if (!firstValidTransition || !firstValidTransition.transition) {
-    console.log(`[TaskHandler] No valid transitions found from step ${currentStepId}`)
     // Resume workflow execution anyway, maybe conditions will be met later
     instance.status = 'RUNNING'
     await em.flush()
@@ -204,9 +202,6 @@ export async function completeUserTask(
   }
 
   // Execute the transition to move to next step
-  console.log(
-    `[TaskHandler] Executing transition from ${currentStepId} to ${firstValidTransition.transition.toStepId}`
-  )
 
   const transitionResult = await transitionHandler.executeTransition(
     em,

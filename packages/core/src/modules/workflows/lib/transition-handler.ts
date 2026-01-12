@@ -290,24 +290,12 @@ export async function executeTransition(
     const transition = evaluation.transition!
 
     // Evaluate pre-conditions (business rules)
-    console.log('[TRANSITION] Evaluating pre-conditions for transition:', {
-      transitionId: transition.transitionId,
-      fromStepId,
-      toStepId,
-    })
-
     const preConditionsResult = await evaluatePreConditions(
       em,
       instance,
       transition,
       context
     )
-
-    console.log('[TRANSITION] Pre-conditions result:', {
-      allowed: preConditionsResult.allowed,
-      executedRulesCount: preConditionsResult.executedRules.length,
-      errors: preConditionsResult.errors,
-    })
 
     if (!preConditionsResult.allowed) {
       // Build detailed failure information
@@ -322,11 +310,6 @@ export async function executeTransition(
       const failedRulesDetails = failedRules.length > 0
         ? failedRules.map(r => `${r.ruleId}: ${r.error || 'condition failed'}`).join('; ')
         : preConditionsResult.errors?.join(', ') || 'Unknown pre-condition failure'
-
-      console.log('[TRANSITION] ✗ Pre-conditions FAILED:', {
-        failedRules,
-        errors: preConditionsResult.errors,
-      })
 
       await logTransitionEvent(em, {
         workflowInstanceId: instance.id,
@@ -359,12 +342,6 @@ export async function executeTransition(
     const activityResults: activityExecutor.ActivityExecutionResult[] = []
 
     if (transition.activities && transition.activities.length > 0) {
-      console.log('[TRANSITION] Transition has activities:', {
-        transitionId: transition.transitionId,
-        activitiesCount: transition.activities.length,
-        activityIds: transition.activities.map((a: any) => a.activityId),
-      })
-
       const activityContext: activityExecutor.ActivityContext = {
         workflowInstance: instance,
         workflowContext: {
@@ -433,21 +410,12 @@ export async function executeTransition(
     }
 
     // Check if any activities are async - if so, pause before executing step
-    console.log('[TRANSITION] Checking for async activities:', {
-      activityResultsLength: activityResults.length,
-      activityResults: activityResults.map(r => ({ activityId: r.activityId, async: r.async })),
-    })
     const hasAsyncActivities = activityResults.some(r => r.async)
-    console.log('[TRANSITION] hasAsyncActivities:', hasAsyncActivities)
 
     if (hasAsyncActivities) {
-      console.log('[TRANSITION] Async activities detected - pausing transition')
-
       const pendingJobIds = activityResults
         .filter(a => a.async && a.jobId)
         .map(a => ({ activityId: a.activityId, jobId: a.jobId }))
-
-      console.log('[TRANSITION] Pending job IDs:', pendingJobIds)
 
       // Store pending transition state
       instance.pendingTransition = {
@@ -455,7 +423,6 @@ export async function executeTransition(
         activityResults,
         timestamp: new Date(),
       }
-      console.log('[TRANSITION] Set pendingTransition:', instance.pendingTransition)
 
       // Store pending activities in context for tracking
       instance.context = {
@@ -464,17 +431,13 @@ export async function executeTransition(
         ...activityOutputs,
         _pendingAsyncActivities: pendingJobIds,
       }
-      console.log('[TRANSITION] Updated context with pending activities')
 
       // Set status to waiting
       instance.status = 'WAITING_FOR_ACTIVITIES'
       instance.updatedAt = new Date()
-      console.log('[TRANSITION] Set status to WAITING_FOR_ACTIVITIES, flushing...')
       await em.flush()
-      console.log('[TRANSITION] Flush complete')
 
       // Log event
-      console.log('[TRANSITION] Logging TRANSITION_PAUSED_FOR_ACTIVITIES event...')
       await logTransitionEvent(em, {
         workflowInstanceId: instance.id,
         eventType: 'TRANSITION_PAUSED_FOR_ACTIVITIES',
@@ -488,10 +451,8 @@ export async function executeTransition(
         tenantId: instance.tenantId,
         organizationId: instance.organizationId,
       })
-      console.log('[TRANSITION] Event logged')
 
       // Return WITHOUT executing step
-      console.log('[TRANSITION] Returning with pausedForActivities=true')
       return {
         success: true,
         pausedForActivities: true,
@@ -516,7 +477,6 @@ export async function executeTransition(
     await em.flush()
 
     // Execute the new step (this will create USER_TASK, handle END steps, etc.)
-    console.log('[TRANSITION] Executing new step:', toStepId)
     const stepExecutionResult = await stepHandler.executeStep(
       em,
       instance,
@@ -528,8 +488,6 @@ export async function executeTransition(
       },
       container
     )
-
-    console.log('[TRANSITION] Step execution result:', stepExecutionResult)
 
     // Flush to database after step execution completes to make state visible to UI
     await em.flush()
@@ -738,14 +696,6 @@ async function evaluatePreConditions(
       organizationId: instance.organizationId,
       executedBy: context.userId,
     }
-
-    console.log('[PRE-CONDITIONS] Rule engine context:', {
-      entityType: ruleContext.entityType,
-      entityId: ruleContext.entityId,
-      eventType: ruleContext.eventType,
-      dataKeys: Object.keys(ruleContext.data),
-      workflowContextKeys: Object.keys(ruleContext.data.workflowContext),
-    })
 
     // Execute rules - only GUARD rules will affect the 'allowed' status
     const result = await ruleEngine.executeRules(em, ruleContext)

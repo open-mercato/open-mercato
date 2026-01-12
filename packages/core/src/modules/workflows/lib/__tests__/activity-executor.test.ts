@@ -44,10 +44,12 @@ describe('Activity Executor (Unit Tests)', () => {
       version: 1,
       currentStepId: 'step-1',
       status: 'RUNNING',
-      workflowContext: {
+      context: {
         user: { email: 'user@example.com', name: 'John Doe' },
         orderId: 'order-123',
       },
+      startedAt: new Date(),
+      retryCount: 0,
       tenantId: testTenantId,
       organizationId: testOrgId,
       createdAt: new Date(),
@@ -57,7 +59,7 @@ describe('Activity Executor (Unit Tests)', () => {
     // Create mock context
     mockContext = {
       workflowInstance: mockInstance,
-      workflowContext: mockInstance.workflowContext,
+      workflowContext: mockInstance.context,
       userId: 'user-123',
     }
 
@@ -73,6 +75,7 @@ describe('Activity Executor (Unit Tests)', () => {
   describe('SEND_EMAIL activity', () => {
     test('should execute SEND_EMAIL activity successfully (console mode)', async () => {
       const activity: ActivityDefinition = {
+        activityId: 'activity-1',
         activityName: 'Welcome Email',
         activityType: 'SEND_EMAIL',
         config: {
@@ -115,6 +118,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockEmailService)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-2',
         activityName: 'Welcome Email',
         activityType: 'SEND_EMAIL',
         config: {
@@ -145,6 +149,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail SEND_EMAIL if missing required fields', async () => {
       const activity: ActivityDefinition = {
+        activityId: 'activity-3',
         activityName: 'Invalid Email',
         activityType: 'SEND_EMAIL',
         config: {
@@ -170,6 +175,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should interpolate variables in SEND_EMAIL config', async () => {
       const activity: ActivityDefinition = {
+        activityId: 'activity-4',
         activityName: 'Dynamic Email',
         activityType: 'SEND_EMAIL',
         config: {
@@ -216,6 +222,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockEventBus)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-5',
         activityName: 'Order Created Event',
         activityType: 'EMIT_EVENT',
         config: {
@@ -256,6 +263,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-6',
         activityName: 'Test Event',
         activityType: 'EMIT_EVENT',
         config: {
@@ -283,6 +291,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockEventBus)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-7',
         activityName: 'Invalid Event',
         activityType: 'EMIT_EVENT',
         config: {
@@ -316,6 +325,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockQueryEngine)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-8',
         activityName: 'Update Order Status',
         activityType: 'UPDATE_ENTITY',
         config: {
@@ -354,6 +364,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-9',
         activityName: 'Test Update',
         activityType: 'UPDATE_ENTITY',
         config: {
@@ -382,6 +393,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockQueryEngine)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-10',
         activityName: 'Invalid Update',
         activityType: 'UPDATE_ENTITY',
         config: {
@@ -417,6 +429,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-11',
         activityName: 'Notify External System',
         activityType: 'CALL_WEBHOOK',
         config: {
@@ -461,6 +474,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-12',
         activityName: 'Call Text Webhook',
         activityType: 'CALL_WEBHOOK',
         config: {
@@ -489,6 +503,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-13',
         activityName: 'Failed Webhook',
         activityType: 'CALL_WEBHOOK',
         config: {
@@ -509,6 +524,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail CALL_WEBHOOK if missing url', async () => {
       const activity: ActivityDefinition = {
+        activityId: 'activity-14',
         activityName: 'Invalid Webhook',
         activityType: 'CALL_WEBHOOK',
         config: {
@@ -543,6 +559,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockFunction)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-15',
         activityName: 'Calculate Total',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -577,6 +594,7 @@ describe('Activity Executor (Unit Tests)', () => {
       })
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-16',
         activityName: 'Call Missing Function',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -598,6 +616,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
     test('should fail EXECUTE_FUNCTION if missing functionName', async () => {
       const activity: ActivityDefinition = {
+        activityId: 'activity-17',
         activityName: 'Invalid Function',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -636,6 +655,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockFunction)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-18',
         activityName: 'Flaky Function',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -668,6 +688,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockFunction)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-19',
         activityName: 'Always Fails',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -701,6 +722,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockFunction)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-20',
         activityName: 'No Retry',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -742,6 +764,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockFunction)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-21',
         activityName: 'Slow Function',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -791,6 +814,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-22',
         activityName: 'Test Array Preservation',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -832,6 +856,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-23',
         activityName: 'Test Object Preservation',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -872,6 +897,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-24',
         activityName: 'Test Number Preservation',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -912,6 +938,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-25',
         activityName: 'Test Boolean Preservation',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -952,6 +979,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-26',
         activityName: 'Test Mixed Interpolation',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -997,6 +1025,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-27',
         activityName: 'Test Nested Mixed Interpolation',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -1033,6 +1062,7 @@ describe('Activity Executor (Unit Tests)', () => {
       mockContainer.resolve.mockReturnValue(mockFunction)
 
       const activity: ActivityDefinition = {
+        activityId: 'activity-28',
         activityName: 'Test Workflow Version Type',
         activityType: 'EXECUTE_FUNCTION',
         config: {
@@ -1075,6 +1105,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
       const activities: ActivityDefinition[] = [
         {
+          activityId: 'activity-29',
           activityName: 'Emit Event',
           activityType: 'EMIT_EVENT',
           config: {
@@ -1083,6 +1114,7 @@ describe('Activity Executor (Unit Tests)', () => {
           },
         },
         {
+          activityId: 'activity-30',
           activityName: 'Update Entity',
           activityType: 'UPDATE_ENTITY',
           config: {
@@ -1122,6 +1154,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
       const activities: ActivityDefinition[] = [
         {
+          activityId: 'activity-31',
           activityName: 'Emit Event',
           activityType: 'EMIT_EVENT',
           config: {
@@ -1130,6 +1163,7 @@ describe('Activity Executor (Unit Tests)', () => {
           },
         },
         {
+          activityId: 'activity-32',
           activityName: 'Update Entity',
           activityType: 'UPDATE_ENTITY',
           config: {
@@ -1160,6 +1194,7 @@ describe('Activity Executor (Unit Tests)', () => {
 
       const activities: ActivityDefinition[] = [
         {
+          activityId: 'activity-33',
           activityName: 'Calculate',
           activityType: 'EXECUTE_FUNCTION',
           config: {
@@ -1168,6 +1203,7 @@ describe('Activity Executor (Unit Tests)', () => {
           },
         },
         {
+          activityId: 'activity-34',
           activityName: 'Calculate Again',
           activityType: 'EXECUTE_FUNCTION',
           config: {

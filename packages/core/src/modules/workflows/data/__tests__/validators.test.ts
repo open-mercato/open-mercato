@@ -280,11 +280,11 @@ describe('Workflows Validators', () => {
     test('should validate activity with compensation flag', () => {
       const withCompensation = {
         ...validActivity,
-        compensate: true,
+        compensation: { activityId: 'rollback-1', config: {} },
       }
 
       const result = activityDefinitionSchema.parse(withCompensation)
-      expect(result.compensate).toBe(true)
+      expect(result.compensation).toBeDefined()
     })
   })
 

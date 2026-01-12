@@ -106,7 +106,6 @@ export async function compensateWorkflow(
 
     // Check if activity has compensation defined
     if (!activityDef.compensation?.activityId) {
-      console.log(`Activity ${activityId} has no compensation, skipping`)
       continue
     }
 

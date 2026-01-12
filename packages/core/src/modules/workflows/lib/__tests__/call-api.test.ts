@@ -6,7 +6,7 @@ import type { WorkflowInstance } from '../../data/entities'
 
 // Mock fetch globally
 const originalFetch = global.fetch
-const mockFetch = jest.fn()
+const mockFetch = jest.fn() as jest.MockedFunction<typeof fetch>
 
 beforeEach(() => {
   global.fetch = mockFetch as any

@@ -64,6 +64,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-1',
         workflowId: 'simple-workflow',
+        workflowName: 'Simple Workflow',
         version: 1,
         definition: {
           workflowId: 'simple-workflow',
@@ -82,7 +83,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       const mockInstance = {
         id: 'instance-1',
@@ -90,12 +91,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'simple-workflow',
         currentStepId: 'start',
         status: 'RUNNING',
-        workflowContext: {},
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: {},
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       // Mock entity manager calls
       mockEm.findOne
@@ -115,17 +119,16 @@ describe('Workflow Engine Integration Tests', () => {
       const instance = await workflowExecutor.startWorkflow(mockEm, {
         workflowId: 'simple-workflow',
         version: 1,
-        context: {},
+        initialContext: {},
         tenantId: testTenantId,
         organizationId: testOrgId,
-        userId: testUserId,
       })
 
       expect(instance).toBeDefined()
       expect(instance.status).toBe('RUNNING')
 
       // Execute workflow
-      const result = await workflowExecutor.executeWorkflow(mockEm, instance.id)
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, instance.id)
 
       // Workflow should be running (it doesn't auto-execute all steps in this test)
       expect(result.status).toBe('RUNNING')
@@ -142,6 +145,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-2',
         workflowId: 'multi-step',
+        workflowName: 'Multi Step',
         version: 1,
         definition: {
           workflowId: 'multi-step',
@@ -164,7 +168,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       const mockInstance = {
         id: 'instance-2',
@@ -172,12 +176,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'multi-step',
         currentStepId: 'start',
         status: 'RUNNING',
-        workflowContext: { counter: 0 },
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: { counter: 0 },
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockDefinition)
       mockEm.create.mockImplementation((entity, data) => {
@@ -197,7 +204,7 @@ describe('Workflow Engine Integration Tests', () => {
       const instance = await workflowExecutor.startWorkflow(mockEm, {
         workflowId: 'multi-step',
         version: 1,
-        context: { counter: 0 },
+        initialContext: { counter: 0 },
         tenantId: testTenantId,
         organizationId: testOrgId,
       })
@@ -209,7 +216,7 @@ describe('Workflow Engine Integration Tests', () => {
         mockEm,
         instance,
         'step1',
-        { workflowContext: instance.workflowContext }
+        { workflowContext: instance.context }
       )
 
       expect(stepInstance.stepId).toBe('step1')
@@ -226,6 +233,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-3',
         workflowId: 'user-task-workflow',
+        workflowName: 'User Task Workflow',
         version: 1,
         definition: {
           workflowId: 'user-task-workflow',
@@ -260,7 +268,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       const mockInstance = {
         id: 'instance-3',
@@ -268,12 +276,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'user-task-workflow',
         currentStepId: 'start',
         status: 'RUNNING',
-        workflowContext: {},
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: {},
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       const mockStepInstance = {
         id: 'step-3',
@@ -334,6 +345,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-4',
         workflowId: 'transition-workflow',
+        workflowName: 'Transition Workflow',
         version: 1,
         definition: {
           workflowId: 'transition-workflow',
@@ -364,7 +376,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       const mockInstance = {
         id: 'instance-4',
@@ -372,12 +384,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'transition-workflow',
         currentStepId: 'start',
         status: 'RUNNING',
-        workflowContext: {},
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: {},
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       // Mock for evaluateTransition
       mockEm.findOne.mockResolvedValue(mockDefinition)
@@ -401,6 +416,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-5',
         workflowId: 'multi-transition',
+        workflowName: 'Multi Transition',
         version: 1,
         definition: {
           workflowId: 'multi-transition',
@@ -421,7 +437,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       const mockInstance = {
         id: 'instance-5',
@@ -429,12 +445,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'multi-transition',
         currentStepId: 'start',
         status: 'RUNNING',
-        workflowContext: {},
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: {},
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockDefinition)
 
@@ -547,6 +566,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-6',
         workflowId: 'failing-workflow',
+        workflowName: 'Failing Workflow',
         version: 1,
         definition: {
           workflowId: 'failing-workflow',
@@ -562,7 +582,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       mockEm.findOne.mockResolvedValue(mockDefinition)
       mockEm.create.mockImplementation(() => {
@@ -573,7 +593,7 @@ describe('Workflow Engine Integration Tests', () => {
         workflowExecutor.startWorkflow(mockEm, {
           workflowId: 'failing-workflow',
           version: 1,
-          context: {},
+          initialContext: {},
           tenantId: testTenantId,
           organizationId: testOrgId,
         })
@@ -584,6 +604,7 @@ describe('Workflow Engine Integration Tests', () => {
       const mockDefinition = {
         id: 'def-7',
         workflowId: 'step-failure',
+        workflowName: 'Step Failure',
         version: 1,
         definition: {
           workflowId: 'step-failure',
@@ -599,7 +620,7 @@ describe('Workflow Engine Integration Tests', () => {
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowDefinition
+      } as unknown as WorkflowDefinition
 
       const mockInstance = {
         id: 'instance-7',
@@ -607,12 +628,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'step-failure',
         currentStepId: 'failing-step',
         status: 'RUNNING',
-        workflowContext: {},
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: {},
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(null) // Simulate definition not found
 
@@ -640,12 +664,15 @@ describe('Workflow Engine Integration Tests', () => {
         workflowId: 'context-workflow',
         currentStepId: 'step1',
         status: 'RUNNING',
-        workflowContext: { counter: 0 },
+        version: 1,
+        startedAt: new Date(),
+        retryCount: 0,
+        context: { counter: 0 },
         tenantId: testTenantId,
         organizationId: testOrgId,
         createdAt: new Date(),
         updatedAt: new Date(),
-      } as WorkflowInstance
+      } as unknown as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
 

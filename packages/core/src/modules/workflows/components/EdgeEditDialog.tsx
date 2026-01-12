@@ -68,9 +68,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
   // Load edge data when dialog opens
   useEffect(() => {
     if (edge && isOpen) {
-      console.log('Loading edge data:', edge)
       const edgeData = edge.data as any
-      console.log('Edge data object:', edgeData)
 
       // Try to get transition name from various sources
       let loadedTransitionName = ''
@@ -83,7 +81,6 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
         loadedTransitionName = generateNameFromId(edge.id)
       }
 
-      console.log('Loading transition name:', loadedTransitionName)
       setTransitionName(loadedTransitionName)
 
       setTrigger(edgeData?.trigger || 'auto')
@@ -320,7 +317,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-2">
             <DialogTitle>Edit Transition</DialogTitle>

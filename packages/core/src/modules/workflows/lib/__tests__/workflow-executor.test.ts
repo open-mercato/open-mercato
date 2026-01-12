@@ -303,19 +303,16 @@ describe('Workflow Executor (Unit Tests)', () => {
       })
 
       // Should search for enabled definition with DESC ordering
-      expect(mockEm.findOne).toHaveBeenCalledWith(
-        expect.any(Function),
-        expect.objectContaining({
-          workflowId: 'simple-workflow',
-          tenantId: testTenantId,
-          organizationId: testOrgId,
-          enabled: true,
-          deletedAt: null,
-        }),
-        expect.objectContaining({
-          orderBy: { version: 'DESC' },
-        })
-      )
+      const callArgs = mockEm.findOne.mock.calls[0]
+      expect(callArgs[0]).toEqual(expect.any(Function))
+      expect(callArgs[1]).toMatchObject({
+        workflowId: 'simple-workflow',
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        enabled: true,
+        deletedAt: null,
+      })
+      expect(callArgs[2]).toEqual({ orderBy: { version: 'DESC' } })
     })
   })
 
@@ -594,9 +591,9 @@ describe('Workflow Executor (Unit Tests)', () => {
 
       expect(instance).toBeDefined()
       expect(instance?.id).toBe(testInstanceId)
-      expect(mockEm.findOne).toHaveBeenCalledWith(expect.any(Function), {
-        id: testInstanceId,
-      })
+      const findOneCall = mockEm.findOne.mock.calls[0]
+      expect(findOneCall[0]).toEqual(expect.any(Function))
+      expect(findOneCall[1]).toEqual({ id: testInstanceId })
     })
 
     test('should return null if instance not found', async () => {

@@ -48,6 +48,11 @@ describe('Workflow Signals - Phase 9.1', () => {
     status: 'PAUSED',
     currentStepId: 'wait_approval',
     context: { orderId: 'order-123' },
+    version: 1,
+    workflowId: 'signal_workflow',
+    startedAt: new Date(),
+    retryCount: 0,
+    createdAt: new Date(),
     tenantId,
     organizationId,
     updatedAt: new Date(),
@@ -153,7 +158,7 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should merge signal payload into workflow context', async () => {
-      const instance = { ...mockInstance, context: { existingData: 'value' } }
+      const instance: any = { ...mockInstance, context: { existingData: 'value' }, version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
       mockEm.findOne
         .mockResolvedValueOnce(instance) // Instance
         .mockResolvedValueOnce(mockDefinition) // Definition
@@ -304,9 +309,9 @@ describe('Workflow Signals - Phase 9.1', () => {
 
   describe('Signal by Correlation Key', () => {
     it('should send signal to multiple workflows with same correlation key', async () => {
-      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-001' }
-      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-001' }
-      const instance3 = { ...mockInstance, id: 'instance-3', correlationKey: 'batch-001' }
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-001', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
+      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-001', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
+      const instance3 = { ...mockInstance, id: 'instance-3', correlationKey: 'batch-001', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
 
       mockEm.find.mockResolvedValueOnce([instance1, instance2, instance3])
 
@@ -357,8 +362,8 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should continue processing other instances if one fails', async () => {
-      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-002' }
-      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-002' }
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-002', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
+      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-002', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
 
       mockEm.find.mockResolvedValueOnce([instance1, instance2])
 

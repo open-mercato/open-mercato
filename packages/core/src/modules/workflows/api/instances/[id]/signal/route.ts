@@ -29,7 +29,6 @@ interface RouteContext {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const params = await context.params
-    console.log('[Signal API] Received signal request for instance:', params.id)
 
     const container = await createRequestContainer()
     const em = container.resolve('em')
@@ -69,12 +68,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const body = await request.json()
-    console.log('[Signal API] Request body:', body)
 
     const input = sendSignalSchema.parse(body)
-    console.log('[Signal API] Validated input:', input)
 
-    console.log('[Signal API] Calling sendSignal...')
     await sendSignal(em, container, {
       instanceId: params.id,
       signalName: input.signalName,
@@ -84,7 +80,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       organizationId,
     })
 
-    console.log('[Signal API] Signal sent successfully')
     return NextResponse.json({
       success: true,
       message: 'Signal sent successfully',

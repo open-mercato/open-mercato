@@ -212,11 +212,9 @@ export default function GraphTestPage() {
             initialNodes={nodes}
             initialEdges={edges}
             onNodesChange={(updatedNodes) => {
-              console.log('Nodes changed:', updatedNodes)
               setNodes(updatedNodes)
             }}
             onEdgesChange={(updatedEdges) => {
-              console.log('Edges changed:', updatedEdges)
               setEdges(updatedEdges)
             }}
             editable={editable}

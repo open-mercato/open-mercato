@@ -279,24 +279,13 @@ export async function executeActivities(
   activities: ActivityDefinition[],
   context: ActivityContext
 ): Promise<ActivityExecutionResult[]> {
-  console.log('[ACTIVITY EXECUTOR] Starting activity execution:', {
-    totalActivities: activities.length,
-    activityIds: activities.map(a => a.activityId),
-  })
-
   const results: ActivityExecutionResult[] = []
 
   for (let i = 0; i < activities.length; i++) {
     const activity = activities[i]
-    console.log(`[ACTIVITY EXECUTOR] Processing activity ${i + 1}/${activities.length}:`, {
-      activityId: activity.activityId,
-      activityType: activity.activityType,
-      async: activity.async,
-    })
 
     // Check if activity should run async
     if (activity.async) {
-      console.log(`[ACTIVITY EXECUTOR] Activity ${activity.activityId} is async - enqueueing`)
       // Enqueue for background execution
       const jobId = await enqueueActivity(em, activity, context)
 
@@ -310,21 +299,13 @@ export async function executeActivities(
         retryCount: 0,
         executionTimeMs: 0,
       })
-      console.log(`[ACTIVITY EXECUTOR] Activity ${activity.activityId} enqueued successfully with jobId:`, jobId)
     } else {
-      console.log(`[ACTIVITY EXECUTOR] Activity ${activity.activityId} is sync - executing`)
       // Execute synchronously (existing logic)
       const result = await executeActivity(em, container, activity, context)
-      console.log(`[ACTIVITY EXECUTOR] Activity ${activity.activityId} execution result:`, {
-        success: result.success,
-        error: result.error,
-        hasOutput: !!result.output,
-      })
       results.push(result)
 
       // Stop execution if activity fails (fail-fast)
       if (!result.success) {
-        console.log(`[ACTIVITY EXECUTOR] Activity ${activity.activityId} failed - stopping execution (fail-fast)`)
         break
       }
 
@@ -335,17 +316,9 @@ export async function executeActivities(
           ...context.workflowContext,
           [key]: result.output,
         }
-        console.log(`[ACTIVITY EXECUTOR] Updated context with activity output for key:`, key)
       }
     }
   }
-
-  console.log('[ACTIVITY EXECUTOR] Completed activity execution:', {
-    totalResults: results.length,
-    successCount: results.filter(r => r.success).length,
-    failCount: results.filter(r => !r.success).length,
-    asyncCount: results.filter(r => r.async).length,
-  })
 
   return results
 }
@@ -675,15 +648,6 @@ export async function executeCallApi(
         'X-Workflow-Instance-Id': context.workflowInstance.id,
         ...headers,
       }
-
-      console.log('[CALL_API] Making request:', {
-        endpoint: fullUrl,
-        method,
-        body: JSON.stringify(body, null, 2),  // ← See what's actually being sent!
-        headers: requestHeaders
-      })
-
-
 
       // Make HTTP request
       const response = await fetch(fullUrl, {
