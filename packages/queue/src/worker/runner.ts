@@ -15,6 +15,8 @@ export type WorkerRunnerOptions<T = unknown> = {
   concurrency?: number
   /** Whether to set up graceful shutdown handlers */
   gracefulShutdown?: boolean
+  /** If true, don't block - return immediately after starting processing (for multi-queue mode) */
+  background?: boolean
 }
 
 /**
@@ -52,6 +54,7 @@ export async function runWorker<T = unknown>(
     connection,
     concurrency = 1,
     gracefulShutdown = true,
+    background = false,
   } = options
 
   console.log(`[worker] Starting worker for queue "${queueName}"...`)
@@ -83,9 +86,15 @@ export async function runWorker<T = unknown>(
   await queue.process(handler)
 
   console.log(`[worker] Worker running with concurrency ${concurrency}`)
+
+  if (background) {
+    // Return immediately for multi-queue mode
+    return
+  }
+
   console.log('[worker] Press Ctrl+C to stop')
 
-  // Keep the process alive
+  // Keep the process alive (single-queue mode)
   await new Promise(() => {
     // This promise never resolves, keeping the worker running
   })

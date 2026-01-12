@@ -498,7 +498,8 @@ export async function run(argv = process.argv) {
       {
         command: 'worker',
         run: async (args: string[]) => {
-          const queueName = args[0]
+          const isAllQueues = args.includes('--all')
+          const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
           type WorkerEntry = {
@@ -516,9 +517,10 @@ export async function run(argv = process.argv) {
           }
           const discoveredQueues = [...new Set(allWorkers.map((w) => w.queue))]
 
-          if (!queueName) {
-            console.error('Usage: mercato queue worker <queueName>')
+          if (!queueName && !isAllQueues) {
+            console.error('Usage: mercato queue worker <queueName> | --all')
             console.error('Example: mercato queue worker events')
+            console.error('Example: mercato queue worker --all')
             if (discoveredQueues.length > 0) {
               console.error(`Discovered queues: ${discoveredQueues.join(', ')}`)
             }
@@ -528,30 +530,68 @@ export async function run(argv = process.argv) {
           const concurrencyArg = args.find((a) => a.startsWith('--concurrency='))
           const concurrencyOverride = concurrencyArg ? Number(concurrencyArg.split('=')[1]) : undefined
 
-          // Find workers for this queue
-          const queueWorkers = allWorkers.filter((w) => w.queue === queueName)
+          if (isAllQueues) {
+            // Run workers for all discovered queues
+            if (discoveredQueues.length === 0) {
+              console.error('[worker] No queues discovered from modules')
+              return
+            }
 
-          if (queueWorkers.length > 0) {
-            // Use discovered workers
             const container = await createRequestContainer()
-            const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+            console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
 
-            console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
+            // Start all queue workers in background mode
+            const workerPromises = discoveredQueues.map(async (queue) => {
+              const queueWorkers = allWorkers.filter((w) => w.queue === queue)
+              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
 
-            await runWorker({
-              queueName,
-              connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
-              concurrency,
-              handler: async (job, ctx) => {
-                for (const worker of queueWorkers) {
-                  await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
-                }
-              },
+              console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
+
+              await runWorker({
+                queueName: queue,
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                concurrency,
+                background: true,
+                handler: async (job, ctx) => {
+                  for (const worker of queueWorkers) {
+                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
+                  }
+                },
+              })
             })
+
+            await Promise.all(workerPromises)
+
+            console.log('[worker] All workers started. Press Ctrl+C to stop')
+
+            // Keep the process alive
+            await new Promise(() => {})
           } else {
-            console.error(`No workers found for queue "${queueName}"`)
-            if (discoveredQueues.length > 0) {
-              console.error(`Available queues: ${discoveredQueues.join(', ')}`)
+            // Find workers for this specific queue
+            const queueWorkers = allWorkers.filter((w) => w.queue === queueName)
+
+            if (queueWorkers.length > 0) {
+              // Use discovered workers
+              const container = await createRequestContainer()
+              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+
+              console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
+
+              await runWorker({
+                queueName: queueName!,
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                concurrency,
+                handler: async (job, ctx) => {
+                  for (const worker of queueWorkers) {
+                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
+                  }
+                },
+              })
+            } else {
+              console.error(`No workers found for queue "${queueName}"`)
+              if (discoveredQueues.length > 0) {
+                console.error(`Available queues: ${discoveredQueues.join(', ')}`)
+              }
             }
           }
         },
