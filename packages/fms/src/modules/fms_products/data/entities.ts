@@ -280,6 +280,9 @@ export abstract class FmsProductVariant {
   @ManyToOne(() => Contractor, { deleteRule: 'restrict' })
   provider?: Contractor | null
 
+  @Property({ type: 'text', nullable: true })
+  name?: string | null
+
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
 

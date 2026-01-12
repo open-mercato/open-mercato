@@ -43,7 +43,7 @@ const upsertCreditLimitCommand: CommandHandler<CreditLimitUpsertInput, { creditL
         organizationId: contractor.organizationId,
         tenantId: contractor.tenantId,
         contractor,
-        creditLimit: parsed.creditLimit,
+        creditLimit: parsed.creditLimit ?? '',
         currencyCode: parsed.currencyCode ?? 'USD',
         isUnlimited: parsed.isUnlimited ?? false,
         notes: parsed.notes ?? null,

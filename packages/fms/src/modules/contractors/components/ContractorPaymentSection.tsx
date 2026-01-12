@@ -235,7 +235,7 @@ export function ContractorPaymentSection({
         height={64}
         colHeaders={true}
         rowHeaders={false}
-        stretchColumns="all"
+        stretchColumns={true}
         uiConfig={{
           hideToolbar: true,
           hideSearch: true,

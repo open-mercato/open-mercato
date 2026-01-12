@@ -201,7 +201,7 @@ export function ContractorContactsTab({ contractorId, contacts, onUpdated }: Con
         height={Math.max(150, Math.min(300, 80 + (data.length + 1) * 35))}
         colHeaders={true}
         rowHeaders={false}
-        stretchColumns="all"
+        stretchColumns={true}
         actionsRenderer={actionsRenderer}
         uiConfig={{
           hideToolbar: false,

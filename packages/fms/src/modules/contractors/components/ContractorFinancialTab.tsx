@@ -66,7 +66,7 @@ const PAYMENT_TERMS_COLUMNS: ColumnDef[] = [
 const CREDIT_LIMIT_COLUMNS: ColumnDef[] = [
   { data: 'creditLimit', title: 'Credit Limit', type: 'numeric', width: 120 },
   { data: 'currencyCode', title: 'Currency', type: 'text', width: 80 },
-  { data: 'isUnlimited', title: 'Unlimited', type: 'checkbox', width: 80 },
+  { data: 'isUnlimited', title: 'Unlimited', type: 'boolean', width: 80 },
   { data: 'currentExposure', title: 'Current Exposure', type: 'numeric', readOnly: true, width: 130 },
   { data: 'requiresApprovalAbove', title: 'Approval Threshold', type: 'numeric', width: 140 },
 ]
