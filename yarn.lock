@@ -8476,6 +8476,11 @@ mdast-util-to-string@^4.0.0:
   dependencies:
     "@types/mdast" "^4.0.0"
 
+meilisearch@^0.55.0:
+  version "0.55.0"
+  resolved "https://registry.yarnpkg.com/meilisearch/-/meilisearch-0.55.0.tgz#c88a9d0bdac22e1e7ec648685a5f0c4c47c2f29e"
+  integrity sha512-qSMeiezfDgIqciIeYzh5E4pXDZZD7CtHeWDCs43kN3trLgl5FtfmBAIkljL3huFaOx08feYtC8FfIFUpVwq6rg==
+
 memoize-one@^6.0.0:
   version "6.0.0"
   resolved "https://registry.yarnpkg.com/memoize-one/-/memoize-one-6.0.0.tgz#b2591b871ed82948aee4727dc6abceeeac8c1045"
