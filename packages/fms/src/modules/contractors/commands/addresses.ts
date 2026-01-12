@@ -40,12 +40,11 @@ const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: stri
       tenantId: contractor.tenantId,
       contractor,
       purpose: parsed.purpose,
-      label: parsed.label ?? null,
-      addressLine: parsed.addressLine,
-      city: parsed.city,
+      addressLine: parsed.addressLine ?? null,
+      city: parsed.city ?? null,
       state: parsed.state ?? null,
       postalCode: parsed.postalCode ?? null,
-      countryCode: parsed.countryCode,
+      country: parsed.country ?? null,
       isPrimary: parsed.isPrimary ?? false,
       isActive: parsed.isActive ?? true,
     })
@@ -75,12 +74,11 @@ const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: stri
     }
 
     if (parsed.purpose !== undefined) address.purpose = parsed.purpose
-    if (parsed.label !== undefined) address.label = parsed.label ?? null
-    if (parsed.addressLine !== undefined) address.addressLine = parsed.addressLine
-    if (parsed.city !== undefined) address.city = parsed.city
+    if (parsed.addressLine !== undefined) address.addressLine = parsed.addressLine ?? null
+    if (parsed.city !== undefined) address.city = parsed.city ?? null
     if (parsed.state !== undefined) address.state = parsed.state ?? null
     if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
-    if (parsed.countryCode !== undefined) address.countryCode = parsed.countryCode
+    if (parsed.country !== undefined) address.country = parsed.country ?? null
     if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
     if (parsed.isActive !== undefined) address.isActive = parsed.isActive
 

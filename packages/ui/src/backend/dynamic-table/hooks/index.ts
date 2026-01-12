@@ -173,6 +173,9 @@ export function useKeyboardNavigation(
 ) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      // Note: This handler should be attached to the table element (not document)
+      // so it only receives events from within the table
+
       const selection = store.getSelection();
       const editing = store.getEditingCell();
       const bounds = store.getSelectionBounds();

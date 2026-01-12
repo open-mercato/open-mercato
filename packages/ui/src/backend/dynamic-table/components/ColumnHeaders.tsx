@@ -47,7 +47,7 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
       >
         <table className="hot-table" style={{ width: stretchColumns ? '100%' : `${totalWidth}px` }}>
           <thead>
-            <tr style={{ display: 'flex' }}>
+            <tr style={{ display: 'flex', width: stretchColumns ? '100%' : `${totalWidth}px` }}>
               {rowHeaders && (
                 <th
                   className="hot-row-header"

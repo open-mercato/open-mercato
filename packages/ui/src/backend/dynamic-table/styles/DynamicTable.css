@@ -32,6 +32,8 @@
     border: 1px solid #e5e7eb;
     padding: 4px 8px;
     text-align: left;
+    box-sizing: border-box;
+    min-width: 0;
 }
 
 .hot-col-header {

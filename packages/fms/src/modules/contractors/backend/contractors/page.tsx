@@ -39,9 +39,9 @@ import { ContractorDrawer } from '../../components/ContractorDrawer'
 import { ConfirmDeleteDialog } from '../../components/ConfirmDeleteDialog'
 
 type PrimaryAddress = {
-  addressLine: string
-  city: string
-  countryCode: string
+  addressLine?: string | null
+  city?: string | null
+  country?: string | null
 }
 
 type RoleType = {
@@ -55,12 +55,12 @@ type RoleType = {
 type ContractorRow = {
   id: string
   name: string
-  shortName?: string | null
-  taxId?: string | null
   isActive: boolean
   createdAt?: string
   roleTypeIds?: string[]
+  primaryContactId?: string | null
   primaryContactEmail?: string | null
+  primaryContactPhone?: string | null
   primaryAddress?: PrimaryAddress | null
 }
 
@@ -220,12 +220,12 @@ function mapApiItem(item: Record<string, unknown>): ContractorRow | null {
   return {
     id,
     name: typeof item.name === 'string' ? item.name : '',
-    shortName: typeof item.shortName === 'string' ? item.shortName : null,
-    taxId: typeof item.taxId === 'string' ? item.taxId : null,
     isActive: item.isActive === true,
     createdAt: typeof item.createdAt === 'string' ? item.createdAt : undefined,
     roleTypeIds: Array.isArray(item.roleTypeIds) ? item.roleTypeIds as string[] : [],
+    primaryContactId: typeof item.primaryContactId === 'string' ? item.primaryContactId : null,
     primaryContactEmail: typeof item.primaryContactEmail === 'string' ? item.primaryContactEmail : null,
+    primaryContactPhone: typeof item.primaryContactPhone === 'string' ? item.primaryContactPhone : null,
     primaryAddress: item.primaryAddress as PrimaryAddress | null ?? null,
   }
 }
@@ -328,14 +328,6 @@ const ContractorNameRenderer = ({ value, rowData }: { value: string; rowData: { 
   )
 }
 
-const StatusBadgeRenderer = ({ value }: { value: boolean }) => {
-  return (
-    <Badge variant={value ? 'default' : 'secondary'}>
-      {value ? 'Active' : 'Inactive'}
-    </Badge>
-  )
-}
-
 // Static columns definition
 const COLUMNS: ColumnDef[] = [
   {
@@ -345,8 +337,8 @@ const COLUMNS: ColumnDef[] = [
     width: 220,
     renderer: (value: string, rowData: { id: string }) => <ContractorNameRenderer value={value} rowData={rowData} />,
   },
-  { data: 'shortName', title: 'Short Name', type: 'text', width: 120 },
-  { data: 'taxId', title: 'Tax ID', type: 'text', width: 120 },
+  { data: 'primaryContactEmail', title: 'Email', type: 'text', width: 180 },
+  { data: 'primaryContactPhone', title: 'Phone', type: 'text', width: 140 },
   {
     data: 'roleTypeIds',
     title: 'Roles',
@@ -354,13 +346,7 @@ const COLUMNS: ColumnDef[] = [
     width: 200,
     // editor and renderer are added dynamically in the component to access roleTypesMap
   },
-  {
-    data: 'isActive',
-    title: 'Status',
-    type: 'boolean',
-    width: 100,
-    renderer: (value: boolean) => <StatusBadgeRenderer value={value} />,
-  },
+  { data: 'isActive', title: 'Active', type: 'boolean', width: 80 },
 ]
 
 export default function ContractorsPage() {
@@ -527,7 +513,7 @@ export default function ContractorsPage() {
               return <span className="text-gray-400">-</span>
             }
             return (
-              <span className="flex flex-wrap gap-1">
+              <span className="flex gap-1 overflow-hidden">
                 {roleTypeIds.map((roleTypeId: string) => {
                   const roleType = roleTypesMap.get(roleTypeId)
                   if (!roleType) return null
@@ -566,8 +552,9 @@ export default function ContractorsPage() {
     return (data?.items ?? []).map((contractor) => ({
       id: contractor.id,
       name: contractor.name,
-      shortName: contractor.shortName ?? '',
-      taxId: contractor.taxId ?? '',
+      primaryContactId: contractor.primaryContactId ?? '',
+      primaryContactEmail: contractor.primaryContactEmail ?? '',
+      primaryContactPhone: contractor.primaryContactPhone ?? '',
       roleTypeIds: contractor.roleTypeIds ?? [],
       isActive: contractor.isActive,
     }))
@@ -586,7 +573,9 @@ export default function ContractorsPage() {
         })
 
         try {
-          let response: { ok: boolean; result?: { error?: string } | null }
+          let response: { ok: boolean; result?: { error?: string; id?: string } | null }
+          const rowData = tableData[payload.rowIndex]
+          const primaryContactId = rowData?.primaryContactId
 
           if (payload.prop === 'roleTypeIds') {
             // Update role type IDs
@@ -596,6 +585,33 @@ export default function ContractorsPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ roleTypeIds }),
             })
+          } else if (payload.prop === 'primaryContactEmail' || payload.prop === 'primaryContactPhone') {
+            // Update primary contact field
+            const fieldName = payload.prop === 'primaryContactEmail' ? 'email' : 'phone'
+            const fieldValue = payload.newValue === '' ? null : payload.newValue
+
+            if (primaryContactId) {
+              // Update existing contact
+              response = await apiCall<{ error?: string }>('/api/contractors/contacts', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: primaryContactId, contractorId: payload.id, [fieldName]: fieldValue }),
+              })
+            } else {
+              // Create new primary contact
+              response = await apiCall<{ error?: string; id?: string }>('/api/contractors/contacts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contractorId: payload.id,
+                  firstName: '',
+                  lastName: '',
+                  [fieldName]: fieldValue,
+                  isPrimary: true,
+                  isActive: true,
+                }),
+              })
+            }
           } else {
             // Regular contractor field update
             response = await apiCall<{ error?: string }>(`/api/contractors/contractors/${payload.id}`, {
@@ -606,7 +622,7 @@ export default function ContractorsPage() {
           }
 
           if (response.ok) {
-            flash('Contractor updated', 'success')
+            flash('Updated successfully', 'success')
             dispatch(tableRef.current as HTMLElement, TableEvents.CELL_SAVE_SUCCESS, {
               rowIndex: payload.rowIndex,
               colIndex: payload.colIndex,
@@ -807,10 +823,11 @@ export default function ContractorsPage() {
   return (
     <Page>
       <PageBody>
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-semibold">Contractors</h1>
-        </div>
-        <DynamicTable
+        <div inert={isDrawerOpen ? true : undefined}>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-xl font-semibold">Contractors</h1>
+          </div>
+          <DynamicTable
           tableRef={tableRef}
           data={tableData}
           columns={columns}
@@ -819,6 +836,7 @@ export default function ContractorsPage() {
           height={600}
           colHeaders={true}
           rowHeaders={true}
+          stretchColumns={true}
           actionsRenderer={actionsRenderer}
           uiConfig={{ hideAddRowButton: false }}
           savedPerspectives={savedPerspectives}
@@ -835,6 +853,7 @@ export default function ContractorsPage() {
             },
           }}
         />
+        </div>
         <ContractorDrawer
           contractorId={selectedContractorId}
           open={isDrawerOpen}

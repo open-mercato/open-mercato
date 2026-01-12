@@ -1475,6 +1475,37 @@ Default role types to be seeded on module initialization (28 roles across 5 cate
 
 **Support Services (5):** insurance_provider, surveyor, fumigation_provider, packing_company, bank
 
+### 10.3 CLI Commands
+
+#### Seed Contractor Role Types
+
+To seed the default contractor role types for an organization, run:
+
+```bash
+mercato contractors seed-role-types --tenant <tenantId> --org <organizationId>
+```
+
+**Required parameters:**
+- `--tenant` (or `--tenantId`) - The tenant ID
+- `--org` (or `--orgId` or `--organizationId`) - The organization ID
+
+**Example:**
+```bash
+mercato contractors seed-role-types --tenant abc123 --org org456
+```
+
+The command will:
+- Create 24 default contractor role types across 4 categories (Trading, Carrier, Intermediary, Facility)
+- Skip any role types that already exist for the given organization
+- Output the number of created and skipped roles
+
+**Output:**
+```
+Contractor role types seeded for organization org456:
+  Created: 24
+  Skipped (already exist): 0
+```
+
 ---
 
 ## 11. Non-Functional Requirements

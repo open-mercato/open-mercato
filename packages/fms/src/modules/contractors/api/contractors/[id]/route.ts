@@ -81,12 +81,11 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     addresses: contractor.addresses.getItems().map((addr) => ({
       id: addr.id,
       purpose: addr.purpose,
-      label: addr.label,
       addressLine: addr.addressLine,
       city: addr.city,
       state: addr.state,
       postalCode: addr.postalCode,
-      countryCode: addr.countryCode,
+      country: addr.country,
       isPrimary: addr.isPrimary,
       isActive: addr.isActive,
       createdAt: addr.createdAt.toISOString(),

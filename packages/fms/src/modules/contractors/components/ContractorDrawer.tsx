@@ -19,20 +19,19 @@ import { ContractorPaymentSection } from './ContractorPaymentSection'
 type ContractorAddress = {
   id: string
   purpose: string
-  label?: string | null
-  addressLine: string
-  city: string
+  addressLine?: string | null
+  city?: string | null
   state?: string | null
   postalCode?: string | null
-  countryCode: string
+  country?: string | null
   isPrimary: boolean
   isActive: boolean
 }
 
 type ContractorContact = {
   id: string
-  firstName: string
-  lastName: string
+  firstName?: string | null
+  lastName?: string | null
   email?: string | null
   phone?: string | null
   isPrimary: boolean
@@ -144,6 +143,22 @@ export function ContractorDrawer({
           </div>
         ) : (
           <>
+            {/* Fullscreen button positioned next to close button */}
+            <button
+              type="button"
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="absolute right-12 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              title={isFullscreen
+                ? t('contractors.drawer.exitFullscreen', 'Exit fullscreen')
+                : t('contractors.drawer.fullscreen', 'Fullscreen')}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-4 h-4" />
+              ) : (
+                <Maximize2 className="w-4 h-4" />
+              )}
+            </button>
+
             <div className="flex-shrink-0 p-6 border-b">
               <SheetHeader>
                 <div className="flex items-center gap-3">
@@ -153,20 +168,6 @@ export function ContractorDrawer({
                   <div className="flex-1">
                     <SheetTitle className="text-lg">{displayTitle}</SheetTitle>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setIsFullscreen(!isFullscreen)}
-                    className="p-2 rounded-md hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
-                    title={isFullscreen
-                      ? t('contractors.drawer.exitFullscreen', 'Exit fullscreen')
-                      : t('contractors.drawer.fullscreen', 'Fullscreen')}
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="w-4 h-4" />
-                    ) : (
-                      <Maximize2 className="w-4 h-4" />
-                    )}
-                  </button>
                 </div>
               </SheetHeader>
             </div>
@@ -184,6 +185,7 @@ export function ContractorDrawer({
               />
               <ContractorPaymentSection
                 contractorId={contractor.id}
+                taxId={contractor.taxId}
                 paymentTerms={contractor.paymentTerms}
                 creditLimit={contractor.creditLimit}
                 onUpdated={handleContractorUpdated}

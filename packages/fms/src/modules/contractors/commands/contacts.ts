@@ -39,8 +39,8 @@ const createContactCommand: CommandHandler<ContactCreateInput, { contactId: stri
       organizationId: contractor.organizationId,
       tenantId: contractor.tenantId,
       contractor,
-      firstName: parsed.firstName,
-      lastName: parsed.lastName,
+      firstName: parsed.firstName ?? null,
+      lastName: parsed.lastName ?? null,
       email: parsed.email ?? null,
       phone: parsed.phone ?? null,
       isPrimary: parsed.isPrimary ?? false,
@@ -71,8 +71,8 @@ const updateContactCommand: CommandHandler<ContactUpdateInput, { contactId: stri
       throw new CrudHttpError(404, { error: 'Contact not found' })
     }
 
-    if (parsed.firstName !== undefined) contact.firstName = parsed.firstName
-    if (parsed.lastName !== undefined) contact.lastName = parsed.lastName
+    if (parsed.firstName !== undefined) contact.firstName = parsed.firstName ?? null
+    if (parsed.lastName !== undefined) contact.lastName = parsed.lastName ?? null
     if (parsed.email !== undefined) contact.email = parsed.email ?? null
     if (parsed.phone !== undefined) contact.phone = parsed.phone ?? null
     if (parsed.isPrimary !== undefined) contact.isPrimary = parsed.isPrimary

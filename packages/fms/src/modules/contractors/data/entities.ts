@@ -77,7 +77,7 @@ export class Contractor {
 @Entity({ tableName: 'contractor_addresses' })
 @Index({ name: 'contractor_addresses_contractor_idx', properties: ['contractor'] })
 export class ContractorAddress {
-  [OptionalProps]?: 'isActive' | 'isPrimary' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'isActive' | 'isPrimary' | 'createdAt' | 'updatedAt' | 'addressLine' | 'city' | 'country'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -91,14 +91,11 @@ export class ContractorAddress {
   @Property({ type: 'text' })
   purpose!: ContractorAddressPurpose
 
+  @Property({ name: 'address_line', type: 'text', nullable: true })
+  addressLine?: string | null
+
   @Property({ type: 'text', nullable: true })
-  label?: string | null
-
-  @Property({ name: 'address_line', type: 'text' })
-  addressLine!: string
-
-  @Property({ type: 'text' })
-  city!: string
+  city?: string | null
 
   @Property({ type: 'text', nullable: true })
   state?: string | null
@@ -106,8 +103,8 @@ export class ContractorAddress {
   @Property({ name: 'postal_code', type: 'text', nullable: true })
   postalCode?: string | null
 
-  @Property({ name: 'country_code', type: 'text' })
-  countryCode!: string
+  @Property({ type: 'text', nullable: true })
+  country?: string | null
 
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
@@ -128,7 +125,7 @@ export class ContractorAddress {
 @Entity({ tableName: 'contractor_contacts' })
 @Index({ name: 'contractor_contacts_contractor_idx', properties: ['contractor'] })
 export class ContractorContact {
-  [OptionalProps]?: 'isActive' | 'isPrimary' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'isActive' | 'isPrimary' | 'createdAt' | 'updatedAt' | 'firstName' | 'lastName'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -139,11 +136,11 @@ export class ContractorContact {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'first_name', type: 'text' })
-  firstName!: string
+  @Property({ name: 'first_name', type: 'text', nullable: true })
+  firstName?: string | null
 
-  @Property({ name: 'last_name', type: 'text' })
-  lastName!: string
+  @Property({ name: 'last_name', type: 'text', nullable: true })
+  lastName?: string | null
 
   @Property({ type: 'text', nullable: true })
   email?: string | null

@@ -78,6 +78,8 @@ export interface DynamicTableProps {
   idColumnName?: string;
   tableName?: string;
   tableRef: React.RefObject<HTMLDivElement | null>;
+  /** Message to display when data is empty (e.g., "No addresses") */
+  emptyMessage?: string;
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
   actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
@@ -115,6 +117,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   idColumnName = 'id',
   tableName = 'Table Name',
   tableRef,
+  emptyMessage,
   columnActions,
   rowActions,
   actionsRenderer,
@@ -167,6 +170,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
   // -------------------- UI CONFIG --------------------
   const {
     hideToolbar = false,
+    hideTitle = false,
     hideSearch = false,
     hideFilterButton = false,
     hideAddRowButton = false,
@@ -412,11 +416,15 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     });
   }, [store]);
 
-  // Keyboard navigation
+  // Keyboard navigation - attach to table element, not document
+  // This ensures each table only handles its own keyboard events
   useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    const element = tableRef?.current;
+    if (!element) return;
+
+    element.addEventListener('keydown', handleKeyDown);
+    return () => element.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown, tableRef]);
 
   // Copy handler
   useEffect(() => {
@@ -503,7 +511,9 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
           {/* Custom slot: top bar start */}
           {topBarStart}
 
-          <h3 className="text-base font-semibold text-gray-900 whitespace-nowrap">{displayTableName}</h3>
+          {!hideTitle && (
+            <h3 className="text-base font-semibold text-gray-900 whitespace-nowrap">{displayTableName}</h3>
+          )}
 
           {/* Perspective Toolbar - only show in top when position is 'top' */}
           {!hideFilterButton && toolbarPosition === 'top' && (
@@ -567,57 +577,67 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
           ...(shouldFillHeight && { minHeight: 0 }),
         }}
       >
-        {/* Column Headers */}
-        {colHeaders && (
-          <ColumnHeaders
-            columns={cols}
-            rowHeaders={rowHeaders}
-            leftOffsets={leftOffsets}
-            rightOffsets={rightOffsets}
-            totalWidth={totalWidth}
-            sortState={sortState}
-            actionsColumnWidth={actionsColumnWidth}
-            showActionsColumn={showActionsColumn}
-            stretchColumns={stretchColumns}
-            onSort={handleColumnSort}
-            onResizeStart={handleResizeStart}
-            onDoubleClick={handleColumnHeaderDoubleClick}
-            onMouseDown={(e) => handleColumnHeaderMouseDown(e, dragHandlers.handleDragStart)}
-            onMouseMove={handleMouseMove}
-          />
-        )}
-
-        {/* Virtual Body */}
-        <table className="hot-table" style={{ width: stretchColumns ? '100%' : `${totalWidth}px` }}>
-          <tbody
-            style={{
-              display: 'block',
-              height: `${rowVirtualizer.getTotalSize()}px`,
-              position: 'relative',
-            }}
-          >
-            {virtualRows.map((virtualRow) => (
-              <VirtualRow
-                key={virtualRow.index}
-                rowIndex={virtualRow.index}
+        {/* Empty State Message */}
+        {emptyMessage && rowCount === 0 ? (
+          <div className="flex items-center justify-center py-8 text-sm text-gray-500">
+            {emptyMessage}
+          </div>
+        ) : (
+          <>
+            {/* Column Headers */}
+            {colHeaders && (
+              <ColumnHeaders
                 columns={cols}
-                virtualRow={virtualRow}
                 rowHeaders={rowHeaders}
                 leftOffsets={leftOffsets}
                 rightOffsets={rightOffsets}
+                totalWidth={totalWidth}
+                sortState={sortState}
                 actionsColumnWidth={actionsColumnWidth}
                 showActionsColumn={showActionsColumn}
                 stretchColumns={stretchColumns}
-                storeRevision={storeRevision}
-                onSaveNewRow={handleSaveNewRow}
-                onCancelNewRow={handleCancelNewRow}
-                onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
-                onCellSave={handleCellSave}
-                actionsRenderer={actionsRenderer}
+                onSort={handleColumnSort}
+                onResizeStart={handleResizeStart}
+                onDoubleClick={handleColumnHeaderDoubleClick}
+                onMouseDown={(e) => handleColumnHeaderMouseDown(e, dragHandlers.handleDragStart)}
+                onMouseMove={handleMouseMove}
               />
-            ))}
-          </tbody>
-        </table>
+            )}
+
+            {/* Virtual Body */}
+            <table className="hot-table" style={{ width: stretchColumns ? '100%' : `${totalWidth}px` }}>
+              <tbody
+                style={{
+                  display: 'block',
+                  height: `${rowVirtualizer.getTotalSize()}px`,
+                  position: 'relative',
+                }}
+              >
+                {virtualRows.map((virtualRow) => (
+                  <VirtualRow
+                    key={virtualRow.index}
+                    rowIndex={virtualRow.index}
+                    columns={cols}
+                    virtualRow={virtualRow}
+                    rowHeaders={rowHeaders}
+                    leftOffsets={leftOffsets}
+                    rightOffsets={rightOffsets}
+                    actionsColumnWidth={actionsColumnWidth}
+                    showActionsColumn={showActionsColumn}
+                    stretchColumns={stretchColumns}
+                    totalWidth={totalWidth}
+                    storeRevision={storeRevision}
+                    onSaveNewRow={handleSaveNewRow}
+                    onCancelNewRow={handleCancelNewRow}
+                    onRowHeaderDoubleClick={handleRowHeaderDoubleClick}
+                    onCellSave={handleCellSave}
+                    actionsRenderer={actionsRenderer}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
 
       {/* Perspective Tabs / Bottom Bar */}

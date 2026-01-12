@@ -50,9 +50,18 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus();
-          const length = inputRef.current.value?.length || 0;
-          inputRef.current.selectionStart = length;
-          inputRef.current.selectionEnd = length;
+          // Only set selection for input types that support it (not checkbox, radio, etc.)
+          const supportsSelection =
+            inputRef.current.type === undefined || // textarea
+            ['text', 'password', 'search', 'tel', 'url', 'number'].includes(inputRef.current.type);
+          if (supportsSelection && inputRef.current.setSelectionRange) {
+            const length = inputRef.current.value?.length || 0;
+            try {
+              inputRef.current.setSelectionRange(length, length);
+            } catch {
+              // Some input types may still throw, ignore silently
+            }
+          }
         }
       }, 0);
     }
