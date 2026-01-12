@@ -88,6 +88,79 @@ const seedDemo: ModuleCli = {
 }
 
 /**
+ * Seed demo checkout workflow with guard rules
+ */
+const seedDemoWithRules: ModuleCli = {
+  command: 'seed-demo-with-rules',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
+
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato workflows seed-demo-with-rules --tenant <tenantId> --org <organizationId>')
+      console.error('   or: mercato workflows seed-demo-with-rules -t <tenantId> -o <organizationId>')
+      return
+    }
+
+    console.log('Seeding demo workflow with guard rules...\n')
+
+    try {
+      // Seed the workflow definition
+      console.log('1. Seeding demo workflow...')
+      await seedDemo.run(rest)
+
+      // Seed the guard rules
+      console.log('\n2. Seeding guard rules...')
+      const { resolve } = await createRequestContainer()
+      const em = resolve<EntityManager>('em')
+
+      // Import BusinessRule entity
+      const { BusinessRule } = await import('../business_rules/data/entities')
+
+      // Read guard rules
+      const rulesPath = path.join(__dirname, 'examples', 'guard-rules-example.json')
+      const rulesData = JSON.parse(fs.readFileSync(rulesPath, 'utf8'))
+
+      let seededCount = 0
+      let skippedCount = 0
+
+      for (const ruleData of rulesData) {
+        const existing = await em.findOne(BusinessRule, {
+          ruleId: ruleData.ruleId,
+          tenantId,
+          organizationId,
+        })
+
+        if (existing) {
+          console.log(`  ⊘ Guard rule '${ruleData.ruleId}' already exists`)
+          skippedCount++
+          continue
+        }
+
+        const rule = em.create(BusinessRule, {
+          ...ruleData,
+          tenantId,
+          organizationId,
+        })
+
+        await em.persistAndFlush(rule)
+        console.log(`  ✓ Seeded guard rule: ${rule.ruleName}`)
+        seededCount++
+      }
+
+      console.log(`\n✓ Demo workflow with guard rules seeded successfully!`)
+      console.log(`  - Workflow: checkout_simple_v1`)
+      console.log(`  - Guard rules seeded: ${seededCount}`)
+      console.log(`  - Guard rules skipped: ${skippedCount}`)
+    } catch (error) {
+      console.error('Error seeding demo with rules:', error)
+      throw error
+    }
+  },
+}
+
+/**
  * Seed sales pipeline example
  */
 const seedSalesPipeline: ModuleCli = {
@@ -277,8 +350,8 @@ const seedAll: ModuleCli = {
     console.log('Seeding all example workflows...\n')
 
     try {
-      // Seed demo checkout
-      await seedDemo.run(rest)
+      // Seed demo checkout with rules
+      await seedDemoWithRules.run(rest)
       console.log('')
 
       // Seed sales pipeline
@@ -364,6 +437,7 @@ const workflowsCliCommands = [
   startWorker,
   processActivities,
   seedDemo,
+  seedDemoWithRules,
   seedSalesPipeline,
   seedSimpleApproval,
   seedAll,

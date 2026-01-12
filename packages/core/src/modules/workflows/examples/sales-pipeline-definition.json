@@ -1,0 +1,610 @@
+{
+  "workflowId": "sales_pipeline_v1",
+  "workflowName": "Sales Pipeline - Order to Fulfillment",
+  "description": "Complete sales pipeline workflow: Order creation → Approval → Contract signing → Invoicing → Fulfillment notification",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "Sales",
+    "tags": [
+      "sales",
+      "orders",
+      "invoicing",
+      "fulfillment"
+    ],
+    "icon": "shopping-cart"
+  },
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start Pipeline",
+        "stepType": "START",
+        "description": "Initialize sales pipeline"
+      },
+      {
+        "stepId": "order_created",
+        "stepName": "Order Created",
+        "stepType": "AUTOMATED",
+        "description": "Process new order data and validate",
+        "timeout": "PT30S"
+      },
+      {
+        "stepId": "awaiting_approval",
+        "stepName": "Awaiting Approval",
+        "stepType": "USER_TASK",
+        "description": "Sales manager reviews and approves order",
+        "userTaskConfig": {
+          "assignedTo": "sales_manager",
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "approved",
+        "stepName": "Order Approved",
+        "stepType": "AUTOMATED",
+        "description": "Process approval and prepare contract"
+      },
+      {
+        "stepId": "contract_signing",
+        "stepName": "Contract Signing",
+        "stepType": "USER_TASK",
+        "description": "Customer signs contract",
+        "userTaskConfig": {
+          "assignedTo": "customer",
+          "slaDuration": "PT72H"
+        }
+      },
+      {
+        "stepId": "contract_signed",
+        "stepName": "Contract Signed",
+        "stepType": "AUTOMATED",
+        "description": "Process signed contract"
+      },
+      {
+        "stepId": "invoicing",
+        "stepName": "Generate Invoice",
+        "stepType": "AUTOMATED",
+        "description": "Create and send invoice to customer",
+        "timeout": "PT45S"
+      },
+      {
+        "stepId": "fulfillment_notify",
+        "stepName": "Notify Fulfillment",
+        "stepType": "AUTOMATED",
+        "description": "Notify warehouse to prepare shipment"
+      },
+      {
+        "stepId": "end",
+        "stepName": "Pipeline Complete",
+        "stepType": "END",
+        "description": "Sales pipeline completed successfully"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_order",
+        "transitionName": "Initialize Order",
+        "fromStepId": "start",
+        "toStepId": "order_created",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "validate_order_data",
+            "activityName": "Validate Order Data",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "function": "validateOrderData",
+              "parameters": {
+                "requiredFields": [
+                  "customer_id",
+                  "items",
+                  "total_amount"
+                ]
+              }
+            },
+            "timeout": "PT5S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 1000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            }
+          },
+          {
+            "activityId": "emit_order_created",
+            "activityName": "Emit Order Created Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventType": "order.created",
+              "includeContext": true
+            },
+            "async": true
+          }
+        ]
+      },
+      {
+        "transitionId": "order_to_approval",
+        "transitionName": "Submit for Approval",
+        "fromStepId": "order_created",
+        "toStepId": "awaiting_approval",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "calculate_order_value",
+            "activityName": "Calculate Total Order Value",
+            "activityType": "EXECUTE_FUNCTION",
+            "config": {
+              "function": "calculateOrderTotal",
+              "updateContext": true
+            },
+            "timeout": "PT3S",
+            "async": false
+          },
+          {
+            "activityId": "notify_sales_manager",
+            "activityName": "Notify Sales Manager",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.salesManager.email}}",
+              "subject": "New Order Awaiting Approval - {{context.order.id}}",
+              "template": "order_approval_request",
+              "data": {
+                "orderId": "{{context.order.id}}",
+                "customerName": "{{context.customer.name}}",
+                "totalAmount": "{{context.order.total}}",
+                "items": "{{context.order.items}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 20000
+            }
+          },
+          {
+            "activityId": "update_order_status_pending",
+            "activityName": "Update Order Status to Pending",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "entity": "Order",
+              "id": "{{context.order.id}}",
+              "data": {
+                "status": "PENDING_APPROVAL",
+                "approvalRequestedAt": "{{now}}"
+              }
+            },
+            "async": false,
+            "timeout": "PT5S"
+          }
+        ]
+      },
+      {
+        "transitionId": "approval_to_approved",
+        "transitionName": "Order Approved",
+        "fromStepId": "awaiting_approval",
+        "toStepId": "approved",
+        "trigger": "manual",
+        "priority": 100,
+        "preConditions": [
+          {
+            "ruleId": "order_approval_authorized",
+            "required": true
+          }
+        ],
+        "activities": [
+          {
+            "activityId": "update_order_approved",
+            "activityName": "Update Order to Approved",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "entity": "Order",
+              "id": "{{context.order.id}}",
+              "data": {
+                "status": "APPROVED",
+                "approvedAt": "{{now}}",
+                "approvedBy": "{{task.completedBy}}"
+              }
+            },
+            "async": false,
+            "timeout": "PT5S"
+          },
+          {
+            "activityId": "notify_customer_approved",
+            "activityName": "Notify Customer - Order Approved",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customer.email}}",
+              "subject": "Order Approved - {{context.order.id}}",
+              "template": "order_approved",
+              "data": {
+                "orderId": "{{context.order.id}}",
+                "customerName": "{{context.customer.name}}",
+                "approvedBy": "{{task.completedBy}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true
+          },
+          {
+            "activityId": "emit_order_approved",
+            "activityName": "Emit Order Approved Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventType": "order.approved",
+              "payload": {
+                "orderId": "{{context.order.id}}",
+                "approvedBy": "{{task.completedBy}}",
+                "timestamp": "{{now}}"
+              }
+            },
+            "async": true
+          }
+        ]
+      },
+      {
+        "transitionId": "approved_to_contract",
+        "transitionName": "Generate Contract",
+        "fromStepId": "approved",
+        "toStepId": "contract_signing",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "generate_contract_pdf",
+            "activityName": "Generate Contract PDF",
+            "activityType": "CALL_API",
+            "config": {
+              "method": "POST",
+              "url": "{{env.CONTRACT_SERVICE_URL}}/api/contracts/generate",
+              "headers": {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer {{env.SERVICE_TOKEN}}"
+              },
+              "body": {
+                "orderId": "{{context.order.id}}",
+                "customerId": "{{context.customer.id}}",
+                "items": "{{context.order.items}}",
+                "totalAmount": "{{context.order.total}}",
+                "terms": "standard"
+              },
+              "storeResponseIn": "context.contract"
+            },
+            "timeout": "PT30S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 30000
+            }
+          },
+          {
+            "activityId": "send_contract_email",
+            "activityName": "Send Contract to Customer",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customer.email}}",
+              "subject": "Contract Ready for Signature - {{context.order.id}}",
+              "template": "contract_signing_request",
+              "attachments": [
+                {
+                  "filename": "contract_{{context.order.id}}.pdf",
+                  "url": "{{context.contract.pdfUrl}}"
+                }
+              ],
+              "data": {
+                "orderId": "{{context.order.id}}",
+                "customerName": "{{context.customer.name}}",
+                "signingUrl": "{{context.contract.signingUrl}}",
+                "expiresIn": "72 hours"
+              }
+            },
+            "timeout": "PT15S",
+            "async": true,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 3000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 30000
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "contract_to_signed",
+        "transitionName": "Contract Signed",
+        "fromStepId": "contract_signing",
+        "toStepId": "contract_signed",
+        "trigger": "manual",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "verify_signature",
+            "activityName": "Verify Contract Signature",
+            "activityType": "CALL_API",
+            "config": {
+              "method": "POST",
+              "url": "{{env.CONTRACT_SERVICE_URL}}/api/contracts/verify",
+              "body": {
+                "contractId": "{{context.contract.id}}",
+                "signatureId": "{{task.result.signatureId}}"
+              },
+              "storeResponseIn": "context.contract.verified"
+            },
+            "timeout": "PT10S",
+            "async": false
+          },
+          {
+            "activityId": "update_order_signed",
+            "activityName": "Update Order - Contract Signed",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "entity": "Order",
+              "id": "{{context.order.id}}",
+              "data": {
+                "status": "CONTRACT_SIGNED",
+                "contractSignedAt": "{{now}}",
+                "contractId": "{{context.contract.id}}"
+              }
+            },
+            "async": false,
+            "timeout": "PT5S"
+          },
+          {
+            "activityId": "notify_sales_signed",
+            "activityName": "Notify Sales Team - Contract Signed",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.salesManager.email}}",
+              "cc": [
+                "sales@company.com"
+              ],
+              "subject": "Contract Signed - {{context.order.id}}",
+              "template": "contract_signed_notification",
+              "data": {
+                "orderId": "{{context.order.id}}",
+                "customerName": "{{context.customer.name}}",
+                "contractId": "{{context.contract.id}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true
+          }
+        ]
+      },
+      {
+        "transitionId": "signed_to_invoicing",
+        "transitionName": "Generate Invoice",
+        "fromStepId": "contract_signed",
+        "toStepId": "invoicing",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "create_invoice",
+            "activityName": "Create Invoice in System",
+            "activityType": "CALL_API",
+            "config": {
+              "method": "POST",
+              "url": "{{env.BILLING_SERVICE_URL}}/api/invoices",
+              "headers": {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer {{env.SERVICE_TOKEN}}"
+              },
+              "body": {
+                "orderId": "{{context.order.id}}",
+                "customerId": "{{context.customer.id}}",
+                "items": "{{context.order.items}}",
+                "subtotal": "{{context.order.subtotal}}",
+                "tax": "{{context.order.tax}}",
+                "total": "{{context.order.total}}",
+                "dueDate": "{{context.invoice.dueDate}}",
+                "paymentTerms": "NET30"
+              },
+              "storeResponseIn": "context.invoice"
+            },
+            "timeout": "PT20S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 5,
+              "initialIntervalMs": 3000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 60000
+            }
+          },
+          {
+            "activityId": "send_invoice_email",
+            "activityName": "Send Invoice to Customer",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.customer.billingEmail}}",
+              "cc": [
+                "{{context.customer.email}}"
+              ],
+              "subject": "Invoice #{{context.invoice.number}} - {{context.order.id}}",
+              "template": "invoice_sent",
+              "attachments": [
+                {
+                  "filename": "invoice_{{context.invoice.number}}.pdf",
+                  "url": "{{context.invoice.pdfUrl}}"
+                }
+              ],
+              "data": {
+                "invoiceNumber": "{{context.invoice.number}}",
+                "customerName": "{{context.customer.name}}",
+                "totalAmount": "{{context.invoice.total}}",
+                "dueDate": "{{context.invoice.dueDate}}",
+                "paymentUrl": "{{context.invoice.paymentUrl}}"
+              }
+            },
+            "timeout": "PT15S",
+            "async": true,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 5000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 30000
+            }
+          },
+          {
+            "activityId": "update_order_invoiced",
+            "activityName": "Update Order Status - Invoiced",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "entity": "Order",
+              "id": "{{context.order.id}}",
+              "data": {
+                "status": "INVOICED",
+                "invoiceId": "{{context.invoice.id}}",
+                "invoiceNumber": "{{context.invoice.number}}",
+                "invoicedAt": "{{now}}"
+              }
+            },
+            "async": false,
+            "timeout": "PT5S"
+          }
+        ]
+      },
+      {
+        "transitionId": "invoicing_to_fulfillment",
+        "transitionName": "Notify Fulfillment",
+        "fromStepId": "invoicing",
+        "toStepId": "fulfillment_notify",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "create_fulfillment_order",
+            "activityName": "Create Fulfillment Order",
+            "activityType": "CALL_API",
+            "config": {
+              "method": "POST",
+              "url": "{{env.WAREHOUSE_SERVICE_URL}}/api/fulfillment/orders",
+              "headers": {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer {{env.SERVICE_TOKEN}}"
+              },
+              "body": {
+                "orderId": "{{context.order.id}}",
+                "customerId": "{{context.customer.id}}",
+                "items": "{{context.order.items}}",
+                "shippingAddress": "{{context.customer.shippingAddress}}",
+                "priority": "standard",
+                "notes": "Invoice #{{context.invoice.number}} sent"
+              },
+              "storeResponseIn": "context.fulfillment"
+            },
+            "timeout": "PT15S",
+            "async": false,
+            "retryPolicy": {
+              "maxAttempts": 5,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 30000
+            }
+          },
+          {
+            "activityId": "notify_warehouse",
+            "activityName": "Notify Warehouse Team",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "warehouse@company.com",
+              "subject": "New Fulfillment Order - {{context.fulfillment.id}}",
+              "template": "fulfillment_order_created",
+              "data": {
+                "fulfillmentId": "{{context.fulfillment.id}}",
+                "orderId": "{{context.order.id}}",
+                "customerName": "{{context.customer.name}}",
+                "items": "{{context.order.items}}",
+                "shippingAddress": "{{context.customer.shippingAddress}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true
+          },
+          {
+            "activityId": "emit_fulfillment_ready",
+            "activityName": "Emit Fulfillment Ready Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventType": "fulfillment.ready",
+              "payload": {
+                "orderId": "{{context.order.id}}",
+                "fulfillmentId": "{{context.fulfillment.id}}",
+                "timestamp": "{{now}}"
+              }
+            },
+            "async": true
+          }
+        ]
+      },
+      {
+        "transitionId": "fulfillment_to_end",
+        "transitionName": "Complete Pipeline",
+        "fromStepId": "fulfillment_notify",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "update_order_completed",
+            "activityName": "Update Order Status - Completed",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "entity": "Order",
+              "id": "{{context.order.id}}",
+              "data": {
+                "status": "COMPLETED",
+                "completedAt": "{{now}}",
+                "fulfillmentId": "{{context.fulfillment.id}}"
+              }
+            },
+            "async": false,
+            "timeout": "PT5S"
+          },
+          {
+            "activityId": "send_completion_summary",
+            "activityName": "Send Completion Summary",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.salesManager.email}}",
+              "subject": "Sales Pipeline Completed - {{context.order.id}}",
+              "template": "pipeline_completed",
+              "data": {
+                "orderId": "{{context.order.id}}",
+                "customerName": "{{context.customer.name}}",
+                "totalAmount": "{{context.order.total}}",
+                "invoiceNumber": "{{context.invoice.number}}",
+                "fulfillmentId": "{{context.fulfillment.id}}",
+                "duration": "{{workflow.duration}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true
+          },
+          {
+            "activityId": "emit_pipeline_completed",
+            "activityName": "Emit Pipeline Completed Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventType": "sales.pipeline.completed",
+              "payload": {
+                "orderId": "{{context.order.id}}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "timestamp": "{{now}}"
+              }
+            },
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
