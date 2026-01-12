@@ -81,6 +81,22 @@
       "deleteError": "Error al eliminar moneda",
       "baseSet": "Moneda base actualizada correctamente",
       "baseSetError": "Error al establecer moneda base"
+    },
+    "fetch": {
+      "title": "Obtención de Tipos de Cambio",
+      "enabled": "Habilitado",
+      "disabled": "Deshabilitado",
+      "sync_time": "Hora de Sincronización Diaria",
+      "last_sync": "Última Sincronización",
+      "last_sync_status": "Estado",
+      "last_sync_count": "Tipos Obtenidos",
+      "fetch_now": "Obtener Ahora",
+      "sync_success": "Tipos obtenidos correctamente",
+      "sync_error": "Error al obtener tipos",
+      "provider_nbp": "NBP (Banco Nacional de Polonia)",
+      "provider_raiffeisen": "Raiffeisen Bank",
+      "loading": "Cargando...",
+      "test_connection": "Probar Conexión"
     }
   },
   "exchangeRates": {

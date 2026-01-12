@@ -81,6 +81,22 @@
       "deleteError": "Failed to delete currency",
       "baseSet": "Base currency updated successfully",
       "baseSetError": "Failed to set base currency"
+    },
+    "fetch": {
+      "title": "Currency Rate Fetching",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "sync_time": "Daily Sync Time",
+      "last_sync": "Last Sync",
+      "last_sync_status": "Status",
+      "last_sync_count": "Rates Fetched",
+      "fetch_now": "Fetch Now",
+      "sync_success": "Rates fetched successfully",
+      "sync_error": "Failed to fetch rates",
+      "provider_nbp": "NBP (National Bank of Poland)",
+      "provider_raiffeisen": "Raiffeisen Bank",
+      "loading": "Loading...",
+      "test_connection": "Test Connection"
     }
   },
   "exchangeRates": {

@@ -132,3 +132,27 @@ export type CurrencyDeleteInput = z.infer<typeof currencyDeleteSchema>
 export type ExchangeRateCreateInput = z.infer<typeof exchangeRateCreateSchema>
 export type ExchangeRateUpdateInput = z.infer<typeof exchangeRateUpdateSchema>
 export type ExchangeRateDeleteInput = z.infer<typeof exchangeRateDeleteSchema>
+
+// Currency Fetch Config validators
+export const providerSchema = z.enum(['NBP', 'Raiffeisen Bank', 'Custom'])
+
+export const syncTimeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):([0-5]\d)$/, 'Invalid time format. Use HH:MM')
+  .nullable()
+
+export const currencyFetchConfigCreateSchema = z.object({
+  provider: providerSchema,
+  isEnabled: z.boolean().default(false),
+  syncTime: syncTimeSchema.optional(),
+  config: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export const currencyFetchConfigUpdateSchema = z.object({
+  isEnabled: z.boolean().optional(),
+  syncTime: syncTimeSchema.optional(),
+  config: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+
+export type CurrencyFetchConfigCreateInput = z.infer<typeof currencyFetchConfigCreateSchema>
+export type CurrencyFetchConfigUpdateInput = z.infer<typeof currencyFetchConfigUpdateSchema>

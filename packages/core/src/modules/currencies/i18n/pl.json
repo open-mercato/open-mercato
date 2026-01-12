@@ -81,6 +81,22 @@
       "deleteError": "Nie udało się usunąć waluty",
       "baseSet": "Waluta bazowa zaktualizowana pomyślnie",
       "baseSetError": "Nie udało się ustawić waluty bazowej"
+    },
+    "fetch": {
+      "title": "Pobieranie Kursów Walut",
+      "enabled": "Włączony",
+      "disabled": "Wyłączony",
+      "sync_time": "Dzienna Godzina Synchronizacji",
+      "last_sync": "Ostatnia Synchronizacja",
+      "last_sync_status": "Status",
+      "last_sync_count": "Pobrane Kursy",
+      "fetch_now": "Pobierz Teraz",
+      "sync_success": "Kursy pobrane pomyślnie",
+      "sync_error": "Nie udało się pobrać kursów",
+      "provider_nbp": "NBP (Narodowy Bank Polski)",
+      "provider_raiffeisen": "Raiffeisen Bank",
+      "loading": "Ładowanie...",
+      "test_connection": "Testuj Połączenie"
     }
   },
   "exchangeRates": {

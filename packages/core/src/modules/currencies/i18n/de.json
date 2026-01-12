@@ -81,6 +81,22 @@
       "deleteError": "Währung konnte nicht gelöscht werden",
       "baseSet": "Basiswährung erfolgreich aktualisiert",
       "baseSetError": "Basiswährung konnte nicht festgelegt werden"
+    },
+    "fetch": {
+      "title": "Währungskurs-Abruf",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "sync_time": "Tägliche Synchronisierungszeit",
+      "last_sync": "Letzte Synchronisation",
+      "last_sync_status": "Status",
+      "last_sync_count": "Abgerufene Kurse",
+      "fetch_now": "Jetzt Abrufen",
+      "sync_success": "Kurse erfolgreich abgerufen",
+      "sync_error": "Fehler beim Abrufen der Kurse",
+      "provider_nbp": "NBP (Polnische Nationalbank)",
+      "provider_raiffeisen": "Raiffeisen Bank",
+      "loading": "Wird geladen...",
+      "test_connection": "Verbindung Testen"
     }
   },
   "exchangeRates": {
