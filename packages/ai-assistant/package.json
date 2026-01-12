@@ -1,0 +1,20 @@
+{
+  "name": "@open-mercato/ai-assistant",
+  "version": "0.3.13",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./modules/*": "./src/modules/*",
+    "./tools": "./src/modules/ai_assistant/lib/tool-registry.ts",
+    "./types": "./src/modules/ai_assistant/lib/types.ts",
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "zod-to-json-schema": "^3.25.1"
+  },
+  "peerDependencies": {
+    "@open-mercato/shared": "workspace:*",
+    "zod": "^3.23.0"
+  }
+}
