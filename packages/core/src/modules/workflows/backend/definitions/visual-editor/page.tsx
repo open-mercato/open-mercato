@@ -5,10 +5,11 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
-import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
@@ -547,11 +548,31 @@ export default function VisualEditorPage() {
   return (
     <Page className="h-screen flex flex-col">
       {/* Page Header */}
-      <PageHeader
-        title={definitionId ? `Edit: ${workflowName || 'Workflow'}` : t('workflows.backend.definitions.visual_editor.title')}
-        description={definitionId ? `Editing workflow definition (ID: ${definitionId})` : "Create and edit workflow definitions visually with a drag-and-drop interface"}
-        actions={
-          <div className="flex items-center gap-2">
+      <div className="border-b border-gray-200 bg-white px-6 py-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/backend/definitions"
+              className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+            >
+              <span aria-hidden className="mr-1 text-base">←</span>
+              <span className="sr-only">{t('workflows.definitions.backToList', 'Back to definitions')}</span>
+            </Link>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold text-foreground">
+                  {definitionId ? (workflowName || 'Workflow') : t('workflows.backend.definitions.visual_editor.title')}
+                </h1>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {definitionId
+                  ? t('workflows.definitions.detail.summary', 'Editing workflow definition')
+                  : t('workflows.definitions.create.summary', 'Create and edit workflow definitions visually with a drag-and-drop interface')
+                }
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -601,14 +622,15 @@ export default function VisualEditorPage() {
               {isSaving ? 'Saving...' : (definitionId ? 'Update' : 'Save')}
             </Button>
           </div>
-        }
-      />
+        </div>
+      </div>
 
       {/* Workflow Metadata Form */}
       {showMetadata && (
         <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <h2 className="text-sm font-semibold text-gray-900 mb-4">Workflow Metadata</h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="rounded-lg border bg-card p-4">
+            <h2 className="text-sm font-semibold uppercase text-muted-foreground mb-4">Workflow Metadata</h2>
+            <div className="grid grid-cols-3 gap-4">
             {/* Workflow ID */}
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -766,6 +788,7 @@ export default function VisualEditorPage() {
                 Workflow deactivates after this date
               </p>
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -773,13 +796,14 @@ export default function VisualEditorPage() {
       {/* Main Content: Sidebar + Canvas */}
       <PageBody className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - Step Palette */}
-        <div className="w-64 bg-white border-r border-gray-200 p-6 overflow-y-auto">
-          <h2 className="text-sm font-semibold text-gray-900 mb-4">Step Palette</h2>
-          <p className="text-xs text-gray-600 mb-6">
-            Click a step type to add it to the canvas
-          </p>
+        <div className="w-88 bg-white border-r border-gray-200 p-6 overflow-y-auto">
+          <div className="rounded-lg border bg-card p-4">
+            <h2 className="text-sm font-semibold uppercase text-muted-foreground mb-2">Step Palette</h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              Click a step type to add it to the canvas
+            </p>
 
-          <div className="space-y-3">
+            <div className="space-y-3">
             {/* START Step */}
             <button
               onClick={() => handleAddNode('start')}
@@ -871,35 +895,38 @@ export default function VisualEditorPage() {
             </button>
           </div>
 
-          {/* Instructions */}
-          <Alert variant="info" className="mt-8">
-            <Info className="size-4" />
-            <AlertTitle className="text-xs">How to use:</AlertTitle>
-            <div className="mt-2">
-              <ul className="text-xs space-y-1">
-                <li>• Click step types to add them</li>
-                <li>• Drag steps to position them</li>
-                <li>• Connect steps by dragging from handles</li>
-                <li>• Click steps/transitions to edit them</li>
-                <li>• Validate before saving</li>
-              </ul>
-            </div>
-          </Alert>
+            {/* Instructions */}
+            <Alert variant="info" className="mt-6">
+              <Info className="size-4" />
+              <AlertTitle className="text-xs">How to use:</AlertTitle>
+              <div className="mt-2">
+                <ul className="text-xs space-y-1">
+                  <li>• Click step types to add them</li>
+                  <li>• Drag steps to position them</li>
+                  <li>• Connect steps by dragging from handles</li>
+                  <li>• Click steps/transitions to edit them</li>
+                  <li>• Validate before saving</li>
+                </ul>
+              </div>
+            </Alert>
+          </div>
         </div>
 
         {/* Main Canvas */}
-        <div className="flex-1 relative">
-          <WorkflowGraph
-            initialNodes={nodes}
-            initialEdges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={handleEdgesChange}
-            onNodeClick={handleNodeClick}
-            onEdgeClick={handleEdgeClick}
-            onConnect={handleConnect}
-            editable={true}
-            height="100%"
-          />
+        <div className="flex-1 relative p-6 overflow-auto">
+          <div className="h-full rounded-lg border bg-card">
+            <WorkflowGraph
+              initialNodes={nodes}
+              initialEdges={edges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onNodeClick={handleNodeClick}
+              onEdgeClick={handleEdgeClick}
+              onConnect={handleConnect}
+              editable={true}
+              height="100%"
+            />
+          </div>
 
           {/* Empty State */}
           {nodes.length === 0 && (

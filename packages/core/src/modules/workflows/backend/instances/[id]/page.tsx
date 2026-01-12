@@ -377,12 +377,24 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       <PageBody>
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">{instance.workflowId}</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                {t('workflows.instances.fields.instanceId')}: <span className="font-mono">{instance.id}</span>
-              </p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href="/backend/instances"
+                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+              >
+                <span aria-hidden className="mr-1 text-base">←</span>
+                <span className="sr-only">{t('workflows.instances.backToList', 'Back to instances')}</span>
+              </Link>
+              <div className="space-y-1">
+                <p className="text-xs uppercase text-muted-foreground">
+                  {t('workflows.instances.detail.type', 'Workflow instance')}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-bold text-foreground">{instance.workflowId}</h1>
+                  <span className="font-mono text-sm text-muted-foreground">#{instance.id.slice(0, 8)}</span>
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {canCancel && (

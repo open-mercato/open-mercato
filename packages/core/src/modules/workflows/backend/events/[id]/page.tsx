@@ -122,18 +122,32 @@ export default function WorkflowEventDetailPage() {
       <PageBody>
         <div className="space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">
-                {t('workflows.events.detail.title')}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                {t('workflows.events.detail.eventId')}: {event.id}
-              </p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href="/backend/events"
+                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+              >
+                <span aria-hidden className="mr-1 text-base">←</span>
+                <span className="sr-only">{t('workflows.events.backToList', 'Back to events')}</span>
+              </Link>
+              <div className="space-y-1">
+                <p className="text-xs uppercase text-muted-foreground">
+                  {t('workflows.events.detail.type', 'Workflow event')}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-bold text-foreground">{event.eventType}</h1>
+                  <span className="font-mono text-sm text-muted-foreground">#{event.id.slice(0, 8)}</span>
+                </div>
+              </div>
             </div>
-            <Button onClick={() => router.push('/backend/events')} variant="outline">
-              {t('workflows.events.backToList')}
-            </Button>
+            <span
+              className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getEventTypeBadgeClass(
+                event.eventType
+              )}`}
+            >
+              {event.eventType}
+            </span>
           </div>
 
           {/* Event Summary */}

@@ -354,32 +354,38 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     <Page>
       <PageBody>
         <div className="max-w-4xl mx-auto space-y-6">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Link href="/backend/tasks" className="hover:text-foreground">
-              {t('workflows.tasks.list.title')}
-            </Link>
-            <span>/</span>
-            <span className="text-foreground">{task.taskName}</span>
-          </div>
-
           {/* Header */}
-          <div className="space-y-3">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <h1 className="text-2xl font-bold">{task.taskName}</h1>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href="/backend/tasks"
+                className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground"
+              >
+                <span aria-hidden className="mr-1 text-base">←</span>
+                <span className="sr-only">{t('workflows.tasks.backToList', 'Back to tasks')}</span>
+              </Link>
+              <div className="space-y-1">
+                <p className="text-xs uppercase text-muted-foreground">
+                  {t('workflows.tasks.detail.type', 'User task')}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-2xl font-bold">{task.taskName}</h1>
+                </div>
                 {task.description && (
-                  <p className="mt-2 text-muted-foreground">{task.description}</p>
+                  <p className="text-sm text-muted-foreground">{task.description}</p>
                 )}
               </div>
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getStatusBadgeClass(
-                  task.status
-                )}`}
-              >
-                {t(`workflows.tasks.status.${task.status}`)}
-              </span>
             </div>
+            <span
+              className={`inline-flex items-center px-3 py-1 rounded text-sm font-medium ${getStatusBadgeClass(
+                task.status
+              )}`}
+            >
+              {t(`workflows.tasks.status.${task.status}`)}
+            </span>
+          </div>
+
+          <div className="space-y-3">
 
             {isOverdue && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
