@@ -90,6 +90,7 @@
     },
     "fetch": {
       "title": "Währungskurs-Abruf",
+      "description": "Verwalten Sie den automatischen Abruf von Währungskursen von externen Anbietern",
       "enabled": "Aktiviert",
       "disabled": "Deaktiviert",
       "sync_time": "Tägliche Synchronisierungszeit",
@@ -97,12 +98,22 @@
       "last_sync_status": "Status",
       "last_sync_count": "Abgerufene Kurse",
       "fetch_now": "Jetzt Abrufen",
+      "fetching": "Wird abgerufen...",
       "sync_success": "Kurse erfolgreich abgerufen",
       "sync_error": "Fehler beim Abrufen der Kurse",
       "provider_nbp": "NBP (Polnische Nationalbank)",
+      "provider_nbp_description": "~13 Währungen mit Kauf-/Verkaufskursen von der Polnischen Nationalbank",
       "provider_raiffeisen": "Raiffeisen Bank Polen",
+      "provider_raiffeisen_description": "4 Hauptwährungen (EUR, USD, CHF, GBP) mit Kauf-/Verkaufskursen",
+      "provider_enabled": "Anbieter aktiviert",
+      "provider_disabled": "Anbieter deaktiviert",
       "loading": "Wird geladen...",
-      "test_connection": "Verbindung Testen"
+      "initializing_providers": "Anbieter werden initialisiert...",
+      "no_providers": "Noch keine Währungsanbieter konfiguriert.",
+      "initialize_providers": "Anbieter Initialisieren",
+      "error_load_configs": "Konfigurationen konnten nicht geladen werden",
+      "error_update_config": "Konfiguration konnte nicht aktualisiert werden",
+      "error_update_sync_time": "Synchronisierungszeit konnte nicht aktualisiert werden"
     }
   },
   "exchangeRates": {

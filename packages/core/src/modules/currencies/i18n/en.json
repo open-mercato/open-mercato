@@ -90,6 +90,7 @@
     },
     "fetch": {
       "title": "Currency Rate Fetching",
+      "description": "Manage automatic currency exchange rate fetching from external providers",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "sync_time": "Daily Sync Time",
@@ -97,12 +98,22 @@
       "last_sync_status": "Status",
       "last_sync_count": "Rates Fetched",
       "fetch_now": "Fetch Now",
+      "fetching": "Fetching...",
       "sync_success": "Rates fetched successfully",
       "sync_error": "Failed to fetch rates",
       "provider_nbp": "NBP (National Bank of Poland)",
+      "provider_nbp_description": "~13 currencies with buy/sell rates from Polish National Bank",
       "provider_raiffeisen": "Raiffeisen Bank Poland",
+      "provider_raiffeisen_description": "4 major currencies (EUR, USD, CHF, GBP) with buy/sell rates",
+      "provider_enabled": "Provider enabled",
+      "provider_disabled": "Provider disabled",
       "loading": "Loading...",
-      "test_connection": "Test Connection"
+      "initializing_providers": "Initializing providers...",
+      "no_providers": "No currency providers configured yet.",
+      "initialize_providers": "Initialize Providers",
+      "error_load_configs": "Failed to load configurations",
+      "error_update_config": "Failed to update configuration",
+      "error_update_sync_time": "Failed to update sync time"
     }
   },
   "exchangeRates": {

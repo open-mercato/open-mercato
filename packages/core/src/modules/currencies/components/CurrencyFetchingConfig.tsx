@@ -5,6 +5,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { useT } from '@/lib/i18n/context'
 
 interface FetchConfig {
   id: string
@@ -17,26 +19,8 @@ interface FetchConfig {
   lastSyncCount: number | null
 }
 
-interface Props {
-  translations: {
-    title: string
-    enabled: string
-    disabled: string
-    syncTime: string
-    lastSync: string
-    lastSyncStatus: string
-    lastSyncCount: string
-    fetchNow: string
-    syncSuccess: string
-    syncError: string
-    providerNbp: string
-    providerRaiffeisen: string
-    loading: string
-    testConnection: string
-  }
-}
-
-export default function CurrencyFetchingConfig({ translations: t }: Props) {
+export default function CurrencyFetchingConfig() {
+  const t = useT()
   const [configs, setConfigs] = useState<FetchConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState<string | null>(null)
@@ -44,32 +28,6 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
 
   // Available providers that should be configured
   const availableProviders = useMemo(() => ['NBP', 'Raiffeisen Bank Polska'], [])
-
-  const loadConfigs = useCallback(async () => {
-    try {
-      const { result } = await apiCall('/api/currencies/fetch-configs')
-
-      if (result?.configs) {
-        const existingConfigs = result.configs as FetchConfig[]
-        setConfigs(existingConfigs)
-
-        // Check if we need to initialize any missing providers
-        const existingProviders = existingConfigs.map((c) => c.provider)
-        const missingProviders = availableProviders.filter(
-          (p) => !existingProviders.includes(p)
-        )
-
-        // Auto-initialize missing providers
-        if (missingProviders.length > 0) {
-          await initializeMissingProviders(missingProviders)
-        }
-      }
-    } catch (err: any) {
-      flash(err.message || 'Failed to load configurations', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [availableProviders])
 
   const createProviderConfig = useCallback(async (provider: string) => {
     try {
@@ -108,6 +66,32 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     }
   }, [createProviderConfig])
 
+  const loadConfigs = useCallback(async () => {
+    try {
+      const { result } = await apiCall('/api/currencies/fetch-configs')
+
+      if (result?.configs) {
+        const existingConfigs = result.configs as FetchConfig[]
+        setConfigs(existingConfigs)
+
+        // Check if we need to initialize any missing providers
+        const existingProviders = existingConfigs.map((c) => c.provider)
+        const missingProviders = availableProviders.filter(
+          (p) => !existingProviders.includes(p)
+        )
+
+        // Auto-initialize missing providers
+        if (missingProviders.length > 0) {
+          await initializeMissingProviders(missingProviders)
+        }
+      }
+    } catch (err: any) {
+      flash(err.message || t('currencies.fetch.error_load_configs'), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [availableProviders, initializeMissingProviders, t])
+
   const toggleEnabled = useCallback(async (configId: string, currentValue: boolean) => {
     try {
       const { result } = await apiCall('/api/currencies/fetch-configs', {
@@ -123,12 +107,17 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
         setConfigs((prev) =>
           prev.map((c) => (c.id === configId ? (result.config as FetchConfig) : c))
         )
-        flash(currentValue ? 'Provider disabled' : 'Provider enabled', 'success')
+        flash(
+          currentValue
+            ? t('currencies.fetch.provider_disabled')
+            : t('currencies.fetch.provider_enabled'),
+          'success'
+        )
       }
     } catch (err: any) {
-      flash(err.message || 'Failed to update configuration', 'error')
+      flash(err.message || t('currencies.fetch.error_update_config'), 'error')
     }
-  }, [])
+  }, [t])
 
   const updateSyncTime = useCallback(async (configId: string, syncTime: string) => {
     try {
@@ -147,9 +136,9 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
         )
       }
     } catch (err: any) {
-      flash(err.message || 'Failed to update sync time', 'error')
+      flash(err.message || t('currencies.fetch.error_update_sync_time'), 'error')
     }
-  }, [])
+  }, [t])
 
   const fetchNow = useCallback(async (provider: string) => {
     setFetching(provider)
@@ -166,15 +155,15 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
       if (result) {
         const byProvider = result.byProvider as Record<string, { count: number; errors?: string[] }>
         const count = byProvider?.[provider]?.count || 0
-        flash(`${t.syncSuccess}: ${count} rates fetched`, 'success')
+        flash(`${t('currencies.fetch.sync_success')}: ${count} rates fetched`, 'success')
         await loadConfigs()
       }
     } catch (err: any) {
-      flash(err.message || t.syncError, 'error')
+      flash(err.message || t('currencies.fetch.sync_error'), 'error')
     } finally {
       setFetching(null)
     }
-  }, [t.syncSuccess, t.syncError, loadConfigs])
+  }, [t, loadConfigs])
 
   useEffect(() => {
     loadConfigs()
@@ -202,17 +191,17 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
   }
 
   function getProviderName(provider: string): string {
-    if (provider === 'NBP') return t.providerNbp
-    if (provider === 'Raiffeisen Bank Polska') return t.providerRaiffeisen
+    if (provider === 'NBP') return t('currencies.fetch.provider_nbp')
+    if (provider === 'Raiffeisen Bank Polska') return t('currencies.fetch.provider_raiffeisen')
     return provider
   }
 
   function getProviderDescription(provider: string): string {
     if (provider === 'NBP') {
-      return '~13 currencies with buy/sell rates from Polish National Bank'
+      return t('currencies.fetch.provider_nbp_description')
     }
     if (provider === 'Raiffeisen Bank Polska') {
-      return '4 major currencies (EUR, USD, CHF, GBP) with buy/sell rates'
+      return t('currencies.fetch.provider_raiffeisen_description')
     }
     return ''
   }
@@ -221,14 +210,14 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     return (
       <section className="space-y-3 rounded-lg border bg-background p-4">
         <header className="space-y-2">
-          <h2 className="text-xl font-semibold">{t.title}</h2>
+          <h2 className="text-xl font-semibold">{t('currencies.fetch.title')}</h2>
           <p className="text-sm text-muted-foreground">
-            Manage automatic currency exchange rate fetching from external providers
+            {t('currencies.fetch.description')}
           </p>
         </header>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="h-4 w-4" />
-          {initializing ? 'Initializing providers...' : t.loading}
+          {initializing ? t('currencies.fetch.initializing_providers') : t('currencies.fetch.loading')}
         </div>
       </section>
     )
@@ -237,9 +226,9 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
   return (
     <section className="space-y-6 rounded-lg border bg-background p-4">
       <header className="space-y-2">
-        <h2 className="text-xl font-semibold">{t.title}</h2>
+        <h2 className="text-xl font-semibold">{t('currencies.fetch.title')}</h2>
         <p className="text-sm text-muted-foreground">
-          Manage automatic currency exchange rate fetching from external providers
+          {t('currencies.fetch.description')}
         </p>
       </header>
 
@@ -249,7 +238,7 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
             key={config.id}
             className="rounded-lg border bg-card p-4"
           >
-            <div className="flex items-start justify-between gap-4 mb-3">
+            <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
                 <h3 className="text-sm font-medium">
                   {getProviderName(config.provider)}
@@ -259,83 +248,79 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
                 </p>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer text-xs">
-                <input
-                  type="checkbox"
-                  checked={config.isEnabled}
-                  onChange={() => toggleEnabled(config.id, config.isEnabled)}
-                  className="h-4 w-4"
-                />
-                <span className="font-medium">
-                  {config.isEnabled ? t.enabled : t.disabled}
-                </span>
-              </label>
+              <Switch
+                checked={config.isEnabled}
+                onCheckedChange={() => toggleEnabled(config.id, config.isEnabled)}
+              />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">
-                  {t.syncTime}
-                </label>
-                <input
-                  type="time"
-                  value={config.syncTime || '09:00'}
-                  onChange={(e) => updateSyncTime(config.id, e.target.value)}
-                  className="w-full rounded border bg-background px-2 py-1.5 text-sm"
-                />
-              </div>
+            {config.isEnabled && (
+              <>
+                <div className="flex items-baseline gap-3 flex-wrap mt-3">
+                  <div className="flex items-baseline gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">
+                      {t('currencies.fetch.sync_time')}:
+                    </label>
+                    <input
+                      type="time"
+                      value={config.syncTime || '09:00'}
+                      onChange={(e) => updateSyncTime(config.id, e.target.value)}
+                      className="rounded border bg-background px-2 py-1.5 text-sm"
+                    />
+                  </div>
 
-              <div>
-                <label className="block text-xs text-muted-foreground mb-1">
-                  {t.lastSync}
-                </label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {formatLastSync(config.lastSyncAt)}
-                  </span>
-                  {getStatusBadge(config.lastSyncStatus)}
+                  <div className="flex items-baseline gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">
+                      {t('currencies.fetch.last_sync')}:
+                    </label>
+                    <span className="text-xs text-muted-foreground">
+                      {formatLastSync(config.lastSyncAt)}
+                    </span>
+                    {getStatusBadge(config.lastSyncStatus)}
+                  </div>
+
+                  <Button
+                    onClick={() => fetchNow(config.provider)}
+                    disabled={fetching === config.provider}
+                    size="sm"
+                    className="ml-auto"
+                  >
+                    {fetching === config.provider ? (
+                      <>
+                        <Spinner className="mr-2 h-3 w-3" />
+                        {t('currencies.fetch.fetching')}
+                      </>
+                    ) : (
+                      t('currencies.fetch.fetch_now')
+                    )}
+                  </Button>
                 </div>
-              </div>
-            </div>
 
-            {config.lastSyncCount !== null && (
-              <div className="text-xs text-muted-foreground mb-3">
-                {t.lastSyncCount}: <span className="font-medium">{config.lastSyncCount}</span> rates
-              </div>
+                {config.lastSyncCount !== null && (
+                  <div className="text-xs text-muted-foreground mt-2">
+                    {t('currencies.fetch.last_sync_count')}: <span className="font-medium">{config.lastSyncCount}</span> rates
+                  </div>
+                )}
+
+                {config.lastSyncMessage && config.lastSyncStatus === 'error' && (
+                  <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 mt-2">
+                    {config.lastSyncMessage}
+                  </div>
+                )}
+              </>
             )}
-
-            {config.lastSyncMessage && config.lastSyncStatus === 'error' && (
-              <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 mb-3">
-                {config.lastSyncMessage}
-              </div>
-            )}
-
-            <Button
-              onClick={() => fetchNow(config.provider)}
-              disabled={fetching === config.provider}
-              size="sm"
-            >
-              {fetching === config.provider ? (
-                <>
-                  <Spinner className="mr-2 h-3 w-3" />
-                  Fetching...
-                </>
-              ) : (
-                t.fetchNow
-              )}
-            </Button>
           </div>
         ))}
 
         {configs.length === 0 && (
           <div className="rounded border bg-background/70 p-6 text-center">
-            <p className="text-sm text-muted-foreground mb-3">
-              No currency providers configured yet.
+            <p className="text-sm text-muted-foreground">
+              {t('currencies.fetch.no_providers')}
             </p>
             <Button
               onClick={() => initializeMissingProviders(availableProviders)}
             >
-              Initialize Providers
+              {t('currencies.fetch.initialize_providers')}
             </Button>
           </div>
         )}

@@ -90,6 +90,7 @@
     },
     "fetch": {
       "title": "Pobieranie Kursów Walut",
+      "description": "Zarządzaj automatycznym pobieraniem kursów walut od zewnętrznych dostawców",
       "enabled": "Włączony",
       "disabled": "Wyłączony",
       "sync_time": "Dzienna Godzina Synchronizacji",
@@ -97,12 +98,22 @@
       "last_sync_status": "Status",
       "last_sync_count": "Pobrane Kursy",
       "fetch_now": "Pobierz Teraz",
+      "fetching": "Pobieranie...",
       "sync_success": "Kursy pobrane pomyślnie",
       "sync_error": "Nie udało się pobrać kursów",
       "provider_nbp": "NBP (Narodowy Bank Polski)",
+      "provider_nbp_description": "~13 walut z kursami kupna/sprzedaży z Narodowego Banku Polskiego",
       "provider_raiffeisen": "Raiffeisen Bank Polska",
+      "provider_raiffeisen_description": "4 główne waluty (EUR, USD, CHF, GBP) z kursami kupna/sprzedaży",
+      "provider_enabled": "Dostawca włączony",
+      "provider_disabled": "Dostawca wyłączony",
       "loading": "Ładowanie...",
-      "test_connection": "Testuj Połączenie"
+      "initializing_providers": "Inicjalizacja dostawców...",
+      "no_providers": "Nie skonfigurowano jeszcze żadnych dostawców walut.",
+      "initialize_providers": "Zainicjuj Dostawców",
+      "error_load_configs": "Nie udało się załadować konfiguracji",
+      "error_update_config": "Nie udało się zaktualizować konfiguracji",
+      "error_update_sync_time": "Nie udało się zaktualizować godziny synchronizacji"
     }
   },
   "exchangeRates": {

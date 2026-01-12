@@ -90,6 +90,7 @@
     },
     "fetch": {
       "title": "Obtención de Tipos de Cambio",
+      "description": "Gestionar la obtención automática de tipos de cambio desde proveedores externos",
       "enabled": "Habilitado",
       "disabled": "Deshabilitado",
       "sync_time": "Hora de Sincronización Diaria",
@@ -97,12 +98,22 @@
       "last_sync_status": "Estado",
       "last_sync_count": "Tipos Obtenidos",
       "fetch_now": "Obtener Ahora",
+      "fetching": "Obteniendo...",
       "sync_success": "Tipos obtenidos correctamente",
       "sync_error": "Error al obtener tipos",
       "provider_nbp": "NBP (Banco Nacional de Polonia)",
+      "provider_nbp_description": "~13 monedas con tipos de compra/venta del Banco Nacional de Polonia",
       "provider_raiffeisen": "Raiffeisen Bank Polonia",
+      "provider_raiffeisen_description": "4 monedas principales (EUR, USD, CHF, GBP) con tipos de compra/venta",
+      "provider_enabled": "Proveedor habilitado",
+      "provider_disabled": "Proveedor deshabilitado",
       "loading": "Cargando...",
-      "test_connection": "Probar Conexión"
+      "initializing_providers": "Inicializando proveedores...",
+      "no_providers": "Aún no hay proveedores de monedas configurados.",
+      "initialize_providers": "Inicializar Proveedores",
+      "error_load_configs": "Error al cargar configuraciones",
+      "error_update_config": "Error al actualizar configuración",
+      "error_update_sync_time": "Error al actualizar hora de sincronización"
     }
   },
   "exchangeRates": {
