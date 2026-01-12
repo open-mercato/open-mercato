@@ -460,7 +460,7 @@ describe('Workflow Instances API', () => {
       mockEm.findOne.mockResolvedValue(mockInstance)
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}`)
-      const response = await getInstance(request, { params: { id: testInstanceId } })
+      const response = await getInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -479,7 +479,7 @@ describe('Workflow Instances API', () => {
       mockEm.findOne.mockResolvedValue(null)
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}`)
-      const response = await getInstance(request, { params: { id: testInstanceId } })
+      const response = await getInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(404)
     })
@@ -488,7 +488,7 @@ describe('Workflow Instances API', () => {
       mockEm.findOne.mockResolvedValue(null)
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}`)
-      await getInstance(request, { params: { id: testInstanceId } })
+      await getInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(mockEm.findOne).toHaveBeenCalledWith(
         WorkflowInstance,
@@ -504,7 +504,7 @@ describe('Workflow Instances API', () => {
       getAuthFromRequest.mockResolvedValue(null)
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}`)
-      const response = await getInstance(request, { params: { id: testInstanceId } })
+      const response = await getInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(401)
     })
@@ -530,7 +530,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/cancel`, {
         method: 'POST',
       })
-      const response = await cancelInstance(request, { params: { id: testInstanceId } })
+      const response = await cancelInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -553,7 +553,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/cancel`, {
         method: 'POST',
       })
-      const response = await cancelInstance(request, { params: { id: testInstanceId } })
+      const response = await cancelInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(200)
     })
@@ -564,7 +564,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/cancel`, {
         method: 'POST',
       })
-      const response = await cancelInstance(request, { params: { id: testInstanceId } })
+      const response = await cancelInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(403)
     })
@@ -575,7 +575,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/cancel`, {
         method: 'POST',
       })
-      const response = await cancelInstance(request, { params: { id: testInstanceId } })
+      const response = await cancelInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(404)
     })
@@ -593,7 +593,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/cancel`, {
         method: 'POST',
       })
-      const response = await cancelInstance(request, { params: { id: testInstanceId } })
+      const response = await cancelInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(response.status).toBe(400)
@@ -613,7 +613,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/cancel`, {
         method: 'POST',
       })
-      const response = await cancelInstance(request, { params: { id: testInstanceId } })
+      const response = await cancelInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(400)
     })
@@ -632,6 +632,14 @@ describe('Workflow Instances API', () => {
         retryCount: 0,
         tenantId: testTenantId,
         organizationId: testOrgId,
+        errorMessage: 'Test error',
+        definitionId: 'def-1',
+        version: 1,
+        currentStepId: 'payment',
+        context: {},
+        startedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
       }
 
       const mockExecutionResult = {
@@ -648,7 +656,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
         method: 'POST',
       })
-      const response = await retryInstance(request, { params: { id: testInstanceId } })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -666,7 +674,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
         method: 'POST',
       })
-      const response = await retryInstance(request, { params: { id: testInstanceId } })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(403)
     })
@@ -677,7 +685,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
         method: 'POST',
       })
-      const response = await retryInstance(request, { params: { id: testInstanceId } })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(404)
     })
@@ -695,7 +703,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
         method: 'POST',
       })
-      const response = await retryInstance(request, { params: { id: testInstanceId } })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(response.status).toBe(400)
@@ -718,7 +726,7 @@ describe('Workflow Instances API', () => {
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
         method: 'POST',
       })
-      const response = await retryInstance(request, { params: { id: testInstanceId } })
+      const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(400)
     })
@@ -762,7 +770,7 @@ describe('Workflow Instances API', () => {
       mockEm.findAndCount.mockResolvedValue([mockEvents, 2])
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/events`)
-      const response = await getInstanceEvents(request, { params: { id: testInstanceId } })
+      const response = await getInstanceEvents(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -788,7 +796,7 @@ describe('Workflow Instances API', () => {
       mockEm.findAndCount.mockResolvedValue([[], 0])
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/events?eventType=TRANSITION_EXECUTED`)
-      await getInstanceEvents(request, { params: { id: testInstanceId } })
+      await getInstanceEvents(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(mockEm.findAndCount).toHaveBeenCalledWith(
         WorkflowEvent,
@@ -804,7 +812,7 @@ describe('Workflow Instances API', () => {
       mockEm.findAndCount.mockResolvedValue([[], 200])
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/events?limit=20&offset=40`)
-      const response = await getInstanceEvents(request, { params: { id: testInstanceId } })
+      const response = await getInstanceEvents(request, { params: Promise.resolve({ id: testInstanceId }) })
       const data = await response.json()
 
       expect(data.pagination).toEqual({
@@ -819,7 +827,7 @@ describe('Workflow Instances API', () => {
       mockEm.findOne.mockResolvedValue(null)
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/events`)
-      const response = await getInstanceEvents(request, { params: { id: testInstanceId } })
+      const response = await getInstanceEvents(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(404)
     })
@@ -829,7 +837,7 @@ describe('Workflow Instances API', () => {
       mockEm.findAndCount.mockResolvedValue([[], 0])
 
       const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/events`)
-      await getInstanceEvents(request, { params: { id: testInstanceId } })
+      await getInstanceEvents(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       // Verify instance lookup uses tenant context
       expect(mockEm.findOne).toHaveBeenCalledWith(

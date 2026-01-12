@@ -89,6 +89,10 @@ describe('Workflow Executor (Unit Tests)', () => {
         context: { initialData: 'test' },
         tenantId: testTenantId,
         organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.create.mockReturnValue(mockInstance)
@@ -221,6 +225,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         correlationKey: 'order-12345',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.create.mockReturnValue(mockInstance)
@@ -255,6 +262,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         metadata,
         tenantId: testTenantId,
         organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.create.mockReturnValue(mockInstance)
@@ -326,6 +336,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
         startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne
@@ -352,6 +365,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
         startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne
@@ -385,6 +401,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         organizationId: testOrgId,
         startedAt: new Date(),
         completedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
@@ -408,6 +427,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         organizationId: testOrgId,
         startedAt: new Date(),
         cancelledAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
@@ -429,6 +451,9 @@ describe('Workflow Executor (Unit Tests)', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
         startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne
@@ -458,11 +483,14 @@ describe('Workflow Executor (Unit Tests)', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
         startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
 
-      await workflowExecutor.completeWorkflow(mockEm, testInstanceId, 'COMPLETED', {
+      await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'COMPLETED', {
         finalResult: 'success',
       })
 
@@ -484,11 +512,14 @@ describe('Workflow Executor (Unit Tests)', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
         startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
 
-      await workflowExecutor.completeWorkflow(mockEm, testInstanceId, 'FAILED', {
+      await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'FAILED', {
         error: 'Something went wrong',
         details: { code: 'ERROR_CODE' },
       })
@@ -512,11 +543,14 @@ describe('Workflow Executor (Unit Tests)', () => {
         tenantId: testTenantId,
         organizationId: testOrgId,
         startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
 
-      await workflowExecutor.completeWorkflow(mockEm, testInstanceId, 'CANCELLED')
+      await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
 
       expect(mockInstance.status).toBe('CANCELLED')
       expect(mockInstance.cancelledAt).toBeDefined()
@@ -527,7 +561,7 @@ describe('Workflow Executor (Unit Tests)', () => {
       mockEm.findOne.mockResolvedValue(null)
 
       await expect(
-        workflowExecutor.completeWorkflow(mockEm, 'non-existent-id', 'COMPLETED')
+        workflowExecutor.completeWorkflow(mockEm, mockContainer, 'non-existent-id', 'COMPLETED')
       ).rejects.toThrow('Workflow instance not found')
     })
   })
@@ -542,6 +576,16 @@ describe('Workflow Executor (Unit Tests)', () => {
         id: testInstanceId,
         workflowId: 'simple-workflow',
         status: 'RUNNING',
+        definitionId: testDefinitionId,
+        version: 1,
+        currentStepId: 'start',
+        context: {},
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
@@ -571,8 +615,15 @@ describe('Workflow Executor (Unit Tests)', () => {
         workflowId: 'simple-workflow',
         status: 'RUNNING',
         context: { existingKey: 'existingValue' },
+        definitionId: testDefinitionId,
+        version: 1,
+        currentStepId: 'start',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)
@@ -603,8 +654,15 @@ describe('Workflow Executor (Unit Tests)', () => {
         workflowId: 'simple-workflow',
         status: 'RUNNING',
         context: { key1: 'value1', key2: 'value2' },
+        definitionId: testDefinitionId,
+        version: 1,
+        currentStepId: 'start',
         tenantId: testTenantId,
         organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       } as WorkflowInstance
 
       mockEm.findOne.mockResolvedValue(mockInstance)

@@ -80,6 +80,11 @@ export function graphToDefinition(
       }
     }
 
+    // Wait for signal configuration
+    if (node.type === 'waitForSignal' && node.data.signalConfig) {
+      step.signalConfig = node.data.signalConfig
+    }
+
     // Automated task configuration is now stored in transitions, not on steps
     // (Step schema has no activities field - activities belong in transition.activities[])
 
@@ -259,6 +264,11 @@ export function definitionToGraph(
       }
     }
 
+    // Add wait for signal data
+    if (step.stepType === 'WAIT_FOR_SIGNAL' && (step as any).signalConfig) {
+      nodeData.signalConfig = (step as any).signalConfig
+    }
+
     // Add automated task data from transition activities
     // (Activities are stored in transitions, not on steps)
     if (step.stepType === 'AUTOMATED') {
@@ -325,6 +335,7 @@ function mapNodeTypeToStepType(nodeType: string): string {
     userTask: 'USER_TASK',
     automated: 'AUTOMATED',
     decision: 'DECISION',
+    waitForSignal: 'WAIT_FOR_SIGNAL',
   }
   return mapping[nodeType] || 'AUTOMATED'
 }
@@ -339,6 +350,7 @@ function mapStepTypeToNodeType(stepType: string): string {
     USER_TASK: 'userTask',
     AUTOMATED: 'automated',
     DECISION: 'decision',
+    WAIT_FOR_SIGNAL: 'waitForSignal',
   }
   return mapping[stepType] || 'automated'
 }
@@ -353,6 +365,7 @@ function getBadgeForNodeType(nodeType: string): string {
     userTask: 'User Task',
     automated: 'Automated',
     decision: 'Decision',
+    waitForSignal: 'Wait for Signal',
   }
   return badges[nodeType] || 'Task'
 }

@@ -1,6 +1,3 @@
-export { StepNode } from './StepNode'
-export type { StepNodeData, StepNodeProps } from './StepNode'
-
 export { StartNode } from './StartNode'
 export type { StartNodeData } from './StartNode'
 
@@ -15,3 +12,6 @@ export type { AutomatedNodeData } from './AutomatedNode'
 
 export { SubWorkflowNode } from './SubWorkflowNode'
 export type { SubWorkflowNodeData } from './SubWorkflowNode'
+
+export { WaitForSignalNode } from './WaitForSignalNode'
+export type { WaitForSignalNodeData } from './WaitForSignalNode'

@@ -1,6 +1,6 @@
-import { CircleDot, CircleStop, User, Zap, Workflow, LucideIcon } from 'lucide-react'
+import { CircleDot, CircleStop, User, Zap, Workflow, Clock, LucideIcon } from 'lucide-react'
 
-export type NodeType = 'start' | 'end' | 'userTask' | 'automated' | 'subWorkflow'
+export type NodeType = 'start' | 'end' | 'userTask' | 'automated' | 'subWorkflow' | 'waitForSignal'
 
 export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   start: CircleDot,
@@ -8,6 +8,7 @@ export const NODE_TYPE_ICONS: Record<NodeType, LucideIcon> = {
   userTask: User,
   automated: Zap,
   subWorkflow: Workflow,
+  waitForSignal: Clock,
 }
 
 export const NODE_TYPE_COLORS: Record<NodeType, string> = {
@@ -16,6 +17,7 @@ export const NODE_TYPE_COLORS: Record<NodeType, string> = {
   userTask: 'text-blue-500',
   automated: 'text-amber-500',
   subWorkflow: 'text-purple-500',
+  waitForSignal: 'text-purple-500',
 }
 
 export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: string }> = {
@@ -24,4 +26,5 @@ export const NODE_TYPE_LABELS: Record<NodeType, { title: string; description: st
   userTask: { title: 'USER TASK', description: 'Manual action' },
   automated: { title: 'AUTOMATED', description: 'System task' },
   subWorkflow: { title: 'SUB-WORKFLOW', description: 'Invoke workflow' },
+  waitForSignal: { title: 'WAIT FOR SIGNAL', description: 'Pause for external event' },
 }

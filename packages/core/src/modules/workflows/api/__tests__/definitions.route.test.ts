@@ -386,7 +386,7 @@ describe('Workflow Definitions API', () => {
       mockEm.findOne.mockResolvedValue(mockDefinition)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions/def-1')
-      const response = await getDefinition(request, { params: { id: 'def-1' } })
+      const response = await getDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -406,7 +406,7 @@ describe('Workflow Definitions API', () => {
       mockEm.findOne.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions/non-existent')
-      const response = await getDefinition(request, { params: { id: 'non-existent' } })
+      const response = await getDefinition(request, { params: Promise.resolve({ id: 'non-existent' }) })
 
       expect(response.status).toBe(404)
     })
@@ -415,7 +415,7 @@ describe('Workflow Definitions API', () => {
       mockEm.findOne.mockResolvedValue(null) // Simulates finding nothing due to tenant mismatch
 
       const request = new NextRequest('http://localhost/api/workflows/definitions/other-tenant-def')
-      const response = await getDefinition(request, { params: { id: 'other-tenant-def' } })
+      const response = await getDefinition(request, { params: Promise.resolve({ id: 'other-tenant-def' }) })
 
       expect(response.status).toBe(404)
       expect(mockEm.findOne).toHaveBeenCalledWith(
@@ -490,7 +490,7 @@ describe('Workflow Definitions API', () => {
         body: JSON.stringify(updates),
       })
 
-      const response = await updateDefinition(request, { params: { id: 'def-1' } })
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -519,7 +519,7 @@ describe('Workflow Definitions API', () => {
         body: JSON.stringify({ enabled: false }),
       })
 
-      const response = await updateDefinition(request, { params: { id: 'def-1' } })
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
 
       expect(response.status).toBe(403)
       expect(localRbacService.userHasAllFeatures).toHaveBeenCalledWith(
@@ -537,7 +537,7 @@ describe('Workflow Definitions API', () => {
         body: JSON.stringify({ enabled: false }),
       })
 
-      const response = await updateDefinition(request, { params: { id: 'non-existent' } })
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'non-existent' }) })
 
       expect(response.status).toBe(404)
     })
@@ -554,7 +554,7 @@ describe('Workflow Definitions API', () => {
         body: JSON.stringify(invalidUpdate),
       })
 
-      const response = await updateDefinition(request, { params: { id: 'def-1' } })
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
 
       expect(response.status).toBe(400)
     })
@@ -572,7 +572,7 @@ describe('Workflow Definitions API', () => {
         body: JSON.stringify(partialUpdate),
       })
 
-      const response = await updateDefinition(request, { params: { id: 'def-1' } })
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
 
       expect(response.status).toBe(200)
       expect(mockDefinition.enabled).toBe(false)
@@ -604,7 +604,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      const response = await deleteDefinition(request, { params: { id: 'def-1' } })
+      const response = await deleteDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
       const data = await response.json()
 
       expect(response.status).toBe(200)
@@ -632,7 +632,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      const response = await deleteDefinition(request, { params: { id: 'def-1' } })
+      const response = await deleteDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
 
       expect(response.status).toBe(403)
       expect(localRbacService.userHasAllFeatures).toHaveBeenCalledWith(
@@ -649,7 +649,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      const response = await deleteDefinition(request, { params: { id: 'non-existent' } })
+      const response = await deleteDefinition(request, { params: Promise.resolve({ id: 'non-existent' }) })
 
       expect(response.status).toBe(404)
     })
@@ -662,7 +662,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      const response = await deleteDefinition(request, { params: { id: 'def-1' } })
+      const response = await deleteDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
       const data = await response.json()
 
       expect(response.status).toBe(409)
@@ -679,7 +679,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      await deleteDefinition(request, { params: { id: 'def-1' } })
+      await deleteDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
 
       expect(mockEm.count).toHaveBeenCalledWith(
         expect.anything(),
@@ -698,7 +698,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      const response = await deleteDefinition(request, { params: { id: 'def-1' } })
+      const response = await deleteDefinition(request, { params: Promise.resolve({ id: 'def-1' }) })
 
       expect(response.status).toBe(500)
     })
@@ -729,7 +729,7 @@ describe('Workflow Definitions API', () => {
       mockEm.findOne.mockResolvedValue(null)
 
       const request = new NextRequest('http://localhost/api/workflows/definitions/other-tenant-def')
-      const response = await getDefinition(request, { params: { id: 'other-tenant-def' } })
+      const response = await getDefinition(request, { params: Promise.resolve({ id: 'other-tenant-def' }) })
 
       expect(response.status).toBe(404)
     })
@@ -742,7 +742,7 @@ describe('Workflow Definitions API', () => {
         body: JSON.stringify({ enabled: false }),
       })
 
-      const response = await updateDefinition(request, { params: { id: 'other-tenant-def' } })
+      const response = await updateDefinition(request, { params: Promise.resolve({ id: 'other-tenant-def' }) })
 
       expect(response.status).toBe(404)
     })
@@ -754,7 +754,7 @@ describe('Workflow Definitions API', () => {
         method: 'DELETE',
       })
 
-      const response = await deleteDefinition(request, { params: { id: 'other-tenant-def' } })
+      const response = await deleteDefinition(request, { params: Promise.resolve({ id: 'other-tenant-def' }) })
 
       expect(response.status).toBe(404)
     })

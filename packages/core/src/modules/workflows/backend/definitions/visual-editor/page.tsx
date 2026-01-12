@@ -825,6 +825,21 @@ export default function VisualEditorPage() {
               <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.automated.description}</div>
             </button>
 
+            {/* WAIT_FOR_SIGNAL Step */}
+            <button
+              onClick={() => handleAddNode('waitForSignal')}
+              className="w-full text-left px-4 py-3 bg-white border-2 border-gray-200 rounded-xl hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group relative"
+            >
+              <div className={`absolute top-2 right-2 ${NODE_TYPE_COLORS.waitForSignal} opacity-60 group-hover:opacity-100 transition-opacity`}>
+                {(() => {
+                  const Icon = NODE_TYPE_ICONS.waitForSignal
+                  return <Icon className="w-4 h-4" />
+                })()}
+              </div>
+              <div className="text-sm font-semibold text-gray-900">{NODE_TYPE_LABELS.waitForSignal.title}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{NODE_TYPE_LABELS.waitForSignal.description}</div>
+            </button>
+
             {/* SUB_WORKFLOW Step */}
             <button
               onClick={() => handleAddNode('subWorkflow')}
@@ -1019,6 +1034,7 @@ function getDefaultLabel(nodeType: string): string {
     userTask: 'New User Task',
     automated: 'New Automated Task',
     decision: 'Decision Point',
+    waitForSignal: 'Wait for Signal',
   }
   return labels[nodeType] || 'New Step'
 }
@@ -1030,6 +1046,7 @@ function getDefaultBadge(nodeType: string): string {
     userTask: 'User Task',
     automated: 'Automated',
     decision: 'Decision',
+    waitForSignal: 'Wait for Signal',
   }
   return badges[nodeType] || 'Task'
 }

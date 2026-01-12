@@ -68,6 +68,10 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
   const [outputMappings, setOutputMappings] = useState<Array<{ key: string; value: string }>>([])
   const [showWorkflowSelector, setShowWorkflowSelector] = useState(false)
 
+  // Wait for signal configuration fields
+  const [signalName, setSignalName] = useState('')
+  const [signalTimeout, setSignalTimeout] = useState('')
+
   // Convert JSON Schema to our custom format
   const convertJsonSchemaToFields = (schema: any): FormField[] => {
     if (!schema || !schema.properties) return []
@@ -180,6 +184,15 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
         setSubWorkflowVersion('')
         setInputMappings([])
         setOutputMappings([])
+      }
+
+      // Load signal configuration
+      if (node.type === 'waitForSignal' && nodeData?.signalConfig) {
+        setSignalName(nodeData.signalConfig.signalName || '')
+        setSignalTimeout(nodeData.signalConfig.timeout || 'PT5M')
+      } else {
+        setSignalName('')
+        setSignalTimeout('')
       }
 
       // Load form fields from userTaskConfig.formSchema
@@ -340,6 +353,23 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
       if (Object.keys(config).length > 0) {
         updates.config = config
+      }
+    }
+
+    // Wait for signal specific fields
+    if (node.type === 'waitForSignal') {
+      const config: any = {}
+
+      if (signalName) {
+        config.signalName = signalName
+      }
+
+      if (signalTimeout) {
+        config.timeout = signalTimeout
+      }
+
+      if (Object.keys(config).length > 0) {
+        updates.signalConfig = config
       }
     }
 
@@ -980,6 +1010,49 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         ))}
                       </div>
                     )}
+                  </div>
+                </>
+              )}
+
+              {/* Wait for Signal Configuration */}
+              {node.type === 'waitForSignal' && (
+                <>
+                  <div className="border-t border-gray-200 pt-4 mt-4">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-3">
+                      Signal Configuration
+                    </h3>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Signal Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={signalName}
+                      onChange={(e) => setSignalName(e.target.value)}
+                      placeholder="payment_confirmed"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Name of the signal to wait for (e.g., payment_confirmed, approval_received)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Timeout
+                    </label>
+                    <input
+                      type="text"
+                      value={signalTimeout}
+                      onChange={(e) => setSignalTimeout(e.target.value)}
+                      placeholder="PT5M"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      ISO 8601 duration (e.g., PT5M for 5 minutes, PT1H for 1 hour, PT30S for 30 seconds)
+                    </p>
                   </div>
                 </>
               )}
