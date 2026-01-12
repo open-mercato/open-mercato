@@ -100,7 +100,7 @@
       "sync_success": "Kursy pobrane pomyślnie",
       "sync_error": "Nie udało się pobrać kursów",
       "provider_nbp": "NBP (Narodowy Bank Polski)",
-      "provider_raiffeisen": "Raiffeisen Bank",
+      "provider_raiffeisen": "Raiffeisen Bank Polska",
       "loading": "Ładowanie...",
       "test_connection": "Testuj Połączenie"
     }

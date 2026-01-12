@@ -100,7 +100,7 @@
       "sync_success": "Tipos obtenidos correctamente",
       "sync_error": "Error al obtener tipos",
       "provider_nbp": "NBP (Banco Nacional de Polonia)",
-      "provider_raiffeisen": "Raiffeisen Bank",
+      "provider_raiffeisen": "Raiffeisen Bank Polonia",
       "loading": "Cargando...",
       "test_connection": "Probar Conexión"
     }

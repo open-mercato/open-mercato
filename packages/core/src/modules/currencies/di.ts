@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { RateFetchingService } from './services/rateFetchingService'
 import { ExchangeRateService } from './services/exchangeRateService'
 import { NBPProvider } from './services/providers/nbp'
-import { RaiffeisenProvider } from './services/providers/raiffeisen'
+import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
 
 export function register(container: AppContainer) {
   container.register({
@@ -14,7 +14,7 @@ export function register(container: AppContainer) {
         
         // Register default providers
         service.registerProvider(new NBPProvider())
-        service.registerProvider(new RaiffeisenProvider())
+        service.registerProvider(new RaiffeisenPolandProvider())
         
         return service
       },

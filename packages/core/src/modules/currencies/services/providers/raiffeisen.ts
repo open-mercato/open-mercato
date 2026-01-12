@@ -21,10 +21,11 @@ interface RaiffeisenResponse {
   }
 }
 
-export class RaiffeisenProvider implements RateProvider {
-  readonly name = 'Raiffeisen Bank'
-  readonly source = 'Raiffeisen Bank'
-  readonly baseCurrency = 'PLN'
+// 
+export class RaiffeisenPolandProvider implements RateProvider {
+  readonly name = 'Raiffeisen Bank Polska'
+  readonly source = 'Raiffeisen Bank Polska'
+  readonly providerBaseCurrency = 'PLN'
 
   private readonly baseUrl = 'https://www.rbinternational.com.pl/rest/rates/'
 
@@ -38,7 +39,7 @@ export class RaiffeisenProvider implements RateProvider {
     availableCurrencies: Set<string>
   ): Promise<RateProviderResult[]> {
     // Check if PLN is available (required as base currency for Raiffeisen)
-    if (!availableCurrencies.has('PLN')) {
+    if (!availableCurrencies.has(this.providerBaseCurrency)) {
       console.debug('[Raiffeisen] Skipping: PLN not found in available currencies')
       return []
     }
@@ -94,7 +95,7 @@ export class RaiffeisenProvider implements RateProvider {
         // If sell = 4.5 (1 EUR costs 4.5 PLN), then 1 PLN = 1/4.5 EUR
         const sellRate = parseFloat(rateData.sell)
         results.push({
-          fromCurrencyCode: 'PLN',
+          fromCurrencyCode: this.providerBaseCurrency,
           toCurrencyCode: rateData.code,
           rate: (1 / sellRate).toString(),
           source: this.source,
@@ -106,7 +107,7 @@ export class RaiffeisenProvider implements RateProvider {
         // If buy = 4.3 (1 EUR gives 4.3 PLN), then 1 EUR = 4.3 PLN
         results.push({
           fromCurrencyCode: rateData.code,
-          toCurrencyCode: 'PLN',
+          toCurrencyCode: this.providerBaseCurrency,
           rate: rateData.buy,
           source: this.source,
           date: rateDate,
@@ -119,7 +120,7 @@ export class RaiffeisenProvider implements RateProvider {
       )
       return results
     } catch (err: any) {
-      console.error(`[Raiffeisen] Fetch error for ${dateStr}:`, err.message)
+      console.error(`[Raiffeisen] Fetch error for ${dateStr}:`, err)
       throw new Error(`Failed to fetch Raiffeisen rates: ${err.message}`)
     }
   }

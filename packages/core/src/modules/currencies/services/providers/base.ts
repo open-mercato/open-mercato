@@ -10,7 +10,7 @@ export interface RateProviderResult {
 export interface RateProvider {
   readonly name: string
   readonly source: string
-  readonly baseCurrency?: string // The base currency for this provider (e.g., 'PLN')
+  readonly providerBaseCurrency?: string // The base currency for this provider (e.g., 'PLN')
 
   fetchRates(
     date: Date,

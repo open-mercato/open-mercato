@@ -100,7 +100,7 @@
       "sync_success": "Kurse erfolgreich abgerufen",
       "sync_error": "Fehler beim Abrufen der Kurse",
       "provider_nbp": "NBP (Polnische Nationalbank)",
-      "provider_raiffeisen": "Raiffeisen Bank",
+      "provider_raiffeisen": "Raiffeisen Bank Polen",
       "loading": "Wird geladen...",
       "test_connection": "Verbindung Testen"
     }

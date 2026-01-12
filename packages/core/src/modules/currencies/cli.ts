@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { createRequestContainer } from '@/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
 import { NBPProvider } from './services/providers/nbp'
-import { RaiffeisenProvider } from './services/providers/raiffeisen'
+import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
 import { CurrencyFetchConfig } from './data/entities'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
@@ -60,7 +60,7 @@ const fetchRatesCommand: ModuleCli = {
       
       // Register providers
       fetchService.registerProvider(new NBPProvider())
-      fetchService.registerProvider(new RaiffeisenProvider())
+      fetchService.registerProvider(new RaiffeisenPolandProvider())
 
       const dateStr = String(args.date || '')
       const fromStr = String(args.from || '')
@@ -151,7 +151,7 @@ const listProvidersCommand: ModuleCli = {
     console.log('    - ~13 currencies with bid/ask rates')
     console.log('    - Table C: Buy/Sell rates')
     console.log('')
-    console.log('  • Raiffeisen Bank')
+    console.log('  • Raiffeisen Bank Polska')
     console.log('    - 4 major currencies (EUR, USD, CHF, GBP)')
     console.log('    - Intraday rates with buy/sell spreads')
 

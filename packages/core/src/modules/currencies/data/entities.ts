@@ -142,7 +142,7 @@ export class CurrencyFetchConfig {
 
   // Provider configuration
   @Property({ type: 'text' })
-  provider!: string // 'NBP', 'Raiffeisen Bank', 'Custom'
+  provider!: string // 'NBP', 'Raiffeisen Bank Polska', 'Custom'
 
   @Property({ name: 'is_enabled', type: 'boolean', default: false })
   isEnabled: boolean = false

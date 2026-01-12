@@ -100,7 +100,7 @@
       "sync_success": "Rates fetched successfully",
       "sync_error": "Failed to fetch rates",
       "provider_nbp": "NBP (National Bank of Poland)",
-      "provider_raiffeisen": "Raiffeisen Bank",
+      "provider_raiffeisen": "Raiffeisen Bank Poland",
       "loading": "Loading...",
       "test_connection": "Test Connection",
       "baseCurrency": "Base Currency"

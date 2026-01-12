@@ -139,7 +139,7 @@ export type ExchangeRateUpdateInput = z.infer<typeof exchangeRateUpdateSchema>
 export type ExchangeRateDeleteInput = z.infer<typeof exchangeRateDeleteSchema>
 
 // Currency Fetch Config validators
-export const providerSchema = z.enum(['NBP', 'Raiffeisen Bank', 'Custom'])
+export const providerSchema = z.enum(['NBP', 'Raiffeisen Bank Polska', 'Custom'])
 
 export const syncTimeSchema = z
   .string()

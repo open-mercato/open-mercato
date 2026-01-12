@@ -44,7 +44,7 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
   const [baseCurrency, setBaseCurrency] = useState<string | null>(null)
 
   // Available providers that should be configured
-  const availableProviders = ['NBP', 'Raiffeisen Bank']
+  const availableProviders = ['NBP', 'Raiffeisen Bank Polska']
 
   useEffect(() => {
     loadConfigs()
@@ -216,7 +216,7 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
 
   function getProviderName(provider: string): string {
     if (provider === 'NBP') return t.providerNbp
-    if (provider === 'Raiffeisen Bank') return t.providerRaiffeisen
+    if (provider === 'Raiffeisen Bank Polska') return t.providerRaiffeisen
     return provider
   }
 
@@ -224,7 +224,7 @@ export default function CurrencyFetchingConfig({ translations: t }: Props) {
     if (provider === 'NBP') {
       return '~13 currencies with buy/sell rates from Polish National Bank'
     }
-    if (provider === 'Raiffeisen Bank') {
+    if (provider === 'Raiffeisen Bank Polska') {
       return '4 major currencies (EUR, USD, CHF, GBP) with buy/sell rates'
     }
     return ''
