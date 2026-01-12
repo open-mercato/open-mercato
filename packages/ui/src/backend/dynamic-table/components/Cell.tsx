@@ -11,7 +11,7 @@ export interface CellProps {
   stickyLeft?: number;
   stickyRight?: number;
   stretchColumns?: boolean;
-  onCellSave: (row: number, col: number, newValue: any) => void;
+  onCellSave: (row: number, col: number, newValue: any, clearEditing?: boolean) => void;
 }
 
 const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, stretchColumns = false, onCellSave }) => {
@@ -25,9 +25,9 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   const cellValue = rowData?.[colConfig.data];
 
   const handleSave = useCallback(
-    (value?: any) => {
+    (value?: any, clearEditing: boolean = true) => {
       const newValue = value !== undefined ? value : cellValue;
-      onCellSave(row, col, newValue);
+      onCellSave(row, col, newValue, clearEditing);
     },
     [cellValue, row, col, onCellSave]
   );
