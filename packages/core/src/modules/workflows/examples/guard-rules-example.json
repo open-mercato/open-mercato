@@ -9,15 +9,16 @@
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",
-      "conditions": [
+      "rules": [
         {
-          "field": "data.workflowContext.cart.items",
-          "operator": "IS_NOT_EMPTY"
+          "field": "workflowContext.cart.items",
+          "operator": "IS_NOT_EMPTY",
+          "value": null
         },
         {
-          "field": "data.workflowContext.cart.itemCount",
+          "field": "workflowContext.cart.itemCount",
           "operator": ">",
-          "value": 0
+          "value": "0"
         }
       ]
     },
@@ -45,10 +46,10 @@
     "description": "Guard rule that checks if all items are in stock",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
-      "field": "data.workflowContext.inventory.available",
+      "field": "workflowContext.inventory.available",
       "operator": "=",
       "value": true
     },
@@ -69,10 +70,10 @@
     "description": "Guard rule that enforces minimum order amount of $10",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
-      "field": "data.workflowContext.cart.total",
+      "field": "workflowContext.cart.total",
       "operator": ">=",
       "value": 10.0
     },
@@ -93,7 +94,7 @@
     "description": "Guard rule for payment step - checks payment method is set",
     "ruleType": "GUARD",
     "ruleCategory": "payment_validation",
-    "entityType": "workflow:checkout_simple_v1:transition",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",
@@ -126,7 +127,7 @@
     "description": "Guard rule that checks customer has email and shipping address",
     "ruleType": "GUARD",
     "ruleCategory": "checkout_validation",
-    "entityType": "workflow:checkout_simple_v1:transition",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",
@@ -162,7 +163,7 @@
     "description": "Guard rule that only allows orders between 9 AM and 5 PM",
     "ruleType": "GUARD",
     "ruleCategory": "business_logic",
-    "entityType": "workflow:checkout_simple_v1:transition",
+    "entityType": "workflow:checkout_simple_v1:transition_seed",
     "eventType": "pre_transition",
     "conditionExpression": {
       "operator": "AND",
