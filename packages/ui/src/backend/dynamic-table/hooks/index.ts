@@ -169,18 +169,44 @@ export function useDragHandling(
 export function useKeyboardNavigation(
   store: CellStore,
   colCount: number,
-  onTabSave?: (row: number, col: number, value: any) => void
+  // Note: onSave parameter kept for backwards compatibility but editors now save before navigation
+  _onSave?: (row: number, col: number, value: any) => void
 ) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       // Note: This handler should be attached to the table element (not document)
       // so it only receives events from within the table
 
-      const selection = store.getSelection();
       const editing = store.getEditingCell();
       const bounds = store.getSelectionBounds();
 
-      // Enter to start editing
+      // Enter navigation - when editing, move down (Excel-like behavior)
+      // Note: Editors save the value before the event bubbles here
+      if (e.key === 'Enter' && !e.shiftKey && editing) {
+        e.preventDefault();
+
+        const currentRow = editing.row;
+        const currentCol = editing.col;
+
+        // Move to next row (down), same column
+        const nextRow = currentRow + 1;
+
+        if (nextRow < store.getRowCount()) {
+          store.clearEditing();
+          store.setSelection({
+            type: 'range',
+            anchor: { row: nextRow, col: currentCol },
+            focus: { row: nextRow, col: currentCol },
+          });
+          store.setEditingCell(nextRow, currentCol);
+        } else {
+          // At the last row, just clear editing
+          store.clearEditing();
+        }
+        return;
+      }
+
+      // Enter to start editing (when not already editing)
       if (e.key === 'Enter' && !editing && bounds) {
         if (bounds.startRow === bounds.endRow && bounds.startCol === bounds.endCol) {
           e.preventDefault();
@@ -196,7 +222,8 @@ export function useKeyboardNavigation(
         return;
       }
 
-      // Tab navigation
+      // Tab navigation - move right (or left with Shift), wrap to next/prev row
+      // Note: Editors save the value before the event bubbles here
       if (e.key === 'Tab') {
         e.preventDefault();
 
@@ -207,11 +234,6 @@ export function useKeyboardNavigation(
         if (editing) {
           currentRow = editing.row;
           currentCol = editing.col;
-
-          // Trigger save callback before moving
-          if (onTabSave) {
-            onTabSave(currentRow, currentCol, store.getCellValue(currentRow, currentCol));
-          }
         } else if (bounds && bounds.startRow === bounds.endRow && bounds.startCol === bounds.endCol) {
           currentRow = bounds.startRow;
           currentCol = bounds.startCol;
@@ -275,7 +297,7 @@ export function useKeyboardNavigation(
         });
       }
     },
-    [store, colCount, onTabSave]
+    [store, colCount]
   );
 
   return handleKeyDown;

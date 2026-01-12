@@ -8,6 +8,7 @@ import React, {
   useEffect,
   useRef,
   useMemo,
+  useCallback,
 } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
@@ -362,8 +363,13 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     setInternalActivePerspectiveId,
   });
 
-  const handleKeyDown = useKeyboardNavigation(store, cols.length, handleCellSave);
+  const keyboardHandler = useKeyboardNavigation(store, cols.length, handleCellSave);
   const handleCopy = useCopyHandler(store);
+
+  // Wrap keyboard handler for React event system
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    keyboardHandler(e.nativeEvent);
+  }, [keyboardHandler]);
 
   // -------------------- FULLSCREEN HANDLERS --------------------
   const handleEnterFullscreen = () => {
@@ -416,15 +422,8 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
     });
   }, [store]);
 
-  // Keyboard navigation - attach to table element, not document
-  // This ensures each table only handles its own keyboard events
-  useEffect(() => {
-    const element = tableRef?.current;
-    if (!element) return;
-
-    element.addEventListener('keydown', handleKeyDown);
-    return () => element.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown, tableRef]);
+  // Keyboard navigation is now handled via onKeyDown prop on the table container
+  // This ensures React synthetic events fire before the handler, allowing editors to save first
 
   // Copy handler
   useEffect(() => {
@@ -570,6 +569,7 @@ const DynamicTable: React.FC<DynamicTableProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onDoubleClick={handleDoubleClick}
+        onKeyDown={handleKeyDown}
         style={{
           height: isFullscreen ? 'calc(100% - 90px)' : (shouldFillHeight ? undefined : (typeof height === 'string' && height !== 'auto' ? height : '600px')),
           overflow: 'auto',

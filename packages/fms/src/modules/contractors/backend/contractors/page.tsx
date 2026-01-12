@@ -88,7 +88,7 @@ const MultiSelectEditor = ({
   value: string[]
   options: RoleOption[]
   onChange: (val: string[]) => void
-  onSave: (val: string[]) => void
+  onSave: (val: string[], clearEditing?: boolean) => void
   onCancel: () => void
 }) => {
   const [selectedIds, setSelectedIds] = useState<string[]>(
@@ -119,7 +119,7 @@ const MultiSelectEditor = ({
 
       if (isOutsideCell && isOutsideDropdown) {
         setShowDropdown(false)
-        onSave(selectedIds)
+        onSave(selectedIds, true)
       }
     }
 
@@ -137,9 +137,13 @@ const MultiSelectEditor = ({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
+      // Save without clearing editing - navigation hook will handle it
       setShowDropdown(false)
-      onSave(selectedIds)
+      onSave(selectedIds, false)
+    } else if (e.key === 'Tab') {
+      // Save without clearing editing - navigation hook will handle it
+      setShowDropdown(false)
+      onSave(selectedIds, false)
     } else if (e.key === 'Escape') {
       e.preventDefault()
       setShowDropdown(false)
@@ -490,7 +494,7 @@ export default function ContractorsPage() {
           editor: (
             value: unknown,
             onChange: (val: unknown) => void,
-            onSave: (val?: unknown) => void,
+            onSave: (val?: unknown, clearEditing?: boolean) => void,
             onCancel: () => void,
           ) => {
             const currentValue = Array.isArray(value) ? value : []
@@ -499,7 +503,7 @@ export default function ContractorsPage() {
                 value={currentValue}
                 options={roleOptionsWithColor}
                 onChange={(val) => onChange(val)}
-                onSave={(val) => onSave(val)}
+                onSave={(val, clear) => onSave(val, clear)}
                 onCancel={onCancel}
               />
             )

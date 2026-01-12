@@ -32,7 +32,7 @@ export function createCellHandlers(
   tableRef: React.RefObject<HTMLDivElement | null>,
   idColumnName: string
 ) {
-  const handleCellSave = (row: number, col: number, newValue: any) => {
+  const handleCellSave = (row: number, col: number, newValue: any, clearEditing: boolean = true) => {
     const rowData = store.getRowData(row);
     const colConfig = columns[col];
     const fieldKey = colConfig?.data;
@@ -42,7 +42,9 @@ export function createCellHandlers(
 
     // Skip if value unchanged
     if (String(oldValue ?? '') === String(newValue ?? '')) {
-      store.clearEditing();
+      if (clearEditing) {
+        store.clearEditing();
+      }
       return;
     }
 
@@ -51,7 +53,11 @@ export function createCellHandlers(
       rowData[fieldKey] = newValue;
     }
     store.bumpRevision(row, col);
-    store.clearEditing();
+
+    // Only clear editing if requested (keyboard navigation handles its own clearing)
+    if (clearEditing) {
+      store.clearEditing();
+    }
 
     // Only dispatch event if not a new row
     if (!store.isNewRow(row)) {

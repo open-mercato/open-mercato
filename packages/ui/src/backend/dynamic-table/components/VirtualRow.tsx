@@ -20,7 +20,7 @@ export interface VirtualRowProps {
   onSaveNewRow: (rowIndex: number) => void;
   onCancelNewRow: (rowIndex: number) => void;
   onRowHeaderDoubleClick: (e: React.MouseEvent, rowIndex: number) => void;
-  onCellSave: (row: number, col: number, newValue: any) => void;
+  onCellSave: (row: number, col: number, newValue: any, clearEditing?: boolean) => void;
   actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
 }
 
