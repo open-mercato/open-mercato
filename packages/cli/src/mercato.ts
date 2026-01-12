@@ -432,7 +432,7 @@ export async function run(argv = process.argv) {
       const vectorArgs = tenantId
         ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
         : ['--purgeFirst=false']
-      await runModuleCommand(allModules, 'vector', 'reindex', vectorArgs)
+      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs)
       console.log('✅ Vector indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
