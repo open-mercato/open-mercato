@@ -21,10 +21,6 @@
  * 4. UI Widgets (registerDashboardWidgets, registerInjectionWidgets, etc.)
  *    - Required by: dashboard rendering, widget injection system
  *    - Can be registered after modules since they use module data
- *
- * 5. Optional packages (registerVectorConfigs)
- *    - Vector search configuration
- *    - Can be registered last as it's optional
  */
 
 // Generated imports
@@ -35,7 +31,6 @@ import { E } from '@/generated/entities.ids.generated'
 import { dashboardWidgetEntries } from '@/generated/dashboard-widgets.generated'
 import { injectionWidgetEntries } from '@/generated/injection-widgets.generated'
 import { injectionTables } from '@/generated/injection-tables.generated'
-import { vectorModuleConfigs } from '@/generated/vector.generated'
 
 // Registration functions from packages/shared
 import { registerOrmEntities } from '@open-mercato/shared/lib/db/mikro'
@@ -52,9 +47,6 @@ import {
   registerCoreInjectionWidgets,
   registerCoreInjectionTables,
 } from '@open-mercato/core/modules/widgets/lib/injection'
-
-// Registration functions from packages/vector
-import { registerVectorConfigs } from '@open-mercato/vector/modules/vector/di'
 
 // Registration functions from packages/cli
 import { registerCliModules } from '@open-mercato/cli/mercato'
@@ -84,8 +76,6 @@ export function bootstrap() {
   registerCoreInjectionWidgets(injectionWidgetEntries)
   registerCoreInjectionTables(injectionTables)
 
-  // === 5. Optional packages ===
-  registerVectorConfigs(vectorModuleConfigs)
 }
 
 export function isBootstrapped(): boolean {

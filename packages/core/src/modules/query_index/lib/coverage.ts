@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 
 export type CoverageScope = {
   entityType: string

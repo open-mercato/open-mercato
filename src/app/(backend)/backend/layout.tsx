@@ -8,7 +8,7 @@ import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { buildAdminNav } from '@open-mercato/ui/backend/utils/nav'
 import type { AdminNavItem } from '@open-mercato/ui/backend/utils/nav'
 import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
-import { VectorSearchDialog } from '@open-mercato/vector/modules/vector/frontend'
+import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
@@ -95,8 +95,15 @@ export default async function BackendLayout({ children, params }: { children: Re
   const ctx = { auth: ctxAuth, path }
 
   const { translate, locale, dict } = await resolveTranslations()
-  const vectorApiKeyAvailable = Boolean(process.env.OPENAI_API_KEY)
-  const vectorMissingKeyMessage = translate('vector.messages.missingKey', 'Vector search requires configuring OPENAI_API_KEY.')
+  const embeddingConfigured = Boolean(
+    process.env.OPENAI_API_KEY ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
+    process.env.MISTRAL_API_KEY ||
+    process.env.COHERE_API_KEY ||
+    process.env.AWS_ACCESS_KEY_ID ||
+    process.env.OLLAMA_BASE_URL
+  )
+  const missingConfigMessage = translate('search.messages.missingConfig', 'Search requires configuring an embedding provider for semantic search.')
 
   const featureChecker = auth
     ? async (features: string[]): Promise<Set<string>> => {
@@ -287,7 +294,7 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   const rightHeaderContent = (
     <>
-      <VectorSearchDialog apiKeyAvailable={vectorApiKeyAvailable} missingKeyMessage={vectorMissingKeyMessage} />
+      <GlobalSearchDialog embeddingConfigured={embeddingConfigured} missingConfigMessage={missingConfigMessage} />
       <OrganizationSwitcher />
       <UserMenu email={auth?.email} />
     </>

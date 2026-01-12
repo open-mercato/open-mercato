@@ -2,7 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { reindexEntity } from '../lib/reindexer'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
