@@ -24,7 +24,6 @@
     "db:greenfield": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts db greenfield",
     "db:entities:install": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts generate && tsx --tsconfig tsconfig.cli.json mercato-cli.ts entities install",
     "init": "tsx packages/cli/src/bin.ts init",
-    "premercato": "npm run modules:prepare",
     "mercato": "tsx --tsconfig tsconfig.cli.json mercato-cli.ts",
     "typecheck": "bash scripts/typecheck.sh",
     "test": "jest --passWithNoTests",
