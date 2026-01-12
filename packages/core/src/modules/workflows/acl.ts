@@ -16,11 +16,15 @@ const workflowFeatures = [
   'workflows.instances.create', // Start new workflow instances
   'workflows.instances.cancel', // Cancel running instances
   'workflows.instances.retry', // Retry failed instances
+  'workflows.instances.signal', // Send signal to workflow instance
 
   // User Tasks
   'workflows.tasks.view', // View user tasks
   'workflows.tasks.claim', // Claim tasks from role queue
   'workflows.tasks.complete', // Complete assigned tasks
+
+  // Signals
+  'workflows.signals.send', // Send signals by correlation key
 
   // Logs and Events
   'workflows.events.view', // View execution history and events

@@ -114,6 +114,16 @@ export const subWorkflowConfigSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 })
 
+// CALL_API activity configuration
+export const callApiConfigSchema = z.object({
+  endpoint: z.string().min(1, 'API endpoint is required'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('GET'),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.any().optional(),
+  validateTenantMatch: z.boolean().default(true).optional(),
+  timeout: z.number().int().positive().optional(),
+})
+
 // Retry policy
 export const retryPolicySchema = z.object({
   maxAttempts: z.number().int().min(1).max(10),

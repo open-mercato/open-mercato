@@ -355,6 +355,26 @@
         "escalationRules": "Escalation Rules"
       }
     },
+    "signals": {
+      "title": "Signals",
+      "singular": "Signal",
+      "plural": "Signals",
+      "send": "Send Signal",
+      "signalName": "Signal Name",
+      "payload": "Signal Payload",
+      "correlationKey": "Correlation Key",
+      "timeout": "Signal Timeout",
+      "awaiting": "Waiting for signal",
+      "received": "Signal received",
+      "sendSignal": "Send Signal",
+      "sendByCorrelationKey": "Send to Multiple Workflows",
+      "signalConfig": {
+        "title": "Signal Configuration",
+        "signalName": "Signal Name",
+        "timeout": "Timeout",
+        "description": "Description"
+      }
+    },
     "events": {
       "title": "Workflow Events",
       "singular": "Event",
@@ -472,6 +492,9 @@
         "UserTaskClaimed": "User Task Claimed",
         "UserTaskCompleted": "User Task Completed",
         "UserTaskEscalated": "User Task Escalated",
+        "SIGNAL_AWAITING": "Awaiting Signal",
+        "SIGNAL_RECEIVED": "Signal Received",
+        "SIGNAL_TIMEOUT": "Signal Timeout",
         "SignalReceived": "Signal Received",
         "TimerFired": "Timer Fired",
         "CompensationStarted": "Compensation Started",

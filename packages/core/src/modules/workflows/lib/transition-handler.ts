@@ -359,6 +359,12 @@ export async function executeTransition(
     const activityResults: activityExecutor.ActivityExecutionResult[] = []
 
     if (transition.activities && transition.activities.length > 0) {
+      console.log('[TRANSITION] Transition has activities:', {
+        transitionId: transition.transitionId,
+        activitiesCount: transition.activities.length,
+        activityIds: transition.activities.map((a: any) => a.activityId),
+      })
+
       const activityContext: activityExecutor.ActivityContext = {
         workflowInstance: instance,
         workflowContext: {
@@ -524,6 +530,9 @@ export async function executeTransition(
     )
 
     console.log('[TRANSITION] Step execution result:', stepExecutionResult)
+
+    // Flush to database after step execution completes to make state visible to UI
+    await em.flush()
 
     // Handle step execution failure
     if (stepExecutionResult.status === 'FAILED') {

@@ -6,10 +6,17 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 interface CartItem {
-  id: string
+  id: string // Product UUID
   name: string
   price: number
   quantity: number
+}
+
+interface Product {
+  id: string
+  title: string
+  listPrice: number
+  currencyCode?: string
 }
 
 interface WorkflowResult {
@@ -45,6 +52,12 @@ export default function CheckoutDemoPage() {
   const [formData, setFormData] = useState<Record<string, any>>({})
   const [submittingTask, setSubmittingTask] = useState(false)
   const [taskError, setTaskError] = useState<string | null>(null)
+  const [sendingSignal, setSendingSignal] = useState(false)
+  const [signalError, setSignalError] = useState<string | null>(null)
+  const [enableTaskPolling, setEnableTaskPolling] = useState(false)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('')
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('USD')
+  const [cart, setCart] = useState<CartItem[]>([])
 
   // Poll workflow instance for real-time status updates
   const { data: instanceData } = useQuery({
@@ -126,8 +139,8 @@ export default function CheckoutDemoPage() {
       console.log('[UserTasks] Fetched tasks:', data.data?.length || 0, 'tasks', data.data)
       return data.data || []
     },
-    enabled: !!result?.instanceId && result?.status === 'PAUSED',
-    refetchInterval: result?.status === 'PAUSED' ? 2000 : false,
+    enabled: !!result?.instanceId && result?.status === 'PAUSED' && enableTaskPolling,
+    refetchInterval: result?.status === 'PAUSED' && enableTaskPolling ? 2000 : false,
   })
 
   // Fetch workflow definition to get dynamic steps
@@ -137,20 +150,106 @@ export default function CheckoutDemoPage() {
       const response = await fetch('/api/workflows/definitions?workflowId=checkout_simple_v1')
       if (!response.ok) return null
       const json = await response.json()
-      return json.items?.[0] || null
+      return json.data?.[0] || null
     },
   })
 
-  // Demo cart data
-  const demoCart: CartItem[] = [
-    { id: 'prod-1', name: 'Wireless Mouse', price: 29.99, quantity: 2 },
-    { id: 'prod-2', name: 'USB-C Cable', price: 14.99, quantity: 3 },
-    { id: 'prod-3', name: 'Laptop Stand', price: 49.99, quantity: 1 },
-  ]
+  // Fetch customers for dropdown
+  const { data: customers = [], isLoading: customersLoading } = useQuery({
+    queryKey: ['customers-companies'],
+    queryFn: async () => {
+      const response = await fetch('/api/customers/companies?pageSize=100')
+      if (!response.ok) return []
+      const json = await response.json()
+      return json.items || []
+    },
+  })
+
+  // Fetch products for cart selection
+  const { data: products = [], isLoading: productsLoading } = useQuery({
+    queryKey: ['catalog-products'],
+    queryFn: async () => {
+      const response = await fetch('/api/catalog/products?pageSize=100')
+      if (!response.ok) return []
+      const json = await response.json()
+      return json.items || []
+    },
+  })
+
+  // Auto-populate cart with first 3 products when products load (for demo convenience)
+  useEffect(() => {
+    if (products.length > 0 && cart.length === 0) {
+      const initialCart: CartItem[] = products.slice(0, 3).map((product: any) => ({
+        id: product.id,
+        name: product.title || product.display_name || 'Untitled Product',
+        price: product.list_price || 0,
+        quantity: 1,
+      }))
+      setCart(initialCart)
+    }
+  }, [products, cart.length])
+
+  // Exchange rates (USD base)
+  const exchangeRates: Record<string, number> = {
+    USD: 1,
+    EUR: 0.92,
+    GBP: 0.79,
+    PLN: 4.02,
+  }
+
+  // Currency symbols
+  const currencySymbols: Record<string, string> = {
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    PLN: 'zł',
+  }
+
+  // Cart management functions
+  const addToCart = (product: Product) => {
+    const existing = cart.find(item => item.id === product.id)
+    if (existing) {
+      setCart(cart.map(item =>
+        item.id === product.id
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      ))
+    } else {
+      setCart([...cart, {
+        id: product.id,
+        name: product.title,
+        price: product.listPrice || 0,
+        quantity: 1,
+      }])
+    }
+  }
+
+  const updateQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      setCart(cart.filter(item => item.id !== productId))
+    } else {
+      setCart(cart.map(item =>
+        item.id === productId ? { ...item, quantity } : item
+      ))
+    }
+  }
+
+  const removeFromCart = (productId: string) => {
+    setCart(cart.filter(item => item.id !== productId))
+  }
+
+  // Convert prices to selected currency (cart items are in USD by default)
+  const exchangeRate = exchangeRates[selectedCurrency] || 1
+  const demoCart = cart.map(item => ({
+    ...item,
+    price: item.price * exchangeRate,
+  }))
+
+  const currencySymbol = currencySymbols[selectedCurrency] || selectedCurrency
 
   const subtotal = demoCart.reduce((sum, item) => sum + item.price * item.quantity, 0)
   const tax = subtotal * 0.08 // 8% tax
-  const shipping = 9.99
+  const shipping = 9.99 * exchangeRate
   const total = subtotal + tax + shipping
 
   // Workflow steps for UI - use dynamic definition or fallback
@@ -158,7 +257,8 @@ export default function CheckoutDemoPage() {
     { stepId: 'start', stepName: 'Start', stepType: 'START', description: 'Workflow initiated' },
     { stepId: 'cart_validation', stepName: 'Cart Validation', stepType: 'AUTOMATED', description: 'Validate cart and reserve inventory' },
     { stepId: 'customer_info', stepName: 'Customer Information', stepType: 'USER_TASK', description: 'Collect customer shipping and contact information' },
-    { stepId: 'payment_processing', stepName: 'Payment Processing', stepType: 'AUTOMATED', description: 'Process payment' },
+    { stepId: 'payment_initiation', stepName: 'Initiate Payment', stepType: 'AUTOMATED', description: 'Send payment request to provider' },
+    { stepId: 'wait_payment_confirmation', stepName: 'Wait for Payment Confirmation', stepType: 'WAIT_FOR_SIGNAL', description: 'Waiting for payment provider webhook' },
     { stepId: 'order_confirmation', stepName: 'Order Confirmation', stepType: 'AUTOMATED', description: 'Create order and send confirmation' },
     { stepId: 'end', stepName: 'Complete', stepType: 'END', description: 'Checkout completed' },
   ]
@@ -179,12 +279,93 @@ export default function CheckoutDemoPage() {
     }
   }, [result])
 
+  // Add initial delay before polling for user tasks when workflow becomes PAUSED
+  // This reduces race condition where API returns before background execution completes
+  useEffect(() => {
+    if (result?.status === 'PAUSED') {
+      console.log('[UserTasks] Workflow paused, adding 500ms delay before polling...')
+      setEnableTaskPolling(false)
+
+      const timer = setTimeout(() => {
+        console.log('[UserTasks] Delay complete, enabling task polling')
+        setEnableTaskPolling(true)
+      }, 500)
+
+      return () => clearTimeout(timer)
+    } else {
+      setEnableTaskPolling(false)
+    }
+  }, [result?.status])
+
   const handleCheckout = async () => {
+    // Validate customer selection
+    if (!selectedCustomerId) {
+      setError('Please select a customer before starting checkout')
+      return
+    }
+
+    // Validate cart has items
+    if (cart.length === 0) {
+      setError('Please add at least one product to your cart')
+      return
+    }
+
     setLoading(true)
     setError(null)
     setResult(null)
 
     try {
+      // Build the initial context
+      const initialContext = {
+        customerId: selectedCustomerId,
+        cartId: `cart-${Date.now()}`,
+        currency: selectedCurrency,
+        cart: {
+          id: `cart-${Date.now()}`,
+          items: demoCart,
+          orderLines: demoCart.map(item => ({
+            quantity: item.quantity,
+            currencyCode: selectedCurrency || 'USD', // Ensure currency is always set
+            kind: 'product' as const,
+            productId: item.id,
+            lineDescription: item.name,
+            unitPriceGross: item.price,
+          })),
+          itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
+          subtotal: subtotal,
+          tax: tax,
+          shipping: shipping,
+          total: total,
+          currency: selectedCurrency,
+        },
+        customer: {
+          id: selectedCustomerId,
+          name: 'Demo Customer',
+          email: 'demo@example.com',
+          shippingAddress: {
+            street: '123 Demo Street',
+            city: 'Demo City',
+            state: 'DC',
+            zip: '12345',
+            country: 'USA',
+          },
+        },
+        payment: {
+          id: `payment-${Date.now()}`,
+          methodId: 'pm_demo_visa',
+          method: 'Credit Card',
+          last4: '4242',
+        },
+      }
+
+      // Debug: Log what we're sending
+      console.log('[Checkout Demo] Starting workflow with context:', {
+        cartItemCount: initialContext.cart.items.length,
+        orderLinesCount: initialContext.cart.orderLines.length,
+        cartItems: initialContext.cart.items,
+        orderLines: initialContext.cart.orderLines,
+      })
+
       // Start the checkout workflow
       const response = await fetch('/api/workflows/instances', {
         method: 'POST',
@@ -195,36 +376,7 @@ export default function CheckoutDemoPage() {
           workflowId: 'checkout_simple_v1',
           version: 1,
           correlationKey: `DEMO-ORDER-${Date.now()}`,
-          initialContext: {
-            cart: {
-              id: `cart-${Date.now()}`,
-              items: demoCart,
-              itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
-              subtotal: subtotal,
-              tax: tax,
-              shipping: shipping,
-              total: total,
-              currency: 'USD',
-            },
-            customer: {
-              id: 'demo-customer-1',
-              name: 'Demo Customer',
-              email: 'demo@example.com',
-              shippingAddress: {
-                street: '123 Demo Street',
-                city: 'Demo City',
-                state: 'DC',
-                zip: '12345',
-                country: 'USA',
-              },
-            },
-            payment: {
-              id: `payment-${Date.now()}`,
-              methodId: 'pm_demo_visa',
-              method: 'Credit Card',
-              last4: '4242',
-            },
-          },
+          initialContext,
           metadata: {
             source: 'checkout-demo',
             userAgent: navigator.userAgent,
@@ -378,6 +530,88 @@ export default function CheckoutDemoPage() {
       ...prev,
       [fieldName]: value,
     }))
+  }
+
+  const handleSendPaymentSignal = async () => {
+    if (!result?.instanceId) {
+      setSignalError('No workflow instance found')
+      return
+    }
+
+    // Check if workflow is in the correct step
+    if (result.currentStepId !== 'wait_payment_confirmation') {
+      setSignalError(`Cannot send signal: workflow is at step "${result.currentStepId}", expected "wait_payment_confirmation"`)
+      return
+    }
+
+    setSendingSignal(true)
+    setSignalError(null)
+
+    try {
+      const signalUrl = `/api/workflows/instances/${result.instanceId}/signal`
+
+      const requestPayload = {
+        signalName: 'payment_confirmed',
+        payload: {
+          paymentStatus: 'success',
+          transactionId: `txn_${Date.now()}`,
+          confirmedAt: new Date().toISOString(),
+          provider: 'StripeSimulator',
+        },
+      }
+
+      const response = await fetch(signalUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestPayload),
+      })
+
+      // Read response as text first to handle non-JSON responses
+      const responseText = await response.text()
+
+      if (!response.ok) {
+        let errorData: any = {}
+        let isJson = false
+
+        try {
+          errorData = JSON.parse(responseText)
+          isJson = true
+        } catch (parseError) {
+          console.error('[Signal] Response is not JSON:', parseError)
+          console.error('[Signal] Raw response:', responseText)
+        }
+
+        const errorMsg = isJson && errorData.error
+          ? errorData.error
+          : `HTTP ${response.status}: ${responseText.substring(0, 200) || 'Failed to send signal'}`
+        throw new Error(errorMsg)
+      }
+
+      // Parse success response
+      let data: any
+      try {
+        data = JSON.parse(responseText)
+        console.log('[Signal] Signal sent successfully:', data)
+      } catch (parseError) {
+        console.warn('[Signal] Success response is not JSON, but request succeeded')
+        data = { success: true }
+      }
+
+      // Invalidate queries to force refresh
+      await queryClient.invalidateQueries({ queryKey: ['workflow-instance', result?.instanceId] })
+      await queryClient.invalidateQueries({ queryKey: ['workflow-events', result?.instanceId] })
+
+      // Clear any previous errors
+      setSignalError(null)
+    } catch (err) {
+      console.error('[Signal] Error:', err)
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send payment confirmation'
+      setSignalError(errorMessage)
+    } finally {
+      setSendingSignal(false)
+    }
   }
 
   const handleTaskSubmit = async (e: React.FormEvent) => {
@@ -629,9 +863,9 @@ export default function CheckoutDemoPage() {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Checkout Demo</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Checkout Demo with Payment Webhooks</h1>
           <p className="text-gray-600">
-            Interactive workflow demonstration with manual step progression
+            Interactive workflow demonstration featuring signal-based payment confirmation (WAIT_FOR_SIGNAL)
           </p>
         </div>
 
@@ -641,52 +875,186 @@ export default function CheckoutDemoPage() {
             {/* Initial State - Cart Summary */}
             {!result && (
               <>
+                {/* Customer Selection */}
+                <div className="mb-6 pb-6 border-b border-gray-200">
+                  <label htmlFor="customer-select" className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Customer <span className="text-red-600">*</span>
+                  </label>
+                  {customersLoading ? (
+                    <div className="flex items-center justify-center py-3 text-sm text-gray-500">
+                      <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Loading customers...
+                    </div>
+                  ) : customers.length === 0 ? (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                      No customers found. Please create a customer first.
+                    </div>
+                  ) : (
+                    <>
+                      <select
+                        id="customer-select"
+                        value={selectedCustomerId}
+                        onChange={(e) => setSelectedCustomerId(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      >
+                        <option value="">-- Select a customer --</option>
+                        {customers.map((customer: any) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.display_name || customer.id}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-2">
+                        <label htmlFor="currency-select" className="block text-xs font-medium text-gray-600 mb-1">
+                          Currency
+                        </label>
+                        <select
+                          id="currency-select"
+                          value={selectedCurrency}
+                          onChange={(e) => setSelectedCurrency(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        >
+                          <option value="USD">USD - US Dollar</option>
+                          <option value="EUR">EUR - Euro</option>
+                          <option value="GBP">GBP - British Pound</option>
+                          <option value="PLN">PLN - Polish Zloty</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Product Selection */}
+                <div className="mb-6 pb-6 border-b border-gray-200">
+                  <label htmlFor="product-select" className="block text-sm font-medium text-gray-700 mb-2">
+                    Add Products to Cart
+                  </label>
+                  {productsLoading ? (
+                    <div className="flex items-center justify-center py-3 text-sm text-gray-500">
+                      <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Loading products...
+                    </div>
+                  ) : products.length === 0 ? (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                      No products found. Please create products in the catalog first.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <select
+                        id="product-select"
+                        onChange={(e) => {
+                          const product = products.find((p: any) => p.id === e.target.value)
+                          if (product) {
+                            addToCart({
+                              id: product.id,
+                              title: product.title || product.display_name || 'Untitled Product',
+                              listPrice: product.list_price || 0,
+                              currencyCode: product.currency_code,
+                            })
+                            e.target.value = '' // Reset selection
+                          }
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        value=""
+                      >
+                        <option value="">-- Select a product to add --</option>
+                        {products.map((product: any) => (
+                          <option key={product.id} value={product.id}>
+                            {product.title || product.display_name || 'Untitled'} - {currencySymbol}{((product.list_price || 0) * exchangeRate).toFixed(2)}
+                          </option>
+                        ))}
+                      </select>
+                      {cart.length === 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Select products from the dropdown to add them to your cart
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <h2 className="text-xl font-semibold text-gray-900 mb-4">Order Summary</h2>
 
                 {/* Cart Items */}
-                <div className="space-y-4 mb-6">
-                  {demoCart.map((item) => (
-                    <div key={item.id} className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900">{item.name}</p>
-                        <p className="text-sm text-gray-500">Quantity: {item.quantity}</p>
+                {cart.length === 0 ? (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center mb-6">
+                    <p className="text-gray-500 text-sm">Your cart is empty</p>
+                    <p className="text-gray-400 text-xs mt-1">Add products from the dropdown above</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4 mb-6">
+                    {demoCart.map((item) => (
+                      <div key={item.id} className="flex justify-between items-center gap-4 pb-3 border-b border-gray-100 last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{item.name}</p>
+                          <p className="text-xs text-gray-500">{currencySymbol}{item.price.toFixed(2)} each</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                            className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 text-gray-600"
+                          >
+                            -
+                          </button>
+                          <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                            className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 hover:bg-gray-50 text-gray-600"
+                          >
+                            +
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900 min-w-[80px] text-right">
+                            {currencySymbol}{(item.price * item.quantity).toFixed(2)}
+                          </p>
+                          <button
+                            onClick={() => removeFromCart(item.id)}
+                            className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-red-600"
+                            title="Remove from cart"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
-                      <p className="font-medium text-gray-900">
-                        ${(item.price * item.quantity).toFixed(2)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Totals */}
                 <div className="border-t border-gray-200 pt-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Subtotal</span>
-                    <span className="text-gray-900">${subtotal.toFixed(2)}</span>
+                    <span className="text-gray-900">{currencySymbol}{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Tax (8%)</span>
-                    <span className="text-gray-900">${tax.toFixed(2)}</span>
+                    <span className="text-gray-900">{currencySymbol}{tax.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Shipping</span>
-                    <span className="text-gray-900">${shipping.toFixed(2)}</span>
+                    <span className="text-gray-900">{currencySymbol}{shipping.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between font-semibold text-lg pt-2 border-t border-gray-200">
                     <span className="text-gray-900">Total</span>
-                    <span className="text-gray-900">${total.toFixed(2)}</span>
+                    <span className="text-gray-900">{currencySymbol}{total.toFixed(2)}</span>
                   </div>
                 </div>
 
                 {/* Checkout Button */}
                 <Button
                   onClick={handleCheckout}
-                  disabled={loading || result !== null}
+                  disabled={loading || result !== null || !selectedCustomerId || customers.length === 0 || cart.length === 0}
                   className="w-full mt-6"
                   size="lg"
                 >
-                  {loading ? 'Starting...' : result ? 'Workflow Started' : 'Start Checkout Workflow'}
+                  {loading ? 'Starting...' : result ? 'Workflow Started' : !selectedCustomerId ? 'Select Customer to Continue' : cart.length === 0 ? 'Add Products to Continue' : 'Start Checkout Workflow'}
                 </Button>
+                {(!selectedCustomerId || cart.length === 0) && customers.length > 0 && (
+                  <p className="text-xs text-gray-500 text-center mt-2">
+                    {!selectedCustomerId ? 'Please select a customer to continue' : 'Please add products to your cart to continue'}
+                  </p>
+                )}
               </>
             )}
 
@@ -718,7 +1086,7 @@ export default function CheckoutDemoPage() {
                     </div>
                   ))}
                   <div className="pt-2 border-t border-gray-200">
-                    <p className="text-sm font-medium text-gray-900">Total: ${total.toFixed(2)}</p>
+                    <p className="text-sm font-medium text-gray-900">Total: {currencySymbol}{total.toFixed(2)}</p>
                   </div>
                 </div>
               </>
@@ -814,12 +1182,12 @@ export default function CheckoutDemoPage() {
               </>
             )}
 
-            {/* Payment Processing Step */}
-            {result && result.currentStepId === 'payment_processing' && (
+            {/* Payment Initiation Step */}
+            {result && result.currentStepId === 'payment_initiation' && (
               <>
                 <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <span className="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
-                  Processing Payment
+                  Initiating Payment
                 </h2>
                 <div className="space-y-6">
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -831,15 +1199,119 @@ export default function CheckoutDemoPage() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Amount:</span>
-                        <span className="text-gray-900 font-semibold">${total.toFixed(2)}</span>
+                        <span className="text-gray-900 font-semibold">{currencySymbol}{total.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center justify-center py-8">
                     <div className="text-center">
                       <div className="inline-block w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-                      <p className="text-sm text-gray-600">Contacting payment provider...</p>
+                      <p className="text-sm text-gray-600">Sending payment request...</p>
                     </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Wait for Payment Confirmation Step - SIGNAL */}
+            {result && result.currentStepId === 'wait_payment_confirmation' && (
+              <>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 bg-yellow-600 rounded-full animate-pulse"></span>
+                  Waiting for Payment Confirmation
+                </h2>
+                <div className="space-y-4">
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <p className="text-sm text-yellow-800 font-medium mb-2">
+                      Awaiting Payment Provider Webhook
+                    </p>
+                    <p className="text-xs text-yellow-700 mb-3">
+                      The workflow is paused waiting for the payment provider to confirm the transaction via webhook.
+                      In production, this would be sent automatically by Stripe, PayPal, etc.
+                    </p>
+                    <div className="space-y-2 text-xs text-yellow-700">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-1.5 h-1.5 bg-yellow-600 rounded-full"></span>
+                        <span>Status: <strong>{result.status}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-1.5 h-1.5 bg-yellow-600 rounded-full"></span>
+                        <span>Signal Name: <code className="bg-yellow-100 px-1 py-0.5 rounded">payment_confirmed</code></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block w-1.5 h-1.5 bg-yellow-600 rounded-full"></span>
+                        <span>Timeout: 5 minutes</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {signalError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <svg
+                          className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        <div className="ml-3">
+                          <h3 className="text-sm font-medium text-red-800">Signal Error</h3>
+                          <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{signalError}</p>
+                          <Button
+                            onClick={() => setSignalError(null)}
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                          >
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {result.status === 'PAUSED' && (
+                    <div className="bg-white border border-gray-200 rounded-lg p-4">
+                      <p className="text-sm font-medium text-gray-900 mb-2">For Demo Testing:</p>
+                      <p className="text-xs text-gray-600 mb-3">
+                        Click the button below to simulate a payment provider webhook confirming the transaction.
+                      </p>
+                      <Button
+                        onClick={handleSendPaymentSignal}
+                        disabled={sendingSignal || result.status !== 'PAUSED'}
+                        className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-medium"
+                      >
+                        {sendingSignal ? 'Sending Signal...' : '🔔 Simulate Payment Webhook'}
+                      </Button>
+                      <p className="text-xs text-gray-500 mt-2 text-center">
+                        This sends a <code className="bg-gray-100 px-1 py-0.5 rounded text-xs">SIGNAL_RECEIVED</code> event
+                      </p>
+                    </div>
+                  )}
+
+                  {result.status !== 'PAUSED' && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800">
+                        <strong>Note:</strong> Workflow status is <strong>{result.status}</strong>.
+                        The signal button will appear when the workflow is fully paused at this step.
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <p className="text-xs text-blue-800">
+                      <strong>Real-world scenario:</strong> Your payment provider (Stripe, PayPal) would send a webhook
+                      to your server endpoint (e.g., <code className="bg-blue-100 px-1 py-0.5 rounded">/api/webhooks/payments</code>),
+                      which would then call <code className="bg-blue-100 px-1 py-0.5 rounded">POST /api/workflows/instances/[id]/signal</code>
+                      to resume the workflow.
+                    </p>
                   </div>
                 </div>
               </>
@@ -900,7 +1372,7 @@ export default function CheckoutDemoPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Total Paid:</span>
-                      <span className="text-gray-900 font-semibold">${total.toFixed(2)}</span>
+                      <span className="text-gray-900 font-semibold">{currencySymbol}{total.toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -909,7 +1381,7 @@ export default function CheckoutDemoPage() {
                     {demoCart.map((item) => (
                       <div key={item.id} className="flex justify-between text-sm mb-2">
                         <span className="text-gray-700">{item.quantity}x {item.name}</span>
-                        <span className="text-gray-900">${(item.price * item.quantity).toFixed(2)}</span>
+                        <span className="text-gray-900">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
@@ -1246,7 +1718,7 @@ export default function CheckoutDemoPage() {
             </div>
 
             <div className="space-y-3 max-h-96 overflow-y-auto">
-              {events.slice(0, 10).map((event: WorkflowEvent) => (
+              {events.map((event: WorkflowEvent) => (
                 <div
                   key={event.id}
                   className="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition-colors"
@@ -1320,13 +1792,14 @@ export default function CheckoutDemoPage() {
               <h3 className="text-sm font-medium text-blue-800">Features</h3>
               <div className="mt-2 text-sm text-blue-700">
                 <ul className="list-disc list-inside space-y-1">
-                  <li><strong>Interactive UI Changes:</strong> Left panel dynamically updates to show cart validation, payment processing, and order confirmation screens</li>
+                  <li><strong>Signal-Based Payment Flow:</strong> Demonstrates real-world webhook pattern with WAIT_FOR_SIGNAL step type</li>
+                  <li><strong>Interactive UI Changes:</strong> Left panel dynamically updates to show cart validation, payment initiation, webhook waiting, and order confirmation screens</li>
                   <li><strong>Real-time Progress Tracking:</strong> Watch the workflow progress through steps automatically with live status updates</li>
-                  <li><strong>Step-by-Step Visualization:</strong> Pulsing indicators and progress bars show current processing state</li>
-                  <li><strong>Live Event Timeline:</strong> New workflow events appear in real-time with event count and "Live" indicator</li>
-                  <li><strong>Complete Order Flow:</strong> Experience the full checkout journey from cart to confirmation</li>
+                  <li><strong>Webhook Simulation:</strong> Test signal-based workflow resumption with simulated payment provider webhook</li>
+                  <li><strong>Live Event Timeline:</strong> New workflow events appear in real-time including SIGNAL_AWAITING and SIGNAL_RECEIVED</li>
+                  <li><strong>Complete Order Flow:</strong> Experience the full checkout journey from cart to confirmation with async payment processing</li>
+                  <li><strong>User Task Integration:</strong> Form-based user input with workflow pause/resume on task completion</li>
                   <li><strong>Business Rules Integration:</strong> Guard rules validate transitions with detailed failure information</li>
-                  <li><strong>Manual Step Control:</strong> Optional manual advancement for step-by-step testing</li>
                 </ul>
                 <p className="mt-2">
                   <Link href="/backend/definitions" className="text-blue-800 hover:text-blue-900 underline">

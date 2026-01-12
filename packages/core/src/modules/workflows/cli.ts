@@ -260,67 +260,6 @@ const startWorker: ModuleCli = {
 }
 
 /**
- * Seed checkout failure demo
- */
-const seedCheckoutFailure: ModuleCli = {
-  command: 'seed-checkout-failure',
-  async run(rest) {
-    const args = parseArgs(rest)
-    const tenantId = String(args.tenantId ?? args.tenant ?? args.t ?? '')
-    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? args.o ?? '')
-
-    if (!tenantId || !organizationId) {
-      console.error('Usage: mercato workflows seed-checkout-failure --tenant <tenantId> --org <organizationId>')
-      return
-    }
-
-    try {
-      const { resolve } = await createRequestContainer()
-      const em = resolve<EntityManager>('em')
-
-      // Read the failure demo workflow definition
-      const failurePath = path.join(__dirname, 'examples', 'checkout-failure-demo.json')
-      const failureData = JSON.parse(fs.readFileSync(failurePath, 'utf8'))
-
-      // Check if it already exists
-      const existing = await em.findOne(WorkflowDefinition, {
-        workflowId: failureData.workflowId,
-        tenantId,
-        organizationId,
-      })
-
-      if (existing) {
-        console.log(`✓ Checkout failure demo workflow '${failureData.workflowId}' already exists (ID: ${existing.id})`)
-        return
-      }
-
-      // Create the workflow definition
-      const workflow = em.create(WorkflowDefinition, {
-        ...failureData,
-        tenantId,
-        organizationId,
-      })
-
-      await em.persistAndFlush(workflow)
-
-      console.log(`✓ Seeded checkout failure demo workflow: ${workflow.workflowName}`)
-      console.log(`  - ID: ${workflow.id}`)
-      console.log(`  - Workflow ID: ${workflow.workflowId}`)
-      console.log(`  - Version: ${workflow.version}`)
-      console.log(`  - Steps: ${workflow.definition.steps.length}`)
-      console.log(`  - Transitions: ${workflow.definition.transitions.length}`)
-      console.log('')
-      console.log('Checkout failure demo workflow is ready!')
-      console.log('This workflow is designed to fail at the payment step to demonstrate')
-      console.log('the compensation (saga pattern) feature.')
-    } catch (error) {
-      console.error('Error seeding checkout failure demo workflow:', error)
-      throw error
-    }
-  },
-}
-
-/**
  * Seed all example workflows
  */
 const seedAll: ModuleCli = {
@@ -348,10 +287,6 @@ const seedAll: ModuleCli = {
 
       // Seed simple approval
       await seedSimpleApproval.run(rest)
-      console.log('')
-
-      // Seed checkout failure demo
-      await seedCheckoutFailure.run(rest)
       console.log('')
 
       console.log('✓ All example workflows seeded successfully!')
@@ -431,7 +366,6 @@ const workflowsCliCommands = [
   seedDemo,
   seedSalesPipeline,
   seedSimpleApproval,
-  seedCheckoutFailure,
   seedAll,
 ]
 

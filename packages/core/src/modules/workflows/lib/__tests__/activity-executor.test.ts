@@ -41,6 +41,7 @@ describe('Activity Executor (Unit Tests)', () => {
       id: testInstanceId,
       definitionId: 'test-definition-id',
       workflowId: 'test-workflow',
+      version: 1,
       currentStepId: 'step-1',
       status: 'RUNNING',
       workflowContext: {
@@ -759,6 +760,298 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(false)
       expect(result.error).toContain('timeout after 50ms')
+    })
+  })
+
+  // ============================================================================
+  // Variable Interpolation Type Preservation Tests
+  // ============================================================================
+
+  describe('Variable interpolation type preservation', () => {
+    test('should preserve array type for single variable interpolation', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify that the array is passed as-is, not converted to string
+        expect(Array.isArray(args.items)).toBe(true)
+        expect(args.items).toHaveLength(2)
+        expect(args.items[0]).toEqual({ id: 1, name: 'Item 1' })
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const mockContextWithArray = {
+        ...mockContext,
+        workflowContext: {
+          ...mockContext.workflowContext,
+          itemsList: [
+            { id: 1, name: 'Item 1' },
+            { id: 2, name: 'Item 2' },
+          ],
+        },
+      }
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Array Preservation',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            items: '{{itemsList}}', // Single variable - should preserve array type
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContextWithArray
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should preserve object type for single variable interpolation', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify that the object is passed as-is, not converted to string
+        expect(typeof args.customer).toBe('object')
+        expect(args.customer.name).toBe('John Doe')
+        expect(args.customer.age).toBe(30)
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const mockContextWithObject = {
+        ...mockContext,
+        workflowContext: {
+          ...mockContext.workflowContext,
+          customerData: { name: 'John Doe', age: 30, email: 'john@example.com' },
+        },
+      }
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Object Preservation',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            customer: '{{customerData}}', // Single variable - should preserve object type
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContextWithObject
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should preserve number type for single variable interpolation', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify that the number is passed as-is, not converted to string
+        expect(typeof args.total).toBe('number')
+        expect(args.total).toBe(120.5)
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const mockContextWithNumber = {
+        ...mockContext,
+        workflowContext: {
+          ...mockContext.workflowContext,
+          orderTotal: 120.5,
+        },
+      }
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Number Preservation',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            total: '{{orderTotal}}', // Single variable - should preserve number type
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContextWithNumber
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should preserve boolean type for single variable interpolation', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify that the boolean is passed as-is, not converted to string
+        expect(typeof args.isActive).toBe('boolean')
+        expect(args.isActive).toBe(true)
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const mockContextWithBoolean = {
+        ...mockContext,
+        workflowContext: {
+          ...mockContext.workflowContext,
+          activeStatus: true,
+        },
+      }
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Boolean Preservation',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            isActive: '{{activeStatus}}', // Single variable - should preserve boolean type
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContextWithBoolean
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should return string for mixed variable interpolation', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify that mixed interpolation produces a string
+        expect(typeof args.message).toBe('string')
+        expect(args.message).toBe('Order order-123 has status confirmed')
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const mockContextWithStatus = {
+        ...mockContext,
+        workflowContext: {
+          ...mockContext.workflowContext,
+          status: 'confirmed',
+        },
+      }
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Mixed Interpolation',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            message: 'Order {{orderId}} has status {{status}}', // Mixed interpolation - should be string
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContextWithStatus
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should handle nested objects with mixed type interpolations', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify nested structure with mixed types
+        expect(Array.isArray(args.data.items)).toBe(true)
+        expect(args.data.items).toHaveLength(2)
+        expect(typeof args.data.message).toBe('string')
+        expect(args.data.message).toBe('Found 5 items')
+        expect(args.data.description).toBe('Test')
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const mockContextWithMixed = {
+        ...mockContext,
+        workflowContext: {
+          ...mockContext.workflowContext,
+          lineItems: [{ id: 1 }, { id: 2 }],
+          itemCount: 5,
+          note: 'Test',
+        },
+      }
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Nested Mixed Interpolation',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            data: {
+              items: '{{lineItems}}', // Single var - preserves array
+              message: 'Found {{itemCount}} items', // Mixed - becomes string
+              description: '{{note}}', // Single var - preserves type (string)
+            },
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContextWithMixed
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should preserve workflow.version as number for single variable', async () => {
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        // Verify that workflow.version is a number, not a string
+        expect(typeof args.version).toBe('number')
+        expect(args.version).toBe(1)
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityName: 'Test Workflow Version Type',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            version: '{{workflow.version}}', // Single variable - should preserve number type
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockFunction).toHaveBeenCalled()
     })
   })
 
