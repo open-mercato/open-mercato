@@ -67,6 +67,10 @@ const mcpServe: ModuleCli = {
 const listTools: ModuleCli = {
   command: 'mcp:list-tools',
   async run() {
+    // Load tools from all modules first
+    const { loadAllModuleTools } = await import('./lib/tool-loader')
+    await loadAllModuleTools()
+
     const { getToolRegistry } = await import('./lib/tool-registry')
     const registry = getToolRegistry()
     const toolNames = registry.listToolNames()

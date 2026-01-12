@@ -1,0 +1,63 @@
+import { registerMcpTool } from './tool-registry'
+import type { McpToolDefinition } from './types'
+
+/**
+ * Module tool definition as exported from ai-tools.ts files.
+ */
+type ModuleAiTool = {
+  name: string
+  description: string
+  inputSchema: any
+  requiredFeatures?: string[]
+  handler: (input: any, ctx: any) => Promise<unknown>
+}
+
+/**
+ * Load and register AI tools from a module's ai-tools.ts export.
+ *
+ * @param moduleId - The module identifier (e.g., 'search', 'customers')
+ * @param tools - Array of tool definitions from the module
+ */
+export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
+  for (const tool of tools) {
+    registerMcpTool(
+      {
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        requiredFeatures: tool.requiredFeatures,
+        handler: tool.handler,
+      } as McpToolDefinition,
+      { moduleId }
+    )
+  }
+}
+
+/**
+ * Dynamically load tools from known module paths.
+ * This is called during MCP server startup.
+ */
+export async function loadAllModuleTools(): Promise<void> {
+  // List of modules with ai-tools.ts files
+  // In the future, this could be auto-discovered by a generator
+  const moduleToolPaths = [
+    { moduleId: 'search', importPath: '@open-mercato/search/modules/search/ai-tools' },
+    // Add more modules here as they define ai-tools.ts
+  ]
+
+  for (const { moduleId, importPath } of moduleToolPaths) {
+    try {
+      const module = await import(importPath)
+      const tools = module.aiTools ?? module.default ?? []
+
+      if (Array.isArray(tools) && tools.length > 0) {
+        loadModuleTools(moduleId, tools)
+        console.error(`[MCP Tools] Loaded ${tools.length} tools from ${moduleId}`)
+      }
+    } catch (error) {
+      // Module might not have ai-tools.ts or import failed
+      // This is not an error - modules can optionally provide tools
+      console.error(`[MCP Tools] Could not load tools from ${moduleId}:`, error)
+    }
+  }
+}

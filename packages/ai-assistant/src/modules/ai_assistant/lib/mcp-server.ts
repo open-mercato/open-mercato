@@ -7,6 +7,7 @@ import {
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
+import { loadAllModuleTools } from './tool-loader'
 import type { McpServerOptions, McpToolContext } from './types'
 
 /**
@@ -150,6 +151,9 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
  * This keeps the process running until terminated.
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
+  // Load tools from all modules before starting
+  await loadAllModuleTools()
+
   const server = await createMcpServer(options)
   const transport = new StdioServerTransport()
 
