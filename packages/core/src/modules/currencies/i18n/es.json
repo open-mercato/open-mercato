@@ -1,0 +1,171 @@
+{
+  "currencies": {
+    "module": {
+      "title": "Monedas y Tipos de Cambio",
+      "description": "Gestionar monedas y tipos de cambio para transacciones multidivisa."
+    },
+    "nav": {
+      "group": "Monedas"
+    },
+    "page": {
+      "title": "Monedas"
+    },
+    "list": {
+      "title": "Monedas",
+      "searchPlaceholder": "Buscar monedas por código o nombre",
+      "columns": {
+        "code": "Código",
+        "name": "Nombre",
+        "symbol": "Símbolo",
+        "decimalPlaces": "Decimales",
+        "isActive": "Estado"
+      },
+      "filters": {
+        "baseOnly": "Mostrar solo moneda base",
+        "status": "Estado",
+        "all": "Todas",
+        "active": "Activa",
+        "inactive": "Inactiva"
+      },
+      "actions": {
+        "create": "Añadir Moneda",
+        "setBase": "Establecer como Base"
+      },
+      "base": "Base",
+      "confirmDelete": "¿Eliminar moneda {{code}}? Esto también eliminará todos los tipos de cambio para esta moneda.",
+      "error": {
+        "load": "Error al cargar monedas"
+      }
+    },
+    "create": {
+      "title": "Crear Moneda"
+    },
+    "edit": {
+      "title": "Editar Moneda"
+    },
+    "form": {
+      "group": {
+        "details": "Detalles de Moneda",
+        "formatting": "Formato y Configuración"
+      },
+      "field": {
+        "code": "Código de Moneda",
+        "codePlaceholder": "USD",
+        "codeHelp": "Código ISO 4217 de 3 letras (ej. USD, EUR, GBP)",
+        "name": "Nombre de Moneda",
+        "namePlaceholder": "Dólar estadounidense",
+        "symbol": "Símbolo",
+        "symbolPlaceholder": "$",
+        "decimalPlaces": "Lugares Decimales",
+        "thousandsSeparator": "Separador de Miles",
+        "decimalSeparator": "Separador Decimal",
+        "isBase": "Moneda Base",
+        "isActive": "Activa"
+      },
+      "action": {
+        "create": "Crear Moneda",
+        "save": "Guardar Cambios"
+      },
+      "loading": "Cargando moneda...",
+      "errors": {
+        "codeFormat": "El código de moneda debe ser exactamente 3 letras mayúsculas (ej. USD)",
+        "load": "Error al cargar moneda",
+        "notFound": "Moneda no encontrada",
+        "delete": "Error al eliminar moneda"
+      }
+    },
+    "flash": {
+      "created": "Moneda creada correctamente",
+      "updated": "Moneda actualizada correctamente",
+      "deleted": "Moneda eliminada correctamente",
+      "deleteError": "Error al eliminar moneda",
+      "baseSet": "Moneda base actualizada correctamente",
+      "baseSetError": "Error al establecer moneda base"
+    }
+  },
+  "exchangeRates": {
+    "page": {
+      "title": "Tipos de Cambio"
+    },
+    "list": {
+      "title": "Tipos de Cambio",
+      "searchPlaceholder": "Buscar tipos de cambio",
+      "columns": {
+        "currencyPair": "Par de Monedas",
+        "rate": "Tipo",
+        "effectiveDate": "Fecha Efectiva",
+        "expiresAt": "Expira",
+        "source": "Fuente",
+        "isActive": "Estado"
+      },
+      "filters": {
+        "fromCurrency": "Desde Moneda",
+        "toCurrency": "A Moneda",
+        "source": "Fuente",
+        "status": "Estado",
+        "all": "Todas",
+        "active": "Activa",
+        "inactive": "Inactiva"
+      },
+      "actions": {
+        "create": "Añadir Tipo de Cambio"
+      },
+      "confirmDelete": "¿Eliminar tipo de cambio {{pair}}?",
+      "error": {
+        "load": "Error al cargar tipos de cambio"
+      }
+    },
+    "create": {
+      "title": "Crear Tipo de Cambio"
+    },
+    "edit": {
+      "title": "Editar Tipo de Cambio"
+    },
+    "form": {
+      "group": {
+        "details": "Detalles del Tipo de Cambio",
+        "metadata": "Metadatos"
+      },
+      "field": {
+        "fromCurrency": "Desde Moneda",
+        "fromCurrencyPlaceholder": "Seleccionar moneda",
+        "fromCurrencyHelp": "Moneda de origen para conversión",
+        "toCurrency": "A Moneda",
+        "toCurrencyPlaceholder": "Seleccionar moneda",
+        "toCurrencyHelp": "Moneda de destino para conversión",
+        "rate": "Tipo de Cambio",
+        "rateHelp": "Cuántas unidades de moneda de destino por 1 unidad de moneda de origen (hasta 8 decimales)",
+        "effectiveDate": "Fecha Efectiva",
+        "effectiveDateHelp": "Fecha en que este tipo se vuelve activo (AAAA-MM-DD)",
+        "expiresAt": "Expira el",
+        "expiresAtHelp": "Fecha de expiración opcional (AAAA-MM-DD)",
+        "source": "Fuente",
+        "sourcePlaceholder": "ej. BCE, Manual",
+        "sourceHelp": "De dónde proviene este tipo",
+        "isActive": "Activa"
+      },
+      "action": {
+        "create": "Crear Tipo de Cambio",
+        "save": "Guardar Cambios"
+      },
+      "loading": "Cargando tipo de cambio...",
+      "errors": {
+        "currencyCodeFormat": "Debe ser exactamente 3 letras mayúsculas",
+        "fromCurrencyFormat": "Código de moneda de origen inválido",
+        "toCurrencyFormat": "Código de moneda de destino inválido",
+        "sameCurrency": "Las monedas de origen y destino deben ser diferentes",
+        "invalidRate": "El tipo debe ser un número positivo",
+        "invalidEffectiveDate": "Se requiere fecha efectiva",
+        "expiresBeforeEffective": "La fecha de expiración debe ser posterior a la fecha efectiva",
+        "load": "Error al cargar tipo de cambio",
+        "notFound": "Tipo de cambio no encontrado"
+      }
+    },
+    "flash": {
+      "created": "Tipo de cambio creado correctamente",
+      "updated": "Tipo de cambio actualizado correctamente",
+      "deleted": "Tipo de cambio eliminado correctamente",
+      "deleteError": "Error al eliminar tipo de cambio"
+    }
+  }
+}

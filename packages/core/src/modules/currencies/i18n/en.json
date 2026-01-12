@@ -1,0 +1,171 @@
+{
+  "currencies": {
+    "module": {
+      "title": "Currencies & Exchange Rates",
+      "description": "Manage currencies and exchange rates for multi-currency transactions."
+    },
+    "nav": {
+      "group": "Currencies"
+    },
+    "page": {
+      "title": "Currencies"
+    },
+    "list": {
+      "title": "Currencies",
+      "searchPlaceholder": "Search currencies by code or name",
+      "columns": {
+        "code": "Code",
+        "name": "Name",
+        "symbol": "Symbol",
+        "decimalPlaces": "Decimals",
+        "isActive": "Status"
+      },
+      "filters": {
+        "baseOnly": "Show base currency only",
+        "status": "Status",
+        "all": "All",
+        "active": "Active",
+        "inactive": "Inactive"
+      },
+      "actions": {
+        "create": "Add Currency",
+        "setBase": "Set as Base"
+      },
+      "base": "Base",
+      "confirmDelete": "Delete currency {{code}}? This will also remove all exchange rates for this currency.",
+      "error": {
+        "load": "Failed to load currencies"
+      }
+    },
+    "create": {
+      "title": "Create Currency"
+    },
+    "edit": {
+      "title": "Edit Currency"
+    },
+    "form": {
+      "group": {
+        "details": "Currency Details",
+        "formatting": "Formatting & Settings"
+      },
+      "field": {
+        "code": "Currency Code",
+        "codePlaceholder": "USD",
+        "codeHelp": "ISO 4217 3-letter code (e.g., USD, EUR, GBP)",
+        "name": "Currency Name",
+        "namePlaceholder": "US Dollar",
+        "symbol": "Symbol",
+        "symbolPlaceholder": "$",
+        "decimalPlaces": "Decimal Places",
+        "thousandsSeparator": "Thousands Separator",
+        "decimalSeparator": "Decimal Separator",
+        "isBase": "Base Currency",
+        "isActive": "Active"
+      },
+      "action": {
+        "create": "Create Currency",
+        "save": "Save Changes"
+      },
+      "loading": "Loading currency...",
+      "errors": {
+        "codeFormat": "Currency code must be exactly 3 uppercase letters (e.g., USD)",
+        "load": "Failed to load currency",
+        "notFound": "Currency not found",
+        "delete": "Failed to delete currency"
+      }
+    },
+    "flash": {
+      "created": "Currency created successfully",
+      "updated": "Currency updated successfully",
+      "deleted": "Currency deleted successfully",
+      "deleteError": "Failed to delete currency",
+      "baseSet": "Base currency updated successfully",
+      "baseSetError": "Failed to set base currency"
+    }
+  },
+  "exchangeRates": {
+    "page": {
+      "title": "Exchange Rates"
+    },
+    "list": {
+      "title": "Exchange Rates",
+      "searchPlaceholder": "Search exchange rates",
+      "columns": {
+        "currencyPair": "Currency Pair",
+        "rate": "Rate",
+        "effectiveDate": "Effective Date",
+        "expiresAt": "Expires",
+        "source": "Source",
+        "isActive": "Status"
+      },
+      "filters": {
+        "fromCurrency": "From Currency",
+        "toCurrency": "To Currency",
+        "source": "Source",
+        "status": "Status",
+        "all": "All",
+        "active": "Active",
+        "inactive": "Inactive"
+      },
+      "actions": {
+        "create": "Add Exchange Rate"
+      },
+      "confirmDelete": "Delete exchange rate {{pair}}?",
+      "error": {
+        "load": "Failed to load exchange rates"
+      }
+    },
+    "create": {
+      "title": "Create Exchange Rate"
+    },
+    "edit": {
+      "title": "Edit Exchange Rate"
+    },
+    "form": {
+      "group": {
+        "details": "Exchange Rate Details",
+        "metadata": "Metadata"
+      },
+      "field": {
+        "fromCurrency": "From Currency",
+        "fromCurrencyPlaceholder": "Select currency",
+        "fromCurrencyHelp": "Source currency for conversion",
+        "toCurrency": "To Currency",
+        "toCurrencyPlaceholder": "Select currency",
+        "toCurrencyHelp": "Target currency for conversion",
+        "rate": "Exchange Rate",
+        "rateHelp": "How many units of target currency per 1 unit of source currency (up to 8 decimals)",
+        "effectiveDate": "Effective Date",
+        "effectiveDateHelp": "Date when this rate becomes active (YYYY-MM-DD)",
+        "expiresAt": "Expires At",
+        "expiresAtHelp": "Optional expiration date (YYYY-MM-DD)",
+        "source": "Source",
+        "sourcePlaceholder": "e.g., ECB, Manual",
+        "sourceHelp": "Where this rate came from",
+        "isActive": "Active"
+      },
+      "action": {
+        "create": "Create Exchange Rate",
+        "save": "Save Changes"
+      },
+      "loading": "Loading exchange rate...",
+      "errors": {
+        "currencyCodeFormat": "Must be exactly 3 uppercase letters",
+        "fromCurrencyFormat": "Invalid from currency code",
+        "toCurrencyFormat": "Invalid to currency code",
+        "sameCurrency": "From and To currencies must be different",
+        "invalidRate": "Rate must be a positive number",
+        "invalidEffectiveDate": "Effective date is required",
+        "expiresBeforeEffective": "Expiration date must be after effective date",
+        "load": "Failed to load exchange rate",
+        "notFound": "Exchange rate not found"
+      }
+    },
+    "flash": {
+      "created": "Exchange rate created successfully",
+      "updated": "Exchange rate updated successfully",
+      "deleted": "Exchange rate deleted successfully",
+      "deleteError": "Failed to delete exchange rate"
+    }
+  }
+}
