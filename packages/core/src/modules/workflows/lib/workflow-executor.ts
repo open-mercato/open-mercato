@@ -264,8 +264,10 @@ export async function executeWorkflow(
     while (iterations < maxIterations) {
       iterations++
 
-      // Reload instance to get latest state
-      const currentInstance = await em.findOne(WorkflowInstance, instanceId)
+      // Reload instance to get latest state - force refresh from DB to bypass identity map cache
+      const currentInstance = await em.findOne(WorkflowInstance, instanceId, {
+        refresh: true, // Force fresh fetch from database, bypassing MikroORM cache
+      })
       if (!currentInstance) {
         throw new WorkflowExecutionError(
           'Instance not found during execution',
@@ -434,6 +436,13 @@ export async function executeWorkflow(
 
         // Continue loop with new step
         await em.flush()
+
+        // Optional delay between steps for UI visibility (demo/debugging)
+        // This allows polling queries to see intermediate states
+        const stepDelayMs = parseInt(process.env.WORKFLOW_STEP_DELAY_MS || '0')
+        if (stepDelayMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, stepDelayMs))
+        }
       } catch (error) {
         // Transition failed
         const errorMessage = error instanceof Error ? error.message : String(error)
