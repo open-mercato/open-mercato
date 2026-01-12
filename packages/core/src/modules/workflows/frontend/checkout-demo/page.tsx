@@ -15,8 +15,12 @@ interface CartItem {
 interface Product {
   id: string
   title: string
-  listPrice: number
-  currencyCode?: string
+  pricing: {
+    unit_price_gross: number
+    unit_price_net: number
+    currency_code: string
+    price_kind_code?: string
+  } | null
 }
 
 interface WorkflowResult {
@@ -165,11 +169,18 @@ export default function CheckoutDemoPage() {
     },
   })
 
-  // Fetch products for cart selection
+  // Fetch products for cart selection with pricing context
   const { data: products = [], isLoading: productsLoading } = useQuery({
-    queryKey: ['catalog-products'],
+    queryKey: ['catalog-products', selectedCurrency],
     queryFn: async () => {
-      const response = await fetch('/api/catalog/products?pageSize=100')
+      // Pass pricing context to get resolved prices
+      const params = new URLSearchParams({
+        pageSize: '100',
+        quantity: '1',
+        priceDate: new Date().toISOString(),
+      })
+
+      const response = await fetch(`/api/catalog/products?${params}`)
       if (!response.ok) return []
       const json = await response.json()
       return json.items || []
@@ -182,7 +193,8 @@ export default function CheckoutDemoPage() {
       const initialCart: CartItem[] = products.slice(0, 3).map((product: any) => ({
         id: product.id,
         name: product.title || product.display_name || 'Untitled Product',
-        price: product.list_price || 0,
+        // Use resolved pricing from catalog pricing service (in USD)
+        price: product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99,
         quantity: 1,
       }))
       setCart(initialCart)
@@ -218,7 +230,8 @@ export default function CheckoutDemoPage() {
       setCart([...cart, {
         id: product.id,
         name: product.title,
-        price: product.listPrice || 0,
+        // Use resolved pricing from catalog pricing service (in USD)
+        price: product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99,
         quantity: 1,
       }])
     }
@@ -342,13 +355,6 @@ export default function CheckoutDemoPage() {
           id: selectedCustomerId,
           name: 'Demo Customer',
           email: 'demo@example.com',
-          shippingAddress: {
-            street: '123 Demo Street',
-            city: 'Demo City',
-            state: 'DC',
-            zip: '12345',
-            country: 'USA',
-          },
         },
         payment: {
           id: `payment-${Date.now()}`,
@@ -948,8 +954,7 @@ export default function CheckoutDemoPage() {
                             addToCart({
                               id: product.id,
                               title: product.title || product.display_name || 'Untitled Product',
-                              listPrice: product.list_price || 0,
-                              currencyCode: product.currency_code,
+                              pricing: product.pricing || null,
                             })
                             e.target.value = '' // Reset selection
                           }
@@ -958,11 +963,15 @@ export default function CheckoutDemoPage() {
                         value=""
                       >
                         <option value="">-- Select a product to add --</option>
-                        {products.map((product: any) => (
-                          <option key={product.id} value={product.id}>
-                            {product.title || product.display_name || 'Untitled'} - {currencySymbol}{((product.list_price || 0) * exchangeRate).toFixed(2)}
-                          </option>
-                        ))}
+                        {products.map((product: any) => {
+                          const basePrice = product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99
+                          const displayPrice = (basePrice * exchangeRate).toFixed(2)
+                          return (
+                            <option key={product.id} value={product.id}>
+                              {product.title || product.display_name || 'Untitled'} - {currencySymbol}{displayPrice}
+                            </option>
+                          )
+                        })}
                       </select>
                       {cart.length === 0 && (
                         <p className="text-xs text-gray-500 mt-1">

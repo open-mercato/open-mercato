@@ -49,14 +49,14 @@
                 "title": "Phone Number",
                 "description": "Contact number for delivery"
               },
-              "shippingAddress": {
+              "comment": {
                 "type": "string",
-                "title": "Shipping Address",
+                "title": "Order Comment",
                 "maxLength": 500,
-                "description": "Full shipping address including street, city, state, and ZIP"
+                "description": "Special instructions or notes for this order"
               }
             },
-            "required": ["fullName", "email", "shippingAddress"]
+            "required": ["fullName", "email"]
           },
           "slaDuration": "PT24H"
         }
@@ -397,6 +397,7 @@
                 "taxTotalAmount": "{{context.cart.tax}}",
                 "shippingGrossAmount": "{{context.cart.shipping}}",
                 "lineItemCount": "{{context.cart.itemCount}}",
+                "comments": "{{context.comment}}",
                 "metadata": {
                   "cartId": "{{context.cart.id}}",
                   "paymentId": "{{context.payment.id}}",
@@ -444,7 +445,7 @@
                 "tax": "{{context.cart.tax}}",
                 "shipping": "{{context.cart.shipping}}",
                 "total": "{{context.cart.total}}",
-                "shippingAddress": "{{context.customer.shippingAddress}}"
+                "comment": "{{context.comment}}"
               }
             },
             "timeout": "PT15S",
@@ -454,31 +455,6 @@
               "initialIntervalMs": 2000,
               "backoffCoefficient": 2,
               "maxIntervalMs": 20000
-            }
-          },
-          {
-            "activityId": "release_inventory_reservation",
-            "activityName": "Release Inventory Reservation",
-            "activityType": "CALL_WEBHOOK",
-            "config": {
-              "url": "{{env.INVENTORY_SERVICE_URL}}/api/inventory/release",
-              "method": "POST",
-              "headers": {
-                "Authorization": "Bearer {{env.SERVICE_TOKEN}}",
-                "Content-Type": "application/json"
-              },
-              "body": {
-                "reservationId": "{{context.inventory.reservationId}}",
-                "orderId": "{{context.create_order_result.body.id}}"
-              }
-            },
-            "timeout": "PT10S",
-            "async": false,
-            "retryPolicy": {
-              "maxAttempts": 2,
-              "initialIntervalMs": 2000,
-              "backoffCoefficient": 2,
-              "maxIntervalMs": 10000
             }
           },
           {

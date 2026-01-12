@@ -437,12 +437,6 @@ export async function executeWorkflow(
         // Continue loop with new step
         await em.flush()
 
-        // Optional delay between steps for UI visibility (demo/debugging)
-        // This allows polling queries to see intermediate states
-        const stepDelayMs = parseInt(process.env.WORKFLOW_STEP_DELAY_MS || '0')
-        if (stepDelayMs > 0) {
-          await new Promise(resolve => setTimeout(resolve, stepDelayMs))
-        }
       } catch (error) {
         // Transition failed
         const errorMessage = error instanceof Error ? error.message : String(error)
