@@ -74,11 +74,14 @@ export interface McpServerConfig {
 export interface McpServerOptions {
   config: McpServerConfig
   container: AwilixContainer
-  context: {
+  /** Manual context (used when --tenant/--org/--user flags provided) */
+  context?: {
     tenantId: string | null
     organizationId: string | null
     userId: string | null
   }
+  /** API key secret for authentication (alternative to manual context) */
+  apiKeySecret?: string
 }
 
 /**
@@ -89,4 +92,54 @@ export interface ToolExecutionResult {
   result?: unknown
   error?: string
   errorCode?: 'NOT_FOUND' | 'UNAUTHORIZED' | 'VALIDATION_ERROR' | 'EXECUTION_ERROR'
+}
+
+// =============================================================================
+// Client Types
+// =============================================================================
+
+/**
+ * Tool information returned by listTools().
+ */
+export type ToolInfo = {
+  name: string
+  description: string
+  inputSchema: Record<string, unknown>
+}
+
+/**
+ * Result from callTool().
+ */
+export type ToolResult = {
+  success: boolean
+  result?: unknown
+  error?: string
+}
+
+/**
+ * Common interface for all MCP client modes.
+ */
+export interface McpClientInterface {
+  /** List available tools (filtered by API key's permissions) */
+  listTools(): Promise<ToolInfo[]>
+
+  /** Execute a tool */
+  callTool(name: string, args: unknown): Promise<ToolResult>
+
+  /** Close the client and release resources */
+  close(): Promise<void>
+}
+
+/**
+ * HTTP session data for tracking authenticated sessions.
+ */
+export type McpHttpSession = {
+  sessionId: string
+  keyId: string
+  tenantId: string | null
+  organizationId: string | null
+  userId: string
+  features: string[]
+  isSuperAdmin: boolean
+  createdAt: Date
 }

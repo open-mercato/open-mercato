@@ -24,42 +24,99 @@ const mcpServe: ModuleCli = {
   command: 'mcp:serve',
   async run(rest) {
     const args = parseArgs(rest)
+    const apiKey = String(args['api-key'] ?? args.apiKey ?? '') || null
     const tenantId = String(args.tenant ?? args.tenantId ?? '') || null
     const organizationId = String(args.org ?? args.organizationId ?? '') || null
     const userId = String(args.user ?? args.userId ?? '') || null
     const debug = args.debug === true || args.debug === 'true'
 
-    if (!tenantId) {
-      console.error('Usage: mercato ai_assistant mcp:serve --tenant <tenantId> [options]')
+    // Either API key or tenant is required
+    if (!apiKey && !tenantId) {
+      console.error('Usage: mercato ai_assistant mcp:serve [options]')
       console.error('')
-      console.error('Options:')
-      console.error('  --tenant <id>    Tenant ID (required)')
-      console.error('  --org <id>       Organization ID (optional)')
-      console.error('  --user <id>      User ID for ACL (optional, uses superadmin if not set)')
-      console.error('  --debug          Enable debug logging')
+      console.error('Authentication (choose one):')
+      console.error('  --api-key <secret>   API key secret for authentication (recommended)')
+      console.error('  --tenant <id>        Tenant ID (for manual context)')
       console.error('')
-      console.error('Example:')
+      console.error('Options (with --tenant):')
+      console.error('  --org <id>           Organization ID (optional)')
+      console.error('  --user <id>          User ID for ACL (optional, uses superadmin if not set)')
+      console.error('')
+      console.error('Common options:')
+      console.error('  --debug              Enable debug logging')
+      console.error('')
+      console.error('Examples:')
+      console.error('  mercato ai_assistant mcp:serve --api-key omk_xxxx.yyyy...')
       console.error('  mercato ai_assistant mcp:serve --tenant 123e4567-e89b-12d3-a456-426614174000')
       return
     }
 
     const container = await createRequestContainer()
 
-    // Dynamically import to avoid loading MCP SDK until needed
     const { runMcpServer } = await import('./lib/mcp-server')
 
-    await runMcpServer({
+    if (apiKey) {
+      await runMcpServer({
+        config: {
+          name: 'open-mercato-mcp',
+          version: '0.1.0',
+          debug,
+        },
+        container,
+        apiKeySecret: apiKey,
+      })
+    } else {
+      await runMcpServer({
+        config: {
+          name: 'open-mercato-mcp',
+          version: '0.1.0',
+          debug,
+        },
+        container,
+        context: {
+          tenantId,
+          organizationId,
+          userId,
+        },
+      })
+    }
+  },
+}
+
+const mcpServeHttp: ModuleCli = {
+  command: 'mcp:serve-http',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const port = parseInt(String(args.port ?? ''), 10)
+    const debug = args.debug === true || args.debug === 'true'
+
+    if (!port || isNaN(port)) {
+      console.error('Usage: mercato ai_assistant mcp:serve-http --port <port> [options]')
+      console.error('')
+      console.error('Options:')
+      console.error('  --port <number>    Port to listen on (required)')
+      console.error('  --debug            Enable debug logging')
+      console.error('')
+      console.error('Authentication:')
+      console.error('  Clients must provide API key via x-api-key header')
+      console.error('')
+      console.error('Example:')
+      console.error('  mercato ai_assistant mcp:serve-http --port 3001')
+      return
+    }
+
+    const container = await createRequestContainer()
+
+    const { runMcpHttpServer } = await import('./lib/http-server')
+
+    await runMcpHttpServer({
       config: {
         name: 'open-mercato-mcp',
         version: '0.1.0',
         debug,
       },
       container,
-      context: {
-        tenantId,
-        organizationId,
-        userId,
-      },
+      port,
     })
   },
 }
@@ -67,7 +124,6 @@ const mcpServe: ModuleCli = {
 const listTools: ModuleCli = {
   command: 'mcp:list-tools',
   async run() {
-    // Load tools from all modules first
     const { loadAllModuleTools } = await import('./lib/tool-loader')
     await loadAllModuleTools()
 
@@ -97,4 +153,4 @@ const listTools: ModuleCli = {
   },
 }
 
-export default [mcpServe, listTools]
+export default [mcpServe, mcpServeHttp, listTools]

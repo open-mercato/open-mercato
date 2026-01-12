@@ -8,6 +8,7 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
+import { authenticateMcpRequest } from './auth'
 import type { McpServerOptions, McpToolContext } from './types'
 
 /**
@@ -39,42 +40,67 @@ function hasRequiredFeatures(
  * Create and configure an MCP server instance.
  */
 export async function createMcpServer(options: McpServerOptions): Promise<Server> {
-  const { config, container, context } = options
+  const { config, container, context, apiKeySecret } = options
 
-  // Load user ACL if userId provided
+  let tenantId: string | null = null
+  let organizationId: string | null = null
+  let userId: string | null = null
   let userFeatures: string[] = []
   let isSuperAdmin = false
 
-  if (context.userId) {
-    try {
-      const rbacService = container.resolve('rbacService') as {
-        loadAcl: (
-          userId: string,
-          scope: { tenantId: string | null; organizationId: string | null }
-        ) => Promise<{
-          isSuperAdmin: boolean
-          features: string[]
-        }>
+  // API key authentication takes precedence
+  if (apiKeySecret) {
+    const authResult = await authenticateMcpRequest(apiKeySecret, container)
+    if (!authResult.success) {
+      throw new Error(`API key authentication failed: ${authResult.error}`)
+    }
+    tenantId = authResult.tenantId
+    organizationId = authResult.organizationId
+    userId = authResult.userId
+    userFeatures = authResult.features
+    isSuperAdmin = authResult.isSuperAdmin
+    console.error(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
+  } else if (context) {
+    // Manual context provided
+    tenantId = context.tenantId
+    organizationId = context.organizationId
+    userId = context.userId
+
+    if (userId) {
+      try {
+        const rbacService = container.resolve('rbacService') as {
+          loadAcl: (
+            userId: string,
+            scope: { tenantId: string | null; organizationId: string | null }
+          ) => Promise<{
+            isSuperAdmin: boolean
+            features: string[]
+          }>
+        }
+        const acl = await rbacService.loadAcl(userId, {
+          tenantId,
+          organizationId,
+        })
+        userFeatures = acl.features
+        isSuperAdmin = acl.isSuperAdmin
+      } catch (error) {
+        console.error('[MCP Server] Failed to load user ACL:', error)
       }
-      const acl = await rbacService.loadAcl(context.userId, {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-      })
-      userFeatures = acl.features
-      isSuperAdmin = acl.isSuperAdmin
-    } catch (error) {
-      console.error('[MCP Server] Failed to load user ACL:', error)
+    } else {
+      // No user specified - grant superadmin access for development/testing
+      isSuperAdmin = true
+      console.error('[MCP Server] No user specified, running with superadmin access')
     }
   } else {
-    // No user specified - grant superadmin access for development/testing
+    // No context and no API key - superadmin for dev/testing
     isSuperAdmin = true
-    console.error('[MCP Server] No user specified, running with superadmin access')
+    console.error('[MCP Server] No auth context, running with superadmin access')
   }
 
   const toolContext: McpToolContext = {
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-    userId: context.userId,
+    tenantId,
+    organizationId,
+    userId,
     container,
     userFeatures,
     isSuperAdmin,
@@ -149,6 +175,10 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
 /**
  * Run MCP server with stdio transport.
  * This keeps the process running until terminated.
+ *
+ * Supports two authentication modes:
+ * 1. API key: Provide `apiKeySecret` option
+ * 2. Manual context: Provide `context` with tenant/org/user
  */
 export async function runMcpServer(options: McpServerOptions): Promise<void> {
   // Load tools from all modules before starting
@@ -160,9 +190,17 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
   const toolCount = getToolRegistry().listToolNames().length
 
   console.error(`[MCP Server] Starting ${options.config.name} v${options.config.version}`)
-  console.error(`[MCP Server] Tenant: ${options.context.tenantId ?? '(none)'}`)
-  console.error(`[MCP Server] Organization: ${options.context.organizationId ?? '(none)'}`)
-  console.error(`[MCP Server] User: ${options.context.userId ?? '(superadmin)'}`)
+
+  if (options.apiKeySecret) {
+    console.error(`[MCP Server] Authentication: API key`)
+  } else if (options.context) {
+    console.error(`[MCP Server] Tenant: ${options.context.tenantId ?? '(none)'}`)
+    console.error(`[MCP Server] Organization: ${options.context.organizationId ?? '(none)'}`)
+    console.error(`[MCP Server] User: ${options.context.userId ?? '(superadmin)'}`)
+  } else {
+    console.error(`[MCP Server] Authentication: none (superadmin mode)`)
+  }
+
   console.error(`[MCP Server] Tools registered: ${toolCount}`)
 
   await server.connect(transport)
