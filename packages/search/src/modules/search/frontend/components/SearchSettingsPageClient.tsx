@@ -307,7 +307,7 @@ export function SearchSettingsPageClient() {
     try {
       const body = await readApiResultOrThrow<SettingsResponse>(
         '/api/search/settings',
-        undefined,
+        { cache: 'no-store' },
         { errorMessage: '', allowNullResult: true },
       )
       if (body?.settings) {
@@ -323,7 +323,7 @@ export function SearchSettingsPageClient() {
     try {
       const body = await readApiResultOrThrow<EmbeddingSettingsResponse>(
         '/api/search/embeddings',
-        undefined,
+        { cache: 'no-store' },
         { errorMessage: '', allowNullResult: true },
       )
       if (body?.settings) {
@@ -334,19 +334,40 @@ export function SearchSettingsPageClient() {
     }
   }, [])
 
+  // Track if we were previously polling (to continue polling briefly after lock clears)
+  const wasPollingRef = React.useRef(false)
+  const pollCountAfterClearRef = React.useRef(0)
+
   // Poll for stats updates while reindex is in progress
   React.useEffect(() => {
-    // Poll when there's an active reindex lock OR when local reindexing state is active
-    const shouldPollFulltext = settings?.fulltextReindexLock !== null || reindexing !== null
-    const shouldPollVector = settings?.vectorReindexLock !== null || vectorReindexing
+    const hasFulltextLock = settings?.fulltextReindexLock !== null
+    const hasVectorLock = settings?.vectorReindexLock !== null
+    const isLocalReindexing = reindexing !== null || vectorReindexing
 
-    if (!shouldPollFulltext && !shouldPollVector) return
+    // Should poll if there's an active lock, local reindexing, or we just cleared a lock
+    const shouldPoll = hasFulltextLock || hasVectorLock || isLocalReindexing ||
+      (wasPollingRef.current && pollCountAfterClearRef.current < 3)
+
+    if (!shouldPoll) {
+      wasPollingRef.current = false
+      pollCountAfterClearRef.current = 0
+      return
+    }
+
+    // Track that we're polling
+    if (hasFulltextLock || hasVectorLock || isLocalReindexing) {
+      wasPollingRef.current = true
+      pollCountAfterClearRef.current = 0
+    }
 
     const pollInterval = setInterval(() => {
-      if (shouldPollFulltext) {
-        refreshStatsOnly()
+      // If lock cleared, count polls and eventually stop
+      if (!hasFulltextLock && !hasVectorLock && !isLocalReindexing) {
+        pollCountAfterClearRef.current += 1
       }
-      if (shouldPollVector) {
+
+      refreshStatsOnly()
+      if (hasVectorLock || vectorReindexing) {
         refreshEmbeddingStatsOnly()
       }
     }, 3000) // Poll every 3 seconds
@@ -1117,7 +1138,7 @@ export function SearchSettingsPageClient() {
                   onClick={() => handleReindexClick('reindex')}
                   disabled={reindexing !== null || settings?.fulltextReindexLock !== null}
                 >
-                  {reindexing === 'reindex' ? (
+                  {reindexing === 'reindex' || settings?.fulltextReindexLock !== null ? (
                     <>
                       <Spinner size="sm" className="mr-2" />
                       {t('search.settings.processingLabel', 'Processing...')}
@@ -1474,7 +1495,7 @@ export function SearchSettingsPageClient() {
                 onClick={handleVectorReindexClick}
                 disabled={embeddingLoading || embeddingSaving || vectorReindexing || settings?.vectorReindexLock !== null}
               >
-                {vectorReindexing ? (
+                {vectorReindexing || settings?.vectorReindexLock !== null ? (
                   <>
                     <Spinner size="sm" className="mr-2" />
                     {t('search.settings.vectorReindex.running', 'Reindexing...')}

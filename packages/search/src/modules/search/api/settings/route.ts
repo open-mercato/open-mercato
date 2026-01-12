@@ -4,8 +4,9 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
-import type { Queue } from '@open-mercato/queue'
-import { getReindexLockStatus, type ReindexLockStatus } from '../../lib/reindex-lock'
+import type { Knex } from 'knex'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { getReindexLockStatus } from '../../lib/reindex-lock'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['search.view'] },
@@ -29,6 +30,8 @@ type ReindexLock = {
   action: string
   startedAt: string
   elapsedMinutes: number
+  processedCount?: number | null
+  totalCount?: number | null
 }
 
 type SearchSettings = {
@@ -122,23 +125,16 @@ export async function GET(req: Request) {
 
     const tokensEnabled = process.env.OM_SEARCH_ENABLED !== 'false'
 
-    // Check for active reindex locks with queue-aware stale detection
+    // Check for active reindex locks with heartbeat-based stale detection
     let fulltextReindexLock: ReindexLock | null = null
     let vectorReindexLock: ReindexLock | null = null
 
     if (auth.tenantId) {
-      // Try to resolve queues for smarter stale detection
-      let fulltextQueue: Queue | undefined
-      let vectorQueue: Queue | undefined
-      try {
-        fulltextQueue = container.resolve<Queue>('fulltextIndexQueue')
-      } catch { /* Queue not available */ }
-      try {
-        vectorQueue = container.resolve<Queue>('vectorIndexQueue')
-      } catch { /* Queue not available */ }
+      const em = container.resolve('em') as EntityManager
+      const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
-      // Check fulltext lock
-      const fulltextLockStatus = await getReindexLockStatus(container, auth.tenantId, { queue: fulltextQueue, type: 'fulltext' })
+      // Check fulltext lock (auto-cleans stale locks based on heartbeat)
+      const fulltextLockStatus = await getReindexLockStatus(knex, auth.tenantId, { type: 'fulltext' })
       if (fulltextLockStatus) {
         const startedAt = new Date(fulltextLockStatus.startedAt)
         fulltextReindexLock = {
@@ -146,11 +142,13 @@ export async function GET(req: Request) {
           action: fulltextLockStatus.action,
           startedAt: fulltextLockStatus.startedAt,
           elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+          processedCount: fulltextLockStatus.processedCount,
+          totalCount: fulltextLockStatus.totalCount,
         }
       }
 
-      // Check vector lock
-      const vectorLockStatus = await getReindexLockStatus(container, auth.tenantId, { queue: vectorQueue, type: 'vector' })
+      // Check vector lock (auto-cleans stale locks based on heartbeat)
+      const vectorLockStatus = await getReindexLockStatus(knex, auth.tenantId, { type: 'vector' })
       if (vectorLockStatus) {
         const startedAt = new Date(vectorLockStatus.startedAt)
         vectorReindexLock = {
@@ -158,6 +156,8 @@ export async function GET(req: Request) {
           action: vectorLockStatus.action,
           startedAt: vectorLockStatus.startedAt,
           elapsedMinutes: Math.round((Date.now() - startedAt.getTime()) / 60000),
+          processedCount: vectorLockStatus.processedCount,
+          totalCount: vectorLockStatus.totalCount,
         }
       }
     }

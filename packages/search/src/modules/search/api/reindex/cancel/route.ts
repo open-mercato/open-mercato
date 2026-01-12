@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import type { Queue } from '@open-mercato/queue'
+import type { Knex } from 'knex'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearReindexLock } from '../../../lib/reindex-lock'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
@@ -18,6 +20,8 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
+  const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
 
   let queue: Queue | undefined
   try {
@@ -37,7 +41,7 @@ export async function POST(req: Request) {
     }
   }
 
-  await clearReindexLock(container, auth.tenantId, 'fulltext')
+  await clearReindexLock(knex, auth.tenantId, 'fulltext', auth.orgId ?? null)
 
   // Log the cancellation
   try {

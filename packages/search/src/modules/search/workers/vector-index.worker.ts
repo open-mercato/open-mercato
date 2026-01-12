@@ -2,12 +2,15 @@ import type { QueuedJob, JobContext } from '@open-mercato/queue'
 import type { VectorIndexJobPayload } from '../../../queue/vector-indexing'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../vector'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Knex } from 'knex'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { logVectorOperation } from '../../../vector/lib/vector-logs'
 import { resolveAutoIndexingEnabled } from '../lib/auto-indexing'
 import { resolveEmbeddingConfig } from '../lib/embedding-config'
 import { searchDebugWarn } from '../../../lib/debug'
+import { updateReindexProgress } from '../lib/reindex-lock'
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -47,6 +50,15 @@ export async function handleVectorIndexJob(
       return
     }
 
+    // Get knex for heartbeat updates
+    let knex: Knex | null = null
+    try {
+      const em = ctx.resolve('em') as EntityManager
+      knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+    } catch {
+      knex = null
+    }
+
     // Load saved embedding config to use the correct provider/model
     try {
       const embeddingConfig = await resolveEmbeddingConfig(ctx, { defaultValue: null })
@@ -82,6 +94,11 @@ export async function handleVectorIndexJob(
           error: error instanceof Error ? error.message : error,
         })
       }
+    }
+
+    // Update heartbeat to signal worker is still processing
+    if (knex && successCount > 0) {
+      await updateReindexProgress(knex, tenantId, 'vector', successCount, organizationId ?? null)
     }
 
     searchDebugWarn('vector-index.worker', 'Batch-index job completed', {
