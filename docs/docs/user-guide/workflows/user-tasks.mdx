@@ -1,0 +1,275 @@
+---
+title: User Tasks
+description: Working with workflow tasks that require human input and decisions
+---
+
+# User Tasks
+
+User tasks are workflow steps that require human intervention—reviewing data, making decisions, or providing input. This guide explains how to work with tasks from a user's perspective.
+
+## User Task Queue
+
+When workflows reach USER_TASK steps, tasks appear in the user's task queue. Access your tasks:
+
+1. Navigate to **My Tasks** in the sidebar
+2. View all tasks assigned to you or roles you belong to
+3. Filter by status (PENDING, IN_PROGRESS, COMPLETED)
+4. Sort by priority, due date, or creation time
+
+**Task List Columns:**
+- **Task Name**: Description of what needs to be done
+- **Workflow**: Which workflow this task belongs to
+- **Status**: Current state (PENDING, IN_PROGRESS, COMPLETED, CANCELLED)
+- **Assigned To**: Who is responsible (you, a role, or specific user)
+- **Due Date**: When the task should be completed
+- **Created**: When the task was created
+
+## Viewing Task Details
+
+Click a task to view its details:
+
+**Task Information:**
+- **Task Name and Description**: What needs to be done
+- **Workflow Context**: Data from the workflow (requester, amount, details)
+- **Assignment**: Who can complete this task
+- **Form Fields**: Data you need to provide
+- **History**: Previous actions and comments
+
+**Actions Available:**
+- **Complete**: Finish the task and move the workflow forward
+- **Cancel**: Cancel the task (workflow may be canceled or rerouted)
+- **Claim**: Take ownership of a role-assigned task
+- **Reassign**: Transfer the task to another user
+
+## Completing Tasks
+
+To complete a task:
+
+1. **Review the Information**: Check workflow context and any attached data
+2. **Fill Required Fields**: Complete form fields if configured
+3. **Make a Decision**: Choose an action (e.g., Approve, Reject)
+4. **Add Comments** (optional): Explain your decision
+5. **Click "Complete"**: Submit and advance the workflow
+
+**Form Submission:**
+
+If the task has a form schema, you'll see fields to fill:
+
+```json
+{
+  "decision": "approve",
+  "comments": "Budget approved for Q4 2024",
+  "amount": 15000
+}
+```
+
+The form data is merged into the workflow context, making it available to subsequent steps.
+
+## Task Assignment
+
+Tasks can be assigned in three ways:
+
+### Direct Assignment
+
+Task is assigned to a specific user. Only that user can complete it.
+
+**Configuration:**
+```json
+{
+  "userTaskConfig": {
+    "assignedTo": "user-123"
+  }
+}
+```
+
+**Use When:**
+- Specific person must handle the task
+- Personal accountability is required
+- Task requires domain expertise only one person has
+
+### Role-Based Assignment
+
+Task is assigned to a role. Any user with that role can claim and complete it.
+
+**Configuration:**
+```json
+{
+  "userTaskConfig": {
+    "assignedToRoles": ["Approvers", "Managers"]
+  }
+}
+```
+
+**Claiming Tasks:**
+1. View tasks assigned to your roles
+2. Click **Claim** to take ownership
+3. Complete the task as normal
+
+**Use When:**
+- Any qualified person can handle the task
+- Load balancing across a team
+- 24/7 coverage required (follow-the-sun model)
+
+### Dynamic Assignment (Assignment Rules)
+
+Task assignment is computed dynamically based on workflow context.
+
+**Configuration:**
+```json
+{
+  "userTaskConfig": {
+    "assignmentRule": "context.amount > 10000 ? context.managerUserId : context.supervisorUserId"
+  }
+}
+```
+
+**Use When:**
+- Assignment depends on request details (amount, type, region)
+- Organizational hierarchy matters (assign to requester's manager)
+- Complex routing logic
+
+## SLA Tracking
+
+Tasks can have Service Level Agreements (SLAs) that define expected completion times.
+
+**Configuration:**
+```json
+{
+  "userTaskConfig": {
+    "slaDuration": "2 days"
+  }
+}
+```
+
+**SLA States:**
+- **On Time**: Task completed within SLA
+- **At Risk**: Task approaching due date (e.g., > 80% of SLA elapsed)
+- **Overdue**: Task past due date
+
+**Visual Indicators:**
+- Green: On time
+- Yellow: At risk
+- Red: Overdue
+
+## Escalation
+
+Escalation rules automatically reassign or notify when tasks are overdue.
+
+**Configuration:**
+
+```json
+{
+  "userTaskConfig": {
+    "slaDuration": "2 days",
+    "escalationRules": [
+      {
+        "triggerAfter": "1 day",
+        "action": "NOTIFY",
+        "notifyUsers": ["manager-user-id"]
+      },
+      {
+        "triggerAfter": "2 days",
+        "action": "REASSIGN",
+        "reassignTo": "manager-user-id"
+      }
+    ]
+  }
+}
+```
+
+**Escalation Actions:**
+- **NOTIFY**: Send email notification to specified users
+- **REASSIGN**: Transfer task ownership to another user or role
+- **ESCALATE**: Create a new task for a supervisor or manager
+
+**Use Cases:**
+- Ensure timely completion
+- Prevent tasks from stalling workflows
+- Enforce SLAs and accountability
+
+## Example: Approval Task Workflow
+
+Here's a complete approval workflow with user tasks:
+
+**Workflow Steps:**
+1. **START** → Auto-advance
+2. **Manager Approval** (USER_TASK) → Assigned to "Managers" role
+3. **Director Approval** (USER_TASK) → Assigned dynamically (if amount > $10k)
+4. **Approved** (END) → Workflow complete
+5. **Rejected** (END) → Workflow complete
+
+**Manager Approval Task:**
+```json
+{
+  "stepId": "manager-approval",
+  "stepName": "Manager Approval",
+  "stepType": "USER_TASK",
+  "userTaskConfig": {
+    "assignedToRoles": ["Managers"],
+    "formSchema": [
+      {
+        "fieldName": "decision",
+        "fieldType": "select",
+        "label": "Decision",
+        "required": true,
+        "options": ["approve", "reject"]
+      },
+      {
+        "fieldName": "comments",
+        "fieldType": "textarea",
+        "label": "Comments",
+        "required": false
+      }
+    ],
+    "slaDuration": "2 days",
+    "escalationRules": [
+      {
+        "triggerAfter": "1 day",
+        "action": "NOTIFY",
+        "notifyUsers": ["director-user-id"]
+      }
+    ]
+  }
+}
+```
+
+**User Experience:**
+1. Manager receives email notification of new task
+2. Manager opens task, reviews request details (amount, requester, justification)
+3. Manager selects "approve" or "reject" and adds comments
+4. Manager clicks "Complete"
+5. Workflow advances to Director Approval (if required) or ends
+
+## Best Practices
+
+### For Workflow Designers
+
+- Use clear, action-oriented task names (e.g., "Approve Purchase Request", not "Approval")
+- Provide all necessary context in the task description
+- Set realistic SLAs based on team capacity
+- Configure escalation to prevent bottlenecks
+
+### For Task Assignees
+
+- Check your task queue regularly
+- Complete tasks promptly to avoid delays
+- Add meaningful comments to explain decisions
+- Claim role-assigned tasks quickly to prevent duplicates
+
+### For Administrators
+
+- Monitor overdue tasks and escalations
+- Review task completion times to optimize SLAs
+- Balance workload across team members
+- Train users on task completion procedures
+
+## Next Steps
+
+- [**Create workflows**](./creating-workflows) with user task steps
+- [**Configure forms**](./step-types#user_task) to collect data from users
+- [**Monitor execution**](./monitoring) to track task progress and bottlenecks
+
+**See Also:**
+- [**Step Types**](./step-types) - Learn about USER_TASK steps in detail
+- [**Transitions**](./transitions) - Route tasks based on user decisions
+- [**Framework Documentation**](/framework/workflows/services) - Complete tasks programmatically
