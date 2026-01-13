@@ -63,6 +63,27 @@ export const dateRenderer: CellRendererFunction = (value, rowData, columnConfig)
   }
 };
 
+// Boolean renderer
+export const booleanRenderer: CellRendererFunction = (value) => {
+  if (value === true) {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ width: 16, height: 16, color: '#22c55e' }}
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    );
+  }
+  return null;
+};
+
 // Get renderer function based on column type
 export const getCellRenderer = (columnConfig: any): CellRendererFunction => {
   // Custom renderer takes precedence
@@ -76,6 +97,8 @@ export const getCellRenderer = (columnConfig: any): CellRendererFunction => {
       return numericRenderer;
     case 'date':
       return dateRenderer;
+    case 'boolean':
+      return booleanRenderer;
     case 'text':
     default:
       return textRenderer;

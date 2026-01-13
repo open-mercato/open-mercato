@@ -262,6 +262,8 @@ export interface PaginationProps {
 export interface TableUIConfig {
   /** Hide the entire toolbar (header with title, search, buttons) */
   hideToolbar?: boolean;
+  /** Hide just the title in the toolbar */
+  hideTitle?: boolean;
   /** Hide just the search bar */
   hideSearch?: boolean;
   /** Hide the "Build Filter" button */
@@ -270,6 +272,22 @@ export interface TableUIConfig {
   hideAddRowButton?: boolean;
   /** Hide the bottom row containing filter tabs and pagination */
   hideBottomBar?: boolean;
+  /** Hide the Actions column */
+  hideActionsColumn?: boolean;
+  /** Position of Columns/Filter/Sort buttons. Default: 'top' */
+  toolbarPosition?: 'top' | 'bottom';
+  /** Custom content rendered at the start of the top bar (before title) */
+  topBarStart?: React.ReactNode;
+  /** Custom content rendered at the end of the top bar (after add button) */
+  topBarEnd?: React.ReactNode;
+  /** Custom content rendered at the start of the bottom bar (before tabs) */
+  bottomBarStart?: React.ReactNode;
+  /** Custom content rendered at the end of the bottom bar (after pagination) */
+  bottomBarEnd?: React.ReactNode;
+  /** Enable fullscreen toggle button. Default: false */
+  enableFullscreen?: boolean;
+  /** Callback when fullscreen state changes */
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export interface DynamicTableProps {
@@ -284,6 +302,7 @@ export interface DynamicTableProps {
   tableRef: React.RefObject<HTMLDivElement | null>;
   columnActions?: (column: ColumnDef, colIndex: number) => ContextMenuAction[];
   rowActions?: (rowData: any, rowIndex: number) => ContextMenuAction[];
+  actionsRenderer?: (rowData: any, rowIndex: number) => React.ReactNode;
   pagination?: PaginationProps;
   // Filter management (controlled externally, events dispatched for changes)
   savedFilters?: SavedFilter[];

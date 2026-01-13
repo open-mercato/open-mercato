@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 
@@ -10,12 +9,20 @@ function parseCookie(req: Request, name: string): string | null {
   return m ? decodeURIComponent(m[1]) : null
 }
 
+function getRedirectUrl(req: Request, path: string): string {
+  // Use the host header to preserve brand domain on logout
+  const host = req.headers.get('host')
+  const url = new URL(req.url)
+  const protocol = req.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
+  return `${protocol}://${host}${path}`
+}
+
 export async function POST(req: Request) {
   const sessToken = parseCookie(req, 'session_token')
   if (sessToken) {
     try { const c = await createRequestContainer(); const auth = c.resolve<AuthService>('authService'); await auth.deleteSessionByToken(sessToken) } catch {}
   }
-  const res = NextResponse.redirect(toAbsoluteUrl(req, '/login'))
+  const res = NextResponse.redirect(getRedirectUrl(req, '/login'))
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
   return res

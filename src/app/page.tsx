@@ -17,13 +17,11 @@ function FeatureBadge({ label }: { label: string }) {
 
 export default async function Home() {
   const { t } = await resolveTranslations()
-  
-  // Check if user wants to see the start page
+
   const cookieStore = await cookies()
   const showStartPageCookie = cookieStore.get('show_start_page')
   const showStartPage = showStartPageCookie?.value !== 'false'
 
-  // Database status and counts
   let dbStatus = t('app.page.dbStatus.unknown', 'Unknown')
   let usersCount = 0
   let tenantsCount = 0
@@ -58,7 +56,7 @@ export default async function Home() {
         />
         <div className="flex-1">
           <h1 className="text-3xl font-semibold tracking-tight">{t('app.page.title', 'Open Mercato')}</h1>
-          <p className="text-sm text-muted-foreground">{t('app.page.subtitle', 'AI‑supportive, modular ERP foundation for product & service companies')}</p>
+          <p className="text-sm text-muted-foreground">{t('app.page.subtitle', 'AI-supportive, modular ERP foundation for product & service companies')}</p>
         </div>
       </header>
 

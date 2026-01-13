@@ -10,6 +10,8 @@ export interface ColumnHeadersProps {
   totalWidth: number;
   sortState: SortState;
   actionsColumnWidth: number;
+  showActionsColumn?: boolean;
+  stretchColumns?: boolean;
   onSort: (colIndex: number) => void;
   onResizeStart: (e: React.MouseEvent, colIndex: number) => void;
   onDoubleClick: (e: React.MouseEvent, colIndex: number) => void;
@@ -26,6 +28,8 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
     totalWidth,
     sortState,
     actionsColumnWidth,
+    showActionsColumn = true,
+    stretchColumns = false,
     onSort,
     onResizeStart,
     onDoubleClick,
@@ -41,9 +45,9 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
       >
-        <table className="hot-table" style={{ width: `${totalWidth}px` }}>
+        <table className="hot-table" style={{ width: stretchColumns ? '100%' : `${totalWidth}px` }}>
           <thead>
-            <tr style={{ display: 'flex' }}>
+            <tr style={{ display: 'flex', width: stretchColumns ? '100%' : `${totalWidth}px` }}>
               {rowHeaders && (
                 <th
                   className="hot-row-header"
@@ -72,8 +76,8 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
                 const headerStyle: React.CSSProperties = {
                   width: colWidth,
                   flexBasis: colWidth,
-                  flexShrink: 0,
-                  flexGrow: 0,
+                  flexShrink: stretchColumns ? 1 : 0,
+                  flexGrow: stretchColumns ? 1 : 0,
                   position: 'relative',
                 };
 
@@ -166,20 +170,22 @@ const ColumnHeaders: React.FC<ColumnHeadersProps> = memo(
               })}
 
               {/* Actions header */}
-              <th
-                className="hot-col-header"
-                style={{
-                  width: actionsColumnWidth,
-                  flexBasis: actionsColumnWidth,
-                  flexShrink: 0,
-                  flexGrow: 0,
-                  position: 'sticky',
-                  right: 0,
-                  zIndex: 3,
-                }}
-              >
-                Actions
-              </th>
+              {showActionsColumn && (
+                <th
+                  className="hot-col-header"
+                  style={{
+                    width: actionsColumnWidth,
+                    flexBasis: actionsColumnWidth,
+                    flexShrink: 0,
+                    flexGrow: 0,
+                    position: 'sticky',
+                    right: 0,
+                    zIndex: 3,
+                  }}
+                >
+                  Actions
+                </th>
+              )}
             </tr>
           </thead>
         </table>

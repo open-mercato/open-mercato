@@ -10,10 +10,11 @@ export interface CellProps {
   colConfig: ColumnDef;
   stickyLeft?: number;
   stickyRight?: number;
-  onCellSave: (row: number, col: number, newValue: any) => void;
+  stretchColumns?: boolean;
+  onCellSave: (row: number, col: number, newValue: any, clearEditing?: boolean) => void;
 }
 
-const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, onCellSave }) => {
+const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stickyRight, stretchColumns = false, onCellSave }) => {
   const store = useCellStore();
   const state = useCellState(row, col);
   const inputRef = useRef<any>(null);
@@ -24,9 +25,9 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   const cellValue = rowData?.[colConfig.data];
 
   const handleSave = useCallback(
-    (value?: any) => {
+    (value?: any, clearEditing: boolean = true) => {
       const newValue = value !== undefined ? value : cellValue;
-      onCellSave(row, col, newValue);
+      onCellSave(row, col, newValue, clearEditing);
     },
     [cellValue, row, col, onCellSave]
   );
@@ -49,9 +50,18 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
       setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus();
-          const length = inputRef.current.value?.length || 0;
-          inputRef.current.selectionStart = length;
-          inputRef.current.selectionEnd = length;
+          // Only set selection for input types that support it (not checkbox, radio, etc.)
+          const supportsSelection =
+            inputRef.current.type === undefined || // textarea
+            ['text', 'password', 'search', 'tel', 'url', 'number'].includes(inputRef.current.type);
+          if (supportsSelection && inputRef.current.setSelectionRange) {
+            const length = inputRef.current.value?.length || 0;
+            try {
+              inputRef.current.setSelectionRange(length, length);
+            } catch {
+              // Some input types may still throw, ignore silently
+            }
+          }
         }
       }, 0);
     }
@@ -60,8 +70,8 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
   const style: React.CSSProperties = {
     width: colConfig.width || 100,
     flexBasis: colConfig.width || 100,
-    flexShrink: 0,
-    flexGrow: 0,
+    flexShrink: stretchColumns ? 1 : 0,
+    flexGrow: stretchColumns ? 1 : 0,
     position: 'relative',
   };
 
@@ -77,6 +87,7 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
 
   const renderer = getCellRenderer(colConfig);
   const renderedValue = renderer(cellValue, rowData, colConfig, row, col);
+  const hasCustomRenderer = typeof colConfig.renderer === 'function';
 
   return (
     <td
@@ -93,6 +104,7 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
       data-save-state={state.saveState}
       data-sticky-left={stickyLeft !== undefined}
       data-sticky-right={stickyRight !== undefined}
+      data-custom-renderer={hasCustomRenderer || undefined}
     >
       {state.isEditing
         ? getCellEditor(
@@ -106,7 +118,9 @@ const Cell: React.FC<CellProps> = memo(({ row, col, colConfig, stickyLeft, stick
           col,
           inputRef
         )
-        : renderedValue}
+        : hasCustomRenderer
+          ? renderedValue
+          : <span className="cell-content" title={typeof cellValue === 'string' ? cellValue : undefined}>{renderedValue}</span>}
     </td>
   );
 });

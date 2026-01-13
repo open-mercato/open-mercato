@@ -52,6 +52,9 @@ export async function ensureRoles(em: EntityManager, options: EnsureRolesOptions
     await ensureRolesInContext(tem, roleNames, tenantId)
     await tem.flush()
   })
+  if (tenantId) {
+    await ensureDefaultRoleAcls(em, tenantId)
+  }
 }
 
 async function findRoleByName(
@@ -401,6 +404,9 @@ async function ensureDefaultRoleAcls(
       'workflows.*',
       'booking.*',
       'currencies.*',
+      'contractors.*',
+      'shipments.*',
+      'fms_tracking.*',
     ]
     await ensureRoleAclFor(em, adminRole, tenantId, adminFeatures, { remove: ['directory.organizations.*', 'directory.tenants.*'] })
   }

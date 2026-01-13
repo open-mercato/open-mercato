@@ -32,6 +32,8 @@
     border: 1px solid #e5e7eb;
     padding: 4px 8px;
     text-align: left;
+    box-sizing: border-box;
+    min-width: 0;
 }
 
 .hot-col-header {
@@ -59,11 +61,19 @@
     background: white;
     cursor: cell;
     position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 4px 8px;
 }
 
-.hot-cell[data-custom-renderer="true"] {
-    padding: 0;
+.hot-cell > .cell-content {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
 }
+
 
 .hot-cell.read-only {
     background: #fafafa;
@@ -1667,4 +1677,111 @@ body.resizing-column {
 .drag-over {
     background: #f0f9ff;
     border-top: 2px solid #3b82f6;
+}
+
+/* ============================================
+   FULLSCREEN OVERLAY STYLES
+   ============================================ */
+
+.dynamic-table-fullscreen-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    animation: fullscreen-fade-in 0.2s ease-out;
+}
+
+@keyframes fullscreen-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.dynamic-table-fullscreen-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    border-bottom: 1px solid #e5e7eb;
+    background: white;
+    flex-shrink: 0;
+}
+
+.dynamic-table-fullscreen-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.dynamic-table-fullscreen-badge {
+    padding: 4px 10px;
+    background: #f3f4f6;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #6b7280;
+}
+
+.dynamic-table-fullscreen-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: white;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.dynamic-table-fullscreen-close:hover {
+    background: #f3f4f6;
+    color: #111827;
+    border-color: #d1d5db;
+}
+
+.dynamic-table-fullscreen-content {
+    flex: 1;
+    overflow: hidden;
+    padding: 24px;
+}
+
+.dynamic-table-fullscreen-content .hot-container {
+    height: 100%;
+    border-radius: 8px;
+}
+
+.dynamic-table-fullscreen-content .hot-virtual-container {
+    height: calc(100% - 90px) !important;
+}
+
+/* Fullscreen toggle button */
+.fullscreen-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: white;
+    color: #6b7280;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.fullscreen-toggle-btn:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+    color: #374151;
 }

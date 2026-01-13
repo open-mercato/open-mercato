@@ -32,7 +32,7 @@ export function createCellHandlers(
   tableRef: React.RefObject<HTMLDivElement | null>,
   idColumnName: string
 ) {
-  const handleCellSave = (row: number, col: number, newValue: any) => {
+  const handleCellSave = (row: number, col: number, newValue: any, clearEditing: boolean = true) => {
     const rowData = store.getRowData(row);
     const colConfig = columns[col];
     const fieldKey = colConfig?.data;
@@ -42,7 +42,9 @@ export function createCellHandlers(
 
     // Skip if value unchanged
     if (String(oldValue ?? '') === String(newValue ?? '')) {
-      store.clearEditing();
+      if (clearEditing) {
+        store.clearEditing();
+      }
       return;
     }
 
@@ -51,7 +53,11 @@ export function createCellHandlers(
       rowData[fieldKey] = newValue;
     }
     store.bumpRevision(row, col);
-    store.clearEditing();
+
+    // Only clear editing if requested (keyboard navigation handles its own clearing)
+    if (clearEditing) {
+      store.clearEditing();
+    }
 
     // Only dispatch event if not a new row
     if (!store.isNewRow(row)) {
@@ -216,11 +222,9 @@ export function createMouseHandlers(
   const { handleDragStart, handleDragMove, handleDragEnd } = dragHandlers;
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Save any current editing
-    const editing = store.getEditingCell();
-    if (editing) {
-      store.clearEditing();
-    }
+    // Don't clear editing here - let blur/click-outside handlers save first.
+    // The editor's blur handler calls onSave -> handleCellSave -> clearEditing,
+    // ensuring the value is saved before the editing state is cleared.
 
     const cell = (e.target as HTMLElement).closest('td');
     if (!cell) return;

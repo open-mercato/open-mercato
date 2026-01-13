@@ -9,7 +9,7 @@ if (typeof window !== 'undefined') {
 interface BaseEditorProps {
     value: any;
     onChange: (newValue: any) => void;
-    onSave: (newValue?: any) => void; // Accept optional value parameter
+    onSave: (newValue?: any, clearEditing?: boolean) => void; // Accept optional value and clearEditing parameters
     onCancel: () => void;
     col: any;
     inputRef?: React.RefObject<any>;
@@ -92,14 +92,14 @@ export const TextEditor: React.FC<BaseEditorProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            onSave(textValue);
+            // Save without clearing editing - navigation hook will handle clearing
+            onSave(textValue, false);
         } else if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();
         } else if (e.key === 'Tab') {
-            // Save before Tab navigation (handled by document-level handler)
-            onSave(textValue);
+            // Save without clearing editing - navigation hook will handle clearing
+            onSave(textValue, false);
         }
     };
 
@@ -112,7 +112,7 @@ export const TextEditor: React.FC<BaseEditorProps> = ({
                 onChange(e.target.value);
             }}
             onKeyDown={handleKeyDown}
-            onBlur={() => onSave(textValue)}
+            onBlur={() => onSave(textValue, true)}
             className="hot-cell-editor"
         />
     );
@@ -135,14 +135,14 @@ export const NumericEditor: React.FC<BaseEditorProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            onSave(getNumericValue());
+            // Save without clearing editing - navigation hook will handle clearing
+            onSave(getNumericValue(), false);
         } else if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();
         } else if (e.key === 'Tab') {
-            // Save before Tab navigation (handled by document-level handler)
-            onSave(getNumericValue());
+            // Save without clearing editing - navigation hook will handle clearing
+            onSave(getNumericValue(), false);
         }
     };
 
@@ -157,7 +157,7 @@ export const NumericEditor: React.FC<BaseEditorProps> = ({
                 onChange(val === '' ? '' : (isNaN(numVal) ? val : numVal));
             }}
             onKeyDown={handleKeyDown}
-            onBlur={() => onSave(getNumericValue())}
+            onBlur={() => onSave(getNumericValue(), true)}
             className="hot-cell-editor hot-numeric-editor"
         />
     );
@@ -200,7 +200,7 @@ export const DateEditor: React.FC<BaseEditorProps> = ({
             const isOutsideCalendar = !calendarRef.current || !calendarRef.current.contains(target);
 
             if (isOutsideTextarea && isOutsideCalendar) {
-                onSave(textValueRef.current);
+                onSave(textValueRef.current, true);
             }
         };
 
@@ -243,24 +243,24 @@ export const DateEditor: React.FC<BaseEditorProps> = ({
             // Update parent state
             onChange(formatted);
 
-            // Save immediately with the formatted value
-            onSave(formatted);
+            // Save immediately with the formatted value (clear editing since calendar was clicked)
+            onSave(formatted, true);
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
+            // Save without clearing editing - navigation hook will handle clearing
             setShowCalendar(false);
-            onSave(textValue);
+            onSave(textValue, false);
         } else if (e.key === 'Escape') {
             e.preventDefault();
             setShowCalendar(false);
             onCancel();
         } else if (e.key === 'Tab') {
-            // Save before Tab navigation (handled by document-level handler)
+            // Save without clearing editing - navigation hook will handle clearing
             setShowCalendar(false);
-            onSave(textValue);
+            onSave(textValue, false);
         }
     };
 
@@ -369,14 +369,12 @@ export const DropdownEditor: React.FC<BaseEditorProps> = ({
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
-            if (
-                cellRef.current &&
-                !cellRef.current.contains(e.target as Node) &&
-                dropdownRef.current &&
-                !dropdownRef.current.contains(e.target as Node)
-            ) {
+            const isOutsideCell = cellRef.current && !cellRef.current.contains(e.target as Node);
+            const isOutsideDropdown = !dropdownRef.current || !dropdownRef.current.contains(e.target as Node);
+
+            if (isOutsideCell && isOutsideDropdown) {
                 setShowDropdown(false);
-                onSave(textValue);
+                onSave(textValue, true);
             }
         };
 
@@ -412,21 +410,25 @@ export const DropdownEditor: React.FC<BaseEditorProps> = ({
         // Update parent state
         onChange(selectedValue);
 
-        // Save immediately with the selected value
-        onSave(selectedValue);
+        // Save immediately with the selected value (clear editing since option was clicked)
+        onSave(selectedValue, true);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-
             // If dropdown is showing and has filtered options, select highlighted
             if (showDropdown && filteredOptions.length > 0) {
                 const selected = filteredOptions[highlightedIndex];
-                handleOptionClick(selected);
-            } else {
+                const selectedValue = typeof selected === 'string' ? selected : selected.value;
+                setTextValue(selectedValue);
                 setShowDropdown(false);
-                onSave();
+                onChange(selectedValue);
+                // Save without clearing - navigation hook will handle it
+                onSave(selectedValue, false);
+            } else {
+                // Save without clearing editing - navigation hook will handle clearing
+                setShowDropdown(false);
+                onSave(textValue, false);
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
@@ -441,9 +443,9 @@ export const DropdownEditor: React.FC<BaseEditorProps> = ({
             e.preventDefault();
             setHighlightedIndex(prev => prev > 0 ? prev - 1 : 0);
         } else if (e.key === 'Tab') {
-            // Save before Tab navigation (handled by document-level handler)
+            // Save without clearing editing - navigation hook will handle clearing
             setShowDropdown(false);
-            onSave(textValue);
+            onSave(textValue, false);
         }
     };
 
@@ -470,7 +472,7 @@ export const DropdownEditor: React.FC<BaseEditorProps> = ({
                 onBlur={() => {
                     // Only save if not clicking on dropdown
                     if (!isClickingDropdownRef.current) {
-                        onSave(textValue);
+                        onSave(textValue, true);
                     }
                 }}
                 className="hot-cell-editor hot-dropdown-editor"
@@ -534,18 +536,27 @@ export const BooleanEditor: React.FC<BaseEditorProps> = ({
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newValue = e.target.checked;
         onChange(newValue);
-        onSave(newValue);
+        onSave(newValue, true);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.key === 'Enter') {
+            // Toggle value and save without clearing - navigation hook will handle it
+            const newValue = !value;
+            onChange(newValue);
+            onSave(newValue, false);
+        } else if (e.key === ' ') {
+            // Space just toggles, doesn't navigate
             e.preventDefault();
             const newValue = !value;
             onChange(newValue);
-            onSave(newValue);
+            onSave(newValue, true);
         } else if (e.key === 'Escape') {
             e.preventDefault();
             onCancel();
+        } else if (e.key === 'Tab') {
+            // Save current value without clearing - navigation hook will handle it
+            onSave(value, false);
         }
     };
 
@@ -573,7 +584,7 @@ export const getCellEditor = (
     col: any,
     value: any,
     onChange: (newValue: any) => void,
-    onSave: () => void,
+    onSave: (newValue?: any, clearEditing?: boolean) => void,
     onCancel: () => void,
     rowData: any,
     rowIndex: number,
