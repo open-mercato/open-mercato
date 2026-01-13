@@ -1,6 +1,7 @@
 "use client"
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -136,10 +137,11 @@ export default function LoginPage() {
         <Card className="w-full max-w-sm border-0 bg-white/80 shadow-xl backdrop-blur-sm">
           <CardHeader className="flex flex-col items-center gap-4 text-center p-8">
             <Link href="/" className="flex items-center gap-3">
-              <img
-                src="https://images.prismic.io/freight-tech-cms/aMEwrWGNHVfTO9Qd_FreightTech.orgsygnet.png?auto=format,compress"
+              <Image
+                src="/fms/freighttech-logo.png"
                 alt={translate('auth.login.logoAlt', 'FreightTech.org logo')}
-                className="h-12 w-auto"
+                width={48}
+                height={48}
               />
               <span className="text-xl font-bold tracking-tight text-gray-900">FreightTech.org</span>
             </Link>

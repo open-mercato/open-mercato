@@ -568,7 +568,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
 
   // adminNavApi already includes user entities; no extra fetch
 
-  function renderSidebar(compact: boolean, hideHeader?: boolean) {
+  function renderSidebar(compact: boolean, hideHeader?: boolean, onToggleCollapse?: () => void) {
     const isMobileVariant = !!hideHeader
     const baseGroupsForDefaults = originalNavRef.current ?? navGroups
     const baseGroupMap = new Map<string, SidebarGroup>()
@@ -755,14 +755,33 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
       )
     ) : null
 
+    const SidebarToggleIcon = (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M3 6h18M3 12h18M3 18h18"/>
+      </svg>
+    )
+
     return (
       <div className="flex flex-col min-h-full gap-3">
         {!hideHeader && (
-          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} mb-2`}>
-            <Link href="/backend" className="flex items-center gap-2" aria-label={t('appShell.goToDashboard')}>
-              <Image src="/open-mercato.svg" alt={resolvedProductName} width={32} height={32} className="rounded m-4" />
-              {!compact && <div className="text-m font-semibold">{resolvedProductName}</div>}
-            </Link>
+          <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} px-3 pt-3 mb-2`}>
+            {!compact && (
+              <Link href="/backend" className="flex items-center" aria-label={t('appShell.goToDashboard')}>
+                <Image src="/fms/freighttech-logo.png" alt="FreightTech" width={32} height={32} className="mr-2" />
+                <div className="text-base font-semibold">FreightTech</div>
+              </Link>
+            )}
+            {!isMobileVariant && (
+              <button
+                type="button"
+                onClick={() => onToggleCollapse?.()}
+                className="rounded p-1.5 hover:bg-accent hover:text-accent-foreground transition-colors"
+                aria-label={t('appShell.toggleSidebar')}
+                title={compact ? t('appShell.expandSidebar') : t('appShell.collapseSidebar')}
+              >
+                {SidebarToggleIcon}
+              </button>
+            )}
           </div>
         )}
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
@@ -885,7 +904,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
-      <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
+      <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed, false, () => setCollapsed((c) => !c))}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
         <header className="border-b bg-background/60 px-3 lg:px-4 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -981,9 +1000,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
-              <Link href="/backend" className="flex items-center gap-2 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src="/open-mercato.svg" alt={resolvedProductName} width={28} height={28} className="rounded" />
-                {resolvedProductName}
+              <Link href="/backend" className="flex items-center text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
+                <Image src="/fms/freighttech-logo.png" alt="FreightTech.org" width={28} height={28} className="mr-2" />
+                FreightTech.org
               </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>

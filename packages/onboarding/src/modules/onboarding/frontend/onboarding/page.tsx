@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -131,10 +132,11 @@ export default function OnboardingPage() {
         <Card className="w-full max-w-lg border-0 bg-white/80 shadow-xl backdrop-blur-sm">
         <CardHeader className="flex flex-col items-center gap-4 px-10 pt-10 pb-4">
           <div className="flex flex-col items-center gap-3">
-            <img
-              src="https://images.prismic.io/freight-tech-cms/aMEwrWGNHVfTO9Qd_FreightTech.orgsygnet.png?auto=format,compress"
+            <Image
+              src="/fms/freighttech-logo.png"
               alt="FreightTech.org logo"
-              className="h-24 w-auto"
+              width={96}
+              height={96}
             />
             <CardTitle className="text-2xl font-semibold flex justify-center">
               {translate('onboarding.title', 'Create your workspace')}

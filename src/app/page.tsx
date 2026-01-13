@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export default async function Home() {
@@ -30,10 +31,11 @@ export default async function Home() {
         {/* Header */}
         <header className="flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            <img
-              src="https://images.prismic.io/freight-tech-cms/aMEwrWGNHVfTO9Qd_FreightTech.orgsygnet.png?auto=format,compress"
+            <Image
+              src="/fms/freighttech-logo.png"
               alt={t('app.page.logoAlt', 'FTO')}
-              className="h-12 w-auto"
+              width={48}
+              height={48}
             />
             <span className="text-xl font-bold tracking-tight text-gray-900">FreightTech.org</span>
           </Link>
