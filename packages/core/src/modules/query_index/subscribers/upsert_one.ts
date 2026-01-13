@@ -78,6 +78,11 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       const bus = ctx.resolve<any>('eventBus')
       await bus.emitEvent('query_index.vectorize_one', { entityType, recordId, organizationId, tenantId })
     } catch {}
+    // Emit search indexing event
+    try {
+      const bus = ctx.resolve<any>('eventBus')
+      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId })
+    } catch {}
   } catch (error) {
     await recordIndexerError(
       { em },

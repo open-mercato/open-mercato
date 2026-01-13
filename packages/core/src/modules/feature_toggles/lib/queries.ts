@@ -2,6 +2,7 @@ import { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { FeatureToggle, FeatureToggleOverride } from '../data/entities'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { OverrideListResponse } from '../data/validators'
 
 export type FeatureToggleOverrideResponse = {
     id: string
@@ -28,7 +29,7 @@ export type GetOverridesQuery = {
 }
 
 type GetOverridesResult = {
-    items: FeatureToggleOverrideResponse[]
+    items: OverrideListResponse[]
     total: number
     totalPages: number
     page: number
@@ -36,15 +37,6 @@ type GetOverridesResult = {
     raw: {
         toggles: FeatureToggle[]
         overrides: FeatureToggleOverride[]
-    }
-}
-
-export type GetToggleOverridesForTenantResult = {
-    override: {
-        id: string
-        state: 'enabled' | 'disabled' | 'inherit'
-        tenantName: string
-        tenantId: string
     }
 }
 
@@ -63,9 +55,6 @@ export async function getOverrides(
     if (query.identifier) {
         filters.push({ identifier: { $ilike: `%${escapeLikePattern(query.identifier)}%` } })
     }
-    if (query.defaultState) {
-        filters.push({ defaultState: query.defaultState === 'enabled' })
-    }
 
     const globalToggles = await em.find(FeatureToggle, filters.length > 0 ? filters : {})
 
@@ -74,33 +63,31 @@ export async function getOverrides(
         toggle: { id: { $in: globalToggles.map((toggle) => toggle.id) } },
     })
 
-    const response: FeatureToggleOverrideResponse[] = []
+    const response: OverrideListResponse[] = []
 
     globalToggles.forEach((toggle) => {
         const override = overrides.find((o) => o.toggle.id === toggle.id)
         if (override) {
             response.push({
-                id: override.id,
+                id: override?.id ?? '',
                 toggleId: toggle.id,
-                overrideState: override.state,
                 tenantName: tenant.name,
                 tenantId: tenant.id,
                 identifier: toggle.identifier,
                 name: toggle.name,
                 category: toggle.category ?? '',
-                defaultState: toggle.defaultState,
+                isOverride: true,
             })
         } else {
             response.push({
                 id: '',
                 toggleId: toggle.id,
-                overrideState: 'inherit',
                 tenantName: tenant.name,
                 tenantId: tenant.id,
                 identifier: toggle.identifier,
                 name: toggle.name,
                 category: toggle.category ?? '',
-                defaultState: toggle.defaultState,
+                isOverride: false,
             })
         }
     })
@@ -113,10 +100,7 @@ export async function getOverrides(
             let aValue: any = a[sortField as keyof typeof a]
             let bValue: any = b[sortField as keyof typeof b]
 
-            if (sortField === 'defaultState') {
-                aValue = aValue ? 1 : 0
-                bValue = bValue ? 1 : 0
-            }
+
 
             if (typeof aValue === 'string' && typeof bValue === 'string') {
                 const comparison = aValue.localeCompare(bValue)

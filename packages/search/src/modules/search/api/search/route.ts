@@ -1,0 +1,121 @@
+import { NextResponse } from 'next/server'
+import { createRequestContainer } from '@/lib/di/container'
+import { getAuthFromRequest } from '@/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { SearchService } from '@open-mercato/search'
+import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
+import type { EmbeddingService } from '../../../../vector'
+import { resolveEmbeddingConfig } from '../../lib/embedding-config'
+import { searchError } from '../../../../lib/debug'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['search.view'] },
+}
+
+function parseLimit(value: string | null): number {
+  if (!value) return 50
+  const parsed = Number.parseInt(value, 10)
+  if (Number.isNaN(parsed) || parsed <= 0) return 50
+  return Math.min(parsed, 100)
+}
+
+function parseStrategies(value: string | null): SearchStrategyId[] | undefined {
+  if (!value) return undefined
+  const strategies = value.split(',').map((s) => s.trim()).filter(Boolean)
+  return strategies.length > 0 ? strategies : undefined
+}
+
+function parseEntityTypes(value: string | null): string[] | undefined {
+  if (!value) return undefined
+  const entityTypes = value.split(',').map((s) => s.trim()).filter(Boolean)
+  return entityTypes.length > 0 ? entityTypes : undefined
+}
+
+export async function GET(req: Request) {
+  const { t } = await resolveTranslations()
+  const url = new URL(req.url)
+  const query = (url.searchParams.get('q') || '').trim()
+  const limit = parseLimit(url.searchParams.get('limit'))
+  const strategies = parseStrategies(url.searchParams.get('strategies'))
+  const entityTypes = parseEntityTypes(url.searchParams.get('entityTypes'))
+
+  if (!query) {
+    return NextResponse.json(
+      { error: t('search.api.errors.missingQuery', 'Missing query') },
+      { status: 400 }
+    )
+  }
+
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) {
+    return NextResponse.json(
+      { error: t('api.errors.unauthorized', 'Unauthorized') },
+      { status: 401 }
+    )
+  }
+
+  const container = await createRequestContainer()
+  try {
+    const searchService = container.resolve('searchService') as SearchService | undefined
+    if (!searchService) {
+      return NextResponse.json(
+        { error: t('search.api.errors.serviceUnavailable', 'Search service unavailable') },
+        { status: 503 }
+      )
+    }
+
+    // Load embedding config for vector strategy (same as Vector Search playground)
+    try {
+      const embeddingConfig = await resolveEmbeddingConfig(container, { defaultValue: null })
+      if (embeddingConfig) {
+        const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
+        embeddingService.updateConfig(embeddingConfig)
+      }
+    } catch {
+      // Embedding config not available, vector strategy may not work
+    }
+
+    const startTime = Date.now()
+
+    // Don't filter by organization in the playground - show all results
+    // Both strategies handle null as "no organization filter"
+    const searchOptions = {
+      tenantId: auth.tenantId,
+      organizationId: null,
+      limit,
+      strategies,
+      entityTypes,
+    }
+
+    const results = await searchService.search(query, searchOptions)
+
+    const timing = Date.now() - startTime
+
+    // Collect unique strategies that returned results
+    const strategiesUsed = [...new Set(results.map((r) => r.source))]
+
+    return NextResponse.json({
+      results,
+      strategiesUsed,
+      timing,
+      query,
+      limit,
+    })
+  } catch (error: unknown) {
+    // Log full error details server-side only
+    searchError('search.api.search', 'failed', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+    // Return generic message to client - don't expose internal error details
+    return NextResponse.json(
+      { error: t('search.api.errors.searchFailed', 'Search failed. Please try again.') },
+      { status: 500 }
+    )
+  } finally {
+    const disposable = container as unknown as { dispose?: () => Promise<void> }
+    if (typeof disposable.dispose === 'function') {
+      await disposable.dispose()
+    }
+  }
+}

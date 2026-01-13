@@ -19,7 +19,7 @@ import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purg
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {

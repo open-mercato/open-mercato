@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 
-export type IndexerErrorSource = 'query_index' | 'vector'
+export type IndexerErrorSource = 'query_index' | 'vector' | 'fulltext'
 
 export type RecordIndexerErrorInput = {
   source: IndexerErrorSource

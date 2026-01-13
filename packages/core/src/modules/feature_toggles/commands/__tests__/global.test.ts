@@ -54,6 +54,7 @@ describe('feature_toggles.global commands', () => {
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
                     return undefined
                 }),
             }
@@ -67,8 +68,9 @@ describe('feature_toggles.global commands', () => {
                 name: 'Test Feature',
                 description: 'A test feature toggle',
                 category: 'testing',
-                defaultState: true,
-                failMode: 'fail_closed',
+                defaultValue: true,
+
+                type: 'boolean',
             }
 
             const result = await createCommand.execute(input, ctx)
@@ -77,7 +79,9 @@ describe('feature_toggles.global commands', () => {
             expect(em.create).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({
                 identifier: 'test_feature',
                 name: 'Test Feature',
-                defaultState: true
+                defaultValue: true,
+
+                type: 'boolean'
             }))
             expect(em.persist).toHaveBeenCalled()
             expect(em.flush).toHaveBeenCalled()
@@ -110,6 +114,7 @@ describe('feature_toggles.global commands', () => {
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
                     return undefined
                 }),
             }
@@ -139,7 +144,7 @@ describe('feature_toggles.global commands', () => {
                 id: '123e4567-e89b-12d3-a456-426614174000',
                 identifier: 'test_feature',
                 name: 'Old Name',
-                defaultState: false,
+                defaultValue: false,
             }
 
             const em = {
@@ -152,6 +157,7 @@ describe('feature_toggles.global commands', () => {
             const container = {
                 resolve: jest.fn((token: string) => {
                     if (token === 'em') return em
+                    if (token === 'featureTogglesService') return { invalidateIsEnabledCacheByIdentifierTag }
                     return undefined
                 }),
             }
@@ -161,7 +167,7 @@ describe('feature_toggles.global commands', () => {
             const input = {
                 id: '123e4567-e89b-12d3-a456-426614174000',
                 name: 'New Name',
-                defaultState: true
+                defaultValue: true
             }
 
             const result = await updateCommand.execute(input, ctx)
@@ -169,7 +175,7 @@ describe('feature_toggles.global commands', () => {
             expect(result).toEqual({ toggleId: '123e4567-e89b-12d3-a456-426614174000' })
             expect(em.findOne).toHaveBeenCalledWith(expect.any(Function), { id: '123e4567-e89b-12d3-a456-426614174000' })
             expect(existingToggle.name).toBe('New Name')
-            expect(existingToggle.defaultState).toBe(true)
+            expect(existingToggle.defaultValue).toBe(true)
             expect(em.flush).toHaveBeenCalled()
             expect(invalidateIsEnabledCacheByIdentifierTag).toHaveBeenCalledWith('test_feature')
         })
@@ -214,8 +220,8 @@ describe('feature_toggles.global commands', () => {
             }
 
             const existingOverrides = [
-                { id: 'override-1', toggle: existingToggle, tenantId: 'tenant-1', state: 'enabled' },
-                { id: 'override-2', toggle: existingToggle, tenantId: 'tenant-2', state: 'disabled' },
+                { id: 'override-1', toggle: existingToggle, tenantId: 'tenant-1', value: 'enabled' },
+                { id: 'override-2', toggle: existingToggle, tenantId: 'tenant-2', value: 'disabled' },
             ]
 
             const em = {
@@ -227,12 +233,20 @@ describe('feature_toggles.global commands', () => {
                 create: jest.fn((_ctor, data) => data),
                 persist: jest.fn(),
             }
-
+            const mockCommandBus = {
+                execute: jest.fn(),
+                dispatch: jest.fn(),
+            }
+            const mockFeatureTogglesService = {
+                invalidateIsEnabledCacheByIdentifierTag,
+            }
             const container = {
-                resolve: jest.fn((token: string) => {
-                    if (token === 'em') return em
-                    return undefined
-                }),
+                resolve: jest.fn((key: string) => {
+                    if (key === 'em') return em
+                    if (key === 'commandBus') return mockCommandBus
+                    if (key === 'featureTogglesService') return mockFeatureTogglesService
+                    return null
+                })
             }
 
             const ctx: any = { container }
@@ -251,8 +265,8 @@ describe('feature_toggles.global commands', () => {
             expect(prepareResult).toEqual({
                 before: expect.objectContaining({ id: '123e4567-e89b-12d3-a456-426614174000' }),
                 overrides: [
-                    { id: 'override-1', toggleId: '123e4567-e89b-12d3-a456-426614174000', tenantId: 'tenant-1', state: 'enabled' },
-                    { id: 'override-2', toggleId: '123e4567-e89b-12d3-a456-426614174000', tenantId: 'tenant-2', state: 'disabled' },
+                    { id: 'override-1', toggleId: '123e4567-e89b-12d3-a456-426614174000', tenantId: 'tenant-1', value: 'enabled' },
+                    { id: 'override-2', toggleId: '123e4567-e89b-12d3-a456-426614174000', tenantId: 'tenant-2', value: 'disabled' },
                 ]
             })
 
@@ -263,17 +277,17 @@ describe('feature_toggles.global commands', () => {
                             id: '123e4567-e89b-12d3-a456-426614174000',
                             identifier: 'test_feature',
                             name: 'Test Feature',
-                            defaultState: false,
+                            defaultValue: false,
                         },
                         overrides: [
-                            { id: 'override-1', toggleId: '123e4567-e89b-12d3-a456-426614174000', tenantId: 'tenant-1', state: 'enabled' },
+                            { id: 'override-1', toggleId: '123e4567-e89b-12d3-a456-426614174000', tenantId: 'tenant-1', value: 'enabled' },
                         ]
                     }
                 }
             }
 
             em.findOne.mockResolvedValue(null)
-            em.create.mockClear()
+            em.create.mockImplementation((entity: any, data: any) => ({ ...data }))
             em.persist.mockClear()
             em.flush.mockClear()
 

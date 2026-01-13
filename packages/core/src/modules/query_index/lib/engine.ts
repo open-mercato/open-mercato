@@ -7,7 +7,7 @@ import type { Knex } from 'knex'
 import type { EventBus } from '@open-mercato/events'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
@@ -30,10 +30,16 @@ function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boo
 }
 
 function resolveDebugVerbosity(): boolean {
+  // Check explicit OM_QUERY_INDEX_DEBUG flag first
+  const queryIndexDebug = process.env.OM_QUERY_INDEX_DEBUG
+  if (queryIndexDebug !== undefined) {
+    return parseBooleanToken(queryIndexDebug) ?? false
+  }
+  // Fall back to log level or NODE_ENV
   const level = (process.env.LOG_VERBOSITY ?? process.env.LOG_LEVEL ?? '').toLowerCase()
   if (['debug', 'trace', 'silly'].includes(level)) return true
-  const nodeEnv = (process.env.NODE_ENV ?? '').toLowerCase()
-  return nodeEnv === 'development'
+  // Default to false (don't spam logs in development)
+  return false
 }
 
 type ResultRow = Record<string, unknown>
@@ -608,7 +614,8 @@ export class HybridQueryEngine implements QueryEngine {
       })
     }
 
-    const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : ['id'])
+    // When no fields specified, select all base table columns (like BasicQueryEngine does)
+    const selectFieldSet = new Set<string>((opts.fields && opts.fields.length) ? opts.fields.map(String) : Array.from(columns.keys()))
     if (opts.includeCustomFields === true) {
       const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
       try {

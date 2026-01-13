@@ -12,7 +12,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'entities', from: '@open-mercato/core' },
   { id: 'configs', from: '@open-mercato/core' },
   { id: 'query_index', from: '@open-mercato/core' },
-  { id: 'vector', from: '@open-mercato/vector' },
+  // { id: 'vector', from: '@open-mercato/vector' },
   { id: 'audit_logs', from: '@open-mercato/core' },
   { id: 'attachments', from: '@open-mercato/core' },
   { id: 'catalog', from: '@open-mercato/core' },
@@ -26,4 +26,6 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'booking', from: '@open-mercato/core' },
+  { id: 'search', from: '@open-mercato/search' },
+  { id: 'currencies', from: '@open-mercato/core' },
 ]

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { FeatureToggle } from '../../data/entities'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { toggleTypeSchema } from '../../data/validators'
 
 const rawBodySchema = z.object({}).passthrough()
 const listQuerySchema = z
@@ -10,11 +11,11 @@ const listQuerySchema = z
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(200).default(50),
     search: z.string().optional(),
+    type: toggleTypeSchema.optional(),
     category: z.string().optional(),
     name: z.string().optional(),
     identifier: z.string().optional(),
-    defaultState: z.enum(['enabled', 'disabled']).optional(),
-    sortField: z.enum(['id', 'category', 'identifier', 'name', 'createdAt', 'updatedAt', 'defaultState', 'failMode', 'fail_mode']).optional(),
+    sortField: z.enum(['id', 'category', 'identifier', 'name', 'createdAt', 'updatedAt', 'type']).optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
@@ -34,8 +35,7 @@ const listFields = [
   'name',
   'description',
   'category',
-  'default_state',
-  'fail_mode',
+  'type',
   'created_at',
   'updated_at',
 ]
@@ -65,10 +65,9 @@ const buildFilters = (query: FeatureToggleListQuery): Record<string, unknown> =>
   if (identifier && identifier.length > 0) {
     filters.identifier = { $ilike: `%${escapeLikePattern(identifier)}%` }
   }
-  if (query.defaultState === 'enabled') {
-    filters.default_state = true
-  } else if (query.defaultState === 'disabled') {
-    filters.default_state = false
+  const type = query.type?.trim()
+  if (type && type.length > 0) {
+    filters.type = { $eq: query.type }
   }
   return filters
 }
@@ -94,9 +93,7 @@ const crud = makeCrudRoute({
       name: 'name',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
-      defaultState: 'default_state',
-      failMode: 'fail_mode',
-      fail_mode: 'fail_mode',
+      type: 'type',
     },
     buildFilters: async (query) => buildFilters(query),
   },
