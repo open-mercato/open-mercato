@@ -6,11 +6,11 @@ import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/b
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { slugify } from '@open-mercato/shared/lib/slugify'
 import { useT } from '@/lib/i18n/context'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import { CategorySelect } from '../../../../components/categories/CategorySelect'
 import { CategorySlugFieldSync } from '../../../../components/categories/CategorySlugFieldSync'
-import { slugify } from '../../../../components/products/productForm'
 
 type CategoryFormValues = {
   name: string

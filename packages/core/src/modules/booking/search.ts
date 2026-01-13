@@ -4,6 +4,7 @@ import type {
   SearchResultPresenter,
   SearchIndexSource,
 } from '@open-mercato/shared/modules/search'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 function pickString(...candidates: Array<unknown>): string | null {
@@ -64,7 +65,7 @@ function buildUrl(path: string, id?: string | null, suffix?: string): string | n
 }
 
 function buildServicePresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -75,6 +76,8 @@ function buildServicePresenter(
   const description = snippet(record.description ?? customFields.description)
   const duration = record.duration_minutes ?? record.durationMinutes
   const maxAttendees = record.max_attendees ?? record.maxAttendees
+  const maxAttendeesValue =
+    typeof maxAttendees === 'number' || typeof maxAttendees === 'string' ? maxAttendees : null
   const status =
     typeof record.is_active === 'boolean'
       ? record.is_active
@@ -83,7 +86,9 @@ function buildServicePresenter(
       : undefined
   const durationUnit = t('booking.services.table.durationUnit', 'min')
   const maxLabel =
-    maxAttendees != null ? t('booking.search.service.maxAttendees', 'Max {{count}}', { count: maxAttendees }) : null
+    maxAttendeesValue != null
+      ? t('booking.search.service.maxAttendees', 'Max {{count}}', { count: maxAttendeesValue })
+      : null
   return {
     title: String(title),
     subtitle: formatSubtitle(
@@ -98,7 +103,7 @@ function buildServicePresenter(
 }
 
 function buildResourcePresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -119,7 +124,7 @@ function buildResourcePresenter(
 }
 
 function buildResourceTypePresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -137,7 +142,7 @@ function buildResourceTypePresenter(
 }
 
 function buildTeamPresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -155,7 +160,7 @@ function buildTeamPresenter(
 }
 
 function buildTeamMemberPresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -174,7 +179,7 @@ function buildTeamMemberPresenter(
 }
 
 function buildTeamRolePresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -192,7 +197,7 @@ function buildTeamRolePresenter(
 }
 
 function buildAvailabilityRuleSetPresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
@@ -211,7 +216,7 @@ function buildAvailabilityRuleSetPresenter(
 }
 
 function buildAttendeePresenter(
-  t: (key: string, fallback?: string, params?: Record<string, unknown>) => string,
+  t: TranslateFn,
   record: Record<string, unknown>,
   customFields: Record<string, unknown>,
 ): SearchResultPresenter {
