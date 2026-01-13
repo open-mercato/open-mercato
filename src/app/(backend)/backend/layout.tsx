@@ -11,7 +11,6 @@ import { UserMenu } from '@open-mercato/ui/backend/UserMenu'
 import { GlobalSearchDialog } from '@open-mercato/search/modules/search/frontend'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { createRequestContainer } from '@/lib/di/container'
 import {
   applySidebarPreference,
