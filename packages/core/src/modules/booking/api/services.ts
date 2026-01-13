@@ -6,6 +6,7 @@ import { BookingService, BookingServiceTagAssignment, BookingResourceTag } from 
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { E } from '@/generated/entities.ids.generated'
 import * as F from '@/generated/entities/booking_service'
+import { createBookingCrudOpenApi, createPagedListResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -149,3 +150,31 @@ const crud = makeCrudRoute({
 })
 
 export const GET = crud.GET
+
+const serviceTagListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+})
+
+const serviceListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  duration_minutes: z.number().nullable().optional(),
+  capacity_model: z.string().nullable().optional(),
+  max_attendees: z.number().nullable().optional(),
+  tags: z.array(serviceTagListItemSchema).optional(),
+  is_active: z.boolean().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Service',
+  pluralName: 'Services',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(serviceListItemSchema),
+})
