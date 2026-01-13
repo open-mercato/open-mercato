@@ -21,6 +21,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { FilterQuery } from '@mikro-orm/core'
 import { organizationCrudEvents, organizationCrudIndexer } from '@open-mercato/core/modules/directory/commands/organizations'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
   directoryTag,
   directoryErrorSchema,
@@ -150,7 +151,7 @@ export async function GET(req: Request) {
   const allowAllTenants = isSuperAdmin && !normalizedRequestedTenantId && query.view === 'manage'
   let tenantId = allowAllTenants ? null : enforceTenantScope(authTenantId, normalizedRequestedTenantId, isSuperAdmin)
   const status = query.status ?? 'all'
-  const includeInactive = query.includeInactive === 'true' || status !== 'active'
+  const includeInactive = parseBooleanToken(query.includeInactive) === true || status !== 'active'
 
   if (!allowAllTenants && !tenantId && !authTenantId && ids?.length) {
     const scopedOrgs: Organization[] = await findWithDecryption(

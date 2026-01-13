@@ -1,5 +1,6 @@
 import type { Module, ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { DashboardWidgetMetadata, DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 type LoadedWidgetModule = DashboardWidgetModule<any> & { metadata: DashboardWidgetMetadata }
 
@@ -17,8 +18,8 @@ export function invalidateWidgetCache() {
 }
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = import('@/generated/modules.generated').then((registry) => {
-      const list = (registry.modules ?? []) as Module[]
+    widgetEntriesPromise = Promise.resolve().then(() => {
+      const list = getModules() as Module[]
       return list.flatMap((mod) => {
         const entries = mod.dashboardWidgets ?? []
         return entries.map((entry) => ({

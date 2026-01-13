@@ -1,6 +1,7 @@
 import type { Knex } from 'knex'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export type SearchTokenRow = {
   entity_type: string
@@ -25,8 +26,7 @@ const DEFAULT_SCOPE = { organizationId: null, tenantId: null }
 type EntityFieldPair = [string, string]
 
 export const isSearchDebugEnabled = (): boolean => {
-  const raw = (process.env.OM_SEARCH_DEBUG ?? '').toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+  return parseBooleanToken(process.env.OM_SEARCH_DEBUG ?? '') === true
 }
 
 const debug = (event: string, payload: Record<string, unknown>) => {

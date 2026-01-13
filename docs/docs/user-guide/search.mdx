@@ -1,0 +1,158 @@
+---
+title: Search
+description: Global search with fuzzy full-text, semantic AI-powered, and token-based strategies.
+---
+
+The search module provides a unified search experience combining multiple strategies to deliver comprehensive results. Queries are automatically routed through configured backends and merged using Reciprocal Rank Fusion (RRF) for optimal ranking.
+
+## Global Search (Cmd+K)
+
+Press `Cmd+K` (Mac) or `Ctrl+K` (Windows/Linux) anywhere in the backend to open the global search palette.
+
+- Type at least two characters to see results
+- Use arrow keys to navigate, `Enter` to open the selected item
+- Toggle between **Fuzzy** and **Semantic** search modes using the settings icon
+- Press `Esc` to close without navigating
+
+The search palette shows results from customers, notes, deals, and todos with direct links to their detail pages.
+
+## Search Strategies
+
+Open Mercato supports three complementary search strategies:
+
+| Strategy | Label | Description | Best For |
+|----------|-------|-------------|----------|
+| **Meilisearch** | Fuzzy | Fast full-text search with typo tolerance | Quick keyword lookups, partial matches |
+| **Vector** | Semantic | AI-powered search using embeddings | Conceptual queries, natural language |
+| **Tokens** | Exact | Hash-based search in PostgreSQL | Always available, encrypted data |
+
+When multiple strategies are configured, results are merged using RRF to surface the most relevant matches.
+
+## Prerequisites
+
+### Meilisearch (Recommended)
+
+Meilisearch provides the fastest search experience with typo tolerance and instant results.
+
+```bash
+# Add to your .env
+MEILISEARCH_HOST=http://localhost:7700
+MEILISEARCH_API_KEY=your_master_key_here
+```
+
+Run Meilisearch locally with Docker:
+
+```bash
+docker run -d --name meilisearch \
+  -p 7700:7700 \
+  -e MEILI_ENV=development \
+  -e MEILI_MASTER_KEY=your_master_key_here \
+  getmeili/meilisearch:latest
+```
+
+### Vector Search (Optional)
+
+Vector search enables semantic understanding of queries. Configure at least one embedding provider:
+
+| Provider | Environment Variable |
+|----------|---------------------|
+| OpenAI (default) | `OPENAI_API_KEY=sk-...` |
+| Google Generative AI | `GOOGLE_GENERATIVE_AI_API_KEY=AIza...` |
+| Mistral | `MISTRAL_API_KEY=...` |
+| Cohere | `COHERE_API_KEY=...` |
+| Amazon Bedrock | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` |
+| Ollama (local) | `OLLAMA_BASE_URL=http://localhost:11434` |
+
+Without a configured provider, semantic search is disabled but other strategies continue working.
+
+### Token Search (Built-in)
+
+Token-based search requires no configuration. It uses hashed tokens stored in PostgreSQL, making it suitable for encrypted data.
+
+## Configuration
+
+Navigate to **Backend > Configuration > Search Settings** to manage:
+
+- **Embedding Provider**: Select from configured providers and models
+- **Auto-Indexing**: Toggle automatic indexing of database changes
+- **Reindex**: Rebuild search indexes for Meilisearch or Vector strategies
+
+### Environment Variables
+
+| Variable | Effect |
+|----------|--------|
+| `MEILISEARCH_HOST` | Enables Meilisearch (Fuzzy) strategy |
+| `OPENAI_API_KEY` (or other provider) | Enables Vector (Semantic) strategy |
+| `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` | Disables automatic vector indexing |
+
+## Data Designer
+
+Navigate to **Backend > Data Designer > Search** to browse indexed records in table form. This view shows results from all enabled strategies with:
+
+- Strategy badges indicating result source
+- Relevance scores
+- Direct links to record detail pages
+- Filtering by search strategy
+
+## What Gets Indexed
+
+Modules define searchable entities via `search.ts` configuration files. The default installation includes:
+
+- **Customers**: People and companies with names, titles, and contact info
+- **Deals**: Deal names, stages, and descriptions
+- **Activities**: Notes and activities linked to customers
+- **Todos**: Task items with customer associations
+
+Custom modules can opt-in by exporting a `search.ts` file alongside their module metadata.
+
+## Reindexing
+
+### From CLI
+
+```bash
+# Reindex all strategies for a tenant
+yarn mercato search reindex --tenant <tenantId>
+
+# Reindex specific entity
+yarn mercato search reindex --tenant <tenantId> --entity customers:person
+```
+
+### From API
+
+```bash
+# Meilisearch reindex
+POST /api/search/reindex
+{ "action": "reindex" }
+
+# Vector embeddings reindex
+POST /api/search/embeddings/reindex
+{ "purgeFirst": true }
+```
+
+### From Settings UI
+
+Use the reindex buttons in **Configuration > Search Settings** for:
+- **Meilisearch**: Clear, recreate, or full reindex options
+- **Vector**: Rebuild all embeddings with current provider
+
+## Encryption-Aware Indexing
+
+The search module automatically protects sensitive data:
+
+- **Searchable fields**: Sent to external providers (names, titles, descriptions)
+- **Hash-only fields**: Indexed locally via tokens only (emails, phones)
+- **Excluded fields**: Never indexed (SSN, tax IDs, bank accounts)
+
+Field policies are defined per entity in the module's `search.ts` configuration.
+
+## Tenant Isolation
+
+All search strategies enforce tenant isolation:
+
+- **Meilisearch**: Separate indexes per tenant (prefixed with tenant ID)
+- **Vector**: Filtered by tenant_id in queries
+- **Tokens**: Scoped by tenant_id in the tokens table
+
+:::warning Changing embedding providers
+Switching embedding providers or models requires a full reindex because embeddings from different models are incompatible. Vector search will be unavailable until reindexing completes.
+:::

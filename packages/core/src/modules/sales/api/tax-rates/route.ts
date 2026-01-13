@@ -9,6 +9,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/sales_tax_rate'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -95,8 +96,8 @@ function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown
   if (query.channelId) {
     filters.channel_id = query.channelId
   }
-  if (query.isCompound === 'true') filters.is_compound = true
-  if (query.isCompound === 'false') filters.is_compound = false
+  const isCompound = parseBooleanToken(query.isCompound)
+  if (isCompound !== null) filters.is_compound = isCompound
   return filters
 }
 

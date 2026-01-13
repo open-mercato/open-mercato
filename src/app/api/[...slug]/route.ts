@@ -3,6 +3,10 @@ import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/generated/modules.generated'
 import { getAuthFromRequest } from '@/lib/auth/server'
+import { bootstrap } from '@/bootstrap'
+
+// Ensure all package registrations are initialized for API routes
+bootstrap()
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'

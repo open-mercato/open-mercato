@@ -6,7 +6,8 @@ import { resolveFeatureCheckContext } from "@open-mercato/core/modules/directory
 import { Tenant } from "@open-mercato/core/modules/directory/data/entities"
 import { logCrudAccess } from "@open-mercato/shared/lib/crud/factory"
 import { OpenApiRouteDoc } from "@/lib/openapi"
-import { FeatureToggleOverride } from '../../../../data/entities'
+import { FeatureToggleOverride, FeatureToggle } from '../../../../data/entities'
+import { FeatureToggleOverrideResponse } from '../../../../data/validators'
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)
@@ -33,11 +34,17 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     toggle: { id: id },
   })
 
-  const responseOverride = {
+  const toggle = await em.findOne(FeatureToggle, { id: id })
+  if (!toggle) {
+    return NextResponse.json({ error: 'Feature toggle not found' }, { status: 404 })
+  }
+
+  const responseOverride: FeatureToggleOverrideResponse = {
     id: override?.id ?? '',
-    state: override?.state ?? 'inherit',
+    value: override ? override.value : toggle.defaultValue,
     tenantName: tenant.name,
     tenantId: tenant.id,
+    toggleType: toggle.type,
   }
 
   await logCrudAccess({
@@ -50,7 +57,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     tenantId: auth.tenantId ?? null,
     query: {},
     accessType: 'read:item',
-    fields: ['id', 'tenantId', 'state', 'toggle']
+    fields: ['id', 'tenantId', 'value', 'toggle', 'toggleType']
   })
 
   return NextResponse.json(responseOverride)

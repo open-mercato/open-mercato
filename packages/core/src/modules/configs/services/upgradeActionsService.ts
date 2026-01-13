@@ -2,13 +2,14 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { appVersion } from '@open-mercato/shared/lib/version'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { UpgradeActionRun } from '../data/entities'
 import { actionsUpToVersion, findUpgradeAction, type UpgradeActionDefinition } from '../lib/upgrade-actions'
 
 export type UpgradeActionStatus = 'completed' | 'already_completed'
 
 export function isUpgradeActionsEnabled(): boolean {
-  return process.env.UPGRADE_ACTIONS_ENABLED === 'true'
+  return parseBooleanToken(process.env.UPGRADE_ACTIONS_ENABLED ?? '') === true
 }
 
 export function getCurrentVersion(): string {

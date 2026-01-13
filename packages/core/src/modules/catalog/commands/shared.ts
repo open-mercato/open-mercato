@@ -10,6 +10,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+export { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { env } from 'process'
 
 type QueryIndexCrudAction = 'created' | 'updated' | 'deleted'
@@ -69,14 +70,6 @@ export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string):
   const currentTenant = ctx.auth?.tenantId ?? null
   if (currentTenant && currentTenant !== tenantId) {
     logScopeViolation(ctx, 'tenant', tenantId, currentTenant)
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-}
-
-export function ensureOrganizationScope(ctx: CommandRuntimeContext, organizationId: string): void {
-  const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (currentOrg && currentOrg !== organizationId) {
-    logScopeViolation(ctx, 'organization', organizationId, currentOrg)
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
 }

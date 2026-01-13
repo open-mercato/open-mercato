@@ -23,6 +23,8 @@ node_modules
 # misc
 .DS_Store
 *.pem
+# Exception: Allow public CA certificates for SSL verification
+!certs/*.pem
 
 # debug
 npm-debug.log*
@@ -89,3 +91,4 @@ debug-storybook.log
 storybook-static
 .queue/events/queue.json
 .queue/events/state.json
+.queue/**
