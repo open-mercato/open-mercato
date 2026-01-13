@@ -521,5 +521,16 @@
   "booking.availability.errors.unauthorized": "Brak autoryzacji",
   "booking.availability.errors.organizationRequired": "Wymagany jest kontekst organizacji.",
   "booking.availability.errors.updateWeekly": "Nie udało się zapisać tygodniowej dostępności.",
-  "booking.availability.errors.updateDateSpecific": "Nie udało się zapisać dostępności dla dat."
+  "booking.availability.errors.updateDateSpecific": "Nie udało się zapisać dostępności dla dat.",
+  "booking.search.badge.service": "Usługa",
+  "booking.search.badge.resource": "Zasób",
+  "booking.search.badge.resourceType": "Typ zasobu",
+  "booking.search.badge.team": "Zespół",
+  "booking.search.badge.teamMember": "Członek zespołu",
+  "booking.search.badge.teamRole": "Rola zespołu",
+  "booking.search.badge.availabilityRuleSet": "Zestaw reguł dostępności",
+  "booking.search.badge.attendee": "Uczestnik",
+  "booking.search.status.active": "Aktywny",
+  "booking.search.status.inactive": "Nieaktywny",
+  "booking.search.service.maxAttendees": "Maks. {{count}}"
 }
