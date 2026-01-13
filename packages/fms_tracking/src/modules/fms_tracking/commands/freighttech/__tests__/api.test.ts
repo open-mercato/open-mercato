@@ -2,7 +2,7 @@ jest.mock('../settings', () => ({
   loadFreighttechTrackingSettings: jest.fn(),
 }))
 
-jest.mock('../../lib/webhookToken', () => ({
+jest.mock('../../../lib/webhookToken', () => ({
   encodeWebhookToken: jest.fn(),
 }))
 
@@ -60,7 +60,7 @@ describe('freighttech_api', () => {
         carrier_code: 'MAEU',
         booking_number: 'MAEU325537156',
         carrier_id: 'carrier-1',
-        callback_url: 'https://test-app.example.com/api/fms_tracking/webhook?token=mock-token-abc123',
+        callback_url: 'https://test-app.example.com/api/fms_tracking/webhook/freighttech?token=mock-token-abc123',
         organization_id: 'org-ext-123',
         parent_reference_id: null,
         latest_update_id: 'update-1',
@@ -131,7 +131,7 @@ describe('freighttech_api', () => {
             carrier_code: mockParams.carrierCode,
             booking_number: mockParams.bookingNumber,
             container_id: mockParams.containerId,
-            callback_url: 'https://test-app.example.com/api/fms_tracking/webhook?token=mock-token-abc123',
+            callback_url: 'https://test-app.example.com/api/fms_tracking/webhook/freighttech?token=mock-token-abc123',
           }),
           signal: expect.any(AbortSignal),
         }
@@ -169,8 +169,7 @@ describe('freighttech_api', () => {
           body: JSON.stringify({
             carrier_code: mockParams.carrierCode,
             booking_number: mockParams.bookingNumber,
-            container_id: undefined,
-            callback_url: 'https://test-app.example.com/api/fms_tracking/webhook?token=mock-token-abc123',
+            callback_url: 'https://test-app.example.com/api/fms_tracking/webhook/freighttech?token=mock-token-abc123',
           }),
         })
       )
@@ -200,9 +199,8 @@ describe('freighttech_api', () => {
         expect.objectContaining({
           body: JSON.stringify({
             carrier_code: mockParams.carrierCode,
-            booking_number: undefined,
             container_id: mockParams.containerId,
-            callback_url: 'https://test-app.example.com/api/fms_tracking/webhook?token=mock-token-abc123',
+            callback_url: 'https://test-app.example.com/api/fms_tracking/webhook/freighttech?token=mock-token-abc123',
           }),
         })
       )
@@ -356,7 +354,7 @@ describe('freighttech_api', () => {
             carrier_code: mockParams.carrierCode,
             booking_number: mockParams.bookingNumber,
             container_id: mockParams.containerId,
-            callback_url: 'https://custom-domain.com/api/fms_tracking/webhook?token=mock-token-abc123',
+            callback_url: 'https://custom-domain.com/api/fms_tracking/webhook/freighttech?token=mock-token-abc123',
           }),
         })
       )
