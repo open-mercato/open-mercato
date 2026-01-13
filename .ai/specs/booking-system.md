@@ -2,22 +2,22 @@
 
 Goal: Build a tenant-aware booking module with self-contained attendees, availability, and conflict checks, plus a negotiation phase (waiting list), catalog product/variant linkage, admin widget injection, undo/redo command support, encryption defaults, and RBAC features. Module stays isomorphic (no cross-module ORM relationships) and admin-only.
 
-## Progress (Last Updated 2026-01-07)
+## Progress (Last Updated 2025-01-11)
 
 Completed:
-- Added booking module scaffolding under `src/modules/booking` with `acl.ts`, `index.ts`, commands, API helpers, entities, and validators.
-- Implemented commands + CRUD APIs for resources, resource types, and availability with `makeCrudRoute` and `indexer` enabled.
-- Enabled module in `src/modules.ts` and ran `npm run modules:prepare` to refresh generated registries.
-- Added encryption defaults for booking entities in `packages/core/src/modules/entities/lib/encryptionDefaults.ts`.
-- Updated admin role seeding to include `booking.*` features in `packages/core/src/modules/auth/lib/setup-app.ts`.
-- Introduced a shared `ensureOrganizationScope` helper in `packages/shared/src/lib/commands/scope.ts` and re-exported it from module shared helpers (catalog/sales/customers/booking).
+- Booking module scaffolding under `src/modules/booking` with `acl.ts`, `index.ts`, `cli.ts`, `di.ts`, commands, APIs, entities, validators, and i18n.
+- Entities + validators for teams, team roles/members, resources, resource types, availability rule sets/weekly/date-specific, events + attendees, tags, and service/product link tables.
+- Commands + CRUD APIs for teams, team roles/members, resources, resource types, availability rule sets/weekly/date-specific, event attendees, and tag assignments.
+- Availability merge + booking availability service with tests.
+- Admin UI pages + CrudForms for teams, team roles/members, resources, resource types, availability rule sets, and attendees.
+- Encryption defaults + admin role seeding for `booking.*` features.
 
 Next steps:
-- Run `npm run db:generate` and `npm run db:migrate` to generate/apply booking migrations.
-- Implement services, team roles/members, events, attendees, allocations, confirmations, and product/variant link APIs + commands.
-- Build Phase 1 admin UI: resource list/detail and the shared schedule/calendar components.
-- Add negotiation flow commands/endpoints (confirmations, accept/cancel, undo/redo).
-- Add tests for negotiation transitions, confirmation modes, product/variant links, and undo/redo.
+- Implement booking services CRUD (commands, APIs, admin pages, forms) with custom fields, indexer side effects, and undo support.
+- Implement booking events CRUD plus event members/resources/confirmations and negotiation flow (accept/decline/cancel) with indexer + undo side effects.
+- Add service product/variant link APIs + admin widgets and UI for catalog assignment.
+- Wire availability rule sets into member/resource setup and event scheduling checks via `bookingAvailabilityService`.
+- Expand tests for event lifecycle, negotiation transitions, availability merge edge cases, tag assignments, and custom fields.
 
 ## 0) Core Constraints
 

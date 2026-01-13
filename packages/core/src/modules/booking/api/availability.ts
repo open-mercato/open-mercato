@@ -6,6 +6,7 @@ import { BookingAvailabilityRule } from '../data/entities'
 import { bookingAvailabilityRuleCreateSchema, bookingAvailabilityRuleUpdateSchema } from '../data/validators'
 import { E } from '@/generated/entities.ids.generated'
 import * as F from '@/generated/entities/booking_availability_rule'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -117,3 +118,39 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const availabilityRuleListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  subject_type: z.string().nullable().optional(),
+  subject_id: z.string().uuid().nullable().optional(),
+  timezone: z.string().nullable().optional(),
+  rrule: z.string().nullable().optional(),
+  exdates: z.array(z.string()).nullable().optional(),
+  kind: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Availability rule',
+  pluralName: 'Availability rules',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(availabilityRuleListItemSchema),
+  create: {
+    schema: bookingAvailabilityRuleCreateSchema,
+    description: 'Creates an availability rule for the selected subject.',
+  },
+  update: {
+    schema: bookingAvailabilityRuleUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates an availability rule by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes an availability rule by id.',
+  },
+})
