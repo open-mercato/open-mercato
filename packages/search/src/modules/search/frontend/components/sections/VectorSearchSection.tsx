@@ -939,3 +939,5 @@ export function VectorSearchSection({
     </div>
   )
 }
+
+export default VectorSearchSection

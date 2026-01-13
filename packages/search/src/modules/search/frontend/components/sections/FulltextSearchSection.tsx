@@ -620,3 +620,5 @@ export function FulltextSearchSection({
     </div>
   )
 }
+
+export default FulltextSearchSection

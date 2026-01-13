@@ -120,3 +120,5 @@ export function GlobalSearchSection({
     </div>
   )
 }
+
+export default GlobalSearchSection

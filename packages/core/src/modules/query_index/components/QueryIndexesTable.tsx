@@ -44,8 +44,8 @@ type Row = {
   indexCount: number | null
   vectorCount: number | null
   vectorEnabled: boolean
-  meilisearchCount: number | null
-  meilisearchEnabled: boolean
+  fulltextCount: number | null
+  fulltextEnabled: boolean
   ok: boolean
   job?: JobStatus
 }
@@ -128,14 +128,14 @@ function createColumns(t: Translator): ColumnDef<Row>[] {
       meta: { priority: 2 },
     },
     {
-      id: 'meilisearchCount',
-      header: () => t('query_index.table.columns.meilisearch'),
-      accessorFn: (row) => (row.meilisearchEnabled ? row.meilisearchCount ?? 0 : -1),
+      id: 'fulltextCount',
+      header: () => t('query_index.table.columns.fulltext'),
+      accessorFn: (row) => (row.fulltextEnabled ? row.fulltextCount ?? 0 : -1),
       cell: ({ row }) => {
         const record = row.original
-        if (!record.meilisearchEnabled) return <span>—</span>
-        const ok = record.meilisearchCount != null && record.baseCount != null && record.meilisearchCount === record.baseCount
-        const display = formatCount(record.meilisearchCount)
+        if (!record.fulltextEnabled) return <span>—</span>
+        const ok = record.fulltextCount != null && record.baseCount != null && record.fulltextCount === record.baseCount
+        const display = formatCount(record.fulltextCount)
         const className = ok ? 'text-green-600' : 'text-orange-600'
         return <span className={className}>{display}</span>
       },
@@ -305,6 +305,38 @@ export default function QueryIndexesTable() {
     [qc, t],
   )
 
+  const triggerFulltext = React.useCallback(
+    async (action: 'reindex' | 'purge', entityId: string) => {
+      if (action === 'purge' && typeof window !== 'undefined') {
+        const confirmed = window.confirm(t('query_index.table.confirm.fulltextPurge'))
+        if (!confirmed) return
+      }
+
+      const actionLabel = action === 'purge'
+        ? t('query_index.table.actions.fulltextPurge')
+        : t('query_index.table.actions.fulltextReindex')
+      const errorMessage = t('query_index.table.errors.actionFailed', { action: actionLabel })
+      try {
+        await apiCallOrThrow('/api/search/reindex', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            action: action === 'purge' ? 'clear' : 'reindex',
+            entityId,
+          }),
+        }, { errorMessage })
+      } catch (err) {
+        console.error('query_index.table.fulltextAction', err)
+        if (typeof window !== 'undefined') {
+          const message = err instanceof Error ? err.message : errorMessage
+          window.alert(message)
+        }
+      }
+      qc.invalidateQueries({ queryKey: ['query-index-status'] })
+    },
+    [qc, t],
+  )
+
   return (
     <DataTable
       title={t('query_index.nav.queryIndexes')}
@@ -357,6 +389,20 @@ export default function QueryIndexesTable() {
               label: t('query_index.table.actions.vectorPurge'),
               destructive: true,
               onSelect: () => triggerVector('purge', row.entityId),
+            },
+          )
+        }
+
+        if (row.fulltextEnabled) {
+          items.push(
+            {
+              label: t('query_index.table.actions.fulltextReindex'),
+              onSelect: () => triggerFulltext('reindex', row.entityId),
+            },
+            {
+              label: t('query_index.table.actions.fulltextPurge'),
+              destructive: true,
+              onSelect: () => triggerFulltext('purge', row.entityId),
             },
           )
         }
