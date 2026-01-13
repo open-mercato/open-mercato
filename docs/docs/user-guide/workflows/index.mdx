@@ -1,0 +1,100 @@
+---
+title: Workflows Overview
+description: Orchestrate multi-step business processes with Open Mercato's workflow engine
+---
+
+# Workflows Overview
+
+Workflows are automated business processes that coordinate multiple steps, human decisions, and system actions into a cohesive flow. Think of them as digital assembly lines for your business operations—each step performs a specific task, and the workflow orchestrates how information moves from start to finish.
+
+## What Are Workflows?
+
+A workflow is like a recipe for a business process. Just as a recipe has ingredients, steps, and conditions (e.g., "bake until golden brown"), a workflow has:
+
+- **Steps**: Individual tasks that perform specific actions
+- **Transitions**: Connections that define how to move between steps
+- **Activities**: Automated actions like sending emails or calling APIs
+- **Conditions**: Rules that determine which path to take
+
+For example, an approval workflow might start when a purchase request is submitted, route it to a manager for review, send a notification email, and finally mark the request as approved or rejected.
+
+## Key Concepts
+
+### Definitions vs. Instances
+
+- **Workflow Definition**: The template or blueprint for your process. It defines the steps, transitions, and logic but doesn't contain any data.
+- **Workflow Instance**: A running execution of a definition with real data. Each time you start a workflow, you create a new instance.
+
+Think of definitions as cookie cutters and instances as the actual cookies.
+
+### Steps
+
+Steps are the building blocks of workflows. Each step represents a stage in your process:
+
+- **START**: Entry point where workflows begin
+- **END**: Exit point where workflows complete
+- **USER_TASK**: Requires human input or decision
+- **AUTOMATED**: Performs automated processing
+- **WAIT_FOR_SIGNAL**: Pauses until an external event occurs
+
+[**Learn more about step types →**](./step-types)
+
+### Transitions
+
+Transitions connect steps and define how the workflow moves forward. They can be automatic (immediate) or conditional (based on rules or manual actions).
+
+[**Learn more about transitions →**](./transitions)
+
+### Activities
+
+Activities are actions that execute during workflows—sending emails, calling external APIs, updating database records, or publishing events. They're the "verbs" of your workflow.
+
+[**Learn more about activities →**](./activities)
+
+## When to Use Workflows
+
+Workflows are ideal for processes that:
+
+- **Require multiple steps**: Purchase approvals, onboarding, order fulfillment
+- **Involve human decisions**: Review processes, escalations, manual interventions
+- **Run over extended periods**: Multi-day processes, scheduled tasks
+- **Need audit trails**: Compliance, tracking who did what and when
+- **Coordinate multiple systems**: Integrate with external APIs, databases, and services
+
+### Common Use Cases
+
+- **Approval Processes**: Route requests through multiple approvers with escalation rules
+- **Order Fulfillment**: Coordinate inventory, shipping, notifications, and payment processing
+- **Customer Onboarding**: Guide new customers through setup steps with automated emails
+- **Incident Management**: Track issue resolution with assignments, updates, and notifications
+- **Content Publishing**: Review, approve, and publish content with multiple stakeholders
+
+## Getting Started
+
+Ready to create your first workflow? Start with these guides:
+
+1. [**Creating Workflows**](./creating-workflows) - Step-by-step guide to building your first workflow
+2. [**Step Types**](./step-types) - Choose the right step for each task
+3. [**Activities**](./activities) - Configure automated actions
+4. [**User Tasks**](./user-tasks) - Work with tasks requiring human input
+
+### Quick Navigation
+
+- [**Transitions**](./transitions) - Connect steps with conditional logic
+- [**Signals**](./signals) - Handle external events and triggers
+- [**Monitoring**](./monitoring) - Debug and track workflow execution
+
+## Architecture
+
+Workflows are built on a state machine architecture that ensures reliable execution, complete audit trails, and support for long-running processes. The engine handles:
+
+- **Event Sourcing**: Every step, transition, and action is logged
+- **Compensation**: Automatic rollback when errors occur (saga pattern)
+- **Async Activities**: Queue-based execution for long-running tasks
+- **Signals**: External triggers that resume waiting workflows
+
+For developers who want to integrate workflows programmatically or extend the engine with custom activities, see the [**Framework Documentation**](/framework/workflows/).
+
+## Next Steps
+
+Start building your first workflow with our [**step-by-step creation guide**](./creating-workflows), or explore the different [**step types**](./step-types) to understand your building blocks.

@@ -1,0 +1,134 @@
+{
+  "workflowId": "simple_approval_v1",
+  "workflowName": "Simple Approval Workflow",
+  "description": "Basic three-step approval workflow for testing: Start → Approval → End",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "Testing",
+    "tags": [
+      "test",
+      "approval",
+      "simple"
+    ],
+    "icon": "check-circle"
+  },
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "Initialize workflow"
+      },
+      {
+        "stepId": "approval",
+        "stepName": "Pending Approval",
+        "stepType": "USER_TASK",
+        "description": "Approve or reject request",
+        "userTaskConfig": {
+          "assignedTo": "approver",
+          "slaDuration": "PT1H"
+        }
+      },
+      {
+        "stepId": "end",
+        "stepName": "Complete",
+        "stepType": "END",
+        "description": "Workflow complete"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_approval",
+        "transitionName": "Submit for Approval",
+        "fromStepId": "start",
+        "toStepId": "approval",
+        "trigger": "auto",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "notify_approver",
+            "activityName": "Notify Approver",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.approver.email}}",
+              "subject": "Approval Required: {{context.request.title}}",
+              "template": "approval_request",
+              "data": {
+                "requestId": "{{context.request.id}}",
+                "title": "{{context.request.title}}",
+                "requester": "{{context.requester.name}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true,
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 2000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 20000
+            }
+          },
+          {
+            "activityId": "emit_approval_requested",
+            "activityName": "Emit Approval Requested Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventType": "approval.requested",
+              "payload": {
+                "requestId": "{{context.request.id}}",
+                "workflowInstanceId": "{{workflow.instanceId}}"
+              }
+            },
+            "async": true
+          }
+        ]
+      },
+      {
+        "transitionId": "approval_to_end",
+        "transitionName": "Approval Decision",
+        "fromStepId": "approval",
+        "toStepId": "end",
+        "trigger": "manual",
+        "priority": 100,
+        "activities": [
+          {
+            "activityId": "notify_requester",
+            "activityName": "Notify Requester of Decision",
+            "activityType": "SEND_EMAIL",
+            "config": {
+              "to": "{{context.requester.email}}",
+              "subject": "Approval Decision: {{context.request.title}}",
+              "template": "approval_decision",
+              "data": {
+                "requestId": "{{context.request.id}}",
+                "title": "{{context.request.title}}",
+                "decision": "{{task.result.approved}}",
+                "comments": "{{task.result.comments}}",
+                "approver": "{{task.completedBy}}"
+              }
+            },
+            "timeout": "PT10S",
+            "async": true
+          },
+          {
+            "activityId": "emit_approval_completed",
+            "activityName": "Emit Approval Completed Event",
+            "activityType": "EMIT_EVENT",
+            "config": {
+              "eventType": "approval.completed",
+              "payload": {
+                "requestId": "{{context.request.id}}",
+                "approved": "{{task.result.approved}}",
+                "approvedBy": "{{task.completedBy}}",
+                "timestamp": "{{now}}"
+              }
+            },
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

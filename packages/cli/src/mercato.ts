@@ -373,6 +373,14 @@ export async function run(argv = process.argv) {
         await runModuleCommand(allModules, 'sales', 'seed-payment-methods', ['--tenant', tenantId, '--org', orgId])
         console.log('💳 ✅ Payment methods seeded\n')
 
+        console.log('🔄 Seeding workflow definitions...')
+        try {
+          await runModuleCommand(allModules, 'workflows', 'seed-all', ['--tenant', tenantId, '--org', orgId])
+          console.log('✅ Workflows and business rules seeded\n')
+        } catch (err) {
+          console.error('⚠️  Workflow seeding failed (non-fatal):', err)
+        }
+
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {

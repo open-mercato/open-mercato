@@ -5,6 +5,8 @@ import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, P
 
 type LocalState = {
   lastProcessedId?: string
+  completedCount?: number
+  failedCount?: number
 }
 
 type StoredJob<T> = QueuedJob<T>
@@ -153,6 +155,7 @@ export function createLocalQueue<T = unknown>(
     let processed = 0
     let failed = 0
     let lastJobId: string | undefined
+    const jobIdsToRemove = new Set<string>()
 
     for (const job of jobsToProcess) {
       try {
@@ -165,16 +168,28 @@ export function createLocalQueue<T = unknown>(
         )
         processed++
         lastJobId = job.id
+        jobIdsToRemove.add(job.id)
         console.log(`[queue:${name}] Job ${job.id} completed`)
       } catch (error) {
         console.error(`[queue:${name}] Job ${job.id} failed:`, error)
         failed++
         lastJobId = job.id
+        jobIdsToRemove.add(job.id) // Remove failed jobs too (matching async strategy)
       }
     }
 
-    if (lastJobId) {
-      writeState({ lastProcessedId: lastJobId })
+    // Remove processed jobs from queue (matching async removeOnComplete behavior)
+    if (jobIdsToRemove.size > 0) {
+      const updatedJobs = jobs.filter((j) => !jobIdsToRemove.has(j.id))
+      writeQueue(updatedJobs)
+
+      // Update state with running counts
+      const newState: LocalState = {
+        lastProcessedId: lastJobId,
+        completedCount: (state.completedCount ?? 0) + processed,
+        failedCount: (state.failedCount ?? 0) + failed,
+      }
+      writeState(newState)
     }
 
     return { processed, failed, lastJobId }
@@ -229,7 +244,12 @@ export function createLocalQueue<T = unknown>(
     const jobs = readQueue()
     const removed = jobs.length
     writeQueue([])
-    writeState({})
+    // Reset state but preserve counts for historical tracking
+    const state = readState()
+    writeState({
+      completedCount: state.completedCount,
+      failedCount: state.failedCount,
+    })
     return { removed }
   }
 
@@ -263,18 +283,11 @@ export function createLocalQueue<T = unknown>(
     const state = readState()
     const jobs = readQueue()
 
-    const lastProcessedIndex = state.lastProcessedId
-      ? jobs.findIndex((j) => j.id === state.lastProcessedId)
-      : -1
-
-    const waiting = jobs.length - (lastProcessedIndex + 1)
-    const completed = lastProcessedIndex + 1
-
     return {
-      waiting,
+      waiting: jobs.length, // All jobs in queue are waiting (processed ones are removed)
       active: 0, // Local strategy doesn't track active jobs
-      completed,
-      failed: 0, // Local strategy doesn't persist failed jobs separately
+      completed: state.completedCount ?? 0,
+      failed: state.failedCount ?? 0,
     }
   }
 
