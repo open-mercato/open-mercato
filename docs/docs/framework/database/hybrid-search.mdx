@@ -1,0 +1,272 @@
+---
+title: Hybrid Search Module
+description: Configure searchable entities, strategies, and the unified search service.
+---
+
+The `@open-mercato/search` module provides a pluggable search architecture with multiple strategy support. It orchestrates parallel execution across backends, merges results using Reciprocal Rank Fusion, and handles graceful degradation when providers are unavailable.
+
+## Module Anatomy
+
+- **Package**: `@open-mercato/search`
+- **Strategies**: `TokenSearchStrategy`, `VectorSearchStrategy`, `MeilisearchStrategy`
+- **Generated hooks**: `searchService`, `searchStrategies`, `searchIndexer` registered at boot
+- **Subscribers**: Listens to `search.index_record` and `search.delete_record` events
+
+```ts title="packages/search/src/di.ts"
+export function registerSearchModule(container: SearchContainer, options?: SearchModuleOptions): void {
+  const strategies: SearchStrategy[] = []
+
+  // Token strategy (always available)
+  if (!options?.skipTokens) {
+    const knex = container.resolve<Knex>('knex')
+    strategies.push(new TokenSearchStrategy(knex))
+  }
+
+  // Vector strategy (requires embedding service)
+  if (!options?.skipVector) {
+    const embeddingService = container.resolve<EmbeddingService>('vectorEmbeddingService')
+    const drivers = container.resolve<VectorDriver[]>('vectorDrivers')
+    if (embeddingService?.isConfigured?.() && drivers?.[0]) {
+      strategies.push(new VectorSearchStrategy(embeddingService, drivers[0]))
+    }
+  }
+
+  // Meilisearch strategy (requires host configuration)
+  if (!options?.skipMeilisearch && process.env.MEILISEARCH_HOST) {
+    strategies.push(new MeilisearchStrategy())
+  }
+
+  const searchService = new SearchService({
+    strategies,
+    defaultStrategies: determineDefaultStrategies(strategies),
+    fallbackStrategy: 'tokens',
+    mergeConfig: {
+      duplicateHandling: 'highest_score',
+      strategyWeights: { meilisearch: 1.2, vector: 1.0, tokens: 0.8 },
+    },
+  })
+
+  container.register({
+    searchService: asValue(searchService),
+    searchStrategies: asValue(strategies),
+    searchIndexer: asValue(new SearchIndexer(searchService, options?.moduleConfigs ?? [])),
+  })
+}
+```
+
+## Declaring Searchable Entities
+
+Modules opt in by exporting `searchConfig` from `src/modules/<module>/search.ts`.
+
+```ts title="packages/core/src/modules/customers/search.ts"
+import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
+
+export const searchConfig: SearchModuleConfig = {
+  defaultStrategies: ['meilisearch', 'tokens'],
+  entities: [
+    {
+      entityId: 'customers:customer_person_profile',
+      enabled: true,
+      priority: 10,
+
+      buildSource: async (ctx) => {
+        const { record, customFields } = ctx
+        return {
+          text: [record.preferred_name, record.first_name, record.last_name, record.job_title],
+          presenter: {
+            title: record.preferred_name ?? `${record.first_name} ${record.last_name}`,
+            subtitle: record.job_title,
+            icon: 'user',
+            badge: 'Person',
+          },
+        }
+      },
+
+      formatResult: async (ctx) => ({
+        title: ctx.record.preferred_name ?? `${ctx.record.first_name} ${ctx.record.last_name}`,
+        subtitle: ctx.record.job_title,
+        icon: 'user',
+        badge: 'Person',
+      }),
+
+      resolveUrl: async ({ record }) => `/backend/customers/${record.entity_id}`,
+
+      fieldPolicy: {
+        searchable: ['preferred_name', 'first_name', 'last_name', 'job_title'],
+        hashOnly: ['email', 'phone'],
+        excluded: ['date_of_birth', 'government_id'],
+      },
+    },
+  ],
+}
+
+export default searchConfig
+```
+
+### Key Callbacks
+
+| Callback | Purpose |
+|----------|---------|
+| `buildSource` | Returns text to index and optional presenter metadata |
+| `formatResult` | Shapes the result payload for UI consumers |
+| `resolveUrl` | Primary URL when a result is clicked |
+| `resolveLinks` | Additional action links (edit, view) |
+| `fieldPolicy` | Controls which fields go to external providers |
+
+## Strategy Interface
+
+All strategies implement the `SearchStrategy` interface:
+
+```ts
+interface SearchStrategy {
+  readonly id: SearchStrategyId
+  readonly name: string
+  readonly priority: number
+
+  isAvailable(): Promise<boolean>
+  ensureReady(): Promise<void>
+  search(query: string, options: SearchOptions): Promise<SearchResult[]>
+  index(record: IndexableRecord): Promise<void>
+  delete(entityId: string, recordId: string, tenantId: string): Promise<void>
+  bulkIndex?(records: IndexableRecord[]): Promise<void>
+  purge?(entityId: string, tenantId: string): Promise<void>
+}
+```
+
+### TokenSearchStrategy
+
+Uses PostgreSQL `search_tokens` table with hashed tokens. Always available, works with encrypted data.
+
+```ts
+const strategy = new TokenSearchStrategy(knex)
+await strategy.search('john doe', { tenantId: 'tenant-123' })
+```
+
+### VectorSearchStrategy
+
+Wraps the vector module's embedding service and driver. Requires configured embedding provider.
+
+```ts
+const strategy = new VectorSearchStrategy(embeddingService, vectorDriver)
+await strategy.search('customer support issues', { tenantId: 'tenant-123' })
+```
+
+### MeilisearchStrategy
+
+Uses Meilisearch for fast full-text fuzzy search with typo tolerance.
+
+```ts
+const strategy = new MeilisearchStrategy({
+  host: process.env.MEILISEARCH_HOST,
+  apiKey: process.env.MEILISEARCH_API_KEY,
+})
+await strategy.search('jhon doe', { tenantId: 'tenant-123' }) // handles typos
+```
+
+## Result Merging
+
+The `mergeAndRankResults` function implements Reciprocal Rank Fusion (RRF):
+
+```ts
+// RRF score: weight / (k + rank + 1)
+// k = 60 (constant), rank = position in strategy results
+
+const merged = mergeAndRankResults(results, {
+  duplicateHandling: 'highest_score',
+  strategyWeights: {
+    meilisearch: 1.2,  // Boost Meilisearch results
+    vector: 1.0,
+    tokens: 0.8,       // Lower weight for token results
+  },
+  minScore: 0.01,
+})
+```
+
+## Field Policy
+
+The `extractSearchableFields` function filters records based on encryption configuration:
+
+```ts
+import { extractSearchableFields } from '@open-mercato/search'
+
+// Automatically removes encrypted and sensitive fields
+const safeFields = extractSearchableFields(record.fields, 'customers:customer_person_profile')
+```
+
+Sensitive field patterns detected automatically:
+- `password`, `secret`, `token`, `api_key`
+- `ssn`, `tax_id`, `bank`, `credit_card`
+
+## Event Integration
+
+The search module subscribes to events emitted by the query_index module:
+
+```ts
+// Emitted from query_index/subscribers/upsert_one.ts
+await bus.emitEvent('search.index_record', {
+  entityId: 'customers:customer_person_profile',
+  recordId: '123',
+  tenantId: 'tenant-abc',
+  organizationId: 'org-xyz',
+})
+
+// Emitted from query_index/subscribers/delete_one.ts
+await bus.emitEvent('search.delete_record', {
+  entityId: 'customers:customer_person_profile',
+  recordId: '123',
+  tenantId: 'tenant-abc',
+})
+```
+
+## SearchIndexer
+
+Orchestrates indexing by resolving entity configurations and building `IndexableRecord` objects:
+
+```ts
+const indexer = container.resolve<SearchIndexer>('searchIndexer')
+
+await indexer.indexRecord({
+  entityId: 'customers:customer_person_profile',
+  recordId: '123',
+  tenantId: 'tenant-abc',
+  record: { first_name: 'John', last_name: 'Doe' },
+  customFields: { title: 'CEO' },
+})
+```
+
+## Environment Configuration
+
+```bash
+# Meilisearch (enables MeilisearchStrategy)
+MEILISEARCH_HOST=http://localhost:7700
+MEILISEARCH_API_KEY=your_master_key_here
+MEILISEARCH_INDEX_PREFIX=om
+
+# Vector (enables VectorSearchStrategy via embedding providers)
+OPENAI_API_KEY=sk-...
+# See vector-search.mdx for all embedding provider options
+
+# Token search (built-in, enabled by default)
+OM_SEARCH_ENABLED=true
+OM_SEARCH_MIN_LEN=3
+OM_SEARCH_ENABLE_PARTIAL=true
+```
+
+## Adding Custom Strategies
+
+Third-party packages can register custom strategies via DI:
+
+```ts
+import { addSearchStrategy } from '@open-mercato/search'
+import { AlgoliaStrategy } from './algolia-strategy'
+
+// In your module's di.ts
+export function register(container: AppContainer) {
+  if (process.env.ALGOLIA_APP_ID) {
+    addSearchStrategy(container, new AlgoliaStrategy({
+      appId: process.env.ALGOLIA_APP_ID,
+      apiKey: process.env.ALGOLIA_API_KEY,
+    }))
+  }
+}
+```

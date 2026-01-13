@@ -13,6 +13,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as FO from '@open-mercato/core/generated/entities/catalog_option_schema_template'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createCatalogCrudOpenApi,
   createPagedListResponseSchema,
@@ -53,7 +54,7 @@ export async function buildOptionSchemaFilters(
   }
   const term = sanitizeSearchTerm(query.search)
   if (term) {
-    const like = `%${term}%`
+    const like = `%${escapeLikePattern(term)}%`
     filters.$or = [
       { name: { $ilike: like } },
       { description: { $ilike: like } },

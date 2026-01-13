@@ -5,6 +5,7 @@ import type { Knex } from 'knex'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type ProgressBarHandle = {
   update(completed: number): void
@@ -17,7 +18,7 @@ import { upsertIndexBatch, type AnyRow } from './lib/batch'
 import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
 import { purgeIndexScope } from './lib/purge'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 
 type ParsedArgs = Record<string, string | boolean>
 
@@ -69,10 +70,10 @@ function flagEnabled(args: ParsedArgs, ...keys: string[]): boolean {
     if (raw === true) return true
     if (raw === false) continue
     if (typeof raw === 'string') {
-      const normalized = raw.trim().toLowerCase()
-      if (normalized === 'true' || normalized === '1' || normalized === '') return true
-      if (normalized === 'false' || normalized === '0') return false
-      return true
+      const trimmed = raw.trim()
+      if (!trimmed) return true
+      const parsed = parseBooleanToken(trimmed)
+      return parsed === null ? true : parsed
     }
   }
   return false
@@ -397,10 +398,8 @@ const rebuildAll: ModuleCli = {
     try {
       const knex = em.getConnection().getKnex()
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
-        E: Record<string, Record<string, string>>
-      }
-      const entityIds = flattenSystemEntityIds(All)
+      const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -645,10 +644,8 @@ const reindex: ModuleCli = {
         return
       }
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
-        E: Record<string, Record<string, string>>
-      }
-      const entityIds = flattenSystemEntityIds(All)
+      const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       if (!entityIds.length) {
         console.log('No entity definitions registered for query indexing.')
         return
@@ -859,10 +856,8 @@ const purge: ModuleCli = {
         return
       }
 
-      const { E: All } = await import('@/generated/entities.ids.generated') as {
-        E: Record<string, Record<string, string>>
-      }
-      const entityIds = flattenSystemEntityIds(All)
+      const { getEntityIds } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const entityIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
       for (const id of entityIds) {
         await bus.emitEvent(
           'query_index.purge',

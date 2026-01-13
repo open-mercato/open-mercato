@@ -78,3 +78,41 @@ export async function findApiKeyBySecret(em: EntityManager, secret: string): Pro
   if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
   return record
 }
+
+/**
+ * Execute a function with a one-time API key
+ *
+ * Creates a temporary API key, executes the function, and deletes the key.
+ * Perfect for workflow activities that need authenticated access without
+ * storing long-lived credentials.
+ *
+ * @param em - Entity manager
+ * @param input - API key configuration
+ * @param fn - Function to execute with the API key secret
+ * @returns Result of the function
+ */
+export async function withOnetimeApiKey<T>(
+  em: EntityManager,
+  input: CreateApiKeyInput,
+  fn: (secret: string) => Promise<T>
+): Promise<T> {
+  const { record, secret } = await createApiKey(em, {
+    ...input,
+    name: input.name || '__onetime__',
+    description: input.description || 'One-time API key',
+  })
+
+  try {
+    // Execute the function with the API key
+    const result = await fn(secret)
+    return result
+  } finally {
+    // Always delete the API key, even if the function throws
+    try {
+      await em.removeAndFlush(record)
+    } catch (error) {
+      // Log but don't throw - we don't want cleanup errors to mask the original error
+      console.error('[withOnetimeApiKey] Failed to delete one-time API key:', error)
+    }
+  }
+}

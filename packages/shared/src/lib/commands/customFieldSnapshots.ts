@@ -42,10 +42,16 @@ export function buildCustomFieldResetMap(
   if (before) for (const key of Object.keys(before)) keys.add(key)
   if (after) for (const key of Object.keys(after)) keys.add(key)
   for (const key of keys) {
-    if (before && Object.prototype.hasOwnProperty.call(before, key)) {
-      values[key] = before[key]
+    const hasBefore = Boolean(before && Object.prototype.hasOwnProperty.call(before, key))
+    if (hasBefore) {
+      const beforeValue = before?.[key]
+      if (beforeValue === null && Array.isArray(after?.[key])) {
+        values[key] = []
+      } else {
+        values[key] = beforeValue
+      }
     } else {
-      values[key] = null
+      values[key] = Array.isArray(after?.[key]) ? [] : null
     }
   }
   return values

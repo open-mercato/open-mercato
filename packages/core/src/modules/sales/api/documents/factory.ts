@@ -16,6 +16,8 @@ import {
 } from '../openapi'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type DocumentKind = 'order' | 'quote'
 
@@ -84,8 +86,8 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
-    const term = `%${query.search.trim().replace(/%/g, '\\%')}%`
-    filters.$or = [{ [numberColumn]: { $ilike: term } }, { status: { $ilike: term } }]
+    const term = `%${escapeLikePattern(query.search.trim())}%`
+    filters[numberColumn] = { $ilike: term }
   }
   if (query.customerId) {
     filters.customer_entity_id = { $eq: query.customerId }
@@ -128,7 +130,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0)
-  if (query.tagIdsEmpty === 'true') {
+  if (parseBooleanToken(query.tagIdsEmpty) === true) {
     filters.id = { $eq: '00000000-0000-0000-0000-000000000000' }
   } else if (tagIds.length) {
     filters['tag_assignments.tag_id'] = { $in: tagIds }

@@ -17,9 +17,20 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
 
 - **Bootstrap & Database**
   - [`yarn init`](./init) – full app bootstrap with optional reinstall mode.
-  - [`yarn db:generate`](./db-generate) – per-module migration diffing.
+  - [`yarn db:generate`](./db-generate) – per-module migration diffing (alias for `mercato db generate`).
   - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
   - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
+- **Code Generation**
+  - `mercato generate` or `mercato generate all` – run all generators (entity IDs, registry, entities, DI, API client).
+  - `mercato generate entity-ids` – generate entity ID mappings.
+  - `mercato generate registry` – generate module registry.
+  - `mercato generate entities` – generate ORM entity aggregation.
+  - `mercato generate di` – generate dependency injection registrars.
+  - `mercato generate api-client` – generate typed API client.
+- **Database**
+  - `mercato db generate` – generate per-module migrations.
+  - `mercato db migrate` – apply pending migrations.
+  - `mercato db greenfield --yes` – destructive reset and regenerate schema.
 - **Auth module**
   - [`mercato auth seed-roles`](./auth-seed-roles)
   - [`mercato auth setup`](./auth-setup)
@@ -30,6 +41,16 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`mercato auth list-tenants`](./auth-list-tenants)
 - **Security**
   - [`mercato api_keys add`](./api-keys) – mint scoped API keys for automations.
+- **Events & Queue**
+  - `mercato events emit <event> [payload] [-p]` – emit an event (optionally persistent).
+  - `mercato events clear` – clear the events queue.
+  - `mercato queue worker <name>` – run a queue worker (e.g., `queue worker events`).
+  - `mercato queue status <name>` – show queue job counts.
+  - `mercato queue clear <name>` – clear all jobs from a queue.
+- **Scaffolding**
+  - `mercato scaffold module <name>` – create a new module skeleton.
+  - `mercato scaffold entity` – interactive entity creation wizard.
+  - `mercato scaffold crud <module> <Entity> [route]` – generate CRUD route for an entity.
 - **Example module**
   - [`mercato example seed-todos`](./example-seed-todos)
   - [`mercato example hello`](./example-hello)

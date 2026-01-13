@@ -32,12 +32,12 @@ describe('GET /api/entities/records for custom entities', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(Array.isArray(json.items)).toBe(true)
-    expect(json.items[0]).toMatchObject({ id: 'rec-1', date: '1', how_long: 2 })
+    expect(json.items[0]).toMatchObject({ id: 'rec-1', date: true, how_long: 2 })
 
     // QE called with filters containing bare keys when custom entity
     expect(mockQE.query).toHaveBeenCalled()
     const firstCall = mockQE.query.mock.calls[0] as [string, { filters?: Record<string, unknown> }]
     const [, opts] = firstCall
-    expect(opts?.filters).toMatchObject({ date: '1', how_long: '2' })
+    expect(opts?.filters).toMatchObject({ date: true, how_long: '2' })
   })
 })

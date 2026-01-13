@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductTag } from '../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPagedListResponseSchema } from '../openapi'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['catalog.products.view'] },
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
   }
   const search = query.search?.trim()
   if (search) {
-    where.label = { $ilike: `%${search}%` }
+    where.label = { $ilike: `%${escapeLikePattern(search)}%` }
   }
 
   const limit = query.pageSize

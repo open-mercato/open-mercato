@@ -10,12 +10,14 @@ import { E } from '@open-mercato/core/generated/entities.ids.generated'
 import * as F from '@open-mercato/core/generated/entities/catalog_offer'
 import { parseIdList } from '../products/route'
 import { extractAllCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import {
   createCatalogCrudOpenApi,
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -71,11 +73,11 @@ export function buildOfferFilters(query: OfferListQuery): Record<string, unknown
     }
   }
   if (searchTerm) {
-    const like = `%${searchTerm.replace(/%/g, '\\%')}%`
+    const like = `%${escapeLikePattern(searchTerm)}%`
     filters.$or = [{ [F.title]: { $ilike: like } }, { [F.description]: { $ilike: like } }]
   }
-  if (query.isActive === 'true') filters[F.is_active] = true
-  if (query.isActive === 'false') filters[F.is_active] = false
+  const isActive = parseBooleanToken(query.isActive)
+  if (isActive !== null) filters[F.is_active] = isActive
   return filters
 }
 

@@ -118,6 +118,8 @@ export type DataTableProps<T> = {
   // Optional row click handler. When provided, rows become clickable and show pointer cursor.
   // If not provided but rowActions contains an 'Edit' action, it will be used as the default row click handler.
   onRowClick?: (row: T) => void
+  // Disable row click navigation when rowActions are present.
+  disableRowClick?: boolean
 
   // Auto FilterBar options (rendered as toolbar when provided and no custom toolbar passed)
   searchValue?: string
@@ -356,33 +358,54 @@ type ColumnTruncateConfig = {
   truncate: boolean
 }
 
-function getColumnTruncateConfig(columnId: string, accessorKey?: string): ColumnTruncateConfig {
+type ColumnTruncateMeta = {
+  truncate?: boolean
+  maxWidth?: string
+}
+
+function getColumnTruncateConfig(columnId: string, accessorKey?: string, columnMeta?: ColumnTruncateMeta): ColumnTruncateConfig {
   const key = accessorKey || columnId
+  const metaMaxWidth = typeof columnMeta?.maxWidth === 'string' ? columnMeta.maxWidth.trim() : ''
 
   // Custom fields get narrower width
   if (key.startsWith('cf_') || key.startsWith('cf:')) {
-    return { maxWidth: '120px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '120px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Core informative columns get wider width
   const wideColumns = ['title', 'name', 'description', 'source', 'companies', 'people']
   if (wideColumns.includes(key)) {
-    return { maxWidth: '250px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '250px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Medium width for status-like columns
   const mediumColumns = ['status', 'pipelineStage', 'pipeline_stage', 'type', 'category']
   if (mediumColumns.includes(key)) {
-    return { maxWidth: '180px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '180px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Date columns
   if (key.endsWith('_at') || key.endsWith('At') || key.includes('date') || key.includes('Date')) {
-    return { maxWidth: '120px', truncate: true }
+    return {
+      maxWidth: metaMaxWidth || '120px',
+      truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+    }
   }
 
   // Default for other columns
-  return { maxWidth: '150px', truncate: true }
+  return {
+    maxWidth: metaMaxWidth || '150px',
+    truncate: typeof columnMeta?.truncate === 'boolean' ? columnMeta.truncate : true,
+  }
 }
 
 // Check if a column should skip truncation (e.g., actions column)
@@ -529,6 +552,7 @@ export function DataTable<T>({
   error,
   rowActions,
   onRowClick,
+  disableRowClick = false,
   searchValue,
   onSearchChange,
   searchPlaceholder,
@@ -1548,7 +1572,7 @@ export function DataTable<T>({
                 })}
                 {rowActions ? (
                   <TableHead className="w-0 text-right">
-                    Actions
+                    {t('ui.dataTable.actionsColumn', 'Actions')}
                   </TableHead>
                 ) : null}
               </TableRow>
@@ -1572,7 +1596,7 @@ export function DataTable<T>({
               </TableRow>
             ) : table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => {
-                const isClickable = onRowClick || (rowActions && rowActions(row.original as T))
+                const isClickable = !disableRowClick && (onRowClick || (rowActions && rowActions(row.original as T)))
                 
                 return (
                   <TableRow 
@@ -1624,13 +1648,10 @@ export function DataTable<T>({
 
                       // Get truncation configuration for this column
                       const skipTruncation = shouldSkipTruncation(columnId)
-                      const metaTruncate = columnMeta?.truncate
-                      const metaMaxWidth = columnMeta?.maxWidth
-                      const shouldTruncate = metaTruncate !== false && !skipTruncation
-
-                      // Get default config based on column type
-                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey)
-                      const maxWidth = metaMaxWidth || truncateConfig.maxWidth
+                      // Get truncation configuration for this column
+                      const truncateConfig = getColumnTruncateConfig(columnId, accessorKey, columnMeta)
+                      const shouldTruncate = truncateConfig.truncate && !skipTruncation
+                      const maxWidth = truncateConfig.maxWidth
 
                       // Wrap content with TruncatedCell if truncation is enabled
                       // Get raw cell value for tooltip - flexRender returns React elements

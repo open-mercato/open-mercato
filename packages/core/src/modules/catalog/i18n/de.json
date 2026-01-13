@@ -16,76 +16,76 @@
     },
     "categories": {
       "page": {
-        "title": "Categories"
+        "title": "Kategorien"
       },
       "list": {
-        "title": "Categories",
+        "title": "Kategorien",
         "actions": {
-          "create": "Create",
-          "edit": "Edit",
-          "delete": "Delete"
+          "create": "Erstellen",
+          "edit": "Bearbeiten",
+          "delete": "Löschen"
         },
-        "searchPlaceholder": "Search categories",
+        "searchPlaceholder": "Kategorien suchen",
         "filters": {
           "status": "Status",
-          "all": "All",
-          "active": "Active",
-          "inactive": "Inactive"
+          "all": "Alle",
+          "active": "Aktiv",
+          "inactive": "Inaktiv"
         },
         "columns": {
-          "category": "Category",
-          "path": "Path",
-          "parent": "Parent",
-          "children": "Children",
-          "active": "Active"
+          "category": "Kategorie",
+          "path": "Pfad",
+          "parent": "Übergeordnet",
+          "children": "Untergeordnet",
+          "active": "Aktiv"
         },
         "error": {
-          "load": "Failed to load categories",
-          "delete": "Failed to delete category"
+          "load": "Kategorien konnten nicht geladen werden",
+          "delete": "Kategorie konnte nicht gelöscht werden"
         },
-        "confirmDelete": "Archive category \"{{name}}\"?",
+        "confirmDelete": "Kategorie \"{{name}}\" archivieren?",
         "none": "—"
       },
       "select": {
-        "error": "Failed to load categories",
-        "inactive": "inactive",
-        "empty": "Root level",
-        "loading": "Loading categories…"
+        "error": "Kategorien konnten nicht geladen werden",
+        "inactive": "inaktiv",
+        "empty": "Stammebene",
+        "loading": "Kategorien werden geladen…"
       },
       "form": {
-        "createTitle": "Create category",
-        "editTitle": "Edit category",
-        "loading": "Loading category...",
+        "createTitle": "Kategorie erstellen",
+        "editTitle": "Kategorie bearbeiten",
+        "loading": "Kategorie wird geladen...",
         "field": {
           "name": "Name",
-          "namePlaceholder": "e.g., Footwear",
+          "namePlaceholder": "z.B. Schuhe",
           "slug": "Slug",
-          "slugHelp": "Lowercase identifier for URLs or imports.",
-          "description": "Description",
-          "parent": "Parent",
-          "isActive": "Active"
+          "slugHelp": "Kleinbuchstaben-Kennung für URLs oder Importe.",
+          "description": "Beschreibung",
+          "parent": "Übergeordnet",
+          "isActive": "Aktiv"
         },
         "group": {
           "details": "Details",
-          "custom": "Custom data"
+          "custom": "Benutzerdefinierte Daten"
         },
         "action": {
-          "create": "Create",
-          "save": "Save"
+          "create": "Erstellen",
+          "save": "Speichern"
         },
         "errors": {
-          "name": "Provide the category name.",
-          "load": "Failed to load category",
-          "notFound": "Category not found",
-          "idRequired": "Category identifier is required.",
-          "delete": "Failed to delete category"
+          "name": "Geben Sie einen Kategorienamen an.",
+          "load": "Kategorie konnte nicht geladen werden",
+          "notFound": "Kategorie nicht gefunden",
+          "idRequired": "Kategorie-ID ist erforderlich.",
+          "delete": "Kategorie konnte nicht gelöscht werden"
         },
-        "pathLabel": "Path: {{path}}"
+        "pathLabel": "Pfad: {{path}}"
       },
       "flash": {
-        "created": "Category created",
-        "updated": "Category updated",
-        "deleted": "Category archived"
+        "created": "Kategorie erstellt",
+        "updated": "Kategorie aktualisiert",
+        "deleted": "Kategorie archiviert"
       }
     },
     "products": {
@@ -136,7 +136,11 @@
           "load": "Produkte konnten nicht geladen werden",
           "delete": "Produkt konnte nicht gelöscht werden"
         },
-        "deleteConfirm": "Dieses Produkt löschen?"
+        "deleteConfirm": "Dieses Produkt löschen?",
+        "actions": {
+          "edit": "Bearbeiten",
+          "delete": "Löschen"
+        }
       },
       "flash": {
         "deleted": "Produkt gelöscht",
@@ -164,65 +168,69 @@
         "pricing": "Preise",
         "options": "Optionen",
         "variants": "Varianten",
-        "title": "Title",
-        "subtitle": "Subtitle",
-        "description": "Description",
+        "title": "Titel",
+        "subtitle": "Untertitel",
+        "description": "Beschreibung",
         "sku": "SKU",
         "handle": "Handle",
-        "handlePlaceholder": "e.g., summer-sneaker",
+        "handlePlaceholder": "z.B. sommer-sneaker",
         "handlePreview": "Handle: ",
-        "handlePreviewPlaceholder": "your-handle",
-        "productType": "Product type",
-        "currency": "Primary currency",
-        "unit": "Default unit",
-        "isActive": "Active"
+        "handlePreviewPlaceholder": "dein-handle",
+        "productType": "Produkttyp",
+        "currency": "Hauptwährung",
+        "unit": "Standardeinheit",
+        "isActive": "Aktiv"
       },
       "create": {
         "title": "Produkt erstellen",
-        "submit": "Create product",
+        "submit": "Produkt erstellen",
+        "success": "Produkt erstellt.",
         "placeholders": {
-          "title": "e.g., Summer sneaker",
-          "subtitle": "Optional subtitle",
-          "handle": "e.g., summer-sneaker",
-          "description": "Describe the product..."
+          "title": "z.B. Sommer-Sneaker",
+          "subtitle": "Optionaler Untertitel",
+          "handle": "z.B. sommer-sneaker",
+          "description": "Beschreibe das Produkt..."
         },
         "fields": {
-          "currency": "Primary currency"
+          "currency": "Hauptwährung"
         },
         "meta": {
           "title": "Produkt-Metadaten",
-          "description": "Verwalte Untertitel, Handle und Währung für deine Storefronts."
+          "description": "Verwalte Untertitel, Handle und Währung für deine Storefronts.",
+          "handleLabel": "Handle"
         },
         "actions": {
-          "generateHandle": "Generate",
-          "usePlain": "Use plain text",
-          "useMarkdown": "Use markdown"
+          "generateHandle": "Generieren",
+          "usePlain": "Klartext verwenden",
+          "useMarkdown": "Markdown verwenden"
         },
         "steps": {
-          "general": "General data",
-          "organize": "Organize",
-          "variants": "Variants",
-          "previous": "Previous",
-          "continue": "Continue",
-          "review": "Review"
+          "general": "Allgemeine Daten",
+          "organize": "Organisieren",
+          "variants": "Varianten",
+          "previous": "Zurück",
+          "continue": "Weiter",
+          "review": "Überprüfen"
         },
-        "handleHelp": "Handle is used for URLs and must be unique.",
+        "handleHelp": "Handle wird für URLs verwendet und muss eindeutig sein.",
         "attachments": {
-          "title": "Media",
-          "help": "Drag and drop images here or click to upload.",
-          "remove": "Remove"
+          "title": "Medien",
+          "help": "Bilder hierher ziehen oder klicken zum Hochladen.",
+          "remove": "Entfernen"
         },
         "taxRates": {
-          "label": "Tax class",
-          "noneSelected": "No tax class selected",
-          "emptyOption": "No tax classes available",
-          "help": "Wird auf neue Preise angewendet, sofern nicht pro Variante \u00fcberschrieben.",
-          "empty": "Define tax classes under Sales \u2192 Configuration.",
-          "error": "Steuers\u00e4tze konnten nicht geladen werden.",
-          "unnamed": "Untitled tax rate",
-          "manage": "Manage tax classes"
+          "label": "Steuerklasse",
+          "noneSelected": "Keine Steuerklasse ausgewählt",
+          "emptyOption": "Keine Steuerklassen verfügbar",
+          "help": "Wird auf neue Preise angewendet, sofern nicht pro Variante überschrieben.",
+          "empty": "Steuerklassen unter Vertrieb → Konfiguration definieren.",
+          "error": "Steuersätze konnten nicht geladen werden.",
+          "unnamed": "Unbenannter Steuersatz",
+          "manage": "Steuerklassen verwalten"
         },
         "organize": {
+          "title": "Kategorisieren",
+          "description": "Kategorien, Vertriebskanäle und Tags zuweisen.",
           "categoriesLabel": "Kategorien",
           "categoriesPlaceholder": "Kategorien suchen",
           "categoriesHelp": "Produkt(e) einem oder mehreren Taxonomie-Knoten zuweisen.",
@@ -242,61 +250,62 @@
         "errors": {
           "scope": "Wähle zuerst eine Organisation aus, bevor du Produkte erstellst.",
           "missingId": "Produkt-ID nach dem Erstellen nicht vorhanden.",
-          "titleRequired": "Provide a product title.",
-          "id": "Product id missing after create.",
-          "variant": "Failed to create variant.",
-          "currency": "Provide a currency for all price kinds.",
+          "title": "Gib einen Produkttitel an.",
+          "titleRequired": "Gib einen Produkttitel an.",
+          "id": "Produkt-ID fehlt nach dem Erstellen.",
+          "variant": "Variante konnte nicht erstellt werden.",
+          "currency": "Gib eine Währung für alle Preisarten an.",
           "priceNonNegative": "Preise müssen größer oder gleich null sein."
         },
         "currency": {
-          "placeholder": "Select currency…",
-          "add": "Add currency",
-          "addPrompt": "Provide a currency code.",
-          "dialogTitle": "Add currency",
-          "valueLabel": "Currency code",
-          "valuePlaceholder": "e.g. USD",
-          "labelLabel": "Display label (optional)",
-          "labelPlaceholder": "e.g. US Dollar",
-          "required": "Currency code is required.",
-          "cancel": "Cancel",
-          "save": "Save",
-          "saveShortcut": "Press Enter to save",
-          "success": "Currency added.",
-          "loadError": "Unable to load currencies.",
-          "error": "Unable to add currency.",
-          "loading": "Loading currencies…",
-          "manage": "Manage currencies"
+          "placeholder": "Währung auswählen…",
+          "add": "Währung hinzufügen",
+          "addPrompt": "Währungscode eingeben.",
+          "dialogTitle": "Währung hinzufügen",
+          "valueLabel": "Währungscode",
+          "valuePlaceholder": "z.B. EUR",
+          "labelLabel": "Anzeigebezeichnung (optional)",
+          "labelPlaceholder": "z.B. Euro",
+          "required": "Währungscode ist erforderlich.",
+          "cancel": "Abbrechen",
+          "save": "Speichern",
+          "saveShortcut": "Enter drücken zum Speichern",
+          "success": "Währung hinzugefügt.",
+          "loadError": "Währungen konnten nicht geladen werden.",
+          "error": "Währung konnte nicht hinzugefügt werden.",
+          "loading": "Lade Währungen…",
+          "manage": "Währungen verwalten"
         },
         "pricing": {
           "net": "Nettopreis",
           "gross": "Bruttopreis",
           "taxRate": "Steuersatz",
           "currencyRequired": "Bitte eine Währung angeben, um Preise zu speichern.",
-          "entriesTitle": "Price entries",
-          "addPrice": "Add price",
-          "empty": "No prices yet.",
-          "currencyPlaceholder": "Select currency",
-          "unitPlaceholder": "Select unit",
-          "currencyLabel": "Currency",
-          "usePrimaryCurrency": "Use primary currency",
-          "kindLabel": "Kind",
+          "entriesTitle": "Preiseinträge",
+          "addPrice": "Preis hinzufügen",
+          "empty": "Noch keine Preise.",
+          "currencyPlaceholder": "Währung auswählen",
+          "unitPlaceholder": "Einheit auswählen",
+          "currencyLabel": "Währung",
+          "usePrimaryCurrency": "Hauptwährung verwenden",
+          "kindLabel": "Art",
           "kind": {
-            "list": "List",
-            "sale": "Sale",
-            "tier": "Tier",
-            "custom": "Custom"
+            "list": "Listenpreis",
+            "sale": "Angebotspreis",
+            "tier": "Staffelpreis",
+            "custom": "Benutzerdefiniert"
           },
-          "minQty": "Min qty",
-          "maxQty": "Max qty",
-          "startsAt": "Starts at",
-          "endsAt": "Ends at",
-          "currencyLoadError": "Unable to load currencies.",
-          "unitLoadError": "Unable to load units."
+          "minQty": "Min. Menge",
+          "maxQty": "Max. Menge",
+          "startsAt": "Beginnt am",
+          "endsAt": "Endet am",
+          "currencyLoadError": "Währungen konnten nicht geladen werden.",
+          "unitLoadError": "Einheiten konnten nicht geladen werden."
         },
         "variants": {
           "add": "Variante hinzufügen",
           "generate": "Aus Attributen erzeugen",
-          "noOptions": "Define select-type custom options to auto-generate combinations.",
+          "noOptions": "Definiere Auswahl-Optionen, um Kombinationen automatisch zu generieren.",
           "disabled": "Varianten sind nur für konfigurierbare Produkte verfügbar.",
           "empty": "Noch keine Varianten. Füge eine hinzu, um zu starten.",
           "name": "Name",
@@ -354,49 +363,128 @@
           "saveTemplateDescription": "Reuse this option set across future products."
         },
         "optionsBuilder": {
-          "title": "Product options",
-          "add": "Add option",
-          "placeholder": "e.g., Color",
-          "values": "Values",
+          "title": "Produktoptionen",
+          "add": "Option hinzufügen",
+          "placeholder": "z.B. Farbe",
+          "values": "Werte",
           "valuePlaceholder": "Gib einen Wert ein und drücke Enter",
-          "empty": "No options yet. Add your first option to generate variants."
+          "empty": "Noch keine Optionen. Füge die erste Option hinzu, um Varianten zu generieren."
         },
         "variantsBuilder": {
-          "toggle": "Yes, this is a product with variants",
-          "defaultOption": "Default option",
+          "toggle": "Ja, dies ist ein Produkt mit Varianten",
+          "defaultOption": "Standardoption",
           "sku": "SKU",
-          "vatColumn": "Tax class",
-          "manageInventory": "Managed inventory",
-          "allowBackorder": "Allow backorder",
-          "inventoryKit": "Has inventory kit",
-          "defaultLabel": "Default option value",
-          "makeDefault": "Set as default",
-          "titlePlaceholder": "Variant title",
-          "skuPlaceholder": "e.g., SKU-001",
-          "priceColumn": "Price {{title}}",
-          "vatOptionDefault": "Use product tax class ({{label}})",
-          "vatOptionNone": "No tax class",
-          "inventoryDisabled": "Die Bestandssteuerung ist hier noch nicht verf\u00fcgbar.",
-          "noPriceKinds": "Configure price kinds in Catalog settings to add price columns."
+          "vatColumn": "Steuerklasse",
+          "manageInventory": "Bestandsverwaltung",
+          "allowBackorder": "Nachbestellung erlauben",
+          "inventoryKit": "Bestandsset",
+          "defaultLabel": "Standard-Optionswert",
+          "makeDefault": "Als Standard festlegen",
+          "titlePlaceholder": "Variantenname",
+          "skuPlaceholder": "z.B. SKU-001",
+          "priceColumn": "Preis {{title}}",
+          "vatOptionDefault": "Produkt-Steuerklasse verwenden ({{label}})",
+          "vatOptionNone": "Keine Steuerklasse",
+          "inventoryDisabled": "Die Bestandssteuerung ist hier noch nicht verfügbar.",
+          "noPriceKinds": "Preisarten in den Katalogeinstellungen konfigurieren, um Preisspalten hinzuzufügen.",
+          "currencyMissing": "Währung fehlt"
+        },
+        "seoWidget": {
+          "title": "SEO-Optimierung",
+          "hint": "Titel sollten 10–60 Zeichen und Beschreibungen 50+ Zeichen haben.",
+          "ready": "Bereit",
+          "needsAttention": "Überprüfung nötig",
+          "titleLabel": "Titel ({{count}} Zeichen)",
+          "descriptionLabel": "Beschreibung ({{count}} Zeichen)",
+          "missing": "Fehlt",
+          "tooShort": "Zu kurz",
+          "tooLong": "Zu lang",
+          "good": "Gut",
+          "issues": {
+            "addTitle": "Füge einen aussagekräftigen Produkttitel hinzu.",
+            "titleTooShort": "Der Titel ist zu kurz (min. 10 Zeichen).",
+            "titleTooLong": "Der Titel ist zu lang (max. 60 Zeichen empfohlen).",
+            "addDescription": "Füge eine Produktbeschreibung hinzu (50+ Zeichen).",
+            "descriptionTooShort": "Die Beschreibung ist zu kurz für gutes SEO (min. 50 Zeichen)."
+          },
+          "footer": "Beispiel-Widget, das das Injektionssystem nutzt.",
+          "learnMore": "Erfahre, wie du dein eigenes erstellst"
         },
         "remove": "Entfernen",
         "selectPlaceholder": "Wert auswählen"
-      }
-    },
-    "edit": {
-      "variantList": {
-        "pricesHeading": "Preise",
-        "actions": "Aktionen",
-        "pricesEmpty": "Noch keine Preise.",
-        "deleteConfirm": "Variante \"{{name}}\" löschen?",
-        "deleting": "Wird gelöscht…",
-        "priceFallback": "Preis",
-        "generate": "Varianten generieren",
-        "generating": "Wird generiert…",
-        "generateSuccess": "Fehlende Varianten wurden erstellt.",
-        "generateError": "Varianten konnten nicht generiert werden.",
-        "generateEmpty": "Alle Optionskombinationen sind bereits vorhanden.",
-        "defaultTitle": "Variante"
+      },
+      "edit": {
+        "title": "Produkt bearbeiten",
+        "loading": "Produkt wird geladen",
+        "save": "Änderungen speichern",
+        "success": "Produkt aktualisiert.",
+        "errors": {
+          "idMissing": "Produkt-ID fehlt.",
+          "notFound": "Produkt nicht gefunden.",
+          "load": "Produktdetails konnten nicht geladen werden.",
+          "validation": "Markierte Felder korrigieren."
+        },
+        "dimensions": "Maße & Gewicht",
+        "dimensions.width": "Breite",
+        "dimensions.height": "Höhe",
+        "dimensions.depth": "Tiefe",
+        "dimensions.unit": "Größeneinheit",
+        "weight": {
+          "value": "Gewicht",
+          "unit": "Gewichtseinheit"
+        },
+        "variants": "Varianten",
+        "variants.add": "Variante hinzufügen",
+        "variants.default": "Standard",
+        "variants.empty": "Noch keine Varianten definiert.",
+        "custom": {
+          "title": "Benutzerdefinierte Attribute"
+        },
+        "metadata": {
+          "title": "Metadaten",
+          "hint": "Strukturierte Schlüssel/Wert-Paare für Integrationen anhängen.",
+          "add": "Eintrag hinzufügen",
+          "remove": "Eintrag entfernen",
+          "empty": "Keine Metadaten. Fügen Sie Ihren ersten Eintrag hinzu.",
+          "expand": "Metadaten anzeigen",
+          "collapse": "Metadaten ausblenden",
+          "keyPlaceholder": "Schlüssel",
+          "valuePlaceholder": "Wert"
+        },
+        "schemas": {
+          "manage": "Schema-Bibliothek öffnen",
+          "save": "Als Schema speichern",
+          "saveTitle": "Optionsschema speichern",
+          "dialogTitle": "Optionsschemata",
+          "loading": "Wird geladen…",
+          "empty": "Noch keine gespeicherten Schemata.",
+          "apply": "Anwenden",
+          "edit": "Schema bearbeiten",
+          "delete": "Schema löschen",
+          "deleteError": "Schema konnte nicht gelöscht werden.",
+          "deleted": "Schema gelöscht.",
+          "nameLabel": "Schema-Name",
+          "namePlaceholder": "z.B. Farbe + Größe",
+          "nameRequired": "Geben Sie einen Schema-Namen an.",
+          "saved": "Schema gespeichert."
+        },
+        "offers": {
+          "deleteError": "Vertriebskanal-Angebot konnte nicht entfernt werden."
+        },
+        "variantList": {
+          "pricesHeading": "Preise",
+          "actions": "Aktionen",
+          "pricesEmpty": "Noch keine Preise.",
+          "deleteConfirm": "Variante \"{{name}}\" löschen?",
+          "deleting": "Wird gelöscht…",
+          "priceFallback": "Preis",
+          "generate": "Varianten generieren",
+          "generating": "Wird generiert…",
+          "generateSuccess": "Fehlende Varianten wurden erstellt.",
+          "generateError": "Varianten konnten nicht generiert werden.",
+          "generateEmpty": "Alle Optionskombinationen sind bereits vorhanden.",
+          "defaultTitle": "Variante"
+        }
       }
     },
     "options": {
@@ -507,8 +595,13 @@
       "nav": {
         "catalog": "Catalog"
       }
-    }
-    ,
+    },
+    "widgets": {
+      "productSeo": {
+        "groupLabel": "Produkt-SEO-Helfer",
+        "groupDescription": "Optimiere Produkttitel und -beschreibungen vor der Veröffentlichung."
+      }
+    },
     "variants": {
       "form": {
         "createTitle": "Create variant",
@@ -562,7 +655,8 @@
         },
         "createSuccess": "Variant created.",
         "updated": "Variant updated.",
-        "deleted": "Variant deleted."
+        "deleted": "Variant deleted.",
+        "deleteError": "Variante konnte nicht gelöscht werden."
       }
     }
   }

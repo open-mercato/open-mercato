@@ -115,7 +115,7 @@ export class RuleExecutionLog {
   @ManyToOne(() => BusinessRule, { fieldName: 'rule_id', nullable: false })
   rule!: BusinessRule
 
-  @Property({ name: 'entity_id', type: 'uuid' })
+  @Property({ name: 'entity_id', type: 'varchar', length: 255 })
   entityId!: string
 
   @Property({ name: 'entity_type', type: 'varchar', length: 50 })

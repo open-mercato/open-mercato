@@ -13,6 +13,8 @@ import type { FilterQuery } from '@mikro-orm/core'
 import { tenantCrudEvents, tenantCrudIndexer } from '@open-mercato/core/modules/directory/commands/tenants'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { directoryTag, directoryErrorSchema, directoryOkSchema, tenantListResponseSchema } from '../openapi'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const listQuerySchema = z.object({
   id: z.string().uuid().optional(),
@@ -117,10 +119,10 @@ export async function GET(req: Request) {
   const where: FilterQuery<Tenant> = { deletedAt: null }
   if (id) where.id = id
   if (search) {
-    Object.assign(where, { name: { $ilike: `%${search}%` } })
+    Object.assign(where, { name: { $ilike: `%${escapeLikePattern(search)}%` } })
   }
-  if (isActive === 'true') where.isActive = true
-  if (isActive === 'false') where.isActive = false
+  const active = parseBooleanToken(isActive)
+  if (active !== null) where.isActive = active
 
   const fieldMap: Record<string, string> = { name: 'name', createdAt: 'createdAt', updatedAt: 'updatedAt' }
   const orderBy: Record<string, 'ASC' | 'DESC'> = {}

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
-import { modules } from '@/generated/modules.generated'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { getAuthFromRequest } from '@/lib/auth/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -95,6 +95,7 @@ export async function GET(req: Request) {
   }
 
   const ctx = { auth: { roles: auth.roles || [], sub: auth.sub, tenantId: auth.tenantId, orgId: auth.orgId } }
+  const modules = getModules()
   for (const m of (modules as any[])) {
     const groupDefault = capitalize(m.id)
     for (const r of (m.backendRoutes || [])) {

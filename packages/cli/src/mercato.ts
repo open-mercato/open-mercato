@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Note: Avoid top-level imports of generated files or DI container.
-// Some commands (e.g., `init`) must run before generation occurs.
-// We'll lazy-load modules and DI only when required by a specific command.
+// Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
+// Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
+
+import { createRequestContainer } from '@/lib/di/container'
+import { runWorker } from '@open-mercato/queue/worker'
+import type { Module } from '@open-mercato/shared/modules/registry'
+import { getCliModules, hasCliModules, registerCliModules } from './registry'
+export { getCliModules, hasCliModules, registerCliModules }
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 let envLoaded = false
 
@@ -13,6 +19,85 @@ async function ensureEnvLoaded() {
   envLoaded = true
 }
 
+// Helper to run a CLI command directly (without spawning a process)
+async function runModuleCommand(
+  allModules: Module[],
+  moduleName: string,
+  commandName: string,
+  args: string[] = []
+): Promise<void> {
+  const mod = allModules.find((m) => m.id === moduleName)
+  if (!mod) {
+    throw new Error(`Module not found: "${moduleName}"`)
+  }
+  if (!mod.cli || mod.cli.length === 0) {
+    throw new Error(`Module "${moduleName}" has no CLI commands`)
+  }
+  const cmd = mod.cli.find((c) => c.command === commandName)
+  if (!cmd) {
+    throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
+  }
+  await cmd.run(args)
+}
+
+// Build all CLI modules (registered + built-in)
+async function buildAllModules(): Promise<Module[]> {
+  const modules = getCliModules()
+
+  // Load optional app-level CLI commands
+  let appCli: any[] = []
+  try {
+    const dynImport: any = (Function('return import') as any)()
+    const app = await dynImport.then((f: any) => f('@/cli')).catch(() => null)
+    if (app && Array.isArray(app?.default)) appCli = app.default
+  } catch {}
+
+  const all = modules.slice()
+
+  // Built-in CLI module: generate
+  all.push({
+    id: 'generate',
+    cli: [
+      {
+        command: 'all',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+          const resolver = createResolver()
+          const quiet = args.includes('--quiet') || args.includes('-q')
+          console.log('Running all generators...')
+          await generateEntityIds({ resolver, quiet })
+          await generateModuleRegistry({ resolver, quiet })
+          await generateModuleEntities({ resolver, quiet })
+          await generateModuleDi({ resolver, quiet })
+          await generateApiClient({ resolver, quiet })
+          console.log('All generators completed.')
+        },
+      },
+    ],
+  } as any)
+
+  // Built-in CLI module: db
+  all.push({
+    id: 'db',
+    cli: [
+      {
+        command: 'migrate',
+        run: async () => {
+          const { createResolver } = await import('./lib/resolver')
+          const { dbMigrate } = await import('./lib/db')
+          const resolver = createResolver()
+          await dbMigrate(resolver)
+        },
+      },
+    ],
+  } as any)
+
+  if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
+
+  return all
+}
+
 export async function run(argv = process.argv) {
   await ensureEnvLoaded()
   const [, , ...parts] = argv
@@ -21,9 +106,9 @@ export async function run(argv = process.argv) {
   // Handle init command directly
   if (first === 'init') {
     const { execSync } = await import('child_process')
-    
+
     console.log('🚀 Initializing Open Mercato app...\n')
-    
+
     try {
       const initArgs = parts.slice(1).filter(Boolean)
       const reinstall = initArgs.includes('--reinstall') || initArgs.includes('-r')
@@ -122,57 +207,61 @@ export async function run(argv = process.argv) {
         } finally {
           try { await client.end() } catch {}
         }
-        console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
-      }
-
-      const baseEnv = {
-        ...process.env,
-        OM_CLI_QUIET: '1',
-        YARN_SILENT: '1',
-        npm_config_loglevel: 'silent',
-      }
-      const runCommand = (command: string, { quiet, label }: { quiet?: boolean; label?: string } = {}) => {
+        // Also flush Redis
         try {
-          return execSync(command, { stdio: quiet ? 'pipe' : 'inherit', env: baseEnv })
-        } catch (error) {
-          const err = error as { stdout?: Buffer | string; stderr?: Buffer | string }
-          const output = `${err.stdout ? err.stdout.toString() : ''}${err.stderr ? err.stderr.toString() : ''}`.trim()
-          if (label) {
-            console.error(`${label} failed.`)
-          }
-          if (output) {
-            console.error(output)
-          }
-          throw error
-        }
+          const Redis = (await import('ioredis')).default
+          const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
+          const redis = new Redis(redisUrl)
+          await redis.flushall()
+          await redis.quit()
+          console.log('   Redis flushed.')
+        } catch {}
+        console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
       // Step 1: Install dependencies
       console.log('📦 Installing dependencies...')
       execSync('yarn install', { stdio: 'inherit' })
       console.log('✅ Dependencies installed\n')
-      
-      // Step 2: Prepare modules
+
+      // Step 2: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
-      runCommand('yarn modules:prepare', { quiet: true, label: 'Module preparation' })
+      const { createResolver } = await import('./lib/resolver')
+      const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+      const resolver = createResolver()
+      await generateEntityIds({ resolver, quiet: true })
+      await generateModuleRegistry({ resolver, quiet: true })
+      await generateModuleEntities({ resolver, quiet: true })
+      await generateModuleDi({ resolver, quiet: true })
+      await generateApiClient({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
-      
-      // Step 3: Generate migrations
-//      console.log('🗄️  Generating database migrations...')
-//      execSync('yarn db:generate', { stdio: 'inherit' })
-//      console.log('✅ Migrations generated\n')
-      
-      // Step 3: Apply migrations
+
+      // Step 3: Apply database migrations directly
       console.log('📊 Applying database migrations...')
-      runCommand('yarn db:migrate', { label: 'Database migrations' })
+      const { dbMigrate } = await import('./lib/db')
+      await dbMigrate(resolver)
       console.log('✅ Migrations applied\n')
 
-      // Step 3.5: Restore configuration defaults
+      // Step 4: Bootstrap to register modules and entity IDs
+      // Call the actual bootstrap function now that generated files exist
+      console.log('🔗 Bootstrapping application...')
+      const { bootstrap } = await import('@/bootstrap')
+      bootstrap()
+      // Also register entity IDs via @open-mercato/shared path since some modules use that path
+      const { registerEntityIds: registerEntityIdsShared } = await import('@open-mercato/shared/lib/encryption/entityIds')
+      const { E: entityIdMap } = await import('@/generated/entities.ids.generated')
+      registerEntityIdsShared(entityIdMap)
+      console.log('✅ Bootstrap complete\n')
+
+      // Step 5: Build all modules for CLI commands
+      const allModules = await buildAllModules()
+
+      // Step 6: Restore configuration defaults
       console.log('⚙️  Restoring module defaults...')
-      runCommand('yarn mercato configs restore-defaults')
+      await runModuleCommand(allModules, 'configs', 'restore-defaults', [])
       console.log('✅ Module defaults restored\n')
 
-      // Step 4: Setup RBAC (tenant/org, users, ACLs)
+      // Step 7: Setup RBAC (tenant/org, users, ACLs)
       const findArgValue = (names: string[], fallback: string) => {
         for (const name of names) {
           const match = initArgs.find((arg) => arg.startsWith(name))
@@ -187,96 +276,132 @@ export async function run(argv = process.argv) {
       const email = findArgValue(['--email='], 'superadmin@acme.com')
       const password = findArgValue(['--password='], 'secret')
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      
-      console.log('🔐 Setting up RBAC and users...')
-      const setupResult = runCommand(
-        `yarn mercato auth setup --orgName "${orgName}" --email ${email} --password ${password} --roles ${roles}`,
-        // Capture output so we can parse tenant/org ids for follow-up seeders.
-        { quiet: true, label: 'Auth setup' }
-      )
-      const setupOutput = typeof setupResult === 'string' || Buffer.isBuffer(setupResult)
-        ? setupResult.toString()
-        : ''
-      if (setupOutput.trim()) {
-        console.log(setupOutput.trim())
-      }
-      console.log('✅ RBAC setup complete\n')
-      
 
-      // Extract organization ID and tenant ID from setup output
-      const orgIdMatch = setupOutput.match(/organizationId: '([^']+)'/)
-      const tenantIdMatch = setupOutput.match(/tenantId: '([^']+)'/)
-      const orgId = orgIdMatch ? orgIdMatch[1] : null
-      const tenantId = tenantIdMatch ? tenantIdMatch[1] : null
-      
+      console.log('🔐 Setting up RBAC and users...')
+      // Run auth setup command via CLI
+      await runModuleCommand(allModules, 'auth', 'setup', [
+        '--orgName', orgName,
+        '--email', email,
+        '--password', password,
+        '--roles', roles,
+      ])
+      // Query DB to get tenant/org IDs using pg directly
+      const { Client } = await import('pg')
+      const dbUrl = process.env.DATABASE_URL
+      const pgClient = new Client({ connectionString: dbUrl })
+      await pgClient.connect()
+      const orgResult = await pgClient.query(
+        `SELECT o.id as org_id, o.tenant_id FROM organizations o
+         JOIN users u ON u.organization_id = o.id
+         LIMIT 1`
+      )
+      await pgClient.end()
+      const tenantId = orgResult?.rows?.[0]?.tenant_id ?? null
+      const orgId = orgResult?.rows?.[0]?.org_id ?? null
+      console.log('✅ RBAC setup complete:', { tenantId, organizationId: orgId }, '\n')
+
+      console.log('🎛️  Seeding feature toggle defaults...')
+      await runModuleCommand(allModules, 'feature_toggles', 'seed-defaults', [])
+      console.log('🎛️  ✅ Feature toggle defaults seeded\n')
+
       if (tenantId) {
         console.log('👥 Seeding tenant-scoped roles...')
-        runCommand(`yarn mercato auth seed-roles --tenant ${tenantId}`)
+        await runModuleCommand(allModules, 'auth', 'seed-roles', ['--tenant', tenantId])
         console.log('🛡️ ✅ Roles seeded\n')
       } else {
-        console.log('⚠️  Skipping role seeding because tenant ID was not detected in setup output.\n')
+        console.log('⚠️  Skipping role seeding because tenant ID was not available.\n')
       }
-      
+
       if (orgId && tenantId) {
+        if (reinstall) {
+          console.log('🧩 Reinstalling custom field definitions...')
+          await runModuleCommand(allModules, 'entities', 'reinstall', ['--tenant', tenantId])
+          console.log('🧩 ✅ Custom field definitions reinstalled\n')
+        }
+
         console.log('📚 Seeding customer dictionaries...')
-        runCommand(`yarn mercato customers seed-dictionaries --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'customers', 'seed-dictionaries', ['--tenant', tenantId, '--org', orgId])
         console.log('📚 ✅ Customer dictionaries seeded\n')
 
+        console.log('📚 Seeding currencies...')
+        await runModuleCommand(allModules, 'currencies', 'seed', ['--tenant', tenantId, '--org', orgId])
+        console.log('📚 ✅ Currencies seeded\n')
+
         console.log('📏 Seeding catalog units...')
-        runCommand(`yarn mercato catalog seed-units --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'catalog', 'seed-units', ['--tenant', tenantId, '--org', orgId])
         console.log('📏 ✅ Catalog units seeded\n')
 
-        const encryptionEnv = String(process.env.TENANT_DATA_ENCRYPTION ?? 'yes').toLowerCase()
-        const encryptionEnabled = encryptionEnv === 'yes' || encryptionEnv === 'true' || encryptionEnv === '1' || encryptionEnv === ''
+        console.log('📐 Seeding booking capacity units...')
+        await runModuleCommand(allModules, 'booking', 'seed-capacity-units', ['--tenant', tenantId, '--org', orgId])
+        console.log('📐 ✅ Booking capacity units seeded\n')
+
+        console.log('🗓️  Seeding booking availability schedules...')
+        await runModuleCommand(allModules, 'booking', 'seed-availability-rulesets', ['--tenant', tenantId, '--org', orgId])
+        console.log('🗓️  ✅ Booking availability schedules seeded\n')
+
+        const parsedEncryption = parseBooleanToken(process.env.TENANT_DATA_ENCRYPTION ?? 'yes')
+        const encryptionEnabled = parsedEncryption === null ? true : parsedEncryption
         if (encryptionEnabled) {
           console.log('🔒 Seeding encryption defaults...')
-          runCommand(`yarn mercato entities seed-encryption --tenant ${tenantId} --org ${orgId}`)
+          await runModuleCommand(allModules, 'entities', 'seed-encryption', ['--tenant', tenantId, '--org', orgId])
           console.log('🔒 ✅ Encryption defaults seeded\n')
         } else {
           console.log('⚠️  TENANT_DATA_ENCRYPTION disabled; skipping encryption defaults.\n')
         }
 
         console.log('🏷️  Seeding catalog price kinds...')
-        runCommand(`yarn mercato catalog seed-price-kinds --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'catalog', 'seed-price-kinds', ['--tenant', tenantId, '--org', orgId])
         console.log('🏷️ ✅ Catalog price kinds seeded\n')
 
         console.log('💶 Seeding default tax rates...')
-        runCommand(`yarn mercato sales seed-tax-rates --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'sales', 'seed-tax-rates', ['--tenant', tenantId, '--org', orgId])
         console.log('🧾 ✅ Tax rates seeded\n')
 
         console.log('🚦 Seeding sales statuses...')
-        runCommand(`yarn mercato sales seed-statuses --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'sales', 'seed-statuses', ['--tenant', tenantId, '--org', orgId])
         console.log('🚦 ✅ Sales statuses seeded\n')
 
         console.log('⚙️  Seeding adjustment kinds...')
-        runCommand(`yarn mercato sales seed-adjustment-kinds --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'sales', 'seed-adjustment-kinds', ['--tenant', tenantId, '--org', orgId])
         console.log('⚙️  ✅ Adjustment kinds seeded\n')
 
         console.log('🚚 Seeding shipping methods...')
-        runCommand(`yarn mercato sales seed-shipping-methods --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'sales', 'seed-shipping-methods', ['--tenant', tenantId, '--org', orgId])
         console.log('🚚 ✅ Shipping methods seeded\n')
 
         console.log('💳 Seeding payment methods...')
-        runCommand(`yarn mercato sales seed-payment-methods --tenant ${tenantId} --org ${orgId}`)
+        await runModuleCommand(allModules, 'sales', 'seed-payment-methods', ['--tenant', tenantId, '--org', orgId])
         console.log('💳 ✅ Payment methods seeded\n')
+
+        console.log('🔄 Seeding workflow definitions...')
+        try {
+          await runModuleCommand(allModules, 'workflows', 'seed-all', ['--tenant', tenantId, '--org', orgId])
+          console.log('✅ Workflows and business rules seeded\n')
+        } catch (err) {
+          console.error('⚠️  Workflow seeding failed (non-fatal):', err)
+        }
 
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {
+          console.log('🪑 Seeding booking resource examples...')
+          await runModuleCommand(allModules, 'booking', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
+          console.log('🪑 ✅ Booking resource examples seeded\n')
+
           console.log('🛍️  Seeding catalog examples...')
-          runCommand(`yarn mercato catalog seed-examples --tenant ${tenantId} --org ${orgId}`)
+          await runModuleCommand(allModules, 'catalog', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🛍️ ✅ Catalog examples seeded\n')
 
           console.log('🏢 Seeding customer examples...')
-          runCommand(`yarn mercato customers seed-examples --tenant ${tenantId} --org ${orgId}`)
+          await runModuleCommand(allModules, 'customers', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🏢 ✅ Customer examples seeded\n')
 
           console.log('🧾 Seeding sales examples...')
-          runCommand(`yarn mercato sales seed-examples --tenant ${tenantId} --org ${orgId}`)
+          await runModuleCommand(allModules, 'sales', 'seed-examples', ['--tenant', tenantId, '--org', orgId])
           console.log('🧾 ✅ Sales examples seeded\n')
 
           console.log('📝 Seeding example todos...')
-          runCommand(`yarn mercato example seed-todos --org ${orgId} --tenant ${tenantId}`)
+          await runModuleCommand(allModules, 'example', 'seed-todos', ['--org', orgId, '--tenant', tenantId])
           console.log('📝 ✅ Example todos seeded\n')
         }
 
@@ -284,41 +409,32 @@ export async function run(argv = process.argv) {
           console.log(
             `🏋️  Seeding stress test customers${stressTestLite ? ' (lite payload)' : ''}...`
           )
-          runCommand(
-            `yarn mercato customers seed-stresstest --tenant ${tenantId} --org ${orgId} --count ${stressTestCount}${stressTestLite ? ' --lite' : ''}`
-          )
+          const stressArgs = ['--tenant', tenantId, '--org', orgId, '--count', String(stressTestCount)]
+          if (stressTestLite) stressArgs.push('--lite')
+          await runModuleCommand(allModules, 'customers', 'seed-stresstest', stressArgs)
           console.log(`✅ Stress test customers seeded (requested ${stressTestCount})\n`)
         }
 
         console.log('🧩 Enabling default dashboard widgets...')
-        runCommand(`yarn mercato dashboards seed-defaults --tenant ${tenantId}`)
+        await runModuleCommand(allModules, 'dashboards', 'seed-defaults', ['--tenant', tenantId])
         console.log('✅ Dashboard widgets enabled\n')
 
       } else {
-        console.log('⚠️  Could not extract organization ID or tenant ID, skipping todo seeding and dashboard widget setup\n')
+        console.log('⚠️  Could not get organization ID or tenant ID, skipping seeding steps\n')
       }
 
-      console.log('🧠 Building vector indexes...')
-      const vectorCommandParts = ['yarn mercato vector reindex']
-      if (tenantId) {
-        vectorCommandParts.push(`--tenant ${tenantId}`)
-        if (orgId) {
-          vectorCommandParts.push(`--org ${orgId}`)
-        }
-      } else {
-        vectorCommandParts.push('--purgeFirst=false')
-      }
-      runCommand(vectorCommandParts.join(' '))
-      console.log('✅ Vector indexes built\n')
+      console.log('🧠 Building search indexes...')
+      const vectorArgs = tenantId
+        ? ['--tenant', tenantId, ...(orgId ? ['--org', orgId] : [])]
+        : ['--purgeFirst=false']
+      await runModuleCommand(allModules, 'search', 'reindex', vectorArgs)
+      console.log('✅ Search indexes built\n')
 
       console.log('🔍 Rebuilding query indexes...')
-      const queryIndexCommandParts = ['yarn mercato query_index reindex', '--force']
-      if (tenantId) {
-        queryIndexCommandParts.push(`--tenant ${tenantId}`)
-      }
-      runCommand(queryIndexCommandParts.join(' '))
+      const queryIndexArgs = ['--force', ...(tenantId ? ['--tenant', tenantId] : [])]
+      await runModuleCommand(allModules, 'query_index', 'reindex', queryIndexArgs)
       console.log('✅ Query indexes rebuilt\n')
-      
+
       // Derive admin/employee only when the provided email is a superadmin email
       const [local, domain] = String(email).split('@')
       const isSuperadminLocal = (local || '').toLowerCase() === 'superadmin' && !!domain
@@ -347,7 +463,7 @@ export async function run(argv = process.argv) {
       console.log('║                                                              ║')
       console.log('║  Happy coding!                                               ║')
       console.log('╚══════════════════════════════════════════════════════════════╝')
-      
+
       return 0
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -368,9 +484,15 @@ export async function run(argv = process.argv) {
     cmdName = 'reindex'
     rest = second !== undefined ? [second, ...remaining] : remaining
   }
-  
-  // Load modules lazily, after init handling
-  const { modules } = await import('@/generated/modules.generated')
+
+  // Handle 'mercato generate' without subcommand - default to 'generate all'
+  if (first === 'generate' && !second) {
+    cmdName = 'all'
+    rest = remaining
+  }
+
+  // Load modules from registered CLI modules
+  const modules = getCliModules()
   
   // Load optional app-level CLI commands lazily without static import resolution
   let appCli: any[] = []
@@ -381,42 +503,168 @@ export async function run(argv = process.argv) {
   } catch {}
   const all = modules.slice()
   
-  // Built-in CLI module: events
+  // Built-in CLI module: queue
   all.push({
-    id: 'events',
+    id: 'queue',
     cli: [
       {
-        command: 'process',
+        command: 'worker',
         run: async (args: string[]) => {
-          const limitArg = args.find((a) => a.startsWith('--limit='))
-          const limit = limitArg ? Number(limitArg.split('=')[1]) : undefined
-          const { createRequestContainer } = await import('@/lib/di/container')
-          const container = await createRequestContainer()
-          const bus = (container.resolve('eventBus') as any)
-          const res = await bus.processOffline({ limit })
-          console.log(`Processed ${res.processed} events${res.lastId ? `, lastId=${res.lastId}` : ''}`)
+          const isAllQueues = args.includes('--all')
+          const queueName = isAllQueues ? null : args[0]
+
+          // Collect all discovered workers from modules
+          type WorkerEntry = {
+            id: string
+            queue: string
+            concurrency: number
+            handler: (job: unknown, ctx: unknown) => Promise<void> | void
+          }
+          const allWorkers: WorkerEntry[] = []
+          for (const mod of getCliModules()) {
+            const modWorkers = (mod as { workers?: WorkerEntry[] }).workers
+            if (modWorkers) {
+              allWorkers.push(...modWorkers)
+            }
+          }
+          const discoveredQueues = [...new Set(allWorkers.map((w) => w.queue))]
+
+          if (!queueName && !isAllQueues) {
+            console.error('Usage: mercato queue worker <queueName> | --all')
+            console.error('Example: mercato queue worker events')
+            console.error('Example: mercato queue worker --all')
+            if (discoveredQueues.length > 0) {
+              console.error(`Discovered queues: ${discoveredQueues.join(', ')}`)
+            }
+            return
+          }
+
+          const concurrencyArg = args.find((a) => a.startsWith('--concurrency='))
+          const concurrencyOverride = concurrencyArg ? Number(concurrencyArg.split('=')[1]) : undefined
+
+          if (isAllQueues) {
+            // Run workers for all discovered queues
+            if (discoveredQueues.length === 0) {
+              console.error('[worker] No queues discovered from modules')
+              return
+            }
+
+            const container = await createRequestContainer()
+            console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
+
+            // Start all queue workers in background mode
+            const workerPromises = discoveredQueues.map(async (queue) => {
+              const queueWorkers = allWorkers.filter((w) => w.queue === queue)
+              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+
+              console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
+
+              await runWorker({
+                queueName: queue,
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                concurrency,
+                background: true,
+                handler: async (job, ctx) => {
+                  for (const worker of queueWorkers) {
+                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
+                  }
+                },
+              })
+            })
+
+            await Promise.all(workerPromises)
+
+            console.log('[worker] All workers started. Press Ctrl+C to stop')
+
+            // Keep the process alive
+            await new Promise(() => {})
+          } else {
+            // Find workers for this specific queue
+            const queueWorkers = allWorkers.filter((w) => w.queue === queueName)
+
+            if (queueWorkers.length > 0) {
+              // Use discovered workers
+              const container = await createRequestContainer()
+              const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+
+              console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
+
+              await runWorker({
+                queueName: queueName!,
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+                concurrency,
+                handler: async (job, ctx) => {
+                  for (const worker of queueWorkers) {
+                    await worker.handler(job, { ...ctx, resolve: container.resolve.bind(container) })
+                  }
+                },
+              })
+            } else {
+              console.error(`No workers found for queue "${queueName}"`)
+              if (discoveredQueues.length > 0) {
+                console.error(`Available queues: ${discoveredQueues.join(', ')}`)
+              }
+            }
+          }
         },
       },
       {
         command: 'clear',
-        run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
-          const container = await createRequestContainer()
-          const bus = (container.resolve('eventBus') as any)
-          const res = await bus.clearQueue()
-          console.log(`Cleared queue, removed ${res.removed} events`)
+        run: async (args: string[]) => {
+          const queueName = args[0]
+          if (!queueName) {
+            console.error('Usage: mercato queue clear <queueName>')
+            return
+          }
+
+          const strategyEnv = process.env.QUEUE_STRATEGY || 'local'
+          const { createQueue } = await import('@open-mercato/queue')
+
+          const queue = strategyEnv === 'async'
+            ? createQueue(queueName, 'async', {
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+              })
+            : createQueue(queueName, 'local')
+
+          const res = await queue.clear()
+          await queue.close()
+          console.log(`Cleared queue "${queueName}", removed ${res.removed} jobs`)
         },
       },
       {
-        command: 'clear-processed',
-        run: async () => {
-          const { createRequestContainer } = await import('@/lib/di/container')
-          const container = await createRequestContainer()
-          const bus = (container.resolve('eventBus') as any)
-          const res = await bus.clearProcessed()
-          console.log(`Cleared processed events, removed ${res.removed}${res.lastId ? ` up to id=${res.lastId}` : ''}`)
+        command: 'status',
+        run: async (args: string[]) => {
+          const queueName = args[0]
+          if (!queueName) {
+            console.error('Usage: mercato queue status <queueName>')
+            return
+          }
+
+          const strategyEnv = process.env.QUEUE_STRATEGY || 'local'
+          const { createQueue } = await import('@open-mercato/queue')
+
+          const queue = strategyEnv === 'async'
+            ? createQueue(queueName, 'async', {
+                connection: { url: process.env.REDIS_URL || process.env.QUEUE_REDIS_URL },
+              })
+            : createQueue(queueName, 'local')
+
+          const counts = await queue.getJobCounts()
+          console.log(`Queue "${queueName}" status:`)
+          console.log(`  Waiting:   ${counts.waiting}`)
+          console.log(`  Active:    ${counts.active}`)
+          console.log(`  Completed: ${counts.completed}`)
+          console.log(`  Failed:    ${counts.failed}`)
+          await queue.close()
         },
       },
+    ],
+  } as any)
+
+  // Built-in CLI module: events
+  all.push({
+    id: 'events',
+    cli: [
       {
         command: 'emit',
         run: async (args: string[]) => {
@@ -434,8 +682,18 @@ export async function run(argv = process.argv) {
           const { createRequestContainer } = await import('@/lib/di/container')
           const container = await createRequestContainer()
           const bus = (container.resolve('eventBus') as any)
-          await bus.emitEvent(eventName, payload, { persistent })
+          await bus.emit(eventName, payload, { persistent })
           console.log(`Emitted "${eventName}"${persistent ? ' (persistent)' : ''}`)
+        },
+      },
+      {
+        command: 'clear',
+        run: async () => {
+          const { createRequestContainer } = await import('@/lib/di/container')
+          const container = await createRequestContainer()
+          const bus = (container.resolve('eventBus') as any)
+          const res = await bus.clearQueue()
+          console.log(`Cleared events queue, removed ${res.removed} events`)
         },
       },
     ],
@@ -556,6 +814,111 @@ export async function run(argv = process.argv) {
       },
     ],
   } as any)
+
+  // Built-in CLI module: generate
+  all.push({
+    id: 'generate',
+    cli: [
+      {
+        command: 'all',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateEntityIds, generateModuleRegistry, generateModuleEntities, generateModuleDi, generateApiClient } = await import('./lib/generators')
+          const resolver = createResolver()
+          const quiet = args.includes('--quiet') || args.includes('-q')
+
+          console.log('Running all generators...')
+          await generateEntityIds({ resolver, quiet })
+          await generateModuleRegistry({ resolver, quiet })
+          await generateModuleEntities({ resolver, quiet })
+          await generateModuleDi({ resolver, quiet })
+          await generateApiClient({ resolver, quiet })
+          console.log('All generators completed.')
+        },
+      },
+      {
+        command: 'entity-ids',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateEntityIds } = await import('./lib/generators')
+          const resolver = createResolver()
+          await generateEntityIds({ resolver, quiet: args.includes('--quiet') })
+        },
+      },
+      {
+        command: 'registry',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateModuleRegistry } = await import('./lib/generators')
+          const resolver = createResolver()
+          await generateModuleRegistry({ resolver, quiet: args.includes('--quiet') })
+        },
+      },
+      {
+        command: 'entities',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateModuleEntities } = await import('./lib/generators')
+          const resolver = createResolver()
+          await generateModuleEntities({ resolver, quiet: args.includes('--quiet') })
+        },
+      },
+      {
+        command: 'di',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateModuleDi } = await import('./lib/generators')
+          const resolver = createResolver()
+          await generateModuleDi({ resolver, quiet: args.includes('--quiet') })
+        },
+      },
+      {
+        command: 'api-client',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { generateApiClient } = await import('./lib/generators')
+          const resolver = createResolver()
+          await generateApiClient({ resolver, quiet: args.includes('--quiet') })
+        },
+      },
+    ],
+  } as any)
+
+  // Built-in CLI module: db
+  all.push({
+    id: 'db',
+    cli: [
+      {
+        command: 'generate',
+        run: async () => {
+          const { createResolver } = await import('./lib/resolver')
+          const { dbGenerate } = await import('./lib/db')
+          const resolver = createResolver()
+          await dbGenerate(resolver)
+        },
+      },
+      {
+        command: 'migrate',
+        run: async () => {
+          const { createResolver } = await import('./lib/resolver')
+          const { dbMigrate } = await import('./lib/db')
+          const resolver = createResolver()
+          await dbMigrate(resolver)
+        },
+      },
+      {
+        command: 'greenfield',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { dbGreenfield } = await import('./lib/db')
+          const resolver = createResolver()
+          const yes = args.includes('--yes') || args.includes('-y')
+          await dbGreenfield(resolver, { yes })
+        },
+      },
+    ],
+  } as any)
+
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
   const quietBanner = process.env.OM_CLI_QUIET === '1'
@@ -581,7 +944,7 @@ export async function run(argv = process.argv) {
     } else {
       console.log(pad('🌀 No CLI commands available'))
     }
-    return 1
+    return 0
   }
 
   const mod = all.find((m) => m.id === modName)
