@@ -253,7 +253,7 @@ export async function refreshCoverageSnapshot(
   if (typeof tenantId === 'string' && tenantId.length > 0) {
     try {
       let vectorQuery = knex('vector_search')
-        .count({ count: '*' })
+        .count({ count: 1 })
         .where('entity_id', entityType)
         .where('tenant_id', tenantId)
       if (organizationId !== null) {
