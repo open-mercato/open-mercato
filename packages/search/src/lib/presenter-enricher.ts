@@ -3,11 +3,14 @@ import type {
   SearchBuildContext,
   SearchResult,
   SearchResultPresenter,
+  SearchResultLink,
   SearchEntityConfig,
   PresenterEnricherFn,
 } from '../types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { extractFallbackPresenter } from './fallback-presenter'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
@@ -18,6 +21,31 @@ const logWarning = (message: string, context?: Record<string, unknown>) => {
   if (process.env.NODE_ENV === 'development' || process.env.DEBUG_SEARCH_ENRICHER) {
     console.warn(`[search:presenter-enricher] ${message}`, context ?? '')
   }
+}
+
+/**
+ * Check if a string looks like an encrypted value.
+ * Encrypted format: iv:ciphertext:authTag:v1
+ */
+function looksEncrypted(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  if (!value.includes(':')) return false
+  const parts = value.split(':')
+  // Encrypted strings end with :v1 and have at least 3 colon-separated parts
+  return parts.length >= 3 && parts[parts.length - 1] === 'v1'
+}
+
+/**
+ * Check if a result needs enrichment (missing presenter, encrypted values, or missing URL/links)
+ */
+function needsEnrichment(result: SearchResult): boolean {
+  if (!result.presenter?.title) return true
+  // Also re-enrich if presenter looks encrypted
+  if (looksEncrypted(result.presenter.title)) return true
+  if (looksEncrypted(result.presenter.subtitle)) return true
+  // Also enrich if missing URL/links (needed for token search results)
+  if (!result.url && (!result.links || result.links.length === 0)) return true
+  return false
 }
 
 /**
@@ -92,11 +120,18 @@ async function fetchDocsBatch(
   return allDocs
 }
 
+/** Result type for presenter and links computation */
+type EnrichmentResult = {
+  presenter: SearchResultPresenter | null
+  url?: string
+  links?: SearchResultLink[]
+}
+
 /**
- * Compute presenter for a single doc using config or fallback.
- * Returns null if presenter cannot be computed.
+ * Compute presenter, URL, and links for a single doc using config or fallback.
+ * Returns presenter (null if cannot be computed), and optionally URL/links from config.
  */
-async function computePresenter(
+async function computePresenterAndLinks(
   doc: Record<string, unknown>,
   entityId: string,
   recordId: string,
@@ -104,45 +139,72 @@ async function computePresenter(
   tenantId: string,
   organizationId: string | null | undefined,
   queryEngine: QueryEngine | undefined,
-): Promise<SearchResultPresenter | null> {
-  // If search.ts config exists, use formatResult/buildSource
+): Promise<EnrichmentResult> {
+  let presenter: SearchResultPresenter | null = null
+  let url: string | undefined
+  let links: SearchResultLink[] | undefined
+
+  // Build context for config functions
+  const customFields: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(doc)) {
+    if (key.startsWith('cf:') || key.startsWith('cf_')) {
+      customFields[key.slice(3)] = value
+    }
+  }
+
+  const buildContext: SearchBuildContext = {
+    record: doc,
+    customFields,
+    organizationId,
+    tenantId,
+    queryEngine,
+  }
+
+  // If search.ts config exists, use formatResult/buildSource for presenter
   if (config?.formatResult || config?.buildSource) {
-    const customFields: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(doc)) {
-      if (key.startsWith('cf:') || key.startsWith('cf_')) {
-        customFields[key.slice(3)] = value
-      }
-    }
-
-    const buildContext: SearchBuildContext = {
-      record: doc,
-      customFields,
-      organizationId,
-      tenantId,
-      queryEngine,
-    }
-
     if (config.buildSource) {
       try {
         const source = await config.buildSource(buildContext)
-        if (source?.presenter) return source.presenter
+        if (source?.presenter) presenter = source.presenter
+        if (source?.links) links = source.links
       } catch (err) {
         logWarning(`buildSource failed for ${entityId}:${recordId}`, { error: String(err) })
       }
     }
 
-    if (config.formatResult) {
+    if (!presenter && config.formatResult) {
       try {
-        const presenter = await config.formatResult(buildContext)
-        if (presenter) return presenter
+        presenter = (await config.formatResult(buildContext)) ?? null
       } catch (err) {
         logWarning(`formatResult failed for ${entityId}:${recordId}`, { error: String(err) })
       }
     }
   }
 
-  // Fallback: extract from doc fields directly
-  return extractFallbackPresenter(doc, entityId, recordId)
+  // Fallback presenter: extract from doc fields directly
+  if (!presenter) {
+    presenter = extractFallbackPresenter(doc, entityId, recordId)
+  }
+
+  // Resolve URL from config
+  if (config?.resolveUrl) {
+    try {
+      url = (await config.resolveUrl(buildContext)) ?? undefined
+    } catch {
+      // Skip URL resolution errors
+    }
+  }
+
+  // Resolve links from config (if not already set from buildSource)
+  if (!links && config?.resolveLinks) {
+    try {
+      links = (await config.resolveLinks(buildContext)) ?? undefined
+    } catch {
+      // Skip link resolution errors
+    }
+  }
+
+  return { presenter, url, links }
 }
 
 /**
@@ -155,15 +217,17 @@ async function computePresenter(
  * - Parallel Promise.all for formatResult/buildSource calls
  * - Tenant/organization scoping for security
  * - Chunked queries to avoid DB parameter limits
+ * - Automatic decryption of encrypted fields when encryption service is provided
  */
 export function createPresenterEnricher(
   knex: Knex,
   entityConfigMap: Map<EntityId, SearchEntityConfig>,
   queryEngine?: QueryEngine,
+  encryptionService?: TenantDataEncryptionService | null,
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
-    // Find results missing presenter
-    const missingResults = results.filter((r) => !r.presenter?.title)
+    // Find results missing presenter OR with encrypted presenter
+    const missingResults = results.filter(needsEnrichment)
     if (missingResults.length === 0) return results
 
     // Group by entity type for config lookup
@@ -175,26 +239,53 @@ export function createPresenterEnricher(
     }
 
     // Single batch query for all docs across all entity types
-    const docs = await fetchDocsBatch(knex, byEntityType, tenantId, organizationId)
+    const rawDocs = await fetchDocsBatch(knex, byEntityType, tenantId, organizationId)
+
+    // Decrypt docs in parallel using DEK cache for efficiency
+    const dekCache = new Map<string | null, string | null>()
+
+    const decryptedDocs = await Promise.all(
+      rawDocs.map(async (row) => {
+        try {
+          // Use organization_id from the doc itself for proper encryption map lookup
+          // This is critical for global search where organizationId param is null
+          const docData = row.doc as Record<string, unknown>
+          const docOrgId = (docData.organization_id as string | null | undefined) ?? organizationId
+          const scope = { tenantId, organizationId: docOrgId }
+
+          const decryptedDoc = await decryptIndexDocForSearch(
+            row.entity_type,
+            row.doc,
+            scope,
+            encryptionService ?? null,
+            dekCache,
+          )
+          return { ...row, doc: decryptedDoc }
+        } catch (err) {
+          logWarning(`Failed to decrypt doc for ${row.entity_type}:${row.entity_id}`, { error: String(err) })
+          return row // Return original doc if decryption fails
+        }
+      }),
+    )
 
     // Build doc lookup map for fast access
     const docMap = new Map<string, Record<string, unknown>>()
-    for (const row of docs) {
+    for (const row of decryptedDocs) {
       docMap.set(`${row.entity_type}:${row.entity_id}`, row.doc)
     }
 
-    // Compute presenters in parallel
-    const presenterPromises = missingResults.map(async (result) => {
+    // Compute presenters and links in parallel
+    const enrichmentPromises = missingResults.map(async (result) => {
       const key = `${result.entityId}:${result.recordId}`
       const doc = docMap.get(key)
 
       if (!doc) {
         logWarning(`Doc not found in entity_indexes`, { entityId: result.entityId, recordId: result.recordId })
-        return { key, presenter: null }
+        return { key, presenter: null, url: undefined, links: undefined }
       }
 
       const config = entityConfigMap.get(result.entityId as EntityId)
-      const presenter = await computePresenter(
+      const enrichment = await computePresenterAndLinks(
         doc,
         result.entityId,
         result.recordId,
@@ -204,25 +295,29 @@ export function createPresenterEnricher(
         queryEngine,
       )
 
-      return { key, presenter }
+      return { key, ...enrichment }
     })
 
-    const computed = await Promise.all(presenterPromises)
+    const computed = await Promise.all(enrichmentPromises)
 
-    // Build presenter map from parallel results
-    const presenterMap = new Map<string, SearchResultPresenter>()
-    for (const { key, presenter } of computed) {
-      if (presenter) {
-        presenterMap.set(key, presenter)
-      }
+    // Build enrichment map from parallel results
+    const enrichmentMap = new Map<string, EnrichmentResult>()
+    for (const { key, presenter, url, links } of computed) {
+      enrichmentMap.set(key, { presenter, url, links })
     }
 
-    // Enrich results with computed presenters
+    // Enrich results with computed presenter, URL, and links
     return results.map((result) => {
-      if (result.presenter?.title) return result
+      if (!needsEnrichment(result)) return result
       const key = `${result.entityId}:${result.recordId}`
-      const presenter = presenterMap.get(key)
-      return presenter ? { ...result, presenter } : result
+      const enriched = enrichmentMap.get(key)
+      if (!enriched) return result
+      return {
+        ...result,
+        presenter: enriched.presenter ?? result.presenter,
+        url: result.url ?? enriched.url,
+        links: result.links ?? enriched.links,
+      }
     })
   }
 }

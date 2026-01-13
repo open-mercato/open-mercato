@@ -46,9 +46,10 @@ describe('Queue - local strategy', () => {
     await queue.enqueue({ value: 2 })
     await queue.enqueue({ value: 3 })
 
+    // Use limit to trigger batch mode (without limit, enters continuous polling mode)
     const result = await queue.process((job) => {
       processed.push(job)
-    })
+    }, { limit: 10 })
 
     expect(result).toBeDefined()
     expect(result!.processed).toBe(3)
@@ -75,9 +76,10 @@ describe('Queue - local strategy', () => {
     expect(result!.processed).toBe(2)
     expect(processed).toEqual([1, 2])
 
-    // Process remaining
+    // Process remaining (use limit to stay in batch mode)
     const result2 = await queue.process(
-      (job) => { processed.push(job.payload.value) }
+      (job) => { processed.push(job.payload.value) },
+      { limit: 10 }
     )
 
     expect(result2!.processed).toBe(1)
@@ -156,11 +158,12 @@ describe('Queue - local strategy', () => {
     await queue.enqueue({ shouldFail: true })
     await queue.enqueue({ shouldFail: false })
 
+    // Use limit to trigger batch mode (without limit, enters continuous polling mode)
     const result = await queue.process((job) => {
       if (job.payload.shouldFail) {
         throw new Error('Intentional test error')
       }
-    })
+    }, { limit: 10 })
 
     expect(result!.processed).toBe(2)
     expect(result!.failed).toBe(1)
@@ -174,9 +177,10 @@ describe('Queue - local strategy', () => {
 
     const jobId = await queue.enqueue({ value: 42 })
 
+    // Use limit to trigger batch mode
     await queue.process((job, ctx) => {
       capturedContext = ctx
-    })
+    }, { limit: 10 })
 
     expect(capturedContext).not.toBeNull()
     expect(capturedContext.jobId).toBe(jobId)

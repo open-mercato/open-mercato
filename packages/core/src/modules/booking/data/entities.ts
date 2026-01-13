@@ -337,6 +337,35 @@ export class BookingResourceTagAssignment {
   updatedAt: Date = new Date()
 }
 
+@Entity({ tableName: 'booking_service_tag_assignments' })
+@Index({ name: 'booking_service_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({
+  name: 'booking_service_tag_assignments_unique',
+  properties: ['tag', 'service'],
+})
+export class BookingServiceTagAssignment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => BookingResourceTag, { fieldName: 'tag_id' })
+  tag!: BookingResourceTag
+
+  @ManyToOne(() => BookingService, { fieldName: 'service_id' })
+  service!: BookingService
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 @Entity({ tableName: 'booking_availability_rule_sets' })
 @Index({ name: 'booking_availability_rule_sets_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 export class BookingAvailabilityRuleSet {

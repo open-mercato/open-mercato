@@ -10,6 +10,7 @@ import { bookingTeamRoleCreateSchema, bookingTeamRoleUpdateSchema } from '../dat
 import { sanitizeSearchTerm } from './helpers'
 import { E } from '@/generated/entities.ids.generated'
 import * as F from '@/generated/entities/booking_team_role'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -186,3 +187,45 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const teamRoleListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  team_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  appearance_icon: z.string().nullable().optional(),
+  appearance_color: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  team: z
+    .object({
+      id: z.string().uuid().nullable().optional(),
+      name: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  memberCount: z.number().nullable().optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Team role',
+  pluralName: 'Team roles',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(teamRoleListItemSchema),
+  create: {
+    schema: bookingTeamRoleCreateSchema,
+    description: 'Creates a team role for booking team members.',
+  },
+  update: {
+    schema: bookingTeamRoleUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a team role by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a team role by id.',
+  },
+})

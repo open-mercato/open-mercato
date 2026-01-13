@@ -96,6 +96,11 @@ export async function bootstrap(container: AwilixContainer) {
     }
     registerSearchModule(container as any, { moduleConfigs: searchModuleConfigs })
 
+    // Register searchModuleConfigs in container so status API can access vector-enabled entities
+    container.register({
+      searchModuleConfigs: asValue(searchModuleConfigs),
+    })
+
     // Register search event subscribers
     try {
       const searchIndexer = container.resolve('searchIndexer') as any

@@ -24,6 +24,7 @@
 # misc
 .DS_Store
 *.pem
+
 # Exception: Allow public CA certificates for SSL verification
 !certs/*.pem
 

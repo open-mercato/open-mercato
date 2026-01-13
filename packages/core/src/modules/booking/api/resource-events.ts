@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@/lib/auth/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { BookingEvent, BookingEventResource } from '../data/entities'
 
 export const metadata = {
@@ -98,4 +99,33 @@ export async function GET(req: Request) {
   }))
 
   return NextResponse.json({ items })
+}
+
+const resourceEventSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+  status: z.string().nullable().optional(),
+})
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Booking',
+  summary: 'List resource events',
+  methods: {
+    GET: {
+      summary: 'List resource events',
+      description: 'Returns events assigned to a resource within the provided time window.',
+      query: querySchema,
+      responses: [
+        {
+          status: 200,
+          description: 'Resource events',
+          schema: z.object({ items: z.array(resourceEventSchema) }),
+        },
+        { status: 400, description: 'Invalid query parameters', schema: z.object({ error: z.string() }) },
+        { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+      ],
+    },
+  },
 }

@@ -1,0 +1,616 @@
+---
+title: Testing Workflows
+description: Unit and integration testing strategies for workflow implementations
+---
+
+# Testing Workflows
+
+Comprehensive testing ensures workflows behave correctly under all conditions. This guide covers unit testing, integration testing, and CI/CD integration.
+
+## Unit Testing
+
+Unit tests verify individual components in isolation.
+
+### Testing Step Handlers
+
+Test step handlers without starting full workflows:
+
+```typescript
+// src/modules/workflows/lib/step-handlers/__tests__/user-task.test.ts
+import { executeUserTaskStep } from '../user-task'
+import { mock, MockProxy } from 'jest-mock-extended'
+import { TaskService } from '../../task-service'
+
+describe('executeUserTaskStep', () => {
+  let taskService: MockProxy<TaskService>
+
+  beforeEach(() => {
+    taskService = mock<TaskService>()
+  })
+
+  it('should create user task', async () => {
+    const definition = {
+      stepId: 'approve-request',
+      stepName: 'Approve Request',
+      stepType: 'USER_TASK',
+      userTaskConfig: {
+        assignedToRoles: ['Approvers'],
+        formSchema: [
+          { fieldName: 'decision', fieldType: 'select', required: true }
+        ]
+      }
+    }
+
+    const context = {
+      workflowInstanceId: 'wf-inst-123',
+      stepInstanceId: 'step-inst-456',
+      workflowContext: { orderId: 'order-123' },
+      taskService,
+      container: {}
+    }
+
+    taskService.createTask.mockResolvedValue({
+      id: 'task-789',
+      status: 'PENDING'
+    } as any)
+
+    const result = await executeUserTaskStep(definition, context as any)
+
+    expect(result.success).toBe(true)
+    expect(taskService.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workflowInstanceId: 'wf-inst-123',
+        taskName: 'Approve Request'
+      })
+    )
+  })
+})
+```
+
+### Mocking Activities
+
+Mock activity executors to test transition logic:
+
+```typescript
+// src/modules/workflows/__tests__/transition-activities.test.ts
+import { executeActivity } from '../lib/activity-executor'
+import { activityExecutors } from '../lib/activity-executor'
+
+jest.mock('../lib/activities/send-email', () => ({
+  executeSendEmailActivity: jest.fn()
+}))
+
+describe('Transition activities', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('should execute activity on transition', async () => {
+    const mockExecutor = activityExecutors.SEND_EMAIL as jest.Mock
+    mockExecutor.mockResolvedValue({
+      success: true,
+      output: { messageId: 'msg-123' }
+    })
+
+    const definition = {
+      activityId: 'send-email',
+      activityType: 'SEND_EMAIL',
+      config: {
+        to: 'user@example.com',
+        subject: 'Test',
+        body: 'Test message'
+      }
+    }
+
+    const context = {
+      workflowContext: {},
+      container: {}
+    }
+
+    const result = await executeActivity(definition, context as any)
+
+    expect(result.success).toBe(true)
+    expect(mockExecutor).toHaveBeenCalled()
+  })
+})
+```
+
+### Validating State Transitions
+
+Test transition condition evaluation:
+
+```typescript
+// src/modules/workflows/lib/__tests__/condition-evaluator.test.ts
+import { evaluateConditions } from '../condition-evaluator'
+
+describe('evaluateConditions', () => {
+  it('should evaluate simple expression', async () => {
+    const conditions = [
+      {
+        ruleId: 'amount-check',
+        expression: 'context.amount > 1000'
+      }
+    ]
+
+    const context = { amount: 1500 }
+    const result = await evaluateConditions(conditions, context, {})
+
+    expect(result).toBe(true)
+  })
+
+  it('should return false for failing condition', async () => {
+    const conditions = [
+      {
+        ruleId: 'amount-check',
+        expression: 'context.amount > 1000'
+      }
+    ]
+
+    const context = { amount: 500 }
+    const result = await evaluateConditions(conditions, context, {})
+
+    expect(result).toBe(false)
+  })
+})
+```
+
+## Integration Testing
+
+Integration tests verify entire workflow executions.
+
+### Starting Workflow Instances
+
+Test workflows from start to completion:
+
+```typescript
+// src/modules/workflows/__tests__/approval-workflow.integration.test.ts
+import { WorkflowService } from '../lib/workflow-service'
+import { createTestContainer } from '@/test/test-container'
+import { EntityManager } from '@mikro-orm/core'
+
+describe('Approval Workflow Integration', () => {
+  let workflowService: WorkflowService
+  let em: EntityManager
+  let container: any
+
+  beforeAll(async () => {
+    container = await createTestContainer()
+    workflowService = container.resolve('workflowService')
+    em = container.resolve('em')
+  })
+
+  afterEach(async () => {
+    await em.nativeDelete('workflow_instances', {})
+    await em.nativeDelete('user_tasks', {})
+  })
+
+  it('should complete simple approval workflow', async () => {
+    // Start workflow
+    const instance = await workflowService.startWorkflow({
+      workflowId: 'simple-approval-v1',
+      initialContext: {
+        orderId: 'order-123',
+        amount: 500,
+        requesterEmail: 'user@example.com',
+        approverEmail: 'manager@example.com'
+      }
+    })
+
+    expect(instance.status).toBe('RUNNING')
+    expect(instance.currentStepId).toBe('start')
+
+    // Wait for workflow to advance to user task
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // Reload instance
+    const updated = await workflowService.getInstance(instance.id)
+    expect(updated.currentStepId).toBe('approve-request')
+
+    // Find created task
+    const tasks = await em.find('UserTask', {
+      workflowInstanceId: instance.id,
+      status: 'PENDING'
+    })
+
+    expect(tasks).toHaveLength(1)
+
+    // Complete task
+    const task = tasks[0]
+    await workflowService.completeTask(task.id, {
+      decision: 'approve',
+      comments: 'Approved'
+    })
+
+    // Workflow should complete
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    const final = await workflowService.getInstance(instance.id)
+    expect(final.status).toBe('COMPLETED')
+    expect(final.context.decision).toBe('approve')
+  })
+})
+```
+
+### Simulating Task Completion
+
+Test user task flows:
+
+```typescript
+it('should handle task rejection', async () => {
+  const instance = await workflowService.startWorkflow({
+    workflowId: 'simple-approval-v1',
+    initialContext: { orderId: 'order-123', amount: 1000 }
+  })
+
+  // Advance to user task
+  await waitForStep(instance.id, 'approve-request')
+
+  // Get task
+  const tasks = await em.find('UserTask', {
+    workflowInstanceId: instance.id,
+    status: 'PENDING'
+  })
+
+  // Reject task
+  await workflowService.completeTask(tasks[0].id, {
+    decision: 'reject',
+    comments: 'Insufficient budget'
+  })
+
+  // Workflow should reach rejected end state
+  await waitForCompletion(instance.id)
+
+  const final = await workflowService.getInstance(instance.id)
+  expect(final.status).toBe('COMPLETED')
+  expect(final.currentStepId).toBe('end-rejected')
+})
+```
+
+### Sending Signals
+
+Test signal-based workflows:
+
+```typescript
+it('should resume workflow on signal', async () => {
+  const instance = await workflowService.startWorkflow({
+    workflowId: 'payment-workflow-v1',
+    initialContext: { orderId: 'order-123', amount: 150 },
+    correlationKey: 'order-123'
+  })
+
+  // Workflow should wait for payment signal
+  await waitForStep(instance.id, 'wait-for-payment')
+
+  const current = await workflowService.getInstance(instance.id)
+  expect(current.status).toBe('WAITING_FOR_SIGNAL')
+
+  // Send payment signal
+  await workflowService.sendSignal(instance.id, {
+    signalName: 'payment-confirmed',
+    payload: {
+      transactionId: 'txn-abc123',
+      amount: 150
+    }
+  })
+
+  // Workflow should resume and complete
+  await waitForCompletion(instance.id)
+
+  const final = await workflowService.getInstance(instance.id)
+  expect(final.status).toBe('COMPLETED')
+  expect(final.context.transactionId).toBe('txn-abc123')
+})
+```
+
+### Verifying Final State
+
+Check workflow outcomes and context:
+
+```typescript
+it('should merge activity outputs into context', async () => {
+  const instance = await workflowService.startWorkflow({
+    workflowId: 'notification-workflow-v1',
+    initialContext: { customerEmail: 'user@example.com' }
+  })
+
+  await waitForCompletion(instance.id)
+
+  const final = await workflowService.getInstance(instance.id)
+  expect(final.status).toBe('COMPLETED')
+
+  // Verify activity outputs
+  expect(final.context.activities['send-email'].output.messageId).toBeDefined()
+  expect(final.context.activities['send-email'].output.sentAt).toBeDefined()
+})
+```
+
+## Testing Async Activities
+
+Test async activity execution with test queues:
+
+```typescript
+// src/modules/workflows/__tests__/async-activities.integration.test.ts
+import { WorkflowService } from '../lib/workflow-service'
+import { ActivityQueue } from '../lib/activity-queue'
+
+describe('Async Activities', () => {
+  let workflowService: WorkflowService
+  let activityQueue: ActivityQueue
+
+  beforeAll(async () => {
+    const container = await createTestContainer()
+    workflowService = container.resolve('workflowService')
+    activityQueue = container.resolve('activityQueue')
+  })
+
+  it('should execute async activity in background', async () => {
+    const instance = await workflowService.startWorkflow({
+      workflowId: 'async-workflow-v1',
+      initialContext: { reportId: 'report-123' }
+    })
+
+    // Workflow should enter WAITING_FOR_ACTIVITIES state
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    const waiting = await workflowService.getInstance(instance.id)
+    expect(waiting.status).toBe('WAITING_FOR_ACTIVITIES')
+
+    // Process activity queue
+    await activityQueue.processAll()
+
+    // Workflow should complete
+    await waitForCompletion(instance.id)
+
+    const final = await workflowService.getInstance(instance.id)
+    expect(final.status).toBe('COMPLETED')
+  })
+})
+```
+
+## Testing Compensation
+
+Test saga pattern and rollback:
+
+```typescript
+it('should trigger compensation on failure', async () => {
+  const instance = await workflowService.startWorkflow({
+    workflowId: 'saga-workflow-v1',
+    initialContext: { orderId: 'order-123' }
+  })
+
+  // Mock activity to fail
+  jest.spyOn(activityExecutors, 'CALL_API').mockResolvedValueOnce({
+    success: true,
+    output: { inventoryReserved: true }
+  }).mockResolvedValueOnce({
+    success: false,
+    error: 'Payment gateway unavailable'
+  })
+
+  // Wait for failure
+  await waitForFailure(instance.id)
+
+  const final = await workflowService.getInstance(instance.id)
+  expect(final.status).toBe('FAILED')
+
+  // Verify compensation activity was executed
+  const events = await em.find('WorkflowEvent', {
+    workflowInstanceId: instance.id,
+    eventType: 'ACTIVITY_COMPENSATED'
+  })
+
+  expect(events).toHaveLength(1)
+  expect(events[0].eventData.activityId).toBe('reserve-inventory')
+})
+```
+
+## Example Test Suite
+
+Complete test suite for an approval workflow:
+
+```typescript
+// src/modules/workflows/__tests__/purchase-approval.test.ts
+import { WorkflowService } from '../lib/workflow-service'
+import { createTestContainer } from '@/test/test-container'
+import { EntityManager } from '@mikro-orm/core'
+
+describe('Purchase Approval Workflow', () => {
+  let workflowService: WorkflowService
+  let em: EntityManager
+  let container: any
+
+  beforeAll(async () => {
+    container = await createTestContainer()
+    workflowService = container.resolve('workflowService')
+    em = container.resolve('em')
+  })
+
+  afterEach(async () => {
+    await em.nativeDelete('workflow_instances', {})
+    await em.nativeDelete('user_tasks', {})
+  })
+
+  describe('Auto-approval path', () => {
+    it('should auto-approve requests under $1000', async () => {
+      const instance = await workflowService.startWorkflow({
+        workflowId: 'purchase-approval-v1',
+        initialContext: { orderId: 'order-123', amount: 500 }
+      })
+
+      await waitForCompletion(instance.id)
+
+      const final = await workflowService.getInstance(instance.id)
+      expect(final.status).toBe('COMPLETED')
+      expect(final.currentStepId).toBe('end-approved')
+    })
+  })
+
+  describe('Manager approval path', () => {
+    it('should require manager approval for $1000-$10000', async () => {
+      const instance = await workflowService.startWorkflow({
+        workflowId: 'purchase-approval-v1',
+        initialContext: { orderId: 'order-123', amount: 5000 }
+      })
+
+      await waitForStep(instance.id, 'manager-approval')
+
+      const tasks = await em.find('UserTask', {
+        workflowInstanceId: instance.id
+      })
+
+      expect(tasks).toHaveLength(1)
+      expect(tasks[0].assignedToRoles).toContain('Managers')
+
+      await workflowService.completeTask(tasks[0].id, {
+        decision: 'approve',
+        comments: 'Approved by manager'
+      })
+
+      await waitForCompletion(instance.id)
+
+      const final = await workflowService.getInstance(instance.id)
+      expect(final.status).toBe('COMPLETED')
+      expect(final.currentStepId).toBe('end-approved')
+    })
+  })
+
+  describe('Director approval path', () => {
+    it('should require director approval for amounts over $10000', async () => {
+      const instance = await workflowService.startWorkflow({
+        workflowId: 'purchase-approval-v1',
+        initialContext: { orderId: 'order-123', amount: 15000 }
+      })
+
+      await waitForStep(instance.id, 'director-approval')
+
+      const tasks = await em.find('UserTask', {
+        workflowInstanceId: instance.id
+      })
+
+      expect(tasks).toHaveLength(1)
+      expect(tasks[0].assignedToRoles).toContain('Directors')
+    })
+  })
+})
+
+// Helper functions
+async function waitForStep(instanceId: string, stepId: string, timeout = 5000) {
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
+    const instance = await workflowService.getInstance(instanceId)
+    if (instance.currentStepId === stepId) {
+      return instance
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`Timeout waiting for step ${stepId}`)
+}
+
+async function waitForCompletion(instanceId: string, timeout = 5000) {
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
+    const instance = await workflowService.getInstance(instanceId)
+    if (instance.status === 'COMPLETED') {
+      return instance
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error('Timeout waiting for completion')
+}
+
+async function waitForFailure(instanceId: string, timeout = 5000) {
+  const start = Date.now()
+  while (Date.now() - start < timeout) {
+    const instance = await workflowService.getInstance(instanceId)
+    if (instance.status === 'FAILED') {
+      return instance
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error('Timeout waiting for failure')
+}
+```
+
+## CI/CD Integration
+
+### Running Tests
+
+Add workflow tests to your CI pipeline:
+
+```yaml
+# .github/workflows/test.yml
+name: Test Workflows
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run workflow tests
+        run: npm run test:workflows
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/workflows/lcov.info
+```
+
+### Test Scripts
+
+```json
+// package.json
+{
+  "scripts": {
+    "test": "jest",
+    "test:workflows": "jest --testPathPattern=workflows",
+    "test:workflows:watch": "jest --watch --testPathPattern=workflows",
+    "test:workflows:coverage": "jest --coverage --testPathPattern=workflows"
+  }
+}
+```
+
+## Best Practices
+
+### For Unit Tests
+
+- Test one component at a time
+- Mock external dependencies (services, APIs, databases)
+- Use descriptive test names (e.g., "should create user task with correct assignment")
+- Test both happy paths and error scenarios
+
+### For Integration Tests
+
+- Use test containers for database isolation
+- Clean up test data after each test
+- Test realistic workflows (not just trivial cases)
+- Verify final state and context data
+
+### For CI/CD
+
+- Run tests on every commit and pull request
+- Require passing tests before merging
+- Monitor test execution time and optimize slow tests
+- Track code coverage and maintain high standards
+
+## Next Steps
+
+- [**Review architecture**](./architecture) to understand testable components
+- [**Use services**](./services) to start workflows programmatically
+- [**Extend workflows**](./extending) with custom testable implementations
+
+**See Also:**
+- [**User Guide**](/user-guide/workflows/) - User-facing workflow documentation
+- [**Activities**](/user-guide/workflows/activities) - Activity configuration
+- [**Architecture**](./architecture) - Engine design and components

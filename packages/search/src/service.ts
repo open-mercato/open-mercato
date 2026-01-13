@@ -131,8 +131,18 @@ export class SearchService {
     // If no enricher configured, return as-is
     if (!this.presenterEnricher) return results
 
-    // Check if any results are missing presenter
-    const hasMissing = results.some((r) => !r.presenter?.title)
+    // Check if any results need enrichment (missing or encrypted presenter)
+    const needsEnrichment = (r: SearchResult) => {
+      if (!r.presenter?.title) return true
+      // Also enrich if presenter looks encrypted (format: iv:ciphertext:authTag:v1)
+      const title = r.presenter.title
+      if (typeof title === 'string' && title.includes(':')) {
+        const parts = title.split(':')
+        if (parts.length >= 3 && parts[parts.length - 1] === 'v1') return true
+      }
+      return false
+    }
+    const hasMissing = results.some(needsEnrichment)
     if (!hasMissing) return results
 
     // Use the configured presenter enricher

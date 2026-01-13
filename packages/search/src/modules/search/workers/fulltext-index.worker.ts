@@ -1,5 +1,5 @@
-import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import type { FulltextIndexJobPayload, FulltextBatchRecord } from '../../../queue/fulltext-indexing'
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload, type FulltextBatchRecord } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type {
@@ -12,11 +12,23 @@ import type {
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 import { updateReindexProgress } from '../lib/reindex-lock'
 import { extractFallbackPresenter } from '../../../lib/fallback-presenter'
+
+// Worker metadata for auto-discovery
+const DEFAULT_CONCURRENCY = 2
+const envConcurrency = process.env.WORKERS_FULLTEXT_INDEXING_CONCURRENCY
+
+export const metadata: WorkerMeta = {
+  queue: FULLTEXT_INDEXING_QUEUE_NAME,
+  concurrency: envConcurrency ? parseInt(envConcurrency, 10) : DEFAULT_CONCURRENCY,
+}
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -33,6 +45,8 @@ async function loadRecordsFromDb(
   tenantId: string,
   organizationId: string | null | undefined,
   searchIndexer: SearchIndexer,
+  queryEngine?: QueryEngine,
+  encryptionService?: TenantDataEncryptionService | null,
 ): Promise<IndexableRecord[]> {
   if (records.length === 0) return []
 
@@ -69,8 +83,23 @@ async function loadRecordsFromDb(
       const rows = await query
       const config = searchIndexer.getEntityConfig(entityId as EntityId)
 
+      // DEK cache for efficient batch decryption
+      const dekCache = new Map<string | null, string | null>()
+
       for (const row of rows) {
-        const doc = row.doc as Record<string, unknown>
+        // Decrypt doc before building indexable - entity_indexes stores encrypted data
+        let doc = row.doc as Record<string, unknown>
+        try {
+          doc = await decryptIndexDocForSearch(
+            entityId,
+            doc,
+            { tenantId, organizationId: organizationId ?? null },
+            encryptionService ?? null,
+            dekCache,
+          )
+        } catch {
+          // Continue with original doc if decryption fails
+        }
         const indexable = await buildIndexableFromDoc(
           doc,
           entityId,
@@ -78,6 +107,7 @@ async function loadRecordsFromDb(
           tenantId,
           organizationId,
           config,
+          queryEngine,
         )
         if (indexable) indexableRecords.push(indexable)
       }
@@ -99,6 +129,7 @@ async function buildIndexableFromDoc(
   tenantId: string,
   organizationId: string | null | undefined,
   config?: SearchEntityConfig,
+  queryEngine?: QueryEngine,
 ): Promise<IndexableRecord | null> {
   // Extract custom fields
   const customFields: Record<string, unknown> = {}
@@ -113,6 +144,7 @@ async function buildIndexableFromDoc(
     customFields,
     tenantId,
     organizationId,
+    queryEngine,
   }
 
   let presenter: SearchResultPresenter | undefined
@@ -227,6 +259,22 @@ export async function handleFulltextIndexJob(
     searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
+  // Resolve queryEngine for loading related records in buildSource
+  let queryEngine: QueryEngine | undefined
+  try {
+    queryEngine = ctx.resolve<QueryEngine>('queryEngine')
+  } catch {
+    searchDebugWarn('fulltext-index.worker', 'queryEngine not available')
+  }
+
+  // Resolve encryption service for decrypting entity_indexes docs
+  let encryptionService: TenantDataEncryptionService | null = null
+  try {
+    encryptionService = ctx.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    // Encryption service not available, docs won't be decrypted
+  }
+
   // Resolve fulltext strategy
   let fulltextStrategy: FullTextSearchStrategy | undefined
   try {
@@ -277,6 +325,8 @@ export async function handleFulltextIndexJob(
         tenantId,
         organizationId,
         searchIndexer,
+        queryEngine,
+        encryptionService,
       )
 
       if (indexableRecords.length === 0) {
@@ -400,4 +450,15 @@ export async function handleFulltextIndexJob(
     // Re-throw to let the queue handle retry logic
     throw error
   }
+}
+
+/**
+ * Default export for worker auto-discovery.
+ * Wraps handleFulltextIndexJob to match the expected handler signature.
+ */
+export default async function handle(
+  job: QueuedJob<FulltextIndexJobPayload>,
+  ctx: JobContext & HandlerContext
+): Promise<void> {
+  return handleFulltextIndexJob(job, ctx, ctx)
 }

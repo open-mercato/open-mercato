@@ -19,6 +19,7 @@ This repository is designed for extensibility. Agents should leverage the module
   - Alternatively, server components may `export const metadata` from the page file itself.
 - API under `src/modules/<module>/api/<method>/<path>.ts` → `/api/<path>` dispatched by method
 - Subscribers under `src/modules/<module>/subscribers/*.ts` exporting default handler and `metadata` with `{ event: string, persistent?: boolean, id?: string }`
+- Workers under `src/modules/<module>/workers/*.ts` exporting default handler and `metadata` with `{ queue: string, id?: string, concurrency?: number }`
 - Optional CLI at `src/modules/<module>/cli.ts` default export
 - Optional metadata at `src/modules/<module>/index.ts` exporting `metadata`
 - Optional features at `src/modules/<module>/acl.ts` exporting `features`
@@ -46,7 +47,7 @@ This repository is designed for extensibility. Agents should leverage the module
 - Database entities (MikroORM) live in `src/modules/<module>/data/entities.ts` (fallbacks: `db/entities.ts` or `schema.ts` for compatibility).
 - Generators build:
   - `src/modules/generated.ts` (routes/APIs/CLIs + info)
-  - subscribers are included in `modules.generated.ts` under each module entry
+  - subscribers and workers are included in `modules.generated.ts` under each module entry
   - `src/modules/entities.generated.ts` (MikroORM entities)
   - `src/modules/di.generated.ts` (DI registrars)
   - Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
@@ -282,6 +283,7 @@ formatResult: async (ctx: SearchBuildContext) => ({
 ```
 
 **Important:** For entities that only use token search (no fulltext/vector), you MUST define `formatResult` to display meaningful titles instead of raw UUIDs in Cmd+K results.
+Recommendation: when introducing new entities, add a search presenter (`formatResult` or `buildSource.presenter`) so results are human-friendly; see `packages/core/src/modules/customers/search.ts` for an example.
 
 ### Running Search Queue Workers
 For production with `QUEUE_STRATEGY=async`, start workers in separate processes:

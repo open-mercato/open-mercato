@@ -129,6 +129,14 @@ export type Module = {
     // Imported function reference; will be registered into event bus
     handler: (payload: any, ctx: any) => Promise<void> | void
   }>
+  // Auto-discovered queue workers
+  workers?: Array<{
+    id: string
+    queue: string
+    concurrency: number
+    // Imported function reference; will be called by the queue worker
+    handler: (job: unknown, ctx: unknown) => Promise<void> | void
+  }>
   // Optional: per-module declared entity extensions and custom fields (static)
   // Extensions discovered from data/extensions.ts; Custom fields discovered from ce.ts (entities[].fields)
   entityExtensions?: import('./entities').EntityExtension[]
@@ -219,4 +227,23 @@ export function findApi(modules: Module[], method: HttpMethod, pathname: string)
       }
     }
   }
+}
+
+// CLI modules registry - shared between CLI and module workers
+let _cliModules: Module[] | null = null
+
+export function registerCliModules(modules: Module[]) {
+  if (_cliModules !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] CLI modules re-registered (this may occur during HMR)')
+  }
+  _cliModules = modules
+}
+
+export function getCliModules(): Module[] {
+  // Return empty array if not registered - allows generate command to work without bootstrap
+  return _cliModules ?? []
+}
+
+export function hasCliModules(): boolean {
+  return _cliModules !== null && _cliModules.length > 0
 }

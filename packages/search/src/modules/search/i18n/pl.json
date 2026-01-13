@@ -13,6 +13,8 @@
   "search.dialog.empty.none": "Brak wyników.",
   "search.dialog.score.title": "Wynik trafności",
   "search.dialog.shortcuts.hint": "Naciśnij Cmd+K, aby przełączyć. Enter, aby otworzyć",
+  "search.dialog.noLink": "Brak linku",
+  "search.dialog.noLinkHint": "Brak konfiguracji search.ts dla tego typu encji",
   "search.settings.statusTitle": "Status wyszukiwania",
   "search.settings.statusEnabled": "Dostawca osadzeń skonfigurowany. Wyszukiwanie semantyczne jest dostępne.",
   "search.settings.statusDisabled": "Dostawca osadzeń nie skonfigurowany. Wyszukiwanie semantyczne jest wyłączone.",

@@ -11,6 +11,7 @@ import {
   BookingResourceTagAssignment,
   BookingResourceType,
   BookingService,
+  BookingServiceTagAssignment,
   BookingTeam,
   BookingTeamMember,
   BookingTeamRole,
@@ -453,6 +454,8 @@ const TAG_SEEDS: BookingResourceTagSeed[] = [
   { key: 'hair', slug: 'hair', label: 'Hairdressing', color: '#b91c1c' },
   { key: 'dental', slug: 'dental', label: 'Dental', color: '#0369a1' },
   { key: 'equipment', slug: 'equipment', label: 'Equipment', color: '#6b21a8' },
+  { key: 'software', slug: 'software', label: 'Software', color: '#2563eb' },
+  { key: 'consulting', slug: 'consulting', label: 'Consulting', color: '#0f766e' },
 ]
 
 const RESOURCE_SEEDS: BookingResourceSeed[] = [
@@ -986,6 +989,22 @@ export async function seedBookingResourceExamples(
   }
   await em.flush()
 
+  const allTags = await findWithDecryption(
+    em,
+    BookingResourceTag,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
+  const tagByLabel = new Map<string, BookingResourceTag>()
+  for (const tag of allTags) {
+    if (tag.slug) tagByLabel.set(tag.slug.toLowerCase(), tag)
+    if (tag.label) tagByLabel.set(tag.label.toLowerCase(), tag)
+  }
+
   const resourceNames = RESOURCE_SEEDS.map((seed) => seed.name)
   const existingResources = await findWithDecryption(
     em,
@@ -1141,8 +1160,55 @@ export async function seedBookingResourceExamples(
       updatedAt: now,
     })
     em.persist(service)
+    serviceByName.set(seed.name.toLowerCase(), service)
   }
   await em.flush()
+
+  const serviceList = Array.from(serviceByName.values())
+  if (serviceList.length > 0) {
+    const existingAssignments = await findWithDecryption(
+      em,
+      BookingServiceTagAssignment,
+      {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        service: { $in: serviceList.map((service) => service.id) },
+      },
+      { populate: ['service', 'tag'] },
+      scope,
+    )
+    const assignmentMap = new Map<string, Set<string>>()
+    for (const assignment of existingAssignments) {
+      const serviceId = assignment.service?.id
+      const tagId = assignment.tag?.id
+      if (!serviceId || !tagId) continue
+      const set = assignmentMap.get(serviceId) ?? new Set<string>()
+      set.add(tagId)
+      assignmentMap.set(serviceId, set)
+    }
+
+    for (const seed of SERVICE_SEEDS) {
+      const service = serviceByName.get(seed.name.toLowerCase())
+      if (!service) continue
+      const existing = assignmentMap.get(service.id) ?? new Set<string>()
+      for (const tagLabel of seed.tagLabels) {
+        const tag = tagByLabel.get(tagLabel.toLowerCase())
+        if (!tag || existing.has(tag.id)) continue
+        const assignment = em.create(BookingServiceTagAssignment, {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          service: em.getReference(BookingService, service.id),
+          tag: em.getReference(BookingResourceTag, tag.id),
+          createdAt: now,
+          updatedAt: now,
+        })
+        em.persist(assignment)
+        existing.add(tag.id)
+      }
+      assignmentMap.set(service.id, existing)
+    }
+    await em.flush()
+  }
 
   await seedBookingTeamExamples(em, scope)
 }

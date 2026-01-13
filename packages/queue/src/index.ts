@@ -22,3 +22,7 @@
 
 export * from './types'
 export { createQueue } from './factory'
+
+// Worker utilities
+export * from './worker/registry'
+export { runWorker, createRoutedHandler } from './worker/runner'
