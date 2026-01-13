@@ -89,7 +89,7 @@ export async function bootstrap(container: AwilixContainer) {
   try {
     let searchModuleConfigs: any[] = []
     try {
-      const mod = await import('@/generated/search.generated') as any
+      const mod = await import('#generated/search.generated') as any
       searchModuleConfigs = mod?.searchModuleConfigs ?? []
     } catch {
       // search.generated.ts may not exist yet

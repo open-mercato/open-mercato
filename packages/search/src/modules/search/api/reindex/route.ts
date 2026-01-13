@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createRequestContainer } from '@/lib/di/container'
-import { getAuthFromRequest } from '@/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchStrategy } from '@open-mercato/shared/modules/search'
 import type { SearchIndexer } from '@open-mercato/search/indexer'
