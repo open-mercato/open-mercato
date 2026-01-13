@@ -567,14 +567,6 @@ export class SearchIndexer {
    * When `useQueue` is false (default), batches are indexed directly (blocking).
    */
   async reindexEntityToFulltext(params: ReindexEntityParams): Promise<ReindexResult> {
-    searchDebug('SearchIndexer', 'reindexEntityToFulltext called', {
-      entityId: params.entityId,
-      tenantId: params.tenantId,
-      organizationId: params.organizationId,
-      useQueue: params.useQueue,
-      recreateIndex: params.recreateIndex,
-    })
-
     const result: ReindexResult = {
       success: true,
       entitiesProcessed: 0,
@@ -636,13 +628,16 @@ export class SearchIndexer {
           processed: totalProcessed,
         })
 
-        const queryResult = await this.queryEngine.query(params.entityId, {
-          tenantId: params.tenantId,
-          organizationId: params.organizationId ?? undefined,
-          page: { page, pageSize },
-        })
+        try {
+          const queryResult = await this.queryEngine.query(params.entityId, {
+            tenantId: params.tenantId,
+            organizationId: params.organizationId ?? undefined,
+            page: { page, pageSize },
+          })
 
-        if (!queryResult.items.length) break
+          if (!queryResult.items.length) {
+            break
+          }
 
         params.onProgress?.({
           entityId: params.entityId,
@@ -652,75 +647,58 @@ export class SearchIndexer {
         })
 
         // Build IndexableRecords for this batch
-        const { records: indexableRecords, dropped } = await this.buildIndexableRecords(
-          params.entityId,
-          params.tenantId,
-          params.organizationId ?? null,
-          queryResult.items,
-          config,
-        )
-        result.recordsDropped = (result.recordsDropped ?? 0) + dropped
+          const { records: indexableRecords, dropped } = await this.buildIndexableRecords(
+            params.entityId,
+            params.tenantId,
+            params.organizationId ?? null,
+            queryResult.items,
+            config,
+          )
+          result.recordsDropped = (result.recordsDropped ?? 0) + dropped
 
-        // Index to fulltext - either via queue or directly
-        if (indexableRecords.length > 0) {
-          if (params.useQueue && this.fulltextQueue) {
-            // Enqueue batch for background processing - only pass minimal references
-            // Worker will load fresh data from entity_indexes table
-            await this.fulltextQueue.enqueue({
-              jobType: 'batch-index',
-              tenantId: params.tenantId,
-              organizationId: params.organizationId,
-              records: indexableRecords.map((r) => ({ entityId: r.entityId, recordId: r.recordId })),
-            })
-            jobsEnqueued += 1
-            totalProcessed += indexableRecords.length
-            searchDebug('SearchIndexer', 'Enqueued batch for fulltext indexing', {
-              entityId: params.entityId,
-              batchSize: indexableRecords.length,
-              jobsEnqueued,
-              totalProcessed,
-            })
-          } else {
-            // Direct indexing (blocking)
-            searchDebug('SearchIndexer', 'Direct indexing batch', {
-              entityId: params.entityId,
-              recordCount: indexableRecords.length,
-              useQueue: params.useQueue,
-            })
-            try {
-              await fulltext.bulkIndex(indexableRecords)
+          // Index to fulltext - either via queue or directly
+          if (indexableRecords.length > 0) {
+            if (params.useQueue && this.fulltextQueue) {
+              // Enqueue batch for background processing - only pass minimal references
+              // Worker will load fresh data from entity_indexes table
+              await this.fulltextQueue.enqueue({
+                jobType: 'batch-index',
+                tenantId: params.tenantId,
+                organizationId: params.organizationId,
+                records: indexableRecords.map((r) => ({ entityId: r.entityId, recordId: r.recordId })),
+              })
+              jobsEnqueued += 1
               totalProcessed += indexableRecords.length
-              searchDebug('SearchIndexer', 'Indexed batch to fulltext', {
-                entityId: params.entityId,
-                batchSize: indexableRecords.length,
-                totalProcessed,
-              })
-            } catch (indexError) {
-              // Log error but continue with remaining batches
-              const errorMsg = indexError instanceof Error ? indexError.message : String(indexError)
-              searchError('SearchIndexer', 'Failed to index batch to fulltext, continuing', {
-                entityId: params.entityId,
-                page,
-                batchSize: indexableRecords.length,
-                error: errorMsg,
-              })
-              result.errors.push({
-                entityId: params.entityId,
-                error: `Batch ${page} failed: ${errorMsg}`,
-              })
+            } else {
+              // Direct indexing (blocking)
+              try {
+                await fulltext.bulkIndex(indexableRecords)
+                totalProcessed += indexableRecords.length
+              } catch (indexError) {
+                // Log error but continue with remaining batches
+                const errorMsg = indexError instanceof Error ? indexError.message : String(indexError)
+                result.errors.push({
+                  entityId: params.entityId,
+                  error: `Batch ${page} failed: ${errorMsg}`,
+                })
+              }
             }
           }
-        }
 
-        if (queryResult.items.length < pageSize) break
-        page += 1
+          if (queryResult.items.length < pageSize) {
+            break
+          }
+          page += 1
 
-        // Safety check to prevent infinite loops
-        if (page > MAX_PAGES) {
-          searchDebugWarn('SearchIndexer', 'Reached MAX_PAGES limit, stopping pagination', {
+          // Safety check to prevent infinite loops
+          if (page > MAX_PAGES) {
+            break
+          }
+        } catch (queryError) {
+          const errorMsg = queryError instanceof Error ? queryError.message : String(queryError)
+          result.errors.push({
             entityId: params.entityId,
-            maxPages: MAX_PAGES,
-            totalProcessed,
+            error: `Query failed: ${errorMsg}`,
           })
           break
         }
@@ -776,6 +754,7 @@ export class SearchIndexer {
     }
 
     const entities = this.listEnabledEntities()
+
     for (const entityId of entities) {
       const entityResult = await this.reindexEntityToFulltext({
         entityId,
