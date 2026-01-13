@@ -9,6 +9,7 @@ import { bookingResourceCreateSchema, bookingResourceUpdateSchema } from '../dat
 import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { E } from '@/generated/entities.ids.generated'
 import * as F from '@/generated/entities/booking_resource'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -198,3 +199,51 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const resourceTagListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  label: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+})
+
+const resourceListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  resource_type_id: z.string().uuid().nullable().optional(),
+  capacity: z.number().nullable().optional(),
+  capacity_unit_value: z.string().nullable().optional(),
+  capacity_unit_name: z.string().nullable().optional(),
+  capacity_unit_color: z.string().nullable().optional(),
+  capacity_unit_icon: z.string().nullable().optional(),
+  appearance_icon: z.string().nullable().optional(),
+  appearance_color: z.string().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  availability_rule_set_id: z.string().uuid().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  tags: z.array(resourceTagListItemSchema).optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Resource',
+  pluralName: 'Resources',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(resourceListItemSchema),
+  create: {
+    schema: bookingResourceCreateSchema,
+    description: 'Creates a resource scoped to the selected organization.',
+  },
+  update: {
+    schema: bookingResourceUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a resource by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a resource by id.',
+  },
+})

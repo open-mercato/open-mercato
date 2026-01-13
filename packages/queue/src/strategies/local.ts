@@ -9,12 +9,20 @@ type LocalState = {
 
 type StoredJob<T> = QueuedJob<T>
 
+/** Default polling interval in milliseconds */
+const DEFAULT_POLL_INTERVAL = 1000
+
 /**
  * Creates a file-based local queue.
  *
  * Jobs are stored in JSON files within a directory structure:
  * - `.queue/<name>/queue.json` - Array of queued jobs
  * - `.queue/<name>/state.json` - Processing state (last processed ID)
+ *
+ * **Limitations:**
+ * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
+ * - Not suitable for production or multi-process environments
+ * - No retry mechanism for failed jobs
  *
  * @template T - The payload type for jobs
  * @param name - Queue name (used for directory naming)
@@ -28,6 +36,14 @@ export function createLocalQueue<T = unknown>(
   const queueDir = path.join(baseDir, name)
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')
+  // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
+  const concurrency = options?.concurrency ?? 1
+  const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
+
+  // Worker state for continuous polling
+  let pollingTimer: ReturnType<typeof setInterval> | null = null
+  let isProcessing = false
+  let activeHandler: JobHandler<T> | null = null
 
   // -------------------------------------------------------------------------
   // File Operations
@@ -114,7 +130,10 @@ export function createLocalQueue<T = unknown>(
     return job.id
   }
 
-  async function process(
+  /**
+   * Process pending jobs in a single batch (internal helper).
+   */
+  async function processBatch(
     handler: JobHandler<T>,
     options?: ProcessOptions
   ): Promise<ProcessResult> {
@@ -146,6 +165,7 @@ export function createLocalQueue<T = unknown>(
         )
         processed++
         lastJobId = job.id
+        console.log(`[queue:${name}] Job ${job.id} completed`)
       } catch (error) {
         console.error(`[queue:${name}] Job ${job.id} failed:`, error)
         failed++
@@ -160,6 +180,51 @@ export function createLocalQueue<T = unknown>(
     return { processed, failed, lastJobId }
   }
 
+  /**
+   * Poll for and process new jobs.
+   */
+  async function pollAndProcess(): Promise<void> {
+    // Skip if already processing to avoid concurrent file access
+    if (isProcessing || !activeHandler) return
+
+    isProcessing = true
+    try {
+      await processBatch(activeHandler)
+    } catch (error) {
+      console.error(`[queue:${name}] Polling error:`, error)
+    } finally {
+      isProcessing = false
+    }
+  }
+
+  async function process(
+    handler: JobHandler<T>,
+    options?: ProcessOptions
+  ): Promise<ProcessResult> {
+    // If limit is specified, do a single batch (backward compatibility)
+    if (options?.limit) {
+      return processBatch(handler, options)
+    }
+
+    // Start continuous polling mode (like BullMQ Worker)
+    activeHandler = handler
+
+    // Process any pending jobs immediately
+    await processBatch(handler)
+
+    // Start polling interval for new jobs
+    pollingTimer = setInterval(() => {
+      pollAndProcess().catch((err) => {
+        console.error(`[queue:${name}] Poll cycle error:`, err)
+      })
+    }, pollInterval)
+
+    console.log(`[queue:${name}] Worker started with concurrency ${concurrency}`)
+
+    // Return sentinel value indicating continuous worker mode (like async strategy)
+    return { processed: -1, failed: -1, lastJobId: undefined }
+  }
+
   async function clear(): Promise<{ removed: number }> {
     const jobs = readQueue()
     const removed = jobs.length
@@ -169,7 +234,24 @@ export function createLocalQueue<T = unknown>(
   }
 
   async function close(): Promise<void> {
-    // No resources to clean up for local strategy
+    // Stop polling timer
+    if (pollingTimer) {
+      clearInterval(pollingTimer)
+      pollingTimer = null
+    }
+    activeHandler = null
+
+    // Wait for any in-progress processing to complete (with timeout)
+    const SHUTDOWN_TIMEOUT = 5000
+    const startTime = Date.now()
+
+    while (isProcessing) {
+      if (Date.now() - startTime > SHUTDOWN_TIMEOUT) {
+        console.warn(`[queue:${name}] Force closing after ${SHUTDOWN_TIMEOUT}ms timeout`)
+        break
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
   }
 
   async function getJobCounts(): Promise<{

@@ -1,5 +1,5 @@
-import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import type { FulltextIndexJobPayload, FulltextBatchRecord } from '../../../queue/fulltext-indexing'
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload, type FulltextBatchRecord } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type {
@@ -12,13 +12,20 @@ import type {
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
-import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 import { updateReindexProgress } from '../lib/reindex-lock'
 import { extractFallbackPresenter } from '../../../lib/fallback-presenter'
-import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
+
+// Worker metadata for auto-discovery
+const DEFAULT_CONCURRENCY = 2
+const envConcurrency = process.env.WORKERS_FULLTEXT_INDEXING_CONCURRENCY
+
+export const metadata: WorkerMeta = {
+  queue: FULLTEXT_INDEXING_QUEUE_NAME,
+  concurrency: envConcurrency ? parseInt(envConcurrency, 10) : DEFAULT_CONCURRENCY,
+}
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -28,7 +35,6 @@ const DB_BATCH_SIZE = 500
 /**
  * Load records from entity_indexes table and build IndexableRecords.
  * Groups records by entity type for efficient batch queries.
- * Decrypts data before building presenters to ensure plain text is indexed.
  */
 async function loadRecordsFromDb(
   knex: Knex,
@@ -36,7 +42,6 @@ async function loadRecordsFromDb(
   tenantId: string,
   organizationId: string | null | undefined,
   searchIndexer: SearchIndexer,
-  encryptionService: TenantDataEncryptionService | null,
 ): Promise<IndexableRecord[]> {
   if (records.length === 0) return []
 
@@ -49,8 +54,6 @@ async function loadRecordsFromDb(
   }
 
   const indexableRecords: IndexableRecord[] = []
-  // Cache for DEK keys to avoid repeated lookups
-  const dekCache = new Map<string | null, string | null>()
 
   for (const [entityId, recordIds] of byEntityType) {
     // Process in chunks to avoid hitting DB parameter limits
@@ -76,18 +79,7 @@ async function loadRecordsFromDb(
       const config = searchIndexer.getEntityConfig(entityId as EntityId)
 
       for (const row of rows) {
-        const rawDoc = row.doc as Record<string, unknown>
-
-        // Decrypt the doc before building presenter
-        // This ensures title/subtitle and other fields are plain text for Meilisearch
-        const doc = await decryptIndexDocForSearch(
-          entityId,
-          rawDoc,
-          { tenantId, organizationId },
-          encryptionService,
-          dekCache,
-        )
-
+        const doc = row.doc as Record<string, unknown>
         const indexable = await buildIndexableFromDoc(
           doc,
           entityId,
@@ -181,21 +173,9 @@ async function buildIndexableFromDoc(
     }
   }
 
-  // Fallback presenter if none from config or if presenter has empty/missing title
-  // This handles cases where buildSource returns a presenter but with empty title
-  // (e.g., when queryEngine is not available to load related entities)
-  if (!presenter || !presenter.title || presenter.title.trim() === '') {
-    const fallback = extractFallbackPresenter(doc, entityId, recordId)
-    if (!presenter) {
-      presenter = fallback
-    } else {
-      // Merge: use fallback title but keep other presenter fields (icon, badge)
-      presenter = {
-        ...fallback,
-        icon: presenter.icon ?? fallback.icon,
-        badge: presenter.badge ?? fallback.badge,
-      }
-    }
+  // Fallback presenter if none from config
+  if (!presenter) {
+    presenter = extractFallbackPresenter(doc, entityId, recordId)
   }
 
   return {
@@ -256,15 +236,6 @@ export async function handleFulltextIndexJob(
     searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
-  // Resolve encryption service for decrypting data before indexing
-  let encryptionService: TenantDataEncryptionService | null = null
-  try {
-    encryptionService = ctx.resolve<TenantDataEncryptionService>('tenantEncryptionService')
-  } catch {
-    // Encryption service not available - data will be indexed as-is
-    searchDebugWarn('fulltext-index.worker', 'tenantEncryptionService not available, data may remain encrypted')
-  }
-
   // Resolve fulltext strategy
   let fulltextStrategy: FullTextSearchStrategy | undefined
   try {
@@ -315,7 +286,6 @@ export async function handleFulltextIndexJob(
         tenantId,
         organizationId,
         searchIndexer,
-        encryptionService,
       )
 
       if (indexableRecords.length === 0) {
@@ -439,4 +409,15 @@ export async function handleFulltextIndexJob(
     // Re-throw to let the queue handle retry logic
     throw error
   }
+}
+
+/**
+ * Default export for worker auto-discovery.
+ * Wraps handleFulltextIndexJob to match the expected handler signature.
+ */
+export default async function handle(
+  job: QueuedJob<FulltextIndexJobPayload>,
+  ctx: JobContext & HandlerContext
+): Promise<void> {
+  return handleFulltextIndexJob(job, ctx, ctx)
 }

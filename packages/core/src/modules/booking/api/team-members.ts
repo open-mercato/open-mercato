@@ -11,6 +11,7 @@ import { sanitizeSearchTerm, parseBooleanFlag } from './helpers'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { E } from '@/generated/entities.ids.generated'
 import * as F from '@/generated/entities/booking_team_member'
+import { createBookingCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['booking.view'] },
@@ -226,3 +227,55 @@ export const GET = crud.GET
 export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
+
+const teamMemberListItemSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  organization_id: z.string().uuid().nullable().optional(),
+  tenant_id: z.string().uuid().nullable().optional(),
+  team_id: z.string().uuid().nullable().optional(),
+  display_name: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  user_id: z.string().uuid().nullable().optional(),
+  role_ids: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  availability_rule_set_id: z.string().uuid().nullable().optional(),
+  is_active: z.boolean().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  roleNames: z.array(z.string()).optional(),
+  user: z
+    .object({
+      id: z.string().uuid().nullable().optional(),
+      email: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  team: z
+    .object({
+      id: z.string().uuid().nullable().optional(),
+      name: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+})
+
+export const openApi = createBookingCrudOpenApi({
+  resourceName: 'Team member',
+  pluralName: 'Team members',
+  querySchema: listSchema,
+  listResponseSchema: createPagedListResponseSchema(teamMemberListItemSchema),
+  create: {
+    schema: bookingTeamMemberCreateSchema,
+    description: 'Creates a team member for booking assignments.',
+  },
+  update: {
+    schema: bookingTeamMemberUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description: 'Updates a team member by id.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description: 'Deletes a team member by id.',
+  },
+})

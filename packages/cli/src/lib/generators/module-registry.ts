@@ -61,6 +61,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     let cliImportName: string | null = null
     const translations: string[] = []
     const subscribers: string[] = []
+    const workers: string[] = []
     let infoImportName: string | null = null
     let extensionsImportName: string | null = null
     let fieldsImportName: string | null = null
@@ -540,6 +541,49 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
+    // Workers: src/modules/<module>/workers/*.ts
+    // Only includes files that export `metadata` with a `queue` property
+    {
+      const wrkApp = path.join(roots.appBase, 'workers')
+      const wrkPkg = path.join(roots.pkgBase, 'workers')
+      if (fs.existsSync(wrkApp) || fs.existsSync(wrkPkg)) {
+        const found: string[] = []
+        const walk = (dir: string, rel: string[] = []) => {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (e.isDirectory()) {
+              if (e.name === '__tests__' || e.name === '__mocks__') continue
+              walk(path.join(dir, e.name), [...rel, e.name])
+            } else if (e.isFile() && e.name.endsWith('.ts')) {
+              if (/\.(test|spec)\.ts$/.test(e.name)) continue
+              found.push([...rel, e.name].join('/'))
+            }
+          }
+        }
+        if (fs.existsSync(wrkPkg)) walk(wrkPkg)
+        if (fs.existsSync(wrkApp)) walk(wrkApp)
+        const files = Array.from(new Set(found))
+        for (const rel of files) {
+          const segs = rel.split('/')
+          const file = segs.pop()!
+          const name = file.replace(/\.ts$/, '')
+          const appFile = path.join(wrkApp, ...segs, `${name}.ts`)
+          const pkgFile = path.join(wrkPkg, ...segs, `${name}.ts`)
+          const fromApp = fs.existsSync(appFile)
+          const actualFile = fromApp ? appFile : pkgFile
+          // Only include files that export metadata with a queue property
+          if (!(await moduleHasExport(actualFile, 'metadata'))) continue
+          const importName = `Worker${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+          const metaName = `WorkerMeta${importId++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
+          const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/workers/${[...segs, name].join('/')}`
+          imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+          const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')
+          workers.push(
+            `{ id: (${metaName}.metadata as { id?: string })?.id || '${wid}', queue: (${metaName}.metadata as { queue: string }).queue, concurrency: (${metaName}.metadata as { concurrency?: number })?.concurrency ?? 1, handler: ${importName} as (job: unknown, ctx: unknown) => Promise<void> }`
+          )
+        }
+      }
+    }
+
     // Build combined customFieldSets expression from data/fields.ts and ce.ts (entities[].fields)
     {
       const parts: string[] = []
@@ -658,7 +702,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${cliImportName ? `cli: ${cliImportName},` : ''}
       ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
       ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
-      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as any) || [],` : ''}
+      ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
+      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
       customFieldSets: ${customFieldSetsExpr},
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
