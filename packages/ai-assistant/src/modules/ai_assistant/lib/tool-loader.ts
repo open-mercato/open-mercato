@@ -1,5 +1,6 @@
+import { z } from 'zod'
 import { registerMcpTool } from './tool-registry'
-import type { McpToolDefinition } from './types'
+import type { McpToolDefinition, McpToolContext } from './types'
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -10,6 +11,28 @@ type ModuleAiTool = {
   inputSchema: any
   requiredFeatures?: string[]
   handler: (input: any, ctx: any) => Promise<unknown>
+}
+
+/**
+ * Built-in context.whoami tool that returns the current authentication context.
+ * This is useful for AI to understand its current tenant/org scope.
+ */
+const contextWhoamiTool: McpToolDefinition = {
+  name: 'context.whoami',
+  description:
+    'Get the current authentication context including tenant ID, organization ID, user ID, and available features. Use this to understand your current scope before performing operations.',
+  inputSchema: z.object({}),
+  requiredFeatures: [], // No specific feature required - available to all authenticated users
+  handler: async (_input: unknown, ctx: McpToolContext) => {
+    return {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      isSuperAdmin: ctx.isSuperAdmin,
+      features: ctx.userFeatures,
+      featureCount: ctx.userFeatures.length,
+    }
+  },
 }
 
 /**
@@ -38,6 +61,10 @@ export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
  * This is called during MCP server startup.
  */
 export async function loadAllModuleTools(): Promise<void> {
+  // 0. Register built-in tools
+  registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
+  console.error('[MCP Tools] Registered built-in context.whoami tool')
+
   // 1. Load manual ai-tools.ts files from modules
   const moduleToolPaths = [
     { moduleId: 'search', importPath: '@open-mercato/search/modules/search/ai-tools' },
