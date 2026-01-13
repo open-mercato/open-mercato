@@ -5,11 +5,28 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 
 let ormInstance: MikroORM<PostgreSqlDriver> | null = null
 
+// Registration pattern for publishable packages
+let _entities: any[] | null = null
+
+export function registerOrmEntities(entities: any[]) {
+  if (_entities !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] ORM entities re-registered (this may occur during HMR)')
+  }
+  _entities = entities
+}
+
+export function getOrmEntities(): any[] {
+  if (!_entities) {
+    throw new Error('[Bootstrap] ORM entities not registered. Call registerOrmEntities() at bootstrap.')
+  }
+  return _entities
+}
+
 export async function getOrm() {
   if (ormInstance) {
     return ormInstance
   }
-  const { entities } = await import('@/generated/entities.generated')
+  const entities = getOrmEntities()
   const clientUrl = process.env.DATABASE_URL
   if (!clientUrl) throw new Error('DATABASE_URL is not set')
   

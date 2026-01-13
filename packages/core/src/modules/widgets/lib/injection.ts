@@ -24,6 +24,46 @@ export type LoadedInjectionWidget = LoadedWidgetModule & {
 
 type WidgetEntry = ModuleInjectionWidgetEntry & { moduleId: string }
 
+// Registration pattern for publishable packages
+let _coreInjectionWidgetEntries: ModuleInjectionWidgetEntry[] | null = null
+let _coreInjectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> | null = null
+
+export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
+  if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
+  }
+  _coreInjectionWidgetEntries = entries
+}
+
+export function getCoreInjectionWidgets(): ModuleInjectionWidgetEntry[] {
+  if (!_coreInjectionWidgetEntries) {
+    // On client-side, bootstrap doesn't run - return empty array gracefully
+    if (typeof window !== 'undefined') {
+      return []
+    }
+    throw new Error('[Bootstrap] Core injection widgets not registered. Call registerCoreInjectionWidgets() at bootstrap.')
+  }
+  return _coreInjectionWidgetEntries
+}
+
+export function registerCoreInjectionTables(tables: Array<{ moduleId: string; table: ModuleInjectionTable }>) {
+  if (_coreInjectionTables !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Core injection tables re-registered (this may occur during HMR)')
+  }
+  _coreInjectionTables = tables
+}
+
+export function getCoreInjectionTables(): Array<{ moduleId: string; table: ModuleInjectionTable }> {
+  if (!_coreInjectionTables) {
+    // On client-side, bootstrap doesn't run - return empty array gracefully
+    if (typeof window !== 'undefined') {
+      return []
+    }
+    throw new Error('[Bootstrap] Core injection tables not registered. Call registerCoreInjectionTables() at bootstrap.')
+  }
+  return _coreInjectionTables
+}
+
 let widgetEntriesPromise: Promise<WidgetEntry[]> | null = null
 type TableEntry = {
   widgetId: string
@@ -53,9 +93,18 @@ export function invalidateInjectionWidgetCache() {
 
 async function loadWidgetEntries(): Promise<WidgetEntry[]> {
   if (!widgetEntriesPromise) {
-    widgetEntriesPromise = import('@/generated/injection-widgets.generated').then((registry) => {
-      const list = (registry.injectionWidgetEntries ?? []) as ModuleInjectionWidgetEntry[]
-      return list.map((entry) => ({ ...entry }))
+    const promise = Promise.resolve().then(() =>
+      getCoreInjectionWidgets().map((entry) => ({
+        ...entry,
+        moduleId: entry.moduleId || 'unknown',
+      }))
+    )
+    widgetEntriesPromise = promise.catch((err) => {
+      // Clear cache on error so next call can retry after registration
+      if (widgetEntriesPromise === promise) {
+        widgetEntriesPromise = null
+      }
+      throw err
     })
   }
   return widgetEntriesPromise
@@ -63,8 +112,8 @@ async function loadWidgetEntries(): Promise<WidgetEntry[]> {
 
 async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>> {
   if (!injectionTablePromise) {
-    injectionTablePromise = import('@/generated/injection-tables.generated').then((registry) => {
-      const list = (registry.injectionTables ?? []) as Array<{ moduleId: string; table: ModuleInjectionTable }>
+    const promise = Promise.resolve().then(() => {
+      const list = getCoreInjectionTables()
       const table = new Map<InjectionSpotId, TableEntry[]>()
 
       for (const entry of list) {
@@ -97,6 +146,13 @@ async function loadInjectionTable(): Promise<Map<InjectionSpotId, TableEntry[]>>
       }
 
       return table
+    })
+    injectionTablePromise = promise.catch((err) => {
+      // Clear cache on error so next call can retry after registration
+      if (injectionTablePromise === promise) {
+        injectionTablePromise = null
+      }
+      throw err
     })
   }
   return injectionTablePromise

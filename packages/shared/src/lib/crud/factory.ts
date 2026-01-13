@@ -8,6 +8,7 @@ import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type {
   CrudEventAction,
   CrudEventsConfig,
@@ -917,7 +918,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const exportPageSize = exportRequested ? resolveExportBatchSize(opts.list, requestedPageSize) : requestedPageSize
       const exportScopeParam = (queryParams as any).exportScope ?? (queryParams as any).export_scope
       const exportScope = typeof exportScopeParam === 'string' ? exportScopeParam.toLowerCase() : null
-      const exportFullRequested = exportRequested && (exportScope === 'full' || String((queryParams as any).full || 'false').toLowerCase() === 'true')
+      const exportFullRequested = exportRequested && (exportScope === 'full' || parseBooleanToken((queryParams as any).full) === true)
       profiler.mark('export_configured', { exportRequested, exportFullRequested })
 
       const cacheEnabled = isCrudCacheEnabled() && !exportRequested
@@ -1050,7 +1051,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = exportFullRequested
           ? ({} as Where<any>)
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
-        const withDeleted = String((queryParams as any).withDeleted || 'false') === 'true'
+        const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
           profiler.mark('scope_blocked')

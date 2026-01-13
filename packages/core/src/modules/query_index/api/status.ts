@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@/lib/di/container'
 import { getAuthFromRequest } from '@/lib/auth/server'
-import { E as AllEntities } from '@/generated/entities.ids.generated'
+import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { readCoverageSnapshot, refreshCoverageSnapshot } from '../lib/coverage'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
+import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { queryIndexTag, queryIndexErrorSchema, queryIndexStatusResponseSchema } from './openapi'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -61,7 +62,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const forceRefresh = url.searchParams.has('refresh') && url.searchParams.get('refresh') !== '0'
 
-  const generatedIds = flattenSystemEntityIds(AllEntities as Record<string, Record<string, string>>)
+  const generatedIds = flattenSystemEntityIds(getEntityIds() as Record<string, Record<string, string>>)
   const generated = generatedIds.map((entityId) => ({ entityId, label: entityId }))
 
   const byId = new Map<string, { entityId: string; label: string }>()
@@ -81,6 +82,27 @@ export async function GET(req: Request) {
     try {
       vectorEnabledEntities = new Set(vectorService.listEnabledEntities())
     } catch {}
+  }
+
+  // Resolve fulltext strategy for entity counts
+  let fulltextStrategy: FullTextSearchStrategy | null = null
+  try {
+    const searchStrategies = container.resolve('searchStrategies') as unknown[]
+    fulltextStrategy = (searchStrategies?.find(
+      (s: unknown) => (s as { id?: string })?.id === 'fulltext',
+    ) as FullTextSearchStrategy) ?? null
+  } catch {
+    fulltextStrategy = null
+  }
+
+  // Fetch fulltext entity counts
+  let fulltextEntityCounts: Record<string, number> | null = null
+  if (fulltextStrategy) {
+    try {
+      fulltextEntityCounts = await fulltextStrategy.getEntityCounts(tenantId)
+    } catch {
+      fulltextEntityCounts = null
+    }
   }
 
   // Limit to entities that have active custom field definitions in current scope
@@ -301,6 +323,8 @@ export async function GET(req: Request) {
     const indexCountNumber = normalizeCount(coverage?.indexedCount)
     const vectorEnabled = vectorEnabledEntities.has(eid)
     const vectorCountNumber = vectorEnabled ? normalizeCount((coverage as any)?.vectorIndexedCount ?? (coverage as any)?.vector_indexed_count) : null
+    const fulltextEnabled = fulltextEntityCounts !== null
+    const fulltextCountNumber = fulltextEnabled ? (fulltextEntityCounts?.[eid] ?? 0) : null
     const ok = (() => {
       if (baseCountNumber == null || indexCountNumber == null) return false
       if (baseCountNumber !== indexCountNumber) return false
@@ -314,6 +338,8 @@ export async function GET(req: Request) {
       indexCount: indexCountNumber,
       vectorCount: vectorEnabled ? vectorCountNumber : null,
       vectorEnabled,
+      fulltextCount: fulltextCountNumber,
+      fulltextEnabled,
       ok,
       job,
       refreshedAt: refreshedAt ?? null,

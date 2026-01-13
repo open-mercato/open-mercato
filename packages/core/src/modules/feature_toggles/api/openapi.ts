@@ -5,6 +5,7 @@ import {
     changeOverrideStateBaseSchema,
     overrideListQuerySchema,
     getToggleOverrideQuerySchema,
+    featureToggleOverrideResponseSchema,
 } from '../data/validators'
 
 export const featureTogglesTag = 'Feature Toggles'
@@ -24,7 +25,7 @@ export const featureToggleSchema = z
         description: z.string().nullable().optional(),
         category: z.string().nullable().optional(),
         default_state: z.boolean(),
-        fail_mode: z.string(),
+
         created_at: z.string().optional(),
         updated_at: z.string().optional(),
     })
@@ -62,14 +63,8 @@ export const featureToggleOverrideListResponseSchema = z.object({
     isSuperAdmin: z.boolean(),
 })
 
-export const featureToggleOverrideResponseSchema = z.object({
-    id: z.string(),
-    state: z.enum(['enabled', 'disabled', 'inherit']),
-    tenantName: z.string(),
-    tenantId: z.string(),
-})
 
-export { changeOverrideStateBaseSchema, overrideListQuerySchema, getToggleOverrideQuerySchema }
+export { changeOverrideStateBaseSchema, overrideListQuerySchema, getToggleOverrideQuerySchema, featureToggleOverrideResponseSchema }
 
 export const changeOverrideStateResponseSchema = z.object({
     ok: z.literal(true),
@@ -78,6 +73,33 @@ export const changeOverrideStateResponseSchema = z.object({
 
 export const checkResponseSchema = z.object({
     enabled: z.boolean(),
+    source: z.enum(['override', 'default', 'fallback', 'missing']),
+    toggleId: z.string(),
+    identifier: z.string(),
+    tenantId: z.string(),
+}).passthrough()
+
+export const checkStringResponseSchema = z.object({
+    valueType: z.literal('string'),
+    value: z.string(),
+    source: z.enum(['override', 'default', 'fallback', 'missing']),
+    toggleId: z.string(),
+    identifier: z.string(),
+    tenantId: z.string(),
+}).passthrough()
+
+export const checkNumberResponseSchema = z.object({
+    valueType: z.literal('number'),
+    value: z.number(),
+    source: z.enum(['override', 'default', 'fallback', 'missing']),
+    toggleId: z.string(),
+    identifier: z.string(),
+    tenantId: z.string(),
+}).passthrough()
+
+export const checkJsonResponseSchema = z.object({
+    valueType: z.literal('json'),
+    value: z.unknown(),
     source: z.enum(['override', 'default', 'fallback', 'missing']),
     toggleId: z.string(),
     identifier: z.string(),

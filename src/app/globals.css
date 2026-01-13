@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "react-big-calendar/lib/css/react-big-calendar.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -119,4 +120,30 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+.rbc-calendar {
+  font-family: var(--font-sans);
+}
+
+.rbc-toolbar,
+.rbc-time-header,
+.rbc-time-content,
+.rbc-agenda-view,
+.rbc-month-view {
+  color: var(--foreground);
+}
+
+.rbc-today {
+  background-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+
+.schedule-calendar .rbc-time-gutter,
+.schedule-calendar .rbc-agenda-time-cell,
+.schedule-calendar .rbc-agenda-date-cell {
+  font-size: 0.75rem;
+}
+
+.schedule-calendar .rbc-time-content {
+  font-size: 0.8125rem;
 }

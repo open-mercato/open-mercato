@@ -1,14 +1,12 @@
 import type { ModuleCli } from '@/modules/registry'
 import { createRequestContainer } from '@/lib/di/container'
 import type { ModuleConfigService } from './lib/module-config-service'
-
-const truthy = new Set(['1', 'true', 'yes', 'on'])
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 function envDisablesAutoIndexing(): boolean {
   const raw = process.env.DISABLE_VECTOR_SEARCH_AUTOINDEXING
   if (!raw) return false
-  const normalized = raw.trim().toLowerCase()
-  return truthy.has(normalized)
+  return parseBooleanToken(raw) === true
 }
 
 const restoreDefaults: ModuleCli = {
@@ -59,4 +57,3 @@ const help: ModuleCli = {
 }
 
 export default [restoreDefaults, help]
-

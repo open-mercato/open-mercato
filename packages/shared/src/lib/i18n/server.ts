@@ -1,8 +1,25 @@
 import { cookies, headers } from 'next/headers'
 import { defaultLocale, locales, type Locale } from './config'
 import type { Dict } from './context'
-import { modules } from '@/generated/modules.generated'
 import { createFallbackTranslator, createTranslator } from './translate'
+import type { Module } from '@open-mercato/shared/modules/registry'
+
+// Registration pattern for publishable packages
+let _modules: Module[] | null = null
+
+export function registerModules(modules: Module[]) {
+  if (_modules !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Modules re-registered (this may occur during HMR)')
+  }
+  _modules = modules
+}
+
+export function getModules(): Module[] {
+  if (!_modules) {
+    throw new Error('[Bootstrap] Modules not registered. Call registerModules() at bootstrap.')
+  }
+  return _modules
+}
 
 function flattenDictionary(source: unknown, prefix = ''): Dict {
   if (!source || typeof source !== 'object' || Array.isArray(source)) return {}
@@ -39,6 +56,7 @@ export async function detectLocale(): Promise<Locale> {
 export async function loadDictionary(locale: Locale): Promise<Dict> {
   const baseRaw = await import(`@/i18n/${locale}.json`).then(m => m.default).catch(() => ({} as Record<string, unknown>))
   const merged: Dict = { ...flattenDictionary(baseRaw) }
+  const modules = getModules()
   for (const m of modules) {
     const dict = m.translations?.[locale]
     if (dict) Object.assign(merged, flattenDictionary(dict))

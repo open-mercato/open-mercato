@@ -7,6 +7,7 @@ import type {
   SystemStatusState,
   SystemStatusRuntimeMode,
 } from './system-status.types'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 type SystemStatusVariableDefinition = {
   key: string
@@ -17,9 +18,6 @@ type SystemStatusVariableDefinition = {
   docUrl: string | null
   defaultValue: string | null
 }
-
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'y', 'on', 'enable', 'enabled'])
-const FALSE_VALUES = new Set(['0', 'false', 'no', 'n', 'off', 'disable', 'disabled'])
 
 const CATEGORY_ORDER: SystemStatusCategoryKey[] = ['profiling', 'logging', 'caching', 'query_index', 'entities']
 
@@ -197,11 +195,11 @@ function analyzeBooleanValue(raw: string | undefined): AnalyzedValue {
   }
   const trimmed = raw.trim()
   if (!trimmed) return { state: 'unset', value: null, normalizedValue: null }
-  const resolved = trimmed.toLowerCase()
-  if (TRUE_VALUES.has(resolved)) {
+  const parsed = parseBooleanToken(trimmed)
+  if (parsed === true) {
     return { state: 'enabled', value: trimmed, normalizedValue: 'true' }
   }
-  if (FALSE_VALUES.has(resolved)) {
+  if (parsed === false) {
     return { state: 'disabled', value: trimmed, normalizedValue: 'false' }
   }
   return { state: 'unknown', value: trimmed, normalizedValue: trimmed }

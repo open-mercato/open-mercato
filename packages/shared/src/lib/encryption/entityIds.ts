@@ -1,5 +1,25 @@
 import type { EntityMetadata } from '@mikro-orm/core'
-import { E as GeneratedEntities } from '@/generated/entities.ids.generated'
+
+// Registration pattern for publishable packages
+export type EntityIds = Record<string, Record<string, string>>
+
+let _entityIds: EntityIds | null = null
+let _entityIdLookup: Map<string, string> | null = null
+
+export function registerEntityIds(E: EntityIds) {
+  if (_entityIds !== null && process.env.NODE_ENV === 'development') {
+    console.debug('[Bootstrap] Entity IDs re-registered (this may occur during HMR)')
+  }
+  _entityIds = E
+  _entityIdLookup = null // Reset cache on re-registration
+}
+
+export function getEntityIds(): EntityIds {
+  if (!_entityIds) {
+    throw new Error('[Bootstrap] Entity IDs not registered. Call registerEntityIds() at bootstrap.')
+  }
+  return _entityIds
+}
 
 const toSnake = (value: string): string =>
   value
@@ -8,9 +28,11 @@ const toSnake = (value: string): string =>
     .replace(/__+/g, '_')
     .toLowerCase()
 
-const ENTITY_ID_LOOKUP = (() => {
+function getEntityIdLookup(): Map<string, string> {
+  if (_entityIdLookup) return _entityIdLookup
+  const E = getEntityIds()
   const map = new Map<string, string>()
-  for (const mod of Object.values(GeneratedEntities || {})) {
+  for (const mod of Object.values(E || {})) {
     for (const [key, entityId] of Object.entries(mod || {})) {
       const snake = toSnake(key)
       map.set(snake, entityId)
@@ -25,8 +47,9 @@ const ENTITY_ID_LOOKUP = (() => {
       )
     }
   }
+  _entityIdLookup = map
   return map
-})()
+}
 
 const normalizeKey = (value: string): string =>
   value
@@ -63,9 +86,10 @@ export function resolveEntityIdFromMetadata(meta: EntityMetadata<any> | undefine
       snake,
       snakeSingular,
     ]
+    const lookup = getEntityIdLookup()
     for (const candidate of variants) {
       if (!candidate) continue
-      const id = ENTITY_ID_LOOKUP.get(candidate)
+      const id = lookup.get(candidate)
       if (id) return id
     }
   }

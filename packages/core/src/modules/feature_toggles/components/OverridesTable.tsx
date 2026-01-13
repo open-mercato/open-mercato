@@ -5,23 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { useT } from "@/lib/i18n/context";
-import { useMutation } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { ColumnDef, SortingState } from "@tanstack/react-table";
 import * as React from 'react'
 import type { FilterDef, FilterValues } from "@open-mercato/ui/backend/FilterBar"
+import { RowActions } from "@open-mercato/ui/backend/RowActions";
+import { OverrideListResponse } from "../data/validators";
 
-type Row = {
-    id: string
-    toggleId: string
-    overrideState: 'enabled' | 'disabled' | 'inherit'
-    tenantName: string
-    tenantId: string
-    identifier: string
-    name: string
-    category: string
-    defaultState: boolean
-}
 
 export default function OverridesTable() {
     const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -52,7 +42,7 @@ export default function OverridesTable() {
         queryKey: ['feature_toggle_overrides', queryParams],
         queryFn: async () => {
             const call = await apiCall<{
-                items: Row[];
+                items: OverrideListResponse[];
                 total: number;
                 totalPages: number;
                 page: number;
@@ -69,29 +59,6 @@ export default function OverridesTable() {
                 page: 1,
                 pageSize: 25
             }
-        },
-    })
-
-    const mutation = useMutation({
-        mutationFn: async (input: { toggleId: string; state: Row['overrideState'] }) => {
-            const call = await apiCall<{ ok: boolean }>(
-                `/api/feature_toggles/overrides`,
-                {
-                    method: 'PUT',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({
-                        toggleId: input.toggleId,
-                        state: input.state,
-                    }),
-                },
-            )
-            if (!call.ok) {
-                await raiseCrudError(call.response, t('feature_toggles.overrides.error.update', 'Failed to update override'))
-            }
-            return call.result
-        },
-        onSettled: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['feature_toggle_overrides'] })
         },
     })
 
@@ -115,7 +82,7 @@ export default function OverridesTable() {
         void queryClient.refetchQueries({ queryKey: ['feature_toggle_overrides'] })
     }, [queryClient])
 
-    const columns = React.useMemo<ColumnDef<Row>[]>(() => {
+    const columns = React.useMemo<ColumnDef<OverrideListResponse>[]>(() => {
         return [
             {
                 accessorKey: 'tenantName',
@@ -138,47 +105,15 @@ export default function OverridesTable() {
                 enableSorting: true
             },
             {
-                accessorKey: 'defaultState',
-                header: t('feature_toggles.overrides.headers.defaultState', 'Default State'),
+                accessorKey: 'isOverride',
+                header: t('feature_toggles.overrides.headers.overrideState', 'Override'),
+                enableSorting: false,
                 cell: ({ row }) => {
-                    return (
-                        <span>
-                            {row.original.defaultState ? t('feature_toggles.list.headers.enabled', 'Enabled') : t('feature_toggles.list.filters.defaultState.disabled', 'Disabled')}
-                        </span>
-                    )
-                },
-                enableSorting: true
-            },
-            {
-                accessorKey: 'overrideState',
-                header: t('feature_toggles.overrides.headers.overrideState', 'Override State'),
-                enableSorting: true,
-                cell: ({ row }) => {
-                    const isUpdating =
-                        mutation.isPending
-                        && mutation.variables?.toggleId === row.original.toggleId
-
-                    return (
-                        <select
-                            value={row.original.overrideState}
-                            disabled={isUpdating}
-                            onChange={(e) => {
-                                const state = e.target.value as Row['overrideState']
-                                mutation.mutate({
-                                    toggleId: row.original.toggleId,
-                                    state,
-                                })
-                            }}
-                        >
-                            <option value="inherit">Inherit</option>
-                            <option value="enabled">Enabled</option>
-                            <option value="disabled">Disabled</option>
-                        </select>
-                    )
+                    return row.original.isOverride ? t('feature_toggles.overrides.headers.isOverride.true', 'Yes') : t('feature_toggles.overrides.headers.isOverride.false', 'No')
                 },
             },
         ]
-    }, [mutation])
+    }, [])
 
 
     const filters = React.useMemo<FilterDef[]>(() => [
@@ -196,26 +131,7 @@ export default function OverridesTable() {
             id: 'category',
             label: t('feature_toggles.list.filters.category', 'Category'),
             type: 'text',
-        },
-        {
-            id: 'defaultState',
-            label: t('feature_toggles.list.filters.defaultState', 'Default State'),
-            type: 'select',
-            options: [
-                { value: 'true', label: t('feature_toggles.list.filters.defaultState.enabled', 'Enabled') },
-                { value: 'false', label: t('feature_toggles.list.filters.defaultState.disabled', 'Disabled') },
-            ],
-        },
-        {
-            id: 'overrideState',
-            label: t('feature_toggles.list.filters.overrideState', 'Override State'),
-            type: 'select',
-            options: [
-                { value: 'inherit', label: t('feature_toggles.list.filters.overrideState.inherit', 'Inherit') },
-                { value: 'enabled', label: t('feature_toggles.list.filters.overrideState.enabled', 'Enabled') },
-                { value: 'disabled', label: t('feature_toggles.list.filters.overrideState.disabled', 'Disabled') },
-            ],
-        },
+        }
     ], [t])
 
     return (
@@ -243,6 +159,11 @@ export default function OverridesTable() {
                 onRefresh: handleRefresh,
                 isRefreshing: isLoading,
             }}
+            rowActions={(row) => (
+                <RowActions items={[
+                    { label: t('common.edit', 'Edit'), href: `/backend/feature-toggles/global/${row.toggleId}` },
+                ]} />
+            )}
             error={error ? error.message : undefined}
         />
     )

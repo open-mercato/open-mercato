@@ -3,16 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@/lib/i18n/context'
-
-export type FeatureToggleItem = {
-  identifier: string
-  name: string
-  description: string
-  category: string
-  default_state: boolean
-  fail_mode: string
-}
-
+import { FeatureToggle } from '../../data/validators'
 
 export function useFeatureToggleItem(id?: string) {
   const t = useT()
@@ -21,7 +12,7 @@ export function useFeatureToggleItem(id?: string) {
     queryKey: ['feature_toggles', 'global', id],
     enabled: Boolean(id),
     queryFn: async () => {
-      const call = await apiCall<FeatureToggleItem>(
+      const call = await apiCall<FeatureToggle>(
         `/api/feature_toggles/global/${encodeURIComponent(String(id))}`,
       )
       if (!call.ok) {

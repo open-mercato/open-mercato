@@ -1,0 +1,192 @@
+{
+  "currencies": {
+    "currencies": {
+      "update": "Währung aktualisieren"
+    },
+    "exchange_rates": {
+      "update": "Wechselkurs aktualisieren"
+    },
+    "module": {
+      "title": "Währungen & Wechselkurse",
+      "description": "Verwalten Sie Währungen und Wechselkurse für Transaktionen in mehreren Währungen."
+    },
+    "nav": {
+      "group": "Währungen"
+    },
+    "page": {
+      "title": "Währungen"
+    },
+    "list": {
+      "title": "Währungen",
+      "searchPlaceholder": "Währungen nach Code oder Name durchsuchen",
+      "columns": {
+        "code": "Code",
+        "name": "Name",
+        "symbol": "Symbol",
+        "decimalPlaces": "Dezimalstellen",
+        "active": "Aktiv"
+      },
+      "filters": {
+        "baseOnly": "Nur Basiswährung anzeigen",
+        "status": "Status",
+        "all": "Alle",
+        "active": "Aktiv",
+        "inactive": "Inaktiv"
+      },
+      "actions": {
+        "create": "Währung hinzufügen",
+        "setBase": "Als Basis festlegen"
+      },
+      "base": "Basis",
+      "confirmDelete": "Währung {{code}} löschen? Dadurch werden auch alle Wechselkurse für diese Währung entfernt.",
+      "error": {
+        "load": "Währungen konnten nicht geladen werden"
+      }
+    },
+    "create": {
+      "title": "Währung erstellen"
+    },
+    "edit": {
+      "title": "Währung bearbeiten"
+    },
+    "form": {
+      "group": {
+        "details": "Währungsdetails",
+        "formatting": "Formatierung & Einstellungen"
+      },
+      "field": {
+        "code": "Währungscode",
+        "codePlaceholder": "USD",
+        "codeHelp": "ISO 4217 3-Buchstaben-Code (z.B. USD, EUR, GBP)",
+        "name": "Währungsname",
+        "namePlaceholder": "US-Dollar",
+        "symbol": "Symbol",
+        "symbolPlaceholder": "$",
+        "decimalPlaces": "Dezimalstellen",
+        "thousandsSeparator": "Tausendertrennzeichen",
+        "decimalSeparator": "Dezimaltrennzeichen",
+        "isBase": "Basiswährung",
+        "isActive": "Aktiv"
+      },
+      "action": {
+        "create": "Währung erstellen",
+        "save": "Änderungen speichern"
+      },
+      "loading": "Währung wird geladen...",
+      "errors": {
+        "codeFormat": "Währungscode muss genau 3 Großbuchstaben sein (z.B. USD)",
+        "load": "Währung konnte nicht geladen werden",
+        "notFound": "Währung nicht gefunden",
+        "delete": "Währung konnte nicht gelöscht werden"
+      }
+    },
+    "flash": {
+      "created": "Währung erfolgreich erstellt",
+      "updated": "Währung erfolgreich aktualisiert",
+      "deleted": "Währung erfolgreich gelöscht",
+      "deleteError": "Währung konnte nicht gelöscht werden",
+      "baseSet": "Basiswährung erfolgreich aktualisiert",
+      "baseSetError": "Basiswährung konnte nicht festgelegt werden"
+    },
+    "fetch": {
+      "title": "Währungskurs-Abruf",
+      "enabled": "Aktiviert",
+      "disabled": "Deaktiviert",
+      "sync_time": "Tägliche Synchronisierungszeit",
+      "last_sync": "Letzte Synchronisation",
+      "last_sync_status": "Status",
+      "last_sync_count": "Abgerufene Kurse",
+      "fetch_now": "Jetzt Abrufen",
+      "sync_success": "Kurse erfolgreich abgerufen",
+      "sync_error": "Fehler beim Abrufen der Kurse",
+      "provider_nbp": "NBP (Polnische Nationalbank)",
+      "provider_raiffeisen": "Raiffeisen Bank Polen",
+      "loading": "Wird geladen...",
+      "test_connection": "Verbindung Testen"
+    }
+  },
+  "exchangeRates": {
+    "page": {
+      "title": "Wechselkurse"
+    },
+    "list": {
+      "title": "Wechselkurse",
+      "searchPlaceholder": "Wechselkurse durchsuchen",
+      "columns": {
+        "currencyPair": "Währungspaar",
+        "rate": "Kurs",
+        "date": "Datum & Uhrzeit",
+        "source": "Quelle",
+        "active": "Aktiv"
+      },
+      "filters": {
+        "fromCurrency": "Von Währung",
+        "toCurrency": "Zu Währung",
+        "source": "Quelle",
+        "status": "Status",
+        "all": "Alle",
+        "active": "Aktiv",
+        "inactive": "Inaktiv"
+      },
+      "actions": {
+        "create": "Wechselkurs hinzufügen"
+      },
+      "confirmDelete": "Wechselkurs {{pair}} löschen?",
+      "error": {
+        "load": "Wechselkurse konnten nicht geladen werden"
+      }
+    },
+    "create": {
+      "title": "Wechselkurs erstellen"
+    },
+    "edit": {
+      "title": "Wechselkurs bearbeiten"
+    },
+    "form": {
+      "group": {
+        "details": "Wechselkursdetails",
+        "metadata": "Metadaten"
+      },
+      "field": {
+        "fromCurrency": "Von Währung",
+        "fromCurrencyPlaceholder": "Währung auswählen",
+        "fromCurrencyHelp": "Quellwährung für die Umrechnung",
+        "toCurrency": "Zu Währung",
+        "toCurrencyPlaceholder": "Währung auswählen",
+        "toCurrencyHelp": "Zielwährung für die Umrechnung",
+        "rate": "Wechselkurs",
+        "rateHelp": "Wie viele Einheiten der Zielwährung pro 1 Einheit der Quellwährung (bis zu 8 Dezimalstellen)",
+        "date": "Datum & Uhrzeit",
+        "dateHelp": "Datum und Uhrzeit, ab wann dieser Kurs gilt (in Ihrer lokalen Zeitzone)",
+        "source": "Quelle",
+        "sourcePlaceholder": "z.B. EZB, Manuell",
+        "sourceHelp": "Woher stammt dieser Kurs (erforderlich, 2-50 Zeichen)",
+        "isActive": "Aktiv"
+      },
+      "action": {
+        "create": "Wechselkurs erstellen",
+        "save": "Änderungen speichern"
+      },
+      "loading": "Wechselkurs wird geladen...",
+      "errors": {
+        "currencyCodeFormat": "Muss genau 3 Großbuchstaben sein",
+        "fromCurrencyFormat": "Ungültiger Von-Währungscode",
+        "toCurrencyFormat": "Ungültiger Zu-Währungscode",
+        "sameCurrency": "Von- und Zu-Währung müssen unterschiedlich sein",
+        "invalidRate": "Kurs muss eine positive Zahl sein",
+        "invalidDate": "Datum und Uhrzeit sind erforderlich",
+        "sourceTooShort": "Quelle muss mindestens 2 Zeichen haben",
+        "sourceTooLong": "Quelle darf maximal 50 Zeichen haben",
+        "sourceInvalidFormat": "Quelle darf nur Buchstaben, Zahlen, Leerzeichen, Bindestriche und Unterstriche enthalten",
+        "load": "Wechselkurs konnte nicht geladen werden",
+        "notFound": "Wechselkurs nicht gefunden"
+      }
+    },
+    "flash": {
+      "created": "Wechselkurs erfolgreich erstellt",
+      "updated": "Wechselkurs erfolgreich aktualisiert",
+      "deleted": "Wechselkurs erfolgreich gelöscht",
+      "deleteError": "Wechselkurs konnte nicht gelöscht werden"
+    }
+  }
+}

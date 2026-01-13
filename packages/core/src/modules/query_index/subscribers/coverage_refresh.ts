@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { refreshCoverageSnapshot } from '../lib/coverage'
-import type { VectorIndexService } from '@open-mercato/vector'
+import type { VectorIndexService } from '@open-mercato/search/vector'
 
 export const metadata = { event: 'query_index.coverage.refresh', persistent: false }
 
