@@ -133,7 +133,8 @@ export class HybridQueryEngine implements QueryEngine {
       if (debugEnabled) this.debug('query:start', { entity })
       this.searchAliasSeq = 0
 
-      if (await this.isCustomEntity(entity)) {
+      const isCustom = await this.isCustomEntity(entity)
+      if (isCustom) {
         if (debugEnabled) this.debug('query:custom-entity', { entity })
         const section = profiler.section('custom_entity')
         try {
@@ -698,6 +699,7 @@ export class HybridQueryEngine implements QueryEngine {
     }
 
     const dataBuilder = builder.clone().limit(pageSize).offset((page - 1) * pageSize)
+
     if (debugEnabled && sqlDebugEnabled) {
       const { sql, bindings } = dataBuilder.clone().toSQL()
       this.debug('query:sql:data', { entity, sql, bindings, page, pageSize })
@@ -1383,7 +1385,6 @@ export class HybridQueryEngine implements QueryEngine {
             organizationId,
             withDeleted,
           },
-          { vectorService: this.resolveVectorService() },
         )
       }
       const knex = this.getKnex()

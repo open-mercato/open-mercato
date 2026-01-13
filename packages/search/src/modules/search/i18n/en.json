@@ -12,6 +12,8 @@
   "search.dialog.empty.none": "No results found.",
   "search.dialog.score.title": "Relevance score",
   "search.dialog.shortcuts.hint": "Press Cmd+K to toggle. Enter to open",
+  "search.dialog.noLink": "No link",
+  "search.dialog.noLinkHint": "No search.ts config for this entity type",
   "search.dialog.strategies.toggle": "Search options",
   "search.dialog.strategies.label": "Search with:",
   "search.dialog.strategies.fuzzy": "Fuzzy",

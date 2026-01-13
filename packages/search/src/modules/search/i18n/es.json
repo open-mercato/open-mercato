@@ -13,6 +13,8 @@
   "search.dialog.empty.none": "No se encontraron resultados.",
   "search.dialog.score.title": "Puntuación de relevancia",
   "search.dialog.shortcuts.hint": "Pulsa Cmd+K para alternar. Enter para abrir",
+  "search.dialog.noLink": "Sin enlace",
+  "search.dialog.noLinkHint": "No hay configuración search.ts para este tipo de entidad",
   "search.settings.statusTitle": "Estado de la búsqueda",
   "search.settings.statusEnabled": "Proveedor de embeddings configurado. La búsqueda semántica está disponible.",
   "search.settings.statusDisabled": "Proveedor de embeddings no configurado. La búsqueda semántica está deshabilitada.",

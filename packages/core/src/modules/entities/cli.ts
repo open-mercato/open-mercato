@@ -449,7 +449,7 @@ const rotateEncryptionKey: ModuleCli = {
 
     const resolveScopes = async (tenantId: string, organizationId: string | null) => {
       if (organizationId) return [{ tenantId, organizationId }]
-      const orgs = await em.find(Organization, { tenantId })
+      const orgs = await em.find(Organization, { tenant: tenantId })
       const scopes = orgs.map((org: Organization) => ({
         tenantId,
         organizationId: String(org.id),

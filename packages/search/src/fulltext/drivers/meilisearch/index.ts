@@ -11,6 +11,7 @@ import type {
 } from '../../types'
 import { extractSearchableFields, type EncryptionMapEntry } from '../../../lib/field-policy'
 
+
 export type MeilisearchDriverOptions = {
   host?: string
   apiKey?: string
@@ -113,6 +114,8 @@ export function createMeilisearchDriver(
   }
 
   async function prepareDocument(doc: FullTextSearchDocument): Promise<Record<string, unknown>> {
+    // When encryptionMapResolver is provided, SEARCH_EXCLUDE_ENCRYPTED_FIELDS is enabled
+    const excludeEncrypted = Boolean(encryptionMapResolver)
     const encryptedFields = encryptionMapResolver
       ? await encryptionMapResolver(doc.entityId)
       : []
@@ -123,13 +126,37 @@ export function createMeilisearchDriver(
       fieldPolicy,
     })
 
+    // When SEARCH_EXCLUDE_ENCRYPTED_FIELDS is enabled:
+    // - Exclude sensitive parts of presenter (title, subtitle) - these are derived from encrypted fields
+    // - Keep non-sensitive parts (icon, badge)
+    // - Sanitize link labels (they often contain names derived from encrypted fields)
+    // - Title/subtitle/link labels will be enriched at search time from the database
+    let presenter = doc.presenter
+    let links = doc.links
+    if (excludeEncrypted) {
+      if (presenter) {
+        presenter = {
+          ...presenter,
+          title: '', // Will be enriched at search time
+          subtitle: undefined, // Will be enriched at search time
+        }
+      }
+      // Sanitize link labels - they often contain sensitive data (names, etc.)
+      if (links && links.length > 0) {
+        links = links.map((link) => ({
+          ...link,
+          label: link.kind === 'primary' ? 'Open' : 'View', // Generic labels
+        }))
+      }
+    }
+
     return {
       _id: doc.recordId,
       _entityId: doc.entityId,
       _organizationId: doc.organizationId,
-      _presenter: doc.presenter,
+      _presenter: presenter,
       _url: doc.url,
-      _links: doc.links,
+      _links: links,
       _indexedAt: new Date().toISOString(),
       ...searchableFields,
     }

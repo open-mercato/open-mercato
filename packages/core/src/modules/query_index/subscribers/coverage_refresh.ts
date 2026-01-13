@@ -1,7 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { refreshCoverageSnapshot } from '../lib/coverage'
-import type { VectorIndexService } from '@open-mercato/search/vector'
 
 export const metadata = { event: 'query_index.coverage.refresh', persistent: false }
 
@@ -33,12 +32,6 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
   const delayMs = typeof payload?.delayMs === 'number' && payload.delayMs >= 0 ? payload.delayMs : DEFAULT_DELAY_MS
 
   const em = ctx.resolve<EntityManager>('em')
-  let vectorService: VectorIndexService | null = null
-  try {
-    vectorService = ctx.resolve<VectorIndexService>('vectorIndexService')
-  } catch {
-    vectorService = null
-  }
   const key = scopeKey({ entityType, tenantId, organizationId, withDeleted })
 
   const existing = pending.get(key)
@@ -47,7 +40,7 @@ export default async function handle(payload: Payload, ctx: { resolve: <T = any>
   const timer = setTimeout(() => {
     pending.delete(key)
     Promise.resolve()
-      .then(() => refreshCoverageSnapshot(em, { entityType, tenantId, organizationId, withDeleted }, { vectorService }))
+      .then(() => refreshCoverageSnapshot(em, { entityType, tenantId, organizationId, withDeleted }))
       .catch(async (err) => {
         console.warn('[query_index] Failed to refresh coverage snapshot', {
           entityType,
