@@ -7,14 +7,23 @@
     "./modules/*": "./src/modules/*",
     "./tools": "./src/modules/ai_assistant/lib/tool-registry.ts",
     "./types": "./src/modules/ai_assistant/lib/types.ts",
+    "./ai-sdk": "./src/modules/ai_assistant/lib/ai-sdk.ts",
+    "./frontend": "./src/frontend/index.ts",
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^1.2.12",
+    "@ai-sdk/google": "^1.2.6",
+    "@ai-sdk/openai": "^3.0.5",
     "@modelcontextprotocol/sdk": "^1.25.2",
+    "ai": "^6.0.0",
+    "cmdk": "^1.0.0",
+    "framer-motion": "^11.0.0",
     "zod-to-json-schema": "^3.25.1"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
     "zod": "^3.23.0"
   }
 }
