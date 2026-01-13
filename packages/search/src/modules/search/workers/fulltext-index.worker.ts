@@ -12,6 +12,7 @@ import type {
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { recordIndexerLog } from '@/lib/indexers/status-log'
 import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
@@ -42,6 +43,7 @@ async function loadRecordsFromDb(
   tenantId: string,
   organizationId: string | null | undefined,
   searchIndexer: SearchIndexer,
+  queryEngine?: QueryEngine,
 ): Promise<IndexableRecord[]> {
   if (records.length === 0) return []
 
@@ -87,6 +89,7 @@ async function loadRecordsFromDb(
           tenantId,
           organizationId,
           config,
+          queryEngine,
         )
         if (indexable) indexableRecords.push(indexable)
       }
@@ -108,6 +111,7 @@ async function buildIndexableFromDoc(
   tenantId: string,
   organizationId: string | null | undefined,
   config?: SearchEntityConfig,
+  queryEngine?: QueryEngine,
 ): Promise<IndexableRecord | null> {
   // Extract custom fields
   const customFields: Record<string, unknown> = {}
@@ -122,6 +126,7 @@ async function buildIndexableFromDoc(
     customFields,
     tenantId,
     organizationId,
+    queryEngine,
   }
 
   let presenter: SearchResultPresenter | undefined
@@ -236,6 +241,14 @@ export async function handleFulltextIndexJob(
     searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
+  // Resolve queryEngine for loading related records in buildSource
+  let queryEngine: QueryEngine | undefined
+  try {
+    queryEngine = ctx.resolve<QueryEngine>('queryEngine')
+  } catch {
+    searchDebugWarn('fulltext-index.worker', 'queryEngine not available')
+  }
+
   // Resolve fulltext strategy
   let fulltextStrategy: FullTextSearchStrategy | undefined
   try {
@@ -286,6 +299,7 @@ export async function handleFulltextIndexJob(
         tenantId,
         organizationId,
         searchIndexer,
+        queryEngine,
       )
 
       if (indexableRecords.length === 0) {
