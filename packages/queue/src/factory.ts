@@ -35,6 +35,13 @@ export function createQueue<T = unknown>(
   options?: AsyncQueueOptions
 ): Queue<T>
 
+// General overload for dynamic strategy (union type)
+export function createQueue<T = unknown>(
+  name: string,
+  strategy: 'local' | 'async',
+  options?: LocalQueueOptions | AsyncQueueOptions
+): Queue<T>
+
 export function createQueue<T = unknown>(
   name: string,
   strategy: 'local' | 'async',

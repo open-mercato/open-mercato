@@ -1,5 +1,5 @@
-import type { QueuedJob, JobContext } from '@open-mercato/queue'
-import type { FulltextIndexJobPayload, FulltextBatchRecord } from '../../../queue/fulltext-indexing'
+import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload, type FulltextBatchRecord } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type {
@@ -17,6 +17,15 @@ import { recordIndexerError } from '@/lib/indexers/error-log'
 import { searchDebug, searchDebugWarn, searchError } from '../../../lib/debug'
 import { updateReindexProgress } from '../lib/reindex-lock'
 import { extractFallbackPresenter } from '../../../lib/fallback-presenter'
+
+// Worker metadata for auto-discovery
+const DEFAULT_CONCURRENCY = 2
+const envConcurrency = process.env.WORKERS_FULLTEXT_INDEXING_CONCURRENCY
+
+export const metadata: WorkerMeta = {
+  queue: FULLTEXT_INDEXING_QUEUE_NAME,
+  concurrency: envConcurrency ? parseInt(envConcurrency, 10) : DEFAULT_CONCURRENCY,
+}
 
 type HandlerContext = { resolve: <T = unknown>(name: string) => T }
 
@@ -400,4 +409,15 @@ export async function handleFulltextIndexJob(
     // Re-throw to let the queue handle retry logic
     throw error
   }
+}
+
+/**
+ * Default export for worker auto-discovery.
+ * Wraps handleFulltextIndexJob to match the expected handler signature.
+ */
+export default async function handle(
+  job: QueuedJob<FulltextIndexJobPayload>,
+  ctx: JobContext & HandlerContext
+): Promise<void> {
+  return handleFulltextIndexJob(job, ctx, ctx)
 }

@@ -22,32 +22,30 @@ export default function CreateExchangeRatePage() {
   const t = useT()
   const router = useRouter()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
-  const [currencyOptions, setCurrencyOptions] = React.useState<CrudFieldOption[]>([])
 
-  // Load active currencies on mount
-  React.useEffect(() => {
-    async function loadCurrencies() {
-      try {
-        const params = new URLSearchParams()
-        params.set('isActive', 'true')
-        params.set('pageSize', '100')
-
-        const call = await apiCall<{ items: CurrencyOption[] }>(
-          `/api/currencies/currencies?${params.toString()}`
-        )
-
-        if (call.ok && call.result?.items) {
-          const options = call.result.items.map((c) => ({
-            value: c.code,
-            label: `${c.code} - ${c.name}`,
-          }))
-          setCurrencyOptions(options)
-        }
-      } catch (error) {
-        console.error('Failed to load currencies:', error)
+  const loadCurrencyOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    try {
+      const params = new URLSearchParams()
+      if (query) {
+        params.set('search', query)
       }
+      params.set('isActive', 'true')
+      params.set('pageSize', '100')
+
+      const call = await apiCall<{ items: CurrencyOption[] }>(
+        `/api/currencies/currencies?${params.toString()}`
+      )
+
+      if (call.ok && call.result?.items) {
+        return call.result.items.map((c) => ({
+          value: c.code,
+          label: c.code,
+        }))
+      }
+    } catch (error) {
+      console.error('Failed to load currencies:', error)
     }
-    loadCurrencies()
+    return []
   }, [])
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -55,7 +53,6 @@ export default function CreateExchangeRatePage() {
       {
         id: 'rate-details',
         column: 1,
-        title: t('exchangeRates.form.group.details'),
         fields: [
           {
             id: 'fromCurrencyCode',
@@ -63,7 +60,7 @@ export default function CreateExchangeRatePage() {
             label: t('exchangeRates.form.field.fromCurrency'),
             placeholder: t('exchangeRates.form.field.fromCurrencyPlaceholder'),
             required: true,
-            suggestions: currencyOptions.map((o) => o.value),
+            loadOptions: loadCurrencyOptions,
             allowCustomValues: false,
             description: t('exchangeRates.form.field.fromCurrencyHelp'),
           },
@@ -73,7 +70,7 @@ export default function CreateExchangeRatePage() {
             label: t('exchangeRates.form.field.toCurrency'),
             placeholder: t('exchangeRates.form.field.toCurrencyPlaceholder'),
             required: true,
-            suggestions: currencyOptions.map((o) => o.value),
+            loadOptions: loadCurrencyOptions,
             allowCustomValues: false,
             description: t('exchangeRates.form.field.toCurrencyHelp'),
           },
@@ -116,28 +113,19 @@ export default function CreateExchangeRatePage() {
             description: t('exchangeRates.form.field.typeHelp'),
             options: [
               { value: '', label: t('exchangeRates.form.field.typeNone') },
-              { 
-                value: 'buy', 
-                label: t('exchangeRates.form.field.typeBuy'),
-                description: t('exchangeRates.form.field.typeBuyDescription')
-              },
-              { 
-                value: 'sell', 
-                label: t('exchangeRates.form.field.typeSell'),
-                description: t('exchangeRates.form.field.typeSellDescription')
-              },
+              { value: 'buy', label: t('exchangeRates.form.field.typeBuy') },
+              { value: 'sell', label: t('exchangeRates.form.field.typeSell') },
             ],
           },
           {
             id: 'isActive',
             type: 'checkbox',
             label: t('exchangeRates.form.field.isActive'),
-            defaultValue: true,
           },
         ],
       },
     ],
-    [t, currencyOptions]
+    [t, loadCurrencyOptions]
   )
 
   return (
