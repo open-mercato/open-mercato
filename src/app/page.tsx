@@ -1,105 +1,132 @@
-import Link from 'next/link'
+import { modules } from '@/generated/modules.generated'
+import { StartPageContent } from '@/components/StartPageContent'
+import { cookies } from 'next/headers'
 import Image from 'next/image'
+import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createRequestContainer } from '@/lib/di/container'
+import type { EntityManager } from '@mikro-orm/postgresql'
+
+function FeatureBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded border px-2 py-0.5 text-xs text-muted-foreground">
+      {label}
+    </span>
+  )
+}
 
 export default async function Home() {
   const { t } = await resolveTranslations()
 
+  const cookieStore = await cookies()
+  const showStartPageCookie = cookieStore.get('show_start_page')
+  const showStartPage = showStartPageCookie?.value !== 'false'
+
+  let dbStatus = t('app.page.dbStatus.unknown', 'Unknown')
+  let usersCount = 0
+  let tenantsCount = 0
+  let orgsCount = 0
+  try {
+    const container = await createRequestContainer()
+    const em = container.resolve<EntityManager>('em')
+    usersCount = await em.count('User', {})
+    tenantsCount = await em.count('Tenant', {})
+    orgsCount = await em.count('Organization', {})
+    dbStatus = t('app.page.dbStatus.connected', 'Connected')
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : t('app.page.dbStatus.noConnection', 'no connection')
+    dbStatus = t('app.page.dbStatus.error', 'Error: {message}', { message })
+  }
+
+  const onboardingAvailable =
+    process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true' &&
+    Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) &&
+    Boolean(process.env.APP_URL && process.env.APP_URL.trim())
+
   return (
-    <main className="relative min-h-svh w-full overflow-hidden bg-gradient-to-br from-blue-50 via-white to-blue-100/50">
-      {/* Blue gradient blob */}
-      <div
-        className="pointer-events-none absolute right-[5%] top-[10%] h-[600px] w-[600px] rounded-full opacity-70"
-        style={{
-          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.5) 0%, rgba(147, 197, 253, 0.4) 40%, rgba(191, 219, 254, 0.2) 60%, transparent 70%)',
-          filter: 'blur(40px)',
-        }}
-        aria-hidden="true"
-      />
+    <main className="min-h-svh w-full p-8 flex flex-col gap-8">
+      <header className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
+        <Image
+          src="/open-mercato.svg"
+          alt={t('app.page.logoAlt', 'Open Mercato')}
+          width={40}
+          height={40}
+          className="dark:invert"
+          priority
+        />
+        <div className="flex-1">
+          <h1 className="text-3xl font-semibold tracking-tight">{t('app.page.title', 'Open Mercato')}</h1>
+          <p className="text-sm text-muted-foreground">{t('app.page.subtitle', 'AI-supportive, modular ERP foundation for product & service companies')}</p>
+        </div>
+      </header>
 
-      {/* Secondary accent blob */}
-      <div
-        className="pointer-events-none absolute right-[10%] top-[25%] h-[400px] w-[400px] rounded-full opacity-60"
-        style={{
-          background: 'radial-gradient(circle, rgba(99, 102, 241, 0.4) 0%, rgba(165, 180, 252, 0.3) 50%, transparent 70%)',
-          filter: 'blur(50px)',
-        }}
-        aria-hidden="true"
-      />
+      <StartPageContent showStartPage={showStartPage} showOnboardingCta={onboardingAvailable} />
 
-      <div className="relative z-10 mx-auto max-w-7xl px-6 py-8 lg:px-8">
-        {/* Header */}
-        <header className="flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <Image
-              src="/fms/freighttech-logo.png"
-              alt={t('app.page.logoAlt', 'FTO')}
-              width={48}
-              height={48}
-            />
-            <span className="text-xl font-bold tracking-tight text-gray-900">FreightTech.org</span>
-          </Link>
-
-          <Link
-            href="/login"
-            className="rounded-full bg-gray-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800"
-          >
-            {t('app.landing.signIn', 'Sign in')}
-          </Link>
-        </header>
-
-        {/* Hero Section */}
-        <section className="mt-24 max-w-2xl lg:mt-32">
-          <h1 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl lg:text-6xl">
-            {t('app.landing.headline', 'AI-powered, open source freight management system.')}
-          </h1>
-
-          <p className="mt-6 text-lg leading-relaxed text-gray-600 sm:text-xl">
-            {t('app.landing.subheadline', 'We help logistics teams streamline their operations and gain full visibility. One centralized platform powering shipment tracking, carrier management, route optimization, and beyond.')}
-          </p>
-
-          <div className="mt-10">
-            <Link
-              href="/onboarding"
-              className="inline-flex items-center rounded-full border-2 border-gray-900 bg-transparent px-6 py-3 text-base font-semibold text-gray-900 transition-colors hover:bg-gray-900 hover:text-white"
-            >
-              {t('app.landing.cta', 'Get Started')}
-            </Link>
-          </div>
-        </section>
-
-        {/* Trusted By / Partners Section */}
-        <section className="mt-24 lg:mt-32">
-          <div className="flex flex-wrap items-center gap-x-12 gap-y-6 opacity-60">
-            <span className="text-sm font-medium uppercase tracking-wider text-gray-500">
-              {t('app.landing.builtWith', 'Built with')}
-            </span>
-            <div className="flex flex-wrap items-center gap-x-10 gap-y-4">
-              <span className="text-lg font-semibold text-gray-700">Open Mercato</span>
-              <span className="text-lg font-semibold text-gray-700">Next.js</span>
-              <span className="text-lg font-semibold text-gray-700">MikroORM</span>
-              <span className="text-lg font-semibold text-gray-700">TypeScript</span>
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="rounded-lg border bg-card p-4">
+          <div className="text-sm font-medium mb-2">{t('app.page.dbStatus.title', 'Database Status')}</div>
+          <div className="text-sm text-muted-foreground">{t('app.page.dbStatus.label', 'Status:')} <span className="font-medium text-foreground">{dbStatus}</span></div>
+          <div className="mt-3 space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('app.page.dbStatus.users', 'Users:')}</span>
+              <span className="font-mono font-medium">{usersCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('app.page.dbStatus.tenants', 'Tenants:')}</span>
+              <span className="font-mono font-medium">{tenantsCount}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{t('app.page.dbStatus.organizations', 'Organizations:')}</span>
+              <span className="font-mono font-medium">{orgsCount}</span>
             </div>
           </div>
-        </section>
+        </div>
 
-        {/* Quick Links - subtle footer */}
-        <footer className="mt-auto pt-24 lg:pt-32">
-          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
-            <Link href="/login" className="hover:text-gray-700 hover:underline">
-              {t('app.page.quickLinks.login', 'Login')}
-            </Link>
-            <span className="text-gray-300">|</span>
-            <Link href="/backend" className="hover:text-gray-700 hover:underline">
-              {t('app.landing.adminPanel', 'Admin Panel')}
-            </Link>
-            <span className="text-gray-300">|</span>
-            <Link href="/docs/api" className="hover:text-gray-700 hover:underline">
-              {t('app.landing.apiDocs', 'API Docs')}
-            </Link>
+        <div className="rounded-lg border bg-card p-4 md:col-span-2">
+          <div className="text-sm font-medium mb-3">{t('app.page.activeModules.title', 'Active Modules')}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[200px] overflow-y-auto pr-2">
+            {modules.map((m) => {
+              const fe = m.frontendRoutes?.length || 0
+              const be = m.backendRoutes?.length || 0
+              const api = m.apis?.length || 0
+              const cli = m.cli?.length || 0
+              const i18n = m.translations ? Object.keys(m.translations).length : 0
+              return (
+                <div key={m.id} className="rounded border p-3 bg-background">
+                  <div className="text-sm font-medium">{m.info?.title || m.id}{m.info?.version ? <span className="ml-2 text-xs text-muted-foreground">v{m.info.version}</span> : null}</div>
+                  {m.info?.description ? <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{m.info.description}</div> : null}
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {fe ? <FeatureBadge label={`FE:${fe}`} /> : null}
+                    {be ? <FeatureBadge label={`BE:${be}`} /> : null}
+                    {api ? <FeatureBadge label={`API:${api}`} /> : null}
+                    {cli ? <FeatureBadge label={`CLI:${cli}`} /> : null}
+                    {i18n ? <FeatureBadge label={`i18n:${i18n}`} /> : null}
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        </footer>
-      </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border bg-card p-4">
+        <div className="text-sm font-medium mb-2">{t('app.page.quickLinks.title', 'Quick Links')}</div>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <Link className="underline hover:text-primary transition-colors" href="/login">{t('app.page.quickLinks.login', 'Login')}</Link>
+          <span className="text-muted-foreground">·</span>
+          <Link className="underline hover:text-primary transition-colors" href="/example">{t('app.page.quickLinks.examplePage', 'Example Page')}</Link>
+          <span className="text-muted-foreground">·</span>
+          <Link className="underline hover:text-primary transition-colors" href="/backend/example">{t('app.page.quickLinks.exampleAdmin', 'Example Admin')}</Link>
+          <span className="text-muted-foreground">·</span>
+          <Link className="underline hover:text-primary transition-colors" href="/backend/todos">{t('app.page.quickLinks.exampleTodos', 'Example Todos with Custom Fields')}</Link>
+          <span className="text-muted-foreground">·</span>
+          <Link className="underline hover:text-primary transition-colors" href="/blog/123">{t('app.page.quickLinks.exampleBlog', 'Example Blog Post')}</Link>
+        </div>
+      </section>
+
+      <footer className="text-xs text-muted-foreground text-center">
+        {t('app.page.footer', 'Built with Next.js, MikroORM, and Awilix — modular by design.')}
+      </footer>
     </main>
   )
 }

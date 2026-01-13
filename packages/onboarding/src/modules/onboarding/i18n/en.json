@@ -1,6 +1,6 @@
 {
   "onboarding": {
-    "title": "Create your workspace",
+    "title": "Create your Open Mercato workspace",
     "subtitle": "Tell us a bit about you and we will set everything up.",
     "form": {
       "email": "Work email",
@@ -9,7 +9,7 @@
       "organizationName": "Organization name",
       "password": "Password",
       "confirmPassword": "Confirm password",
-      "termsLabel": "I have read and accept the terms of service",
+      "termsLabel": "I have read and accept the",
       "submit": "Send verification email",
       "loading": "Sending...",
       "successTitle": "Check your inbox",

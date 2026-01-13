@@ -13,9 +13,17 @@ import { PartialIndexBanner } from './indexes/PartialIndexBanner'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
 
+// Brand logo configurations for conditional rendering
+const brandLogos: Record<string, { src: string; alt: string; name: string }> = {
+  freighttech: { src: '/fms/freighttech-logo.png', alt: 'FreightTech', name: 'FreightTech' },
+  // Add more brands here as needed
+}
+const defaultBrandLogo = { src: '/open-mercato.svg', alt: 'Open Mercato', name: 'Open Mercato' }
+
 export type AppShellProps = {
   productName?: string
   email?: string
+  brandId?: string
   groups: {
     id?: string
     name: string
@@ -128,11 +136,13 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-export function AppShell({ productName, email, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version }: AppShellProps) {
+export function AppShell({ productName, email, brandId, groups, rightHeaderSlot, children, sidebarCollapsedDefault = false, currentTitle, breadcrumb, adminNavApi, version }: AppShellProps) {
   const pathname = usePathname()
   const t = useT()
   const locale = useLocale()
-  const resolvedProductName = productName ?? t('appShell.productName')
+  // Get brand logo based on brandId prop (conditional rendering)
+  const brandLogo = brandId && brandLogos[brandId] ? brandLogos[brandId] : defaultBrandLogo
+  const resolvedProductName = productName ?? brandLogo.name ?? t('appShell.productName')
   const [mobileOpen, setMobileOpen] = React.useState(false)
   // Initialize from server-provided prop only to avoid hydration flicker
   const [collapsed, setCollapsed] = React.useState(sidebarCollapsedDefault)
@@ -767,8 +777,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <div className={`flex items-center ${compact ? 'justify-center' : 'justify-between'} px-3 pt-3 mb-2`}>
             {!compact && (
               <Link href="/backend" className="flex items-center" aria-label={t('appShell.goToDashboard')}>
-                <Image src="/fms/freighttech-logo.png" alt="FreightTech" width={32} height={32} className="mr-2" />
-                <div className="text-base font-semibold">FreightTech</div>
+                <Image src={brandLogo.src} alt={brandLogo.alt} width={32} height={32} className="mr-2" />
+                <div className="text-base font-semibold">{brandLogo.name}</div>
               </Link>
             )}
             {!isMobileVariant && (
@@ -1001,8 +1011,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
           <aside className="absolute left-0 top-0 h-full w-[260px] bg-background border-r p-3">
             <div className="mb-2 flex items-center justify-between">
               <Link href="/backend" className="flex items-center text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src="/fms/freighttech-logo.png" alt="FreightTech.org" width={28} height={28} className="mr-2" />
-                FreightTech.org
+                <Image src={brandLogo.src} alt={brandLogo.alt} width={28} height={28} className="mr-2" />
+                {brandLogo.name}
               </Link>
               <button className="rounded border px-2 py-1" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>✕</button>
             </div>

@@ -293,6 +293,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   )
 
   const productName = translate('appShell.productName', 'Open Mercato')
+  const brandId = headerStore.get('x-brand-id') ?? undefined
   const injectionContext = {
     path,
     userId: auth?.sub ?? null,
@@ -307,6 +308,7 @@ export default async function BackendLayout({ children, params }: { children: Re
         key={path}
         productName={productName}
         email={auth?.email}
+        brandId={brandId}
         groups={groups}
         currentTitle={currentTitle}
         breadcrumb={breadcrumb}
