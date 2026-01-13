@@ -87,6 +87,12 @@
       "@open-mercato/search/*": [
         "./packages/search/src/*"
       ],
+      "@open-mercato/ai-assistant": [
+        "./packages/ai-assistant/src/index.ts"
+      ],
+      "@open-mercato/ai-assistant/*": [
+        "./packages/ai-assistant/src/*"
+      ],
       "@open-mercato/cli/*": [
         "./packages/cli/src/*"
       ],

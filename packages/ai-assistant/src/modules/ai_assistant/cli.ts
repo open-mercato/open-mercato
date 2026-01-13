@@ -123,7 +123,10 @@ const mcpServeHttp: ModuleCli = {
 
 const listTools: ModuleCli = {
   command: 'mcp:list-tools',
-  async run() {
+  async run(rest) {
+    const args = parseArgs(rest)
+    const verbose = args.verbose === true || args.verbose === 'true'
+
     const { loadAllModuleTools } = await import('./lib/tool-loader')
     await loadAllModuleTools()
 
@@ -139,16 +142,37 @@ const listTools: ModuleCli = {
 
     console.log(`\nRegistered MCP Tools (${toolNames.length}):\n`)
 
-    for (const name of toolNames.sort()) {
-      const tool = registry.getTool(name)
-      if (tool) {
-        console.log(`  ${name}`)
-        console.log(`    Description: ${tool.description}`)
-        if (tool.requiredFeatures?.length) {
-          console.log(`    Requires: ${tool.requiredFeatures.join(', ')}`)
+    // Group tools by module
+    const byModule = new Map<string, string[]>()
+    for (const name of toolNames) {
+      const [module] = name.split('.')
+      const list = byModule.get(module) ?? []
+      list.push(name)
+      byModule.set(module, list)
+    }
+
+    // Sort modules alphabetically
+    const sortedModules = Array.from(byModule.keys()).sort()
+
+    for (const module of sortedModules) {
+      const tools = byModule.get(module)!
+      console.log(`${module} (${tools.length} tools):`)
+
+      for (const name of tools.sort()) {
+        const tool = registry.getTool(name)
+        if (!tool) continue
+
+        if (verbose) {
+          console.log(`  ${name}`)
+          console.log(`    ${tool.description}`)
+          if (tool.requiredFeatures?.length) {
+            console.log(`    Requires: ${tool.requiredFeatures.join(', ')}`)
+          }
+        } else {
+          console.log(`  - ${name}`)
         }
-        console.log('')
       }
+      console.log('')
     }
   },
 }

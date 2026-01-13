@@ -2,12 +2,88 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import type { AwilixContainer } from 'awilix'
-import { z } from 'zod'
+import { z, type ZodType } from 'zod'
 import { getToolRegistry } from './tool-registry'
 import { executeTool } from './tool-executor'
 import { loadAllModuleTools } from './tool-loader'
 import { authenticateMcpRequest, extractApiKeyFromHeaders } from './auth'
 import type { McpServerConfig, McpToolContext } from './types'
+
+/**
+ * Convert a JSON Schema to a simple Zod schema.
+ * This creates a schema that the MCP SDK can convert back to JSON Schema without errors.
+ */
+function jsonSchemaToZod(jsonSchema: Record<string, unknown>): ZodType {
+  const type = jsonSchema.type as string | undefined
+
+  if (type === 'string') {
+    return z.string()
+  }
+  if (type === 'number' || type === 'integer') {
+    return z.number()
+  }
+  if (type === 'boolean') {
+    return z.boolean()
+  }
+  if (type === 'null') {
+    return z.null()
+  }
+  if (type === 'array') {
+    const items = jsonSchema.items as Record<string, unknown> | undefined
+    if (items) {
+      return z.array(jsonSchemaToZod(items))
+    }
+    return z.array(z.unknown())
+  }
+  if (type === 'object') {
+    const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
+    const required = (jsonSchema.required as string[]) || []
+
+    if (properties) {
+      const shape: Record<string, ZodType> = {}
+      for (const [key, propSchema] of Object.entries(properties)) {
+        let fieldSchema = jsonSchemaToZod(propSchema)
+        // Make field optional if not in required array
+        if (!required.includes(key)) {
+          fieldSchema = fieldSchema.optional()
+        }
+        shape[key] = fieldSchema
+      }
+      return z.object(shape)
+    }
+    return z.object({})
+  }
+
+  // Handle union types (anyOf, oneOf)
+  const anyOf = jsonSchema.anyOf as Record<string, unknown>[] | undefined
+  const oneOf = jsonSchema.oneOf as Record<string, unknown>[] | undefined
+  const unionTypes = anyOf || oneOf
+  if (unionTypes && unionTypes.length >= 2) {
+    const schemas = unionTypes.map(s => jsonSchemaToZod(s))
+    return z.union(schemas as [ZodType, ZodType, ...ZodType[]])
+  }
+
+  // Handle enum
+  const enumValues = jsonSchema.enum as string[] | undefined
+  if (enumValues && enumValues.length > 0) {
+    return z.enum(enumValues as [string, ...string[]])
+  }
+
+  // Fallback for empty schemas (like Date converted with unrepresentable: 'any')
+  return z.unknown()
+}
+
+/**
+ * Convert a Zod schema to a safe Zod schema that has no Date types.
+ * Uses JSON Schema as an intermediate format to handle all Zod v4 internal complexities.
+ */
+function toSafeZodSchema(schema: ZodType): ZodType {
+  // First convert to JSON Schema (this handles Date types with unrepresentable: 'any')
+  const jsonSchema = z.toJSONSchema(schema, { unrepresentable: 'any' }) as Record<string, unknown>
+
+  // Then convert back to a simple Zod schema without Date types
+  return jsonSchemaToZod(jsonSchema)
+}
 
 /**
  * Options for the HTTP MCP server.
@@ -69,50 +145,76 @@ function createMcpServerForRequest(
     )
   }
 
-  // Register each tool with the McpServer using the new registerTool API
+  // Register each tool with the McpServer using the registerTool API
   for (const tool of accessibleTools) {
-    // Pass Zod schema directly - MCP SDK handles conversion internally
-    const inputSchema = tool.inputSchema as z.ZodType | undefined
-
     if (config.debug) {
       console.error(`[MCP HTTP] Registering tool: ${tool.name}`)
     }
 
-    server.registerTool(
-      tool.name,
-      {
-        description: tool.description,
-        inputSchema,
-      },
-      async (args: Record<string, unknown>) => {
+    // Convert Zod schema to a "safe" schema without Date types
+    // This uses JSON Schema round-trip to avoid issues with MCP SDK's internal conversion
+    let safeSchema: ZodType | undefined
+    if (tool.inputSchema) {
+      try {
+        safeSchema = toSafeZodSchema(tool.inputSchema)
+      } catch (error) {
         if (config.debug) {
-          console.error(`[MCP HTTP] Calling tool: ${tool.name}`, JSON.stringify(args))
+          console.error(
+            `[MCP HTTP] Skipping tool ${tool.name} - schema conversion failed:`,
+            error instanceof Error ? error.message : error
+          )
         }
+        continue
+      }
+    }
 
-        const result = await executeTool(tool.name, args, toolContext)
+    // Wrap in try/catch to handle any remaining edge cases
+    try {
+      server.registerTool(
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: safeSchema,
+        },
+        async (args: Record<string, unknown>) => {
+          if (config.debug) {
+            console.error(`[MCP HTTP] Calling tool: ${tool.name}`, JSON.stringify(args))
+          }
 
-        if (!result.success) {
+          const result = await executeTool(tool.name, args, toolContext)
+
+          if (!result.success) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                },
+              ],
+              isError: true,
+            }
+          }
+
           return {
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify({ error: result.error, code: result.errorCode }),
+                text: JSON.stringify(result.result, null, 2),
               },
             ],
-            isError: true,
           }
         }
-
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(result.result, null, 2),
-            },
-          ],
-        }
+      )
+    } catch (error) {
+      // Skip tools with schemas that can't be registered
+      if (config.debug) {
+        console.error(
+          `[MCP HTTP] Skipping tool ${tool.name} - registration failed:`,
+          error instanceof Error ? error.message : error
+        )
       }
-    )
+      continue
+    }
   }
 
   return server

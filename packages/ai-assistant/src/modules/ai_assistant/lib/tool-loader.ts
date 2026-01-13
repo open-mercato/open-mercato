@@ -38,8 +38,7 @@ export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
  * This is called during MCP server startup.
  */
 export async function loadAllModuleTools(): Promise<void> {
-  // List of modules with ai-tools.ts files
-  // In the future, this could be auto-discovered by a generator
+  // 1. Load manual ai-tools.ts files from modules
   const moduleToolPaths = [
     { moduleId: 'search', importPath: '@open-mercato/search/modules/search/ai-tools' },
     // Add more modules here as they define ai-tools.ts
@@ -59,5 +58,16 @@ export async function loadAllModuleTools(): Promise<void> {
       // This is not an error - modules can optionally provide tools
       console.error(`[MCP Tools] Could not load tools from ${moduleId}:`, error)
     }
+  }
+
+  // 2. Load command-derived tools
+  try {
+    const { loadCommandTools } = await import('./command-tools')
+    const commandToolCount = await loadCommandTools()
+    if (commandToolCount > 0) {
+      console.error(`[MCP Tools] Loaded ${commandToolCount} tools from commands`)
+    }
+  } catch (error) {
+    console.error('[MCP Tools] Could not load command tools:', error)
   }
 }
